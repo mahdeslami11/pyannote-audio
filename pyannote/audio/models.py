@@ -56,50 +56,46 @@ class TripletLossSequenceEmbedding(object):
 
     Parameters
     ----------
-    input_shape: (n_samples, n_features) tuple
-        Shape of input sequences.
     output_dim: int
         Embedding dimension.
     lstm: list
         List of output dimension of stacked LSTMs.
         Defaults to [12, ] (i.e. one LSTM with output dimension 12)
     dense: list
-        List of output dimension ofr stacked dense layers.
-        Defaults to [12, ] (i.e. one dense layer with output dimension 12)
+        List of output dimension of additionnal stacked dense layers.
+        Defaults to [] (i.e. do not add any dense layer)
 
     """
-    def __init__(self, input_shape, output_dim, lstm=[12], dense=[12]):
+    def __init__(self, output_dim, lstm=[12], dense=[]):
         super(TripletLossSequenceEmbedding, self).__init__()
-        self.input_shape = input_shape
         self.output_dim = output_dim
         self.lstm = lstm
         self.dense = dense
 
-    def _embedding(self, shape):
+    def _embedding(self, input_shape):
 
         model = Sequential(name="embedding")
 
-        # add LSTM layers
+        # stack LSTM layers
         n_lstm = len(self.lstm)
         for i, output_dim in enumerate(self.lstm):
-            input_shape = self.input_shape if i == 0 else None
             return_sequences = i+1 < n_lstm
-            layer = LSTM(input_shape=input_shape,
+            layer = LSTM(input_shape=input_shape if i==0 else None,
                          output_dim=output_dim,
                          return_sequences=return_sequences,
                          activation='tanh')
             model.add(layer)
 
-        # add Dense layers
+        # stack dense layers
         for i, output_dim in enumerate(self.dense):
             layer = Dense(output_dim, activation='tanh')
             model.add(layer)
 
-        #
+        # stack final dense layer
         layer = Dense(self.output_dim, activation='tanh')
         model.add(layer)
 
-        # add L2 normalization layer
+        # stack L2 normalization layer
         model.add(L2Normalize())
 
         return model
@@ -118,13 +114,19 @@ class TripletLossSequenceEmbedding(object):
     def _identity_loss(y_true, y_pred):
         return K.mean(y_pred - 0 * y_true)
 
-    def get_model(self, shape):
+    def get_model(self, input_shape):
+        """
+        Parameters
+        ----------
+        input_shape: (n_samples, n_features) tuple
+            Shape of input sequences.
+        """
 
-        anchor = Input(shape=shape, name="anchor")
-        positive = Input(shape=shape, name="positive")
-        negative = Input(shape=shape, name="negative")
+        anchor = Input(shape=input_shape, name="anchor")
+        positive = Input(shape=input_shape, name="positive")
+        negative = Input(shape=input_shape, name="negative")
 
-        embed = self._embedding(shape)
+        embed = self._embedding(input_shape)
         embedded_anchor = embed(anchor)
         embedded_positive = embed(positive)
         embedded_negative = embed(negative)
