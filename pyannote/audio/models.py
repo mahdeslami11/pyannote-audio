@@ -26,6 +26,7 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
+import os.path
 
 import keras.backend as K
 from keras.models import Sequential
@@ -68,11 +69,19 @@ class SequenceEmbedding(object):
         embedding.embedding_ = embedding._get_embedding(embedding.model_)
         return embedding
 
-    def to_disk(self, architecture, weights):
+    def to_disk(self, architecture, weights, overwrite=False):
+
+        if os.path.isfile(architecture) and not overwrite:
+            raise ValueError("File '{architecture}' already exists.".format(architecture=architecture))
+
+        if os.path.isfile(weights) and not overwrite:
+            raise ValueError("File '{weights}' already exists.".format(weights=weights))
+
         yaml_string = self.model_.to_yaml()
         with open(architecture, 'w') as fp:
             fp.write(yaml_string)
-        self.model_.save_weights(weights)
+
+        self.model_.save_weights(weights, overwrite=overwrite)
 
     def fit(self, input_shape, generator, samples_per_epoch, nb_epoch,
             verbose=1, callbacks=[], validation_data=None,
