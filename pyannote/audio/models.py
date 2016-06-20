@@ -30,29 +30,74 @@
 import keras.backend as K
 from keras.models import Sequential
 from keras.models import Model
-from keras.layers import Layer
+
+from keras.layers import Input
 from keras.layers import LSTM
 from keras.layers import Dense
-from keras.layers import Input
+from keras.layers import Lambda
 from keras.layers import merge
 
-
-class L2Normalize(Layer):
-    def __init__(self, axis=-1, **kwargs):
-        self.axis = axis
-        return super(L2Normalize, self).__init__(**kwargs)
-
-    def call(self, x, mask=None):
-        return K.l2_normalize(x, axis=self.axis)
-
-    def get_config(self):
-        base_config = super(L2Normalize, self).get_config()
-        base_config.update(dict(axis=self.axis))
-        return base_config
+from keras.callbacks import ModelCheckpoint
+from keras.models import model_from_yaml
 
 
-class TripletLossSequenceEmbedding(object):
+class SequenceEmbedding(object):
     """
+
+    Parameters
+    ----------
+    checkpoint: str, optional
+
+    """
+    def __init__(self, checkpoint='weights.{epoch:03d}-{loss:.2f}.hdf5'):
+        super(SequenceEmbedding, self).__init__()
+        self.checkpoint = checkpoint
+
+    def _get_embedding(self, from_model):
+        return from_model.get_layer(name="embedding")
+
+    @classmethod
+    def from_disk(cls, architecture, weights):
+        embedding = cls(checkpoint=None)
+
+        with open(architecture, 'r') as fp:
+            yaml_string = fp.read()
+        embedding.model_ = model_from_yaml(yaml_string)
+        embedding.model_.load_weights(weights)
+
+        embedding.embedding_ = embedding._get_embedding(embedding.model_)
+        return embedding
+
+    def to_disk(self, architecture, weights):
+        yaml_string = self.model_.to_yaml()
+        with open(architecture, 'w') as fp:
+            fp.write(yaml_string)
+        self.model_.save_weights(weights)
+
+    def fit(self, input_shape, generator, samples_per_epoch, nb_epoch,
+            verbose=1, callbacks=[], validation_data=None,
+            nb_val_samples=None, class_weight={}, max_q_size=10):
+
+        if self.checkpoint:
+            callbacks.append(ModelCheckpoint(
+                self.checkpoint, monitor='loss', verbose=0,
+                save_best_only=False, mode='auto'))
+
+        self.model_ = self._get_model(input_shape)
+        self.model_.fit_generator(
+            generator, samples_per_epoch, nb_epoch,
+            verbose=1, callbacks=callbacks, validation_data=validation_data,
+            nb_val_samples=nb_val_samples, class_weight=class_weight,
+            max_q_size=max_q_size)
+        self.embedding_ = self._get_embedding(self.model_)
+
+    def transform(self, sequence, batch_size=32, verbose=0):
+        return self.embedding_.predict(
+            sequence, batch_size=batch_size, verbose=verbose)
+
+
+class TripletLossSequenceEmbedding(SequenceEmbedding):
+    """Triplet loss sequence embedding
 
     Parameters
     ----------
@@ -64,10 +109,13 @@ class TripletLossSequenceEmbedding(object):
     dense: list
         List of output dimension of additionnal stacked dense layers.
         Defaults to [] (i.e. do not add any dense layer)
-
+    checkpoint: str
+        Defaults to 'weights.{epoch:03d}.hdf5'
     """
-    def __init__(self, output_dim, lstm=[12], dense=[]):
-        super(TripletLossSequenceEmbedding, self).__init__()
+    def __init__(self, output_dim, lstm=[12], dense=[],
+                 checkpoint='weights.{epoch:03d}.hdf5'):
+        super(TripletLossSequenceEmbedding, self).__init__(
+            checkpoint=checkpoint)
         self.output_dim = output_dim
         self.lstm = lstm
         self.dense = dense
@@ -80,10 +128,15 @@ class TripletLossSequenceEmbedding(object):
         n_lstm = len(self.lstm)
         for i, output_dim in enumerate(self.lstm):
             return_sequences = i+1 < n_lstm
-            layer = LSTM(input_shape=input_shape if i==0 else None,
-                         output_dim=output_dim,
-                         return_sequences=return_sequences,
-                         activation='tanh')
+            if i:
+                layer = LSTM(output_dim=output_dim,
+                             return_sequences=return_sequences,
+                             activation='tanh')
+            else:
+                layer = LSTM(input_shape=input_shape,
+                             output_dim=output_dim,
+                             return_sequences=return_sequences,
+                             activation='tanh')
             model.add(layer)
 
         # stack dense layers
@@ -96,14 +149,14 @@ class TripletLossSequenceEmbedding(object):
         model.add(layer)
 
         # stack L2 normalization layer
-        model.add(L2Normalize())
+        model.add(Lambda(lambda x: K.l2_normalize(x, axis=-1)))
 
         return model
 
     @staticmethod
     def _triplet_loss(inputs, alpha=0.2):
-        p = K.sum(K.square(inputs[0] - inputs[1]), axis=-1)
-        n = K.sum(K.square(inputs[0] - inputs[2]), axis=-1)
+        p = K.sum(K.square(inputs[0] - inputs[1]), axis=-1, keepdims=True)
+        n = K.sum(K.square(inputs[0] - inputs[2]), axis=-1, keepdims=True)
         return K.maximum(0, p + alpha - n)
 
     @staticmethod
@@ -114,7 +167,7 @@ class TripletLossSequenceEmbedding(object):
     def _identity_loss(y_true, y_pred):
         return K.mean(y_pred - 0 * y_true)
 
-    def get_model(self, input_shape):
+    def _get_model(self, input_shape):
         """
         Parameters
         ----------
@@ -140,6 +193,3 @@ class TripletLossSequenceEmbedding(object):
         model.compile(optimizer='rmsprop', loss=self._identity_loss)
 
         return model
-
-    def get_embedding(self, from_model):
-        return from_model.get_layer(name="embedding")
