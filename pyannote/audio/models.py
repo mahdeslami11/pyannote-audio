@@ -64,7 +64,7 @@ class SequenceEmbedding(object):
         self.embedding_.load_weights(weights)
         return self
 
-    def to_disk(self, architecture=None, weights=None, overwrite=False, input_shape=None):
+    def to_disk(self, architecture=None, weights=None, overwrite=False, input_shape=None, model=None):
 
         if architecture and os.path.isfile(architecture) and not overwrite:
             raise ValueError("File '{architecture}' already exists.".format(architecture=architecture))
@@ -72,18 +72,26 @@ class SequenceEmbedding(object):
         if weights and os.path.isfile(weights) and not overwrite:
             raise ValueError("File '{weights}' already exists.".format(weights=weights))
 
-        if not hasattr(self, 'embedding_'):
-            if input_shape is None:
-                raise ValueError('Cannot save embedding to disk because input_shape is missing.')
-            self.embedding_, _ = self._get_model(input_shape)
+        if model is not None:
+            embedding = self.get_embedding(model)
+
+        elif hasattr(self, 'embedding_'):
+            embedding = self._embedding
+
+        elif input_shape is None:
+            raise ValueError('Cannot save embedding to disk because input_shape is missing.')
+
+        else:
+            model = self.design_model(input_shape)
+            embedding = self.get_embedding(model)
 
         if architecture:
-            yaml_string = self.embedding_.to_yaml()
+            yaml_string = embedding.to_yaml()
             with open(architecture, 'w') as fp:
                 fp.write(yaml_string)
 
         if weights:
-            self.embedding_.save_weights(weights, overwrite=overwrite)
+            embedding.save_weights(weights, overwrite=overwrite)
 
     def fit(self, input_shape, generator, samples_per_epoch, nb_epoch,
             verbose=1, callbacks=[], validation_data=None,
@@ -94,7 +102,8 @@ class SequenceEmbedding(object):
                 self.checkpoint, monitor='loss', verbose=0,
                 save_best_only=False, mode='auto'))
 
-        self.embedding_, self.model_ = self._get_model(input_shape)
+        self.model_ = self.design_model(input_shape)
+        self.embedding_ = self.get_embedding(self.model_)
         self.model_.fit_generator(
             generator, samples_per_epoch, nb_epoch,
             verbose=1, callbacks=callbacks, validation_data=validation_data,
@@ -133,9 +142,10 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
         self.lstm = lstm
         self.dense = dense
 
-    def _embedding(self, input_shape):
+    def design_embedding(self, input_shape):
 
-        inputs = Input(shape=input_shape)
+        inputs = Input(shape=input_shape,
+                       name="embedding_input")
         x = inputs
 
         # stack LSTM layers
@@ -160,7 +170,8 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
         x = Dense(self.output_dim, activation='tanh')(x)
 
         # stack L2 normalization layer
-        embeddings = Lambda(lambda x: K.l2_normalize(x, axis=-1))(x)
+        embeddings = Lambda(lambda x: K.l2_normalize(x, axis=-1),
+                            name="embedding_output")(x)
 
         return Model(input=inputs, output=embeddings)
 
@@ -177,7 +188,10 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
     def _identity_loss(y_true, y_pred):
         return K.mean(y_pred - 0 * y_true)
 
-    def _get_model(self, input_shape):
+    def get_embedding(self, model):
+        return model.layers_by_depth[1][0]
+
+    def design_model(self, input_shape):
         """
         Parameters
         ----------
@@ -189,10 +203,10 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
         positive = Input(shape=input_shape, name="positive")
         negative = Input(shape=input_shape, name="negative")
 
-        embed = self._embedding(input_shape)
-        embedded_anchor = embed(anchor)
-        embedded_positive = embed(positive)
-        embedded_negative = embed(negative)
+        embedding = self.design_embedding(input_shape)
+        embedded_anchor = embedding(anchor)
+        embedded_positive = embedding(positive)
+        embedded_negative = embedding(negative)
 
         distance = merge(
             [embedded_anchor, embedded_positive, embedded_negative],
@@ -202,4 +216,4 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
 
         model.compile(optimizer='rmsprop', loss=self._identity_loss)
 
-        return embed, model
+        return model
