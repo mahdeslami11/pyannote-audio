@@ -64,17 +64,23 @@ class SequenceEmbedding(object):
         self.embedding_.load_weights(weights)
         return self
 
-    def to_disk(self, architecture, weights=None, overwrite=False):
+    def to_disk(self, architecture=None, weights=None, overwrite=False, input_shape=None):
 
-        if os.path.isfile(architecture) and not overwrite:
+        if architecture and os.path.isfile(architecture) and not overwrite:
             raise ValueError("File '{architecture}' already exists.".format(architecture=architecture))
 
         if weights and os.path.isfile(weights) and not overwrite:
             raise ValueError("File '{weights}' already exists.".format(weights=weights))
 
-        yaml_string = self.embedding_.to_yaml()
-        with open(architecture, 'w') as fp:
-            fp.write(yaml_string)
+        if not hasattr(self, 'embedding_'):
+            if input_shape is None:
+                raise ValueError('Cannot save embedding to disk because input_shape is missing.')
+            self.embedding_, _ = self._get_model(input_shape)
+
+        if architecture:
+            yaml_string = self.embedding_.to_yaml()
+            with open(architecture, 'w') as fp:
+                fp.write(yaml_string)
 
         if weights:
             self.embedding_.save_weights(weights, overwrite=overwrite)
