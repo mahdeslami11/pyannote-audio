@@ -54,9 +54,6 @@ class SequenceEmbedding(object):
         super(SequenceEmbedding, self).__init__()
         self.checkpoint = checkpoint
 
-    def _get_embedding(self, from_model):
-        return from_model.get_layer(name="embedding")
-
     @classmethod
     def from_disk(cls, architecture, weights):
         self = SequenceEmbedding()
@@ -91,13 +88,12 @@ class SequenceEmbedding(object):
                 self.checkpoint, monitor='loss', verbose=0,
                 save_best_only=False, mode='auto'))
 
-        self.model_ = self._get_model(input_shape)
+        self.embedding_, self.model_ = self._get_model(input_shape)
         self.model_.fit_generator(
             generator, samples_per_epoch, nb_epoch,
             verbose=1, callbacks=callbacks, validation_data=validation_data,
             nb_val_samples=nb_val_samples, class_weight=class_weight,
             max_q_size=max_q_size)
-        self.embedding_ = self._get_embedding(self.model_)
 
     def transform(self, sequence, batch_size=32, verbose=0):
         return self.embedding_.predict(
@@ -133,36 +129,34 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
 
     def _embedding(self, input_shape):
 
-        model = Sequential(name="embedding")
+        inputs = Input(shape=input_shape)
+        x = inputs
 
         # stack LSTM layers
         n_lstm = len(self.lstm)
         for i, output_dim in enumerate(self.lstm):
             return_sequences = i+1 < n_lstm
             if i:
-                layer = LSTM(output_dim=output_dim,
+                x = LSTM(output_dim=output_dim,
                              return_sequences=return_sequences,
-                             activation='tanh')
+                             activation='tanh')(x)
             else:
-                layer = LSTM(input_shape=input_shape,
+                x = LSTM(input_shape=input_shape,
                              output_dim=output_dim,
                              return_sequences=return_sequences,
-                             activation='tanh')
-            model.add(layer)
+                             activation='tanh')(x)
 
         # stack dense layers
         for i, output_dim in enumerate(self.dense):
-            layer = Dense(output_dim, activation='tanh')
-            model.add(layer)
+            x = Dense(output_dim, activation='tanh')(x)
 
         # stack final dense layer
-        layer = Dense(self.output_dim, activation='tanh')
-        model.add(layer)
+        x = Dense(self.output_dim, activation='tanh')(x)
 
         # stack L2 normalization layer
-        model.add(Lambda(lambda x: K.l2_normalize(x, axis=-1)))
+        embeddings = Lambda(lambda x: K.l2_normalize(x, axis=-1))(x)
 
-        return model
+        return Model(input=inputs, output=embeddings)
 
     def _triplet_loss(self, inputs):
         p = K.sum(K.square(inputs[0] - inputs[1]), axis=-1, keepdims=True)
@@ -202,4 +196,4 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
 
         model.compile(optimizer='rmsprop', loss=self._identity_loss)
 
-        return model
+        return embed, model
