@@ -59,29 +59,28 @@ class SequenceEmbedding(object):
 
     @classmethod
     def from_disk(cls, architecture, weights):
-        embedding = cls(checkpoint=None)
+        self = SequenceEmbedding()
 
         with open(architecture, 'r') as fp:
             yaml_string = fp.read()
-        embedding.model_ = model_from_yaml(yaml_string)
-        embedding.model_.load_weights(weights)
+        self.embedding_ = model_from_yaml(yaml_string)
+        self.embedding_.load_weights(weights)
+        return self
 
-        embedding.embedding_ = embedding._get_embedding(embedding.model_)
-        return embedding
-
-    def to_disk(self, architecture, weights, overwrite=False):
+    def to_disk(self, architecture, weights=None, overwrite=False):
 
         if os.path.isfile(architecture) and not overwrite:
             raise ValueError("File '{architecture}' already exists.".format(architecture=architecture))
 
-        if os.path.isfile(weights) and not overwrite:
+        if weights and os.path.isfile(weights) and not overwrite:
             raise ValueError("File '{weights}' already exists.".format(weights=weights))
 
-        yaml_string = self.model_.to_yaml()
+        yaml_string = self.embedding_.to_yaml()
         with open(architecture, 'w') as fp:
             fp.write(yaml_string)
 
-        self.model_.save_weights(weights, overwrite=overwrite)
+        if weights:
+            self.embedding_.save_weights(weights, overwrite=overwrite)
 
     def fit(self, input_shape, generator, samples_per_epoch, nb_epoch,
             verbose=1, callbacks=[], validation_data=None,
