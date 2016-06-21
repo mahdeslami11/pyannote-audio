@@ -111,6 +111,8 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
     ----------
     output_dim: int
         Embedding dimension.
+    alpha: float, optional
+        Defaults to 0.2
     lstm: list
         List of output dimension of stacked LSTMs.
         Defaults to [12, ] (i.e. one LSTM with output dimension 12)
@@ -120,11 +122,12 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
     checkpoint: str
         Defaults to 'weights.{epoch:03d}.hdf5'
     """
-    def __init__(self, output_dim, lstm=[12], dense=[],
+    def __init__(self, output_dim, alpha=0.2, lstm=[12], dense=[],
                  checkpoint='weights.{epoch:03d}.hdf5'):
         super(TripletLossSequenceEmbedding, self).__init__(
             checkpoint=checkpoint)
         self.output_dim = output_dim
+        self.alpha = alpha
         self.lstm = lstm
         self.dense = dense
 
@@ -161,11 +164,10 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
 
         return model
 
-    @staticmethod
-    def _triplet_loss(inputs, alpha=0.2):
+    def _triplet_loss(self, inputs):
         p = K.sum(K.square(inputs[0] - inputs[1]), axis=-1, keepdims=True)
         n = K.sum(K.square(inputs[0] - inputs[2]), axis=-1, keepdims=True)
-        return K.maximum(0, p + alpha - n)
+        return K.maximum(0, p + self.alpha - n)
 
     @staticmethod
     def _output_shape(input_shapes):
