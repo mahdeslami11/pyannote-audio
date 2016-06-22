@@ -42,8 +42,8 @@ class TripletLossBatchGenerator(BaseBatchGenerator):
     embedding: SequenceEmbedding, optional
     """
 
-    def __init__(self, duration=3.2, batch_size=1000, per_label=40,
-                 embedding=None):
+    def __init__(self, feature_extractor, duration=3.2, batch_size=1000,
+                 per_label=40, embedding=None):
 
         # fragment generation
         fragment_generator = RandomSegmentTriplets(duration=duration,
@@ -53,10 +53,8 @@ class TripletLossBatchGenerator(BaseBatchGenerator):
                                                         batch_size=batch_size)
 
         # feature extraction
-        self.feature_extractor = YaafeMFCC(e=False, De=False, DDe=False, coefs=11, D=False, DD=False)
-        self.fe_frame = YaafeFrame(blockSize=self.feature_extractor.block_size,
-                                   stepSize=self.feature_extractor.step_size,
-                                   sampleRate=self.feature_extractor.sample_rate)
+        self.feature_extractor = feature_extractor
+        self.fe_frame = self.feature_extractor.get_frame()
         self.fe_n = self.fe_frame.durationToSamples(duration)
         self.X_ = {}
 

@@ -94,7 +94,7 @@ class YaafeFeatureExtractor(object):
     def dimension(self):
         raise NotImplementedError('')
 
-    def sliding_window(self):
+    def get_frame(self):
         return YaafeFrame(blockSize=self.block_size,
                           stepSize=self.step_size,
                           sampleRate=self.sample_rate)
