@@ -55,6 +55,7 @@ class EmbeddingCheckpoint(Callback):
         self.sequence_embedding.to_disk(
             weights=weights, overwrite=True, model=self.model)
 
+
 class SequenceEmbedding(object):
     """
 
