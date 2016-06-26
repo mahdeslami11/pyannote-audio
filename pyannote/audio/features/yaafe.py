@@ -315,7 +315,7 @@ class YaafeBatchGenerator(BaseBatchGenerator):
         super(YaafeBatchGenerator, self).__init__(fragment_generator, batch_size=batch_size)
         self.feature_extractor = feature_extractor
         self.fe_frame = self.feature_extractor.get_frame()
-        self.fe_n = self.fe_frame.durationToSamples(duration)
+        self.fe_n = self.fe_frame.durationToSamples(fragment_generator.duration)
         self.X_ = {}
 
     def get_shape(self):
