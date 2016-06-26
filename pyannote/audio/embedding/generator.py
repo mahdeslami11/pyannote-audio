@@ -26,10 +26,12 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
+import itertools
+import numpy as np
+import scipy.spatial.distance
 from pyannote.generators.batch import BaseBatchGenerator
 from pyannote.generators.fragment import RandomSegmentsPerLabel
 from ..features.yaafe import YaafeBatchGenerator
-import numpy as np
 
 
 class _YaafeTripletGenerator(object):
