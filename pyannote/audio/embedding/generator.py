@@ -49,6 +49,9 @@ class _YaafeTripletGenerator(object):
 
         self.embedding = embedding
 
+    def get_shape(self):
+        return self.batch_generator.get_shape()
+
     def signature(self):
         shape = self.batch_generator.get_shape()
         return [
