@@ -28,7 +28,7 @@
 
 import itertools
 import numpy as np
-import scipy.spatial.distance
+from scipy.spatial.distance import pdist, squareform
 from pyannote.generators.batch import BaseBatchGenerator
 from pyannote.generators.fragment import RandomSegmentsPerLabel
 from ..features.yaafe import YaafeBatchGenerator
@@ -36,7 +36,7 @@ from ..features.yaafe import YaafeBatchGenerator
 
 class _YaafeTripletGenerator(object):
 
-    def __init__(self, yaafe_feature_extractor, embedding, duration=3.2, per_label=40):
+    def __init__(self, yaafe_feature_extractor, embedding, margin=0.2, duration=3.2, per_label=40):
         super(_YaafeTripletGenerator, self).__init__()
 
         generator = RandomSegmentsPerLabel(
@@ -49,6 +49,7 @@ class _YaafeTripletGenerator(object):
             generator,
             batch_size=-1)
 
+        self.margin = margin
         self.embedding = embedding
 
     def get_shape(self):
@@ -56,18 +57,21 @@ class _YaafeTripletGenerator(object):
 
     def signature(self):
         shape = self.batch_generator.get_shape()
-        return [
-            {'type': 'sequence', 'shape': shape},
-            {'type': 'sequence', 'shape': shape},
-            {'type': 'sequence', 'shape': shape}
-        ]
+        return (
+            [
+                {'type': 'sequence', 'shape': shape},
+                {'type': 'sequence', 'shape': shape},
+                {'type': 'sequence', 'shape': shape}
+            ],
+            {'type': 'boolean'}
+         )
 
     def from_protocol_item(self, protocol_item):
 
         for batch_sequences, batch_labels in self.batch_generator.from_protocol_item(protocol_item):
 
             batch_embeddings = self.embedding.transform(batch_sequences)
-            batch_distances = scipy.spatial.distance.pdist(batch_embeddings, metric='euclidean')
+            batch_distances = squareform(pdist(batch_embeddings, metric='euclidean'))
 
             labels, unique_inverse = np.unique(batch_labels, return_inverse=True)
 
@@ -76,18 +80,18 @@ class _YaafeTripletGenerator(object):
                 negatives = np.where(unique_inverse != i)[0]
 
                 # loop over all (anchor, positive) pairs for current label
-                for anchor, positive in itertools.combinations(positives):
+                for anchor, positive in itertools.combinations(positives, 2):
 
                     # find all negatives within the margin
                     d = batch_distances[anchor, positive]
                     within_margin = np.where(
-                        batch_distances[anchor, negatives] < d + alpha)[0]
+                        batch_distances[anchor, negatives] < d + self.margin)[0]
 
                     # choose one at random (if at least one exists)
-                    if not within_margin:
+                    if len(within_margin) < 1:
                         continue
                     negative = negatives[np.random.choice(within_margin)]
-                    yield batch_embeddings[anchor], batch_embeddings[positive], batch_embeddings[negative]
+                    yield [batch_sequences[anchor], batch_sequences[positive], batch_sequences[negative]], 1
 
 
 class YaafeTripletBatchGenerator(BaseBatchGenerator):
