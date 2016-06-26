@@ -34,6 +34,7 @@ import scipy.io.wavfile
 from pyannote.core.segment import SlidingWindow
 from pyannote.core.feature import SlidingWindowFeature
 from pyannote.generators.batch import BaseBatchGenerator
+from pyannote.core import PYANNOTE_SEGMENT
 
 
 class YaafeFrame(SlidingWindow):
