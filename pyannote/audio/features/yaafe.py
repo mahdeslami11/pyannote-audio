@@ -31,6 +31,8 @@ from __future__ import unicode_literals
 import numpy as np
 import yaafelib
 import scipy.io.wavfile
+from scipy.stats import zscore
+
 from pyannote.core.segment import SlidingWindow
 from pyannote.core.feature import SlidingWindowFeature
 from pyannote.generators.batch import BaseBatchGenerator
@@ -312,9 +314,10 @@ class YaafeMFCC(YaafeFeatureExtractor):
 
 class YaafeBatchGenerator(BaseBatchGenerator):
 
-    def __init__(self, feature_extractor, fragment_generator, batch_size=32):
+    def __init__(self, feature_extractor, fragment_generator, batch_size=32, normalize=False):
         super(YaafeBatchGenerator, self).__init__(fragment_generator, batch_size=batch_size)
         self.feature_extractor = feature_extractor
+        self.normalize = normalize
         self.fe_frame = self.feature_extractor.get_frame()
         self.fe_n = self.fe_frame.durationToSamples(fragment_generator.duration)
         self.X_ = {}
@@ -333,6 +336,8 @@ class YaafeBatchGenerator(BaseBatchGenerator):
         if signature['type'] == PYANNOTE_SEGMENT:
             i0, _ = self.fe_frame.segmentToRange(fragment)
             x = self.X_[identifier][i0:i0+self.fe_n]
+            if self.normalize:
+                x = zscore(x, axis=-1)
             if x.shape != self.get_shape():
                 msg = 'Shape should be {expected}, is {actual}'
                 raise ValueError(msg.format(expected=self.get_shape(),
