@@ -38,6 +38,8 @@ from pyannote.core.feature import SlidingWindowFeature
 from pyannote.generators.batch import BaseBatchGenerator
 from pyannote.core import PYANNOTE_SEGMENT
 
+from .utils import get_wav_duration
+
 
 class YaafeFrame(SlidingWindow):
     """Yaafe frames
@@ -329,7 +331,17 @@ class YaafeBatchGenerator(BaseBatchGenerator):
     def preprocess(self, protocol_item, identifier=None):
         wav, _, _ = protocol_item
         if not identifier in self.X_:
-            self.X_[identifier] = self.feature_extractor(wav)
+
+            features = self.feature_extractor(wav)
+
+            expected = get_wav_duration(wav)
+            actual = features.getExtent().end
+            if not np.isclose(expected, actual, atol=1., rtol=0.):
+                msg = 'Feature duration should {expected:.3f}, is {actual:.3f}'
+                raise ValueError(msg.format(expected=expected, actual=actual))
+
+            self.X_[identifier] = features
+
         return protocol_item
 
     def process(self, fragment, signature=None, identifier=None):
@@ -338,7 +350,11 @@ class YaafeBatchGenerator(BaseBatchGenerator):
             x = self.X_[identifier][i0:i0+self.fe_n]
             if self.normalize:
                 x = zscore(x, axis=-1)
-            if x.shape != self.get_shape():
+
+            expected = self.get_shape()
+            actual = x.shape
+
+            if actual != expected:
                 msg = 'Shape should be {expected}, is {actual}'
                 raise ValueError(msg.format(expected=self.get_shape(),
                                             actual=x.shape))
