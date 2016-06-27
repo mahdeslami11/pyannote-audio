@@ -332,6 +332,11 @@ class YaafeBatchGenerator(BaseBatchGenerator):
     def process(self, fragment, signature=None, identifier=None):
         if signature['type'] == PYANNOTE_SEGMENT:
             i0, _ = self.fe_frame.segmentToRange(fragment)
-            return self.X_[identifier][i0:i0+self.fe_n]
+            x = self.X_[identifier][i0:i0+self.fe_n]
+            if x.shape != self.get_shape():
+                msg = 'Shape should be {expected}, is {actual}'
+                raise ValueError(msg.format(expected=self.get_shape(),
+                                            actual=x.shape))
+            return x
         else:
             return fragment
