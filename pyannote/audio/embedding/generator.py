@@ -36,7 +36,7 @@ from ..features.yaafe import YaafeBatchGenerator
 
 class _YaafeTripletGenerator(object):
 
-    def __init__(self, yaafe_feature_extractor, embedding, margin=0.2, duration=3.2, per_label=40):
+    def __init__(self, yaafe_feature_extractor, embedding, margin=0.2, duration=3.2, per_label=40, normalize=False):
         super(_YaafeTripletGenerator, self).__init__()
 
         generator = RandomSegmentsPerLabel(
@@ -47,7 +47,8 @@ class _YaafeTripletGenerator(object):
         self.batch_generator = YaafeBatchGenerator(
             yaafe_feature_extractor,
             generator,
-            batch_size=-1)
+            batch_size=-1,
+            normalize=normalize)
 
         self.margin = margin
         self.embedding = embedding
@@ -101,8 +102,13 @@ class YaafeTripletBatchGenerator(BaseBatchGenerator):
     extractor : YaafeFeatureExtractor
     embedding : TripletLossSequenceEmbedding
     """
-    def __init__(self, extractor, embedding, duration=3.2, per_label=40, batch_size=32):
-        generator = _YaafeTripletGenerator(extractor, embedding, duration=duration, per_label=per_label)
+    def __init__(self, extractor, embedding, duration=3.2, per_label=40, batch_size=32, normalize=False):
+        generator = _YaafeTripletGenerator(
+            extractor,
+            embedding,
+            duration=duration,
+            per_label=per_label,
+            normalize=normalize)
         super(YaafeTripletBatchGenerator, self).__init__(generator, batch_size=batch_size)
 
     def get_shape(self):
