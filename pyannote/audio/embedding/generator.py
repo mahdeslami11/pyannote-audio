@@ -26,83 +26,90 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-from pyannote.generators.batch import BaseBatchGenerator
-from pyannote.generators.fragment import RandomSegmentTriplets
-from ..features.yaafe import YaafeMFCC, YaafeFrame
+import itertools
 import numpy as np
+from scipy.spatial.distance import pdist, squareform
+from pyannote.generators.batch import BaseBatchGenerator
+from pyannote.generators.fragment import RandomSegmentsPerLabel
+from ..features.yaafe import YaafeBatchGenerator
 
 
-class TripletLossBatchGenerator(BaseBatchGenerator):
-    """
-    Parameters
-    ----------
-    batch_size: int, optional
-    duration: float, optional
-    per_label: int, optional
-    embedding: SequenceEmbedding, optional
-    """
+class _YaafeTripletGenerator(object):
 
-    def __init__(self, feature_extractor, duration=3.2, batch_size=1000,
-                 per_label=40, embedding=None):
+    def __init__(self, yaafe_feature_extractor, embedding, margin=0.2, duration=3.2, per_label=40, normalize=False):
+        super(_YaafeTripletGenerator, self).__init__()
 
-        # fragment generation
-        fragment_generator = RandomSegmentTriplets(duration=duration,
-                                                   per_label=per_label,
-                                                   yield_label=False)
-        super(TripletLossBatchGenerator, self).__init__(fragment_generator,
-                                                        batch_size=batch_size)
+        generator = RandomSegmentsPerLabel(
+            duration=duration,
+            per_label=per_label,
+            yield_label=True)
 
-        # feature extraction
-        self.feature_extractor = feature_extractor
-        self.fe_frame = self.feature_extractor.get_frame()
-        self.fe_n = self.fe_frame.durationToSamples(duration)
-        self.X_ = {}
+        self.batch_generator = YaafeBatchGenerator(
+            yaafe_feature_extractor,
+            generator,
+            batch_size=-1,
+            normalize=normalize)
 
-        # triplet selection
+        self.margin = margin
         self.embedding = embedding
 
     def get_shape(self):
-        return (self.fe_n, self.feature_extractor.dimension())
+        return self.batch_generator.get_shape()
 
-    # defaults to features pre-computing
-    def preprocess(self, protocol_item, identifier=None):
-        wav, _, _ = protocol_item
-        if not identifier in self.X_:
-            self.X_[identifier] = self.feature_extractor(wav)
-        return protocol_item
+    def signature(self):
+        shape = self.batch_generator.get_shape()
+        return (
+            [
+                {'type': 'sequence', 'shape': shape},
+                {'type': 'sequence', 'shape': shape},
+                {'type': 'sequence', 'shape': shape}
+            ],
+            {'type': 'boolean'}
+         )
 
-    def process(self, fragment, signature=None, identifier=None):
-        if signature['type'] == 'segment':
-            i0, _ = self.fe_frame.segmentToRange(fragment)
-            return self.X_[identifier][i0:i0+self.fe_n]
+    def from_protocol_item(self, protocol_item):
 
-        if signature['type'] == 'boolean':
-            return fragment
+        for batch_sequences, batch_labels in self.batch_generator.from_protocol_item(protocol_item):
 
-    def postprocess(self, batch, signature=None):
-        if self.embedding is not None:
-            batch = self.triplet_selection(batch)
+            batch_embeddings = self.embedding.transform(batch_sequences)
+            batch_distances = squareform(pdist(batch_embeddings, metric='euclidean'))
 
-        return (batch, np.ones((batch[0].shape[0], 1)))
+            labels, unique_inverse = np.unique(batch_labels, return_inverse=True)
 
-    def triplet_selection(self, batch):
+            for i, label in enumerate(labels):
+                positives = np.where(unique_inverse == i)[0]
+                negatives = np.where(unique_inverse != i)[0]
 
-        anchor_batch, positive_batch, negative_batch = batch
+                # loop over all (anchor, positive) pairs for current label
+                for anchor, positive in itertools.combinations(positives, 2):
 
-        # extract embeddings
-        anchor_embedding = self.embedding.transform(anchor_batch)
-        positive_embedding = self.embedding.transform(positive_batch)
-        negative_embedding = self.embedding.transform(negative_batch)
+                    # find all negatives within the margin
+                    d = batch_distances[anchor, positive]
+                    within_margin = np.where(
+                        batch_distances[anchor, negatives] < d + self.margin)[0]
 
-        # compute positive and negative distance
-        positive_distance = np.sum((anchor_embedding - positive_embedding) ** 2, axis=-1)
-        negative_distance = np.sum((anchor_embedding - negative_embedding) ** 2, axis=-1)
+                    # choose one at random (if at least one exists)
+                    if len(within_margin) < 1:
+                        continue
+                    negative = negatives[np.random.choice(within_margin)]
+                    yield [batch_sequences[anchor], batch_sequences[positive], batch_sequences[negative]], 1
 
-        # only keep triplets with semi-hard negative sample
-        semi_hard_negative = np.where(
-            (positive_distance < negative_distance) *
-            (negative_distance < positive_distance + self.embedding.alpha))
 
-        return [anchor_batch[semi_hard_negative],
-                positive_batch[semi_hard_negative],
-                negative_batch[semi_hard_negative]]
+class YaafeTripletBatchGenerator(BaseBatchGenerator):
+    """
+    Parameters
+    ----------
+    extractor : YaafeFeatureExtractor
+    embedding : TripletLossSequenceEmbedding
+    """
+    def __init__(self, extractor, embedding, duration=3.2, per_label=40, batch_size=32, normalize=False):
+        generator = _YaafeTripletGenerator(
+            extractor,
+            embedding,
+            duration=duration,
+            per_label=per_label,
+            normalize=normalize)
+        super(YaafeTripletBatchGenerator, self).__init__(generator, batch_size=batch_size)
+
+    def get_shape(self):
+        return self.generator.get_shape()
