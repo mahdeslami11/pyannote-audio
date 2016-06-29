@@ -146,6 +146,7 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
         Defaults to 'weights.{epoch:03d}.hdf5'
     """
     def __init__(self, output_dim, alpha=0.2, lstm=[12], dense=[],
+                 bidirectional=False,
                  checkpoint='weights.{epoch:03d}.hdf5'):
         super(TripletLossSequenceEmbedding, self).__init__(
             checkpoint=checkpoint)
@@ -153,6 +154,7 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
         self.alpha = alpha
         self.lstm = lstm
         self.dense = dense
+        self.bidirectional = bidirectional
 
     def design_embedding(self, input_shape):
 
@@ -163,16 +165,44 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
         # stack LSTM layers
         n_lstm = len(self.lstm)
         for i, output_dim in enumerate(self.lstm):
+
+            # last LSTM should not return a sequence
             return_sequences = i+1 < n_lstm
             if i:
-                x = LSTM(output_dim=output_dim,
-                             return_sequences=return_sequences,
-                             activation='tanh')(x)
+                # all but first LSTM
+                forward = LSTM(output_dim=output_dim,
+                               return_sequences=return_sequences,
+                               activation='tanh',
+                               dropout_W=0.0,
+                               dropout_U=0.0)(forward)
+                if self.bidirectional:
+                    backward = LSTM(output_dim=output_dim,
+                                    return_sequences=return_sequences,
+                                    activation='tanh',
+                                    dropout_W=0.0,
+                                    dropout_U=0.0)(backward)
             else:
-                x = LSTM(input_shape=input_shape,
-                             output_dim=output_dim,
-                             return_sequences=return_sequences,
-                             activation='tanh')(x)
+                # first LSTM
+                forward = LSTM(input_shape=input_shape,
+                               output_dim=output_dim,
+                               return_sequences=return_sequences,
+                               activation='tanh',
+                               dropout_W=0.0,
+                               dropout_U=0.0)(x)
+                if self.bidirectional:
+                    backward = LSTM(go_backwards=True,
+                                    input_shape=input_shape,
+                                    output_dim=output_dim,
+                                    return_sequences=return_sequences,
+                                    activation='tanh',
+                                    dropout_W=0.0,
+                                    dropout_U=0.0)(x)
+
+        # concatenate forward and backward
+        if bidirectional:
+            x = merge([forward, backward], mode='concat', concat_axis=1)
+        else:
+            x = forward
 
         # stack dense layers
         for i, output_dim in enumerate(self.dense):
