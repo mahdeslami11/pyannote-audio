@@ -199,7 +199,7 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
                                     dropout_U=0.0)(x)
 
         # concatenate forward and backward
-        if bidirectional:
+        if self.bidirectional:
             x = merge([forward, backward], mode='concat', concat_axis=1)
         else:
             x = forward
