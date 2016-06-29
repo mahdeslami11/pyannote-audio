@@ -146,7 +146,7 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
         Defaults to 'weights.{epoch:03d}.hdf5'
     """
     def __init__(self, output_dim, alpha=0.2, lstm=[12], dense=[],
-                 bidirectional=False,
+                 bidirectional=False, optimizer='rmsprop',
                  checkpoint='weights.{epoch:03d}.hdf5'):
         super(TripletLossSequenceEmbedding, self).__init__(
             checkpoint=checkpoint)
@@ -155,6 +155,7 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
         self.lstm = lstm
         self.dense = dense
         self.bidirectional = bidirectional
+        self.optimizer = optimizer
 
     def design_embedding(self, input_shape):
 
@@ -256,6 +257,6 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
 
         model = Model(input=[anchor, positive, negative], output=distance)
 
-        model.compile(optimizer='rmsprop', loss=self._identity_loss)
+        model.compile(optimizer=self.optimizer, loss=self._identity_loss)
 
         return model
