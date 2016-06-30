@@ -85,7 +85,7 @@ class ValidationCheckpoint(Callback):
 
         bins = np.arange(0, 2, 0.05)
 
-        train_then_dev = [('train', protocol.train_iter), ('dev', protocol.dev_iter)]
+        train_then_dev = [('train', self.protocol.train_iter), ('dev', self.protocol.dev_iter)]
         for i, (dataset, protocol_iter) in enumerate(train_then_dev):
 
             y, distance, thresholds, precision, recall, fscore, accuracy = self.validation(protocol_iter)
