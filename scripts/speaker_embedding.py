@@ -50,7 +50,7 @@ dense = config['embedding']['dense']
 # dropout
 dropout = config['embedding']['dropout']
 # bi-directional
-bi_directional = config['embedding']['bi_directional']
+bidirectional = config['embedding']['bidirectional']
 
 # -- TRAINING --
 
@@ -104,7 +104,7 @@ class TripletBatchGenerator(YaafeTripletBatchGenerator):
 
 # embedding
 embedding = TripletLossSequenceEmbedding(
-    output_dim, lstm=lstm, dense=dense,
+    output_dim, lstm=lstm, dense=dense, bidirectional=bidirectional,
     alpha=alpha, checkpoint=checkpoint_h5)
 
 # pair generator for testing
