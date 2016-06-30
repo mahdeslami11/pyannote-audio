@@ -129,7 +129,7 @@ class ValidationCheckpoint(Callback):
             plt.legend(loc='lower right')
 
         # test set
-        y, distance, thresholds, precision, recall, fscore, accuracy = self.validation(protocol.test_iter)
+        y, distance, thresholds, precision, recall, fscore, accuracy = self.validation(self.protocol.test_iter)
 
         # find threshold most similar to the ones selected on dev
         [a, f] = np.searchsorted(-thresholds, [-accuracy_threshold, -fscore_threshold])
