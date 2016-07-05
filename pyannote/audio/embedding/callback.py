@@ -79,8 +79,6 @@ class ValidationCheckpoint(Callback):
 
         self.loss.append(logs['loss'])
 
-        embedding = self.sequence_embedding.get_embedding(self.model)
-
         plt.figure(figsize=(12, 12))
 
         bins = np.arange(0, 2, 0.05)
