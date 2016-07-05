@@ -102,6 +102,7 @@ class ValidationCheckpoint(Callback):
             plt.subplot(3, 3, 3 * i + 1)
             plt.hist(distance[y], bins=bins, color='g', alpha=0.5, normed=True)
             plt.hist(distance[~y], bins=bins, color='r', alpha=0.5, normed=True)
+            plt.ylim(0, 3)
             plt.title(dataset)
 
             # plot precision / recall curve
@@ -141,6 +142,7 @@ class ValidationCheckpoint(Callback):
         plt.subplot(3, 3, 7)
         plt.hist(distance[y], bins=bins, color='g', alpha=0.5, normed=True)
         plt.hist(distance[~y], bins=bins, color='r', alpha=0.5, normed=True)
+        plt.ylim(0, 3)
         plt.title('test')
 
         # plot precision / recall
