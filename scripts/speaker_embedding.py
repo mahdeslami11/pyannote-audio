@@ -42,7 +42,8 @@ feature_extractor = YaafeMFCC(**config['feature_extraction']['mfcc'])
 normalize = config['feature_extraction']['normalize']
 
 # -- EMBEDDING STRUCTURE --
-
+# triplet loss margin
+margin = config['embedding']['margin']
 # embedding dimension
 output_dim = config['embedding']['output_dim']
 # internal embedding structure
@@ -106,7 +107,7 @@ class TripletBatchGenerator(YaafeTripletBatchGenerator):
 # embedding
 embedding = TripletLossSequenceEmbedding(
     output_dim, lstm=lstm, dense=dense, bidirectional=bidirectional,
-    alpha=alpha, checkpoint=checkpoint_h5)
+    margin=margin, checkpoint=checkpoint_h5)
 
 # pair generator for testing
 pair_batch_generator = PairBatchGenerator(
