@@ -25,11 +25,12 @@ from pyannote.generators.fragment import RandomSegmentPairs
 import numpy as np
 
 
-# -- PROTOCOL --
-protocol = Etape('/vol/work1/bredin/corpus/odessa/etape/')
-
 with open(sys.argv[1], 'r') as fp:
     config = yaml.load(fp)
+
+
+# -- PROTOCOL --
+protocol = Etape(config['etape'])
 
 # -- FEATURE EXTRACTION --
 
