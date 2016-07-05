@@ -35,7 +35,7 @@ from scipy.stats import zscore
 
 from pyannote.core.segment import SlidingWindow
 from pyannote.core.feature import SlidingWindowFeature
-from pyannote.generators.batch import BaseBatchGenerator
+from pyannote.generators.batch import FileBasedBatchGenerator
 from pyannote.core import PYANNOTE_SEGMENT
 
 from .utils import get_wav_duration
@@ -314,10 +314,10 @@ class YaafeMFCC(YaafeFeatureExtractor):
         return d
 
 
-class YaafeBatchGenerator(BaseBatchGenerator):
+class YaafeFileBasedBatchGenerator(FileBasedBatchGenerator):
 
     def __init__(self, feature_extractor, fragment_generator, batch_size=32, normalize=False):
-        super(YaafeBatchGenerator, self).__init__(fragment_generator, batch_size=batch_size)
+        super(YaafeFileBasedBatchGenerator, self).__init__(fragment_generator, batch_size=batch_size)
         self.feature_extractor = feature_extractor
         self.normalize = normalize
         self.fe_frame = self.feature_extractor.get_frame()
@@ -328,8 +328,8 @@ class YaafeBatchGenerator(BaseBatchGenerator):
         return (self.fe_n, self.feature_extractor.dimension())
 
     # defaults to features pre-computing
-    def preprocess(self, protocol_item, identifier=None):
-        wav, _, _ = protocol_item
+    def preprocess(self, current_file, identifier=None):
+        wav, _, _ = current_file
         if not identifier in self.X_:
 
             features = self.feature_extractor(wav)
@@ -342,7 +342,7 @@ class YaafeBatchGenerator(BaseBatchGenerator):
 
             self.X_[identifier] = features
 
-        return protocol_item
+        return current_file
 
     def process(self, fragment, signature=None, identifier=None):
         if signature['type'] == PYANNOTE_SEGMENT:
