@@ -49,13 +49,13 @@ class ValidationCheckpoint(Callback):
         self.fscore = {'train': [], 'dev': [], 'test': []}
         self.loss = []
 
-    def validation(self, protocol_iter):
+    def validation(self, file_generator):
 
         embedding = self.sequence_embedding.get_embedding(self.model)
 
         Y, Distance = [], []
 
-        for batch in self.generator(protocol_iter, infinite=False):
+        for batch in self.generator(file_generator, infinite=False):
             (query, returned), y = batch
             Xq = embedding.predict_on_batch(query)
             Xr = embedding.predict_on_batch(returned)
@@ -85,10 +85,10 @@ class ValidationCheckpoint(Callback):
 
         bins = np.arange(0, 2, 0.05)
 
-        train_then_dev = [('train', self.protocol.train_iter), ('dev', self.protocol.dev_iter)]
-        for i, (dataset, protocol_iter) in enumerate(train_then_dev):
+        train_then_dev = [('train', self.protocol.train_iter()), ('dev', self.protocol.dev_iter())]
+        for i, (dataset, file_generator) in enumerate(train_then_dev):
 
-            y, distance, thresholds, precision, recall, fscore, accuracy = self.validation(protocol_iter)
+            y, distance, thresholds, precision, recall, fscore, accuracy = self.validation(file_generator)
 
             # find threshold maximizing accuracy
             A = np.argmax(accuracy)
@@ -129,7 +129,8 @@ class ValidationCheckpoint(Callback):
             plt.legend(loc='lower right')
 
         # test set
-        y, distance, thresholds, precision, recall, fscore, accuracy = self.validation(self.protocol.test_iter)
+        file_generator = self.protocol.test_iter()
+        y, distance, thresholds, precision, recall, fscore, accuracy = self.validation(file_generator)
 
         # find threshold most similar to the ones selected on dev
         [a, f] = np.searchsorted(-thresholds, [-accuracy_threshold, -fscore_threshold])
