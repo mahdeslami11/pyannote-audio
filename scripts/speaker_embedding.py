@@ -1,4 +1,5 @@
 import pyannote.core  # HACK
+import os.path
 import sys
 import yaml
 import random
@@ -25,9 +26,11 @@ from pyannote.generators.fragment import RandomSegmentPairs
 import numpy as np
 
 
-with open(sys.argv[1], 'r') as fp:
-    config = yaml.load(fp)
+config_path = sys.argv[1]
+workdir = os.path.dirname(config_path)
 
+with open(config_path, 'r') as fp:
+    config = yaml.load(fp)
 
 # -- PROTOCOL --
 protocol = Etape(config['etape'])
@@ -75,7 +78,6 @@ batch_size_test = config['testing']['batch_size']
 
 # -- LOGS --
 
-workdir = config['workdir']
 checkpoint_h5 = workdir + '/weights.{epoch:03d}.{loss:.3f}.h5'
 architecture_yml = workdir + '/architecture.yml'
 

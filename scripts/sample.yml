@@ -1,5 +1,4 @@
 etape: '/Users/bredin/Corpora/etape'
-workdir: '/tmp/keras/'
 
 feature_extraction:
    mfcc:
