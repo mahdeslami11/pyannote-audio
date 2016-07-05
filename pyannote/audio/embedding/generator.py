@@ -52,8 +52,8 @@ class YaafeTripletLossGenerator(object):
     normalize: boolean, optional
         When True, normalize sequence (z-score). Defaults to False.
     n_labels: int, optional
-        Number of labels per batch. Defaults to 40.
-    n_samples: int, optional
+        Number of labels per group. Defaults to 40.
+    per_label: int, optional
         Number of samples per label. Defaults to 40.
     embedding_batch_size: int, optional
         Batch size to use for embedding. Defaults to 32.
@@ -61,7 +61,7 @@ class YaafeTripletLossGenerator(object):
 
     def __init__(self, extractor, file_generator, embedding,
                  duration=3.0, overlap=0.0, normalize=False,
-                 n_labels=40, n_samples=40, embedding_batch_size=32):
+                 n_labels=40, per_label=40, embedding_batch_size=32):
         super(YaafeTripletLossGenerator, self).__init__()
 
         self.extractor = extractor
@@ -71,7 +71,7 @@ class YaafeTripletLossGenerator(object):
         self.overlap = overlap
         self.normalize = normalize
         self.n_labels = n_labels
-        self.n_samples = n_samples
+        self.per_label = per_label
         self.embedding_batch_size = embedding_batch_size
 
         fragment_generator = SlidingLabeledSegments(
@@ -116,19 +116,19 @@ class YaafeTripletLossGenerator(object):
             # labels = np.random.choice(
             #     n, size=self.n_labels, replace=False, p=None)
 
-                # select min(n_samples, count) sequences
+                # select min(per_label, count) sequences
                 # at random for each label
                 indices = []
-                n_samples = []
+                per_label = []
                 for label in labels:
-                    n_samples.append(min(self.n_samples, counts[label]))
+                    per_label.append(min(self.per_label, counts[label]))
                     i = np.random.choice(
                         np.where(y == label)[0],
-                        size=n_samples[-1],
+                        size=per_label[-1],
                         replace=True)
                     indices.append(i)
                 indices = np.hstack(indices)
-                n_samples = np.hstack([[0], np.cumsum(n_samples)])
+                per_label = np.hstack([[0], np.cumsum(per_label)])
 
                 # pre-compute distances
                 sequences = X[indices]
@@ -138,14 +138,14 @@ class YaafeTripletLossGenerator(object):
 
                 for i in range(self.n_labels):
 
-                    positives = list(range(n_samples[i], n_samples[i+1]))
-                    negatives = list(range(n_samples[i])) + list(range(n_samples[i+1], n_samples[-1]))
+                    positives = list(range(per_label[i], per_label[i+1]))
+                    negatives = list(range(per_label[i])) + list(range(per_label[i+1], per_label[-1]))
 
-                    # positives = list(range(i * self.n_samples,
-                    #                        (i+1) * self.n_samples))
-                    # negatives = list(range(i * self.n_samples)) + \
-                    #             list(range((i+1) * self.n_samples,
-                    #                        self.n_labels * self.n_samples))
+                    # positives = list(range(i * self.per_label,
+                    #                        (i+1) * self.per_label))
+                    # negatives = list(range(i * self.per_label)) + \
+                    #             list(range((i+1) * self.per_label,
+                    #                        self.n_labels * self.per_label))
 
                     # loop over all (anchor, positive) pairs for current label
                     for anchor, positive in itertools.combinations(positives, 2):
@@ -203,7 +203,7 @@ class YaafeTripletLossBatchGenerator(BaseBatchGenerator):
         When True, normalize sequence (z-score). Defaults to False.
     n_labels: int, optional
         Number of labels per batch. Defaults to 40.
-    n_samples: int, optional
+    per_label: int, optional
         Number of samples per label. Defaults to 40.
     batch_size: int, optional
         Number of sequences per batch. Defaults to 32
@@ -211,13 +211,14 @@ class YaafeTripletLossBatchGenerator(BaseBatchGenerator):
 
     def __init__(self, file_generator, extractor, embedding,
                  duration=3.0, overlap=0.0, normalize=False,
-                 n_labels=40, n_samples=40,
+                 n_labels=40, per_label=40,
                  batch_size=32):
 
         self.triplet_generator_ = YaafeTripletLossGenerator(
             extractor, file_generator, embedding,
             duration=duration, overlap=overlap, normalize=normalize,
-            n_labels=n_labels, n_samples=n_samples)
+            n_labels=n_labels, per_label=per_label,
+            embedding_batch_size=batch_size)
 
         super(YaafeTripletLossBatchGenerator, self).__init__(
             self.triplet_generator_, batch_size=batch_size)
