@@ -1,4 +1,4 @@
-workdir: '/vol/work1/bredin/keras/gender/wip'
+etape: '/Users/bredin/Corpora/etape'
 
 feature_extraction:
    mfcc:
@@ -8,23 +8,25 @@ feature_extraction:
       coefs: 11
       D: True
       DD: True
-   duration: 3.2
+   duration: 2.0
    normalize: True
 
 embedding:
-   output_dim: 8
+   margin: 0.2
+   output_dim: 4
    lstm: [8, ]
    dense: []
    dropout: 0.0
-   bi_directional: False
+   bidirectional: False
 
 training:
-   margin: 0.2
-   per_label: 40
-   batch_size: 32
-   batch_per_epoch: 100
+   n_labels_estimate: 120
+   triplet:
+     n_labels: 40
+     per_label: 40
+   batch_size: 1560
    nb_epoch: 1000
 
-testing: 
+testing:
    per_label: 40
    batch_size: 40
