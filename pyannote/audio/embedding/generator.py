@@ -112,10 +112,6 @@ class YaafeTripletLossGenerator(object):
                 to_label = (k+1) * self.n_labels
                 labels = shuffled_labels[from_label: to_label]
 
-            # # -- select a subset of labels at random
-            # labels = np.random.choice(
-            #     n, size=self.n_labels, replace=False, p=None)
-
                 # select min(per_label, count) sequences
                 # at random for each label
                 indices = []
@@ -140,12 +136,6 @@ class YaafeTripletLossGenerator(object):
 
                     positives = list(range(per_label[i], per_label[i+1]))
                     negatives = list(range(per_label[i])) + list(range(per_label[i+1], per_label[-1]))
-
-                    # positives = list(range(i * self.per_label,
-                    #                        (i+1) * self.per_label))
-                    # negatives = list(range(i * self.per_label)) + \
-                    #             list(range((i+1) * self.per_label,
-                    #                        self.n_labels * self.per_label))
 
                     # loop over all (anchor, positive) pairs for current label
                     for anchor, positive in itertools.combinations(positives, 2):
