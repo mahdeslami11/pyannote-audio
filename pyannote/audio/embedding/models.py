@@ -210,6 +210,7 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
             x = Dense(output_dim, activation='tanh')(x)
 
         # stack final dense layer
+        # FIXME Grégory says 'linear' instead of 'tanh'
         x = Dense(self.output_dim, activation='tanh')(x)
 
         # stack L2 normalization layer
