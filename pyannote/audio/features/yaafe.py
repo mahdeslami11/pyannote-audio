@@ -346,6 +346,7 @@ class YaafeFileBasedBatchGenerator(FileBasedBatchGenerator):
 
     def process(self, fragment, signature=None, identifier=None):
         if signature['type'] == PYANNOTE_SEGMENT:
+            # FIXME use feature.crop(mode='center', fixed=duration) instead
             i0, _ = self.fe_frame.segmentToRange(fragment)
             x = self.X_[identifier][i0:i0+self.fe_n]
             if self.normalize:
