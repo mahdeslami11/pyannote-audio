@@ -34,6 +34,7 @@ from keras.models import Model
 
 from keras.layers import Input
 from keras.layers import LSTM
+from keras.layers import Dropout
 from keras.layers import Dense
 from keras.layers import Lambda
 from keras.layers import merge
@@ -208,10 +209,12 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
         # stack dense layers
         for i, output_dim in enumerate(self.dense):
             x = Dense(output_dim, activation='tanh')(x)
+            # x = Dropout(0.0)(x)
 
         # stack final dense layer
         # FIXME Grégory says 'linear' instead of 'tanh'
         x = Dense(self.output_dim, activation='tanh')(x)
+        # x = Dropout(0.5)(x)
 
         # stack L2 normalization layer
         embeddings = Lambda(lambda x: K.l2_normalize(x, axis=-1),
