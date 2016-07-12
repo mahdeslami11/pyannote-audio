@@ -27,9 +27,24 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 
+from scipy.stats import zscore
+
+
 class YaafeMixin:
 
+    def get_shape(self):
+        return self.yaafe_get_shape()
+
+    def yaafe_get_shape(self):
+        n_samples = self.feature_extractor.sliding_window().samples(self.duration, mode='center')
+        dimension = self.feature_extractor.dimension()
+        return (n_samples, dimension)
+
     # defaults to features pre-computing
+    def preprocess(self, current_file, identifier=None):
+        return self.yaafe_preprocess(
+            current_file, identifier=identifier)
+
     def yaafe_preprocess(self, current_file, identifier=None):
 
         if not hasattr(self, 'preprocessed_'):
@@ -44,3 +59,19 @@ class YaafeMixin:
         self.preprocessed_['X'][identifier] = features
 
         return current_file
+
+    # defaults to extracting frames centered on segment
+    def process_segment(self, segment, signature=None, identifier=None):
+        return self.yaafe_process_segment(
+            segment, signature=signature, identifier=identifier)
+
+    def yaafe_process_segment(self, segment, signature=None, identifier=None):
+
+        duration = signature.get('duration', None)
+
+        X = self.preprocessed_['X'][identifier].crop(
+            segment, mode='center', fixed=duration)
+        if self.normalize:
+            X = zscore(X, axis=0)
+
+        return X
