@@ -50,12 +50,11 @@ class SpeechActivityDetectionBatchGenerator(YaafeMixin, FileBasedBatchGenerator)
 
     def signature(self):
 
-        n_samples = self.feature_extractor.sliding_window().samples(self.duration, mode='center')
-        dimension = self.feature_extractor.dimension()
+        shape = self.yaafe_get_shape()
 
         return [
-            {'type': 'sequence', 'shape': (n_samples, dimension)},
-            {'type': 'sequence', 'shape': (n_samples, 1)}
+            {'type': 'sequence', 'shape': shape},
+            {'type': 'sequence', 'shape': (shape[0], 1)}
         ]
 
     def preprocess(self, current_file, identifier=None):
@@ -94,12 +93,10 @@ class SpeechActivityDetectionBatchGenerator(YaafeMixin, FileBasedBatchGenerator)
     def process_segment(self, segment, signature=None, identifier=None):
         """Extract X and y subsequences"""
 
-        duration = signature.get('duration', None)
+        X = self.yaafe_process_segment(
+            segment, signature=signature, identifier=identifier)
 
-        X = self.preprocessed_['X'][identifier].crop(
-            segment, mode='center', fixed=duration)
-        if self.normalize:
-            X = zscore(X, axis=0)
+        duration = signature.get('duration', None)
 
         y = self.preprocessed_['y'][identifier].crop(
             segment, mode='center', fixed=duration)
