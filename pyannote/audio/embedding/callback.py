@@ -112,20 +112,21 @@ class ValidationCheckpoint(Callback):
             plt.plot([recall[F]], [precision[F]], 'bo')
             plt.xlabel('Recall')
             plt.ylabel('Precision')
+            plt.title('F-Score = {fscore:.3f}'.format(
+                fscore=self.fscore[dataset][-1]))
             plt.xlim(0, 1)
             plt.ylim(0, 1)
 
             # plot fscore and accuracy curves
             # show best operating points
             plt.subplot(3, 3, 3 * i + 3)
-            plt.plot(thresholds, fscore[:-1], 'b', label='f-score')
-            plt.plot(thresholds, accuracy, 'g', label='accuracy')
+            plt.plot(thresholds, accuracy, 'g')
             plt.xlabel('Threshold')
             plt.xlim(np.min(bins), np.max(bins))
             plt.ylim(0, 1)
-            plt.plot([thresholds[F]], [fscore[F]], 'bo')
             plt.plot([thresholds[A]], [accuracy[A]], 'go')
-            plt.legend(loc='lower right')
+            plt.title('Accuracy = {accuracy:.3f}'.format(
+                accuracy=self.accuracy[dataset][-1]))
 
         # test set
         file_generator = self.protocol.test_iter()
@@ -152,42 +153,52 @@ class ValidationCheckpoint(Callback):
         plt.plot([recall[f]], [precision[f]], 'bo')
         plt.xlabel('Recall')
         plt.ylabel('Precision')
+        plt.title('F-Score = {fscore:.3f}'.format(
+            fscore=self.fscore['test'][-1]))
         plt.xlim(0, 1)
         plt.ylim(0, 1)
 
         # plot fscore and accuracy curves
         # show dev-optimized operating points
         plt.subplot(3, 3, 9)
-        plt.plot(thresholds, fscore[:-1], 'b', label='f-score')
         plt.plot(thresholds, accuracy, 'g', label='accuracy')
         plt.xlabel('Threshold')
         plt.xlim(np.min(bins), np.max(bins))
         plt.ylim(0, 1)
-        plt.plot([thresholds[f]], [fscore[f]], 'bo')
         plt.plot([thresholds[a]], [accuracy[a]], 'go')
+        plt.title('Accuracy = {accuracy:.3f}'.format(
+            accuracy=self.accuracy['test'][-1]))
 
         plt.tight_layout()
-        plt.savefig(self.checkpoint + '/{epoch:03d}.png'.format(epoch=epoch), dpi=150)
-        plt.savefig(self.checkpoint + '/{epoch:03d}.eps'.format(epoch=epoch))
+        plt.savefig(self.checkpoint + '/{epoch:03d}.png'.format(epoch=epoch), dpi=50)
+        plt.savefig(self.checkpoint + '/latest.png', dpi=150)
+        plt.savefig(self.checkpoint + '/latest.eps')
         plt.close()
 
-        plt.figure(figsize=(4, 8))
+        plt.figure(figsize=(12, 4))
 
-        plt.subplot(2, 1, 2)
-        plt.plot(self.accuracy['train'], 'g', label='Accuracy (train)')
-        plt.plot(self.accuracy['dev'], 'b', label='Accuracy (dev)')
-        plt.plot(self.accuracy['test'], 'r', label='Accuracy (test)')
-        plt.plot(self.fscore['train'], 'g--', label='FScore (train)')
-        plt.plot(self.fscore['dev'], 'b--', label='FScore (dev)')
-        plt.plot(self.fscore['test'], 'r--', label='FScore (test)')
-        plt.title('Evaluation')
-        plt.xlabel('Epoch')
-        plt.ylim(0, 1)
-        plt.legend(loc='lower right', prop={'size': 6})
-        plt.subplot(2, 1, 1)
+        plt.subplot(1, 3, 1)
         plt.plot(self.loss, 'b')
         plt.xlabel('Epoch')
-        plt.title('Loss (train)')
+        plt.title('Loss')
+
+        plt.subplot(1, 3, 2)
+        plt.plot(self.accuracy['train'], 'g', label='train')
+        plt.plot(self.accuracy['dev'], 'b', label='dev')
+        plt.plot(self.accuracy['test'], 'r', label='test')
+        plt.xlabel('Epoch')
+        plt.ylim(0, 1)
+        plt.title('Accuracy')
+        plt.legend(loc='lower right')
+
+        plt.subplot(1, 3, 3)
+        plt.plot(self.fscore['train'], 'g', label='train')
+        plt.plot(self.fscore['dev'], 'b', label='dev')
+        plt.plot(self.fscore['test'], 'r', label='test')
+        plt.xlabel('Epoch')
+        plt.ylim(0, 1)
+        plt.title('F-Score')
+        plt.legend(loc='lower right')
 
         plt.tight_layout()
 
