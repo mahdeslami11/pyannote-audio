@@ -30,11 +30,10 @@ import itertools
 import numpy as np
 from scipy.spatial.distance import pdist, squareform
 from pyannote.generators.batch import BaseBatchGenerator
-from pyannote.generators.fragment import SlidingLabeledSegments
-from ..features.yaafe import YaafeFileBasedBatchGenerator
+from ..generators.speaker import SpeakerEmbeddingBatchGenerator
 
 
-class YaafeTripletLossGenerator(object):
+class TripletGenerator(object):
     """Yaafe sequence generator for triplet loss
 
     Parameter
@@ -55,14 +54,15 @@ class YaafeTripletLossGenerator(object):
         Number of labels per group. Defaults to 40.
     per_label: int, optional
         Number of samples per label. Defaults to 40.
-    embedding_batch_size: int, optional
+    batch_size: int, optional
+    forward_batch_size: int, optional
         Batch size to use for embedding. Defaults to 32.
     """
 
     def __init__(self, extractor, file_generator, embedding,
                  duration=3.0, overlap=0.0, normalize=False,
-                 n_labels=40, per_label=40, embedding_batch_size=32):
-        super(YaafeTripletLossGenerator, self).__init__()
+                 n_labels=40, per_label=40,
+                 batch_size=32, forward_batch_size=32):
 
         self.extractor = extractor
         self.file_generator = file_generator
@@ -72,19 +72,19 @@ class YaafeTripletLossGenerator(object):
         self.normalize = normalize
         self.n_labels = n_labels
         self.per_label = per_label
-        self.embedding_batch_size = embedding_batch_size
+        self.forward_batch_size = forward_batch_size
 
-        fragment_generator = SlidingLabeledSegments(
-            duration=self.duration,
-            step=(1 - self.overlap) * self.duration)
-
-        self.batch_sequence_generator_ = YaafeFileBasedBatchGenerator(
+        self.batch_sequence_generator_ = SpeakerEmbeddingBatchGenerator(
             self.extractor,
-            fragment_generator,
-            batch_size=-1,
-            normalize=self.normalize)
+            duration=self.duration,
+            normalize=self.normalize,
+            step=(1 - self.overlap) * self.duration,
+            batch_size=-1)
 
         self.triplet_generator_ = self.iter_triplets()
+
+        super(TripletGenerator, self).__init__()
+
 
     def iter_triplets(self):
 
@@ -129,7 +129,7 @@ class YaafeTripletLossGenerator(object):
                 # pre-compute distances
                 sequences = X[indices]
                 embeddings = self.embedding.transform(
-                    sequences, batch_size=self.embedding_batch_size)
+                    sequences, batch_size=self.forward_batch_size)
                 distances = squareform(pdist(embeddings, metric='euclidean'))
 
                 for i in range(self.n_labels):
@@ -165,7 +165,7 @@ class YaafeTripletLossGenerator(object):
         return self.batch_sequence_generator_.get_shape()
 
     def signature(self):
-        shape = self.batch_sequence_generator_.get_shape()
+        shape = self.get_shape()
         return (
             [
                 {'type': 'sequence', 'shape': shape},
@@ -173,10 +173,10 @@ class YaafeTripletLossGenerator(object):
                 {'type': 'sequence', 'shape': shape}
             ],
             {'type': 'boolean'}
-         )
+        )
 
 
-class YaafeTripletLossBatchGenerator(BaseBatchGenerator):
+class TripletBatchGenerator(BaseBatchGenerator):
     """Yaafe batch generator for triplet loss
 
     Parameter
@@ -197,21 +197,26 @@ class YaafeTripletLossBatchGenerator(BaseBatchGenerator):
         Number of samples per label. Defaults to 40.
     batch_size: int, optional
         Number of sequences per batch. Defaults to 32
+    forward_batch_size: int, optional
+        Number of sequences per batch in forward pass.
     """
 
-    def __init__(self, file_generator, extractor, embedding,
+    def __init__(self, extractor, file_generator, embedding,
                  duration=3.0, overlap=0.0, normalize=False,
                  n_labels=40, per_label=40,
-                 batch_size=32):
+                 batch_size=32, forward_batch_size=32):
 
-        self.triplet_generator_ = YaafeTripletLossGenerator(
+        self.triplet_generator_ = TripletGenerator(
             extractor, file_generator, embedding,
             duration=duration, overlap=overlap, normalize=normalize,
             n_labels=n_labels, per_label=per_label,
-            embedding_batch_size=batch_size)
+            forward_batch_size=forward_batch_size)
 
-        super(YaafeTripletLossBatchGenerator, self).__init__(
+        super(TripletBatchGenerator, self).__init__(
             self.triplet_generator_, batch_size=batch_size)
+
+    def signature(self):
+        return self.triplet_generator_.signature()
 
     def get_shape(self):
         return self.triplet_generator_.get_shape()
