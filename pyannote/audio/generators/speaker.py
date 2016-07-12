@@ -28,10 +28,9 @@
 
 
 from .base import YaafeMixin
-from pyannote.core import SlidingWindowFeature
 from pyannote.generators.fragment import SlidingLabeledSegments
+from pyannote.generators.fragment import RandomSegmentPairs
 from pyannote.generators.batch import FileBasedBatchGenerator
-from scipy.stats import zscore
 
 
 class SpeakerEmbeddingBatchGenerator(YaafeMixin, FileBasedBatchGenerator):
@@ -39,7 +38,8 @@ class SpeakerEmbeddingBatchGenerator(YaafeMixin, FileBasedBatchGenerator):
     def __init__(self, feature_extractor, duration=3.2, normalize=False,
                  step=0.8, batch_size=32):
 
-        segment_generator = SlidingLabeledSegments(duration=duration, step=step)
+        segment_generator = SlidingLabeledSegments(duration=duration,
+                                                   step=step)
         super(SpeakerEmbeddingBatchGenerator, self).__init__(
             segment_generator, batch_size=batch_size)
 
@@ -48,32 +48,35 @@ class SpeakerEmbeddingBatchGenerator(YaafeMixin, FileBasedBatchGenerator):
         self.step = step
         self.normalize = normalize
 
-    def get_shape(self):
-        n_samples = self.feature_extractor.sliding_window().samples(self.duration, mode='center')
-        dimension = self.feature_extractor.dimension()
-        return (n_samples, dimension)
-
     def signature(self):
         return [
             {'type': 'sequence', 'shape': self.get_shape()},
             {'type': 'label'}
         ]
 
-    def preprocess(self, current_file, identifier=None):
-        """Pre-compute file-wise X"""
 
-        return self.yaafe_preprocess(
-            current_file, identifier=identifier)
+class SpeakerPairsBatchGenerator(YaafeMixin, FileBasedBatchGenerator):
 
-    # defaults to extracting frames centered on segment
-    def process_segment(self, segment, signature=None, identifier=None):
-        """Extract X subsequence"""
+    def __init__(self, feature_extractor, duration=3.2, normalize=False,
+                 per_label=40, batch_size=32):
 
-        duration = signature.get('duration', None)
+        pair_generator = RandomSegmentPairs(duration=duration,
+                                            per_label=per_label,
+                                            yield_label=False)
+        super(SpeakerPairsBatchGenerator, self).__init__(
+            pair_generator, batch_size=batch_size)
 
-        X = self.preprocessed_['X'][identifier].crop(
-            segment, mode='center', fixed=duration)
-        if self.normalize:
-            X = zscore(X, axis=0)
+        self.feature_extractor = feature_extractor
+        self.duration = duration
+        self.normalize = normalize
+        self.per_label = per_label
 
-        return X
+    def signature(self):
+        shape = self.get_shape()
+        return [
+            (
+                {'type': 'sequence', 'shape': shape},
+                {'type': 'sequence', 'shape': shape},
+            ),
+            {'type': 'boolean'},
+        ]
