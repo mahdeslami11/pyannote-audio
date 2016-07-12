@@ -1,4 +1,4 @@
-etape: '/Users/bredin/Corpora/etape'
+etape: '/vol/work1/bredin/corpus/odessa/etape'
 
 feature_extraction:
    mfcc:
@@ -8,16 +8,16 @@ feature_extraction:
       coefs: 11
       D: True
       DD: True
-   duration: 2.0
+   duration: 3.0
    normalize: True
 
 embedding:
    margin: 0.2
-   output_dim: 4
-   lstm: [8, ]
-   dense: []
-   dropout: 0.0
-   bidirectional: False
+   output_dim: 16
+   lstm: [16, ]
+   dense: [16]
+   bidirectional: True
+   space: sphere
 
 training:
    n_labels_estimate: 120
@@ -26,6 +26,7 @@ training:
      per_label: 40
    batch_size: 1560
    nb_epoch: 1000
+   optimizer: rmsprop
 
 testing:
    per_label: 40
