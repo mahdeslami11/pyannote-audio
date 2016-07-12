@@ -17,14 +17,11 @@ from pyannote.audio.features.yaafe import YaafeMFCC
 
 # TRAINING
 from pyannote.audio.embedding.models import TripletLossSequenceEmbedding
-from pyannote.audio.embedding.generator import YaafeTripletLossBatchGenerator
+from pyannote.audio.embedding.generator import TripletBatchGenerator
 
 # TESTING
 from pyannote.audio.embedding.callback import ValidationCheckpoint
-from pyannote.audio.features.yaafe import YaafeFileBasedBatchGenerator
-from pyannote.generators.fragment import RandomSegmentPairs
-import numpy as np
-
+from pyannote.audio.generators.speaker import SpeakerPairsBatchGenerator
 
 config_path = sys.argv[1]
 workdir = os.path.dirname(config_path)
@@ -52,10 +49,10 @@ output_dim = config['embedding']['output_dim']
 # internal embedding structure
 lstm = config['embedding']['lstm']
 dense = config['embedding']['dense']
-# dropout
-dropout = config['embedding']['dropout']
 # bi-directional
 bidirectional = config['embedding']['bidirectional']
+# final activation
+space = config['embedding']['space'] # 'sphere' or 'quadrant'
 
 # -- TRAINING --
 
@@ -70,6 +67,8 @@ per_label = config['training']['triplet']['per_label']
 batch_size = config['training']['batch_size']
 # number of epochs
 nb_epoch = config['training']['nb_epoch']
+# optimizer
+optimizer = config['training']['optimizer']
 
 # -- TESTING --
 
@@ -81,45 +80,29 @@ batch_size_test = config['testing']['batch_size']
 checkpoint_h5 = workdir + '/weights.{epoch:03d}.{loss:.3f}.h5'
 architecture_yml = workdir + '/architecture.yml'
 
-
-class PairBatchGenerator(YaafeFileBasedBatchGenerator):
-
-    def __init__(self, extractor, duration=3.2,
-                 normalize=False, per_label=40, batch_size=32):
-
-        generator = RandomSegmentPairs(
-            duration=duration,
-            per_label=per_label,
-            yield_label=False)
-
-        super(PairBatchGenerator, self).__init__(
-            extractor,
-            generator,
-            batch_size=batch_size,
-            normalize=normalize)
-
-
 # embedding
 embedding = TripletLossSequenceEmbedding(
-    output_dim, lstm=lstm, dense=dense, bidirectional=bidirectional,
-    margin=margin, checkpoint=checkpoint_h5)
+    output_dim, lstm=lstm, dense=dense,
+    bidirectional=bidirectional, space=space,
+    margin=margin, optimizer=optimizer,
+    checkpoint=checkpoint_h5)
 
 # pair generator for testing
-pair_batch_generator = PairBatchGenerator(
+pair_generator = SpeakerPairsBatchGenerator(
     feature_extractor,
     duration=duration, normalize=normalize,
     per_label=per_label_test, batch_size=batch_size_test)
 
 validation_checkpoint = ValidationCheckpoint(
-    embedding, pair_batch_generator, protocol, checkpoint=workdir)
+    embedding, pair_generator, protocol, checkpoint=workdir)
 
 # triplet generator for training
 file_generator = protocol.train_iter()
-triplet_batch_generator = YaafeTripletLossBatchGenerator(
-    file_generator, feature_extractor, embedding,
+triplet_batch_generator = TripletBatchGenerator(
+    feature_extractor, file_generator, embedding,
     duration=duration, overlap=0.0, normalize=normalize,
     n_labels=n_labels, per_label=per_label,
-    batch_size=batch_size)
+    batch_size=batch_size, forward_batch_size=n_labels * per_label)
 
 input_shape = triplet_batch_generator.get_shape()
 
