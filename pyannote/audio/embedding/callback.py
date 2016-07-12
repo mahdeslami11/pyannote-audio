@@ -170,9 +170,15 @@ class ValidationCheckpoint(Callback):
             accuracy=self.accuracy['test'][-1]))
 
         plt.tight_layout()
-        plt.savefig(self.checkpoint + '/{epoch:03d}.png'.format(epoch=epoch), dpi=50)
-        plt.savefig(self.checkpoint + '/latest.png', dpi=150)
-        plt.savefig(self.checkpoint + '/latest.eps')
+        
+        try:
+            plt.savefig(self.checkpoint + '/{epoch:03d}.png'.format(epoch=epoch), dpi=50)
+            plt.savefig(self.checkpoint + '/latest.png', dpi=150)
+            plt.savefig(self.checkpoint + '/latest.eps')
+        except Exception as e:
+            # chat échaudé craint l'eau froide
+            pass
+
         plt.close()
 
         plt.figure(figsize=(12, 4))
@@ -202,6 +208,11 @@ class ValidationCheckpoint(Callback):
 
         plt.tight_layout()
 
-        plt.savefig(self.checkpoint + '/status.png', dpi=150)
-        plt.savefig(self.checkpoint + '/status.eps')
+        try:
+            plt.savefig(self.checkpoint + '/status.png', dpi=150)
+            plt.savefig(self.checkpoint + '/status.eps')
+        except Exception as e:
+            # chat échaudé craint l'eau froide
+            pass
+
         plt.close()
