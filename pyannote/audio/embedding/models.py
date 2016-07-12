@@ -91,7 +91,7 @@ class SequenceEmbedding(object):
             embedding = self.get_embedding(model)
 
         elif hasattr(self, 'embedding_'):
-            embedding = self._embedding
+            embedding = self.embedding_
 
         elif input_shape is None:
             raise ValueError('Cannot save embedding to disk because input_shape is missing.')
