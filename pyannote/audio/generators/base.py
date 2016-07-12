@@ -27,39 +27,20 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 
-import versioneer
+class YaafeMixin:
 
-from setuptools import setup, find_packages
+    # defaults to features pre-computing
+    def yaafe_preprocess(self, current_file, identifier=None):
 
-setup(
+        if not hasattr(self, 'preprocessed_'):
+            self.preprocessed_ = {}
 
-    # package
-    namespace_packages=['pyannote'],
-    packages=find_packages(),
-    install_requires=[
-        'pyannote.core >= 0.7.2',
-        'pyannote.generators >= 0.1'
-    ],
-    # versioneer
-    version=versioneer.get_version(),
-    cmdclass=versioneer.get_cmdclass(),
+        if identifier in self.preprocessed_.setdefault('X', {}):
+            return current_file
 
-    # PyPI
-    name='pyannote.audio',
-    description=('Audio processing'),
-    author='Hervé Bredin',
-    author_email='bredin@limsi.fr',
-    url='http://herve.niderb.fr/',
-    classifiers=[
-        "Development Status :: 4 - Beta",
-        "Intended Audience :: Science/Research",
-        "License :: OSI Approved :: MIT License",
-        "Natural Language :: English",
-        "Programming Language :: Python :: 2",
-        "Programming Language :: Python :: 2.7",
-        "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.4",
-        "Programming Language :: Python :: 3.5",
-        "Topic :: Scientific/Engineering"
-    ],
-)
+        wav, _, _ = current_file
+        features = self.feature_extractor(wav)
+
+        self.preprocessed_['X'][identifier] = features
+
+        return current_file
