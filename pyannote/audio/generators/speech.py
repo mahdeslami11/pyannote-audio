@@ -37,7 +37,7 @@ import numpy as np
 class SpeechActivityDetectionBatchGenerator(YaafeMixin, FileBasedBatchGenerator):
 
     def __init__(self, feature_extractor, duration=3.2, normalize=False,
-                 step=0.8, batch_size=32):
+                 step=0.8, categorical=False, batch_size=32):
 
         segment_generator = SlidingSegments(duration=duration, step=step, source='uem')
         super(SpeechActivityDetectionBatchGenerator, self).__init__(
@@ -47,14 +47,16 @@ class SpeechActivityDetectionBatchGenerator(YaafeMixin, FileBasedBatchGenerator)
         self.duration = duration
         self.step = step
         self.normalize = normalize
+        self.categorical = categorical
 
     def signature(self):
 
         shape = self.yaafe_get_shape()
+        dimension = 2 if self.categorical else 1
 
         return [
             {'type': 'sequence', 'shape': shape},
-            {'type': 'sequence', 'shape': (shape[0], 1)}
+            {'type': 'sequence', 'shape': (shape[0], dimension)}
         ]
 
     def preprocess(self, current_file, identifier=None):
@@ -70,19 +72,29 @@ class SpeechActivityDetectionBatchGenerator(YaafeMixin, FileBasedBatchGenerator)
         sw = X.sliding_window
         n_samples = X.getNumber()
 
-        y = -np.ones((n_samples + 1, 1), dtype=np.int8)
-        # 1 => speech / 0 => non speech / -1 => unknown
+        if self.categorical:
+            y = np.zeros((n_samples + 1, 2), dtype=np.int8)
+            # [0,1] ==> speech / [1, 0] ==> non speech / [0, 0] ==> unknown
+        else:
+            y = -np.ones((n_samples + 1, 1), dtype=np.int8)
+            # 1 => speech / 0 => non speech / -1 => unknown
 
         wav, uem, reference = current_file
         coverage = reference.get_timeline().coverage()
 
         for gap in coverage.gaps(uem):
             indices = sw.crop(gap, mode='loose')
-            y[indices] = 0
+            if self.categorical:
+                y[indices, 0] = 1
+            else:
+                y[indices] = 0
 
         for segment in coverage:
             indices = sw.crop(segment, mode='loose')
-            y[indices] = 1
+            if self.categorical:
+                y[indices, 1] = 1
+            else:
+                y[indices] = 1
 
         y = SlidingWindowFeature(y[:-1], sw)
         self.preprocessed_['y'][identifier] = y
