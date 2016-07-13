@@ -39,22 +39,8 @@ from keras.layers import Dense
 from keras.layers import Lambda
 from keras.layers import merge
 
-from keras.callbacks import Callback
+from .callback import EmbeddingCheckpoint
 from keras.models import model_from_yaml
-
-
-class EmbeddingCheckpoint(Callback):
-
-    def __init__(self, sequence_embedding,
-                       checkpoint='weights.{epoch:03d}-{loss:.2f}.hdf5'):
-        super(EmbeddingCheckpoint, self).__init__()
-        self.sequence_embedding = sequence_embedding
-        self.checkpoint = checkpoint
-
-    def on_epoch_end(self, epoch, logs={}):
-        weights = self.checkpoint.format(epoch=epoch, **logs)
-        self.sequence_embedding.to_disk(
-            weights=weights, overwrite=True, model=self.model)
 
 
 class SequenceEmbedding(object):
