@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016 CNRS
+# Copyright (c) 2014-2016 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -25,41 +25,3 @@
 
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
-
-
-import versioneer
-
-from setuptools import setup, find_packages
-
-setup(
-
-    # package
-    namespace_packages=['pyannote'],
-    packages=find_packages(),
-    install_requires=[
-        'pyannote.core >= 0.7.2',
-        'pyannote.generators >= 0.1'
-    ],
-    # versioneer
-    version=versioneer.get_version(),
-    cmdclass=versioneer.get_cmdclass(),
-
-    # PyPI
-    name='pyannote.audio',
-    description=('Audio processing'),
-    author='Hervé Bredin',
-    author_email='bredin@limsi.fr',
-    url='http://herve.niderb.fr/',
-    classifiers=[
-        "Development Status :: 4 - Beta",
-        "Intended Audience :: Science/Research",
-        "License :: OSI Approved :: MIT License",
-        "Natural Language :: English",
-        "Programming Language :: Python :: 2",
-        "Programming Language :: Python :: 2.7",
-        "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.4",
-        "Programming Language :: Python :: 3.5",
-        "Topic :: Scientific/Engineering"
-    ],
-)

@@ -34,26 +34,13 @@ from keras.models import Model
 
 from keras.layers import Input
 from keras.layers import LSTM
+from keras.layers import Dropout
 from keras.layers import Dense
 from keras.layers import Lambda
 from keras.layers import merge
 
-from keras.callbacks import Callback
+from .callback import EmbeddingCheckpoint
 from keras.models import model_from_yaml
-
-
-class EmbeddingCheckpoint(Callback):
-
-    def __init__(self, sequence_embedding,
-                       checkpoint='weights.{epoch:03d}-{loss:.2f}.hdf5'):
-        super(EmbeddingCheckpoint, self).__init__()
-        self.sequence_embedding = sequence_embedding
-        self.checkpoint = checkpoint
-
-    def on_epoch_end(self, epoch, logs={}):
-        weights = self.checkpoint.format(epoch=epoch, **logs)
-        self.sequence_embedding.to_disk(
-            weights=weights, overwrite=True, model=self.model)
 
 
 class SequenceEmbedding(object):
@@ -90,7 +77,7 @@ class SequenceEmbedding(object):
             embedding = self.get_embedding(model)
 
         elif hasattr(self, 'embedding_'):
-            embedding = self._embedding
+            embedding = self.embedding_
 
         elif input_shape is None:
             raise ValueError('Cannot save embedding to disk because input_shape is missing.')
@@ -136,25 +123,37 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
         Embedding dimension.
     margin: float, optional
         Defaults to 0.2
-    lstm: list
+    lstm: list, optional
         List of output dimension of stacked LSTMs.
         Defaults to [12, ] (i.e. one LSTM with output dimension 12)
-    dense: list
+    dense: list, optional
         List of output dimension of additionnal stacked dense layers.
         Defaults to [] (i.e. do not add any dense layer)
+    bidirectional: boolean, optional
+        When True, use bi-directional LSTMs
+    space: {'sphere', 'quadrant'}, optional
+        When 'sphere' (resp. 'quadrant'), use 'tanh' (resp. 'sigmoid') as
+        final activation. Defaults to 'sphere'.
+    optimizer: str, optional
+        Keras optimizer. Defaults to 'rmsprop'.
     checkpoint: str
+        Where to store weights after each epoch
         Defaults to 'weights.{epoch:03d}.hdf5'
     """
-    def __init__(self, output_dim, margin=0.2, lstm=[12], dense=[],
-                 bidirectional=False, optimizer='rmsprop',
+    def __init__(self, output_dim, lstm=[12], dense=[],
+                 bidirectional=False, space='sphere',
+                 margin=0.2, optimizer='rmsprop',
                  checkpoint='weights.{epoch:03d}.hdf5'):
+
         super(TripletLossSequenceEmbedding, self).__init__(
             checkpoint=checkpoint)
+
         self.output_dim = output_dim
         self.margin = margin
         self.lstm = lstm
         self.dense = dense
         self.bidirectional = bidirectional
+        self.space = space
         self.optimizer = optimizer
 
     def design_embedding(self, input_shape):
@@ -210,7 +209,11 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
             x = Dense(output_dim, activation='tanh')(x)
 
         # stack final dense layer
-        x = Dense(self.output_dim, activation='tanh')(x)
+        if self.space == 'sphere':
+            activation = 'tanh'
+        elif self.space == 'quadrant':
+            activation = 'sigmoid'
+        x = Dense(self.output_dim, activation=activation)(x)
 
         # stack L2 normalization layer
         embeddings = Lambda(lambda x: K.l2_normalize(x, axis=-1),
