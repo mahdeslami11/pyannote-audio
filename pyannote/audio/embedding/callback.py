@@ -26,9 +26,11 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-
 import matplotlib
-matplotlib.use('Agg')
+import warnings
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from keras.callbacks import Callback
@@ -187,7 +189,7 @@ class ValidationCheckpoint(Callback):
             accuracy=self.accuracy['test'][-1]))
 
         plt.tight_layout()
-        
+
         try:
             plt.savefig(self.checkpoint + '/{epoch:03d}.png'.format(epoch=epoch), dpi=50)
             plt.savefig(self.checkpoint + '/latest.png', dpi=150)
