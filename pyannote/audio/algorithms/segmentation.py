@@ -26,105 +26,216 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-
+import yaml
 import numpy as np
-import itertools
 import scipy.signal
-from ..features.yaafe import YaafeFileBasedBatchGenerator
-from ..features.utils import get_wav_duration
-from pyannote.generators.fragment import SlidingSegments
-from pyannote.core import Segment, Timeline
-from ..embedding.models import SequenceEmbedding
+
+from pyannote.core import Segment, Annotation
 from pyannote.core.util import pairwise
 
+from pyannote.generators.batch import FileBasedBatchGenerator
+from pyannote.generators.fragment import TwinSlidingSegments
 
-class Segmentation(object):
+from ..embedding.models import SequenceEmbedding
+
+from ..features.yaafe import YaafeMFCC
+
+from ..generators.base import YaafeMixin
+from ..features.utils import get_wav_duration
+
+
+
+
+class EmbeddingSegmenter(YaafeMixin, FileBasedBatchGenerator):
+    """
+
+    Parameters
+    ----------
+    embedding : SequenceEmbedding
+    feature_extractor : YaafeFeatureExtractor
+    duration : float, optional
+        Defaults to 3.
+    normalize : boolean, optional
+        Defaults to False.
+
+    """
+
+    PRECISION = 0.1
+    MIN_DURATION = 1.0
+    ALPHA = 1.0
 
     def __init__(self, embedding,
                  feature_extractor, duration=3.0, normalize=False,
-                 precision=0.05, min_duration=1.0, threshold=1.,
-                 batch_size=32):
-        super(Segmentation, self).__init__()
-        self.embedding = embedding
-        self.batch_size = batch_size
+                 precision=PRECISION, min_duration=MIN_DURATION, alpha=ALPHA):
+
+        # initialize twin segments generator
+        generator = TwinSlidingSegments(
+            duration=duration,
+            step=precision,
+            gap=0.0)
+
+        super(EmbeddingSegmenter, self).__init__(
+            generator,
+            batch_size=-1)
+
+        # feature sequence
         self.feature_extractor = feature_extractor
-
         self.duration = duration
-        self.precision = precision
         self.normalize = normalize
-        self.threshold = threshold
 
+        # embedding
+        self.embedding = embedding
+
+        # tunable hyper-parameters
+        self.precision = precision
         self.min_duration = min_duration
+        self.alpha = alpha
 
-        fragment_generator = SlidingSegments(duration=self.duration,
-                                             step=self.precision)
-        self.batch_generator_ = YaafeFileBasedBatchGenerator(
-            self.feature_extractor, fragment_generator,
-            batch_size=-1, normalize=self.normalize)
+    @classmethod
+    def from_disk(cls, embedding_dir,
+                  precision=PRECISION,
+                  min_duration=MIN_DURATION,
+                  alpha=ALPHA):
+        """
+        Parameters
+        ----------
+        embedding_dir : str
+        precision : float, optional
+        min_duration : float, optional
+        alpha : float, optional
+        """
 
-    def embed(self, wav, wav_duration):
+        # load best embedding
+        architecture_yml = embedding_dir + '/architecture.yml'
+        weights_h5 = embedding_dir + '/best.accuracy.h5'
+        embedding = SequenceEmbedding.from_disk(
+            architecture_yml, weights_h5)
 
-        uem = Timeline(segments=[Segment(0, get_wav_duration(wav))])
-        item = wav, uem, uem
-        batch_sequences = next(self.batch_generator_.from_file(item))
+        # feature sequence
+        config_yml = embedding_dir + '/config.yml'
+        with open(config_yml, 'r') as fp:
+            config = yaml.load(fp)
+        feature_extractor = YaafeMFCC(**config['feature_extraction']['mfcc'])
+        duration = config['feature_extraction']['duration']
+        normalize = config['feature_extraction']['normalize']
 
-        X = self.embedding.transform(
-            batch_sequences, batch_size=self.batch_size, verbose=1)
+        return cls(embedding,
+                   feature_extractor, duration=duration, normalize=normalize,
+                   precision=precision, min_duration=min_duration, alpha=alpha)
 
-        return X
+    def signature(self):
+        shape = self.get_shape()
+        return (
+            {'type': 'timestamp'},
+            {'type': 'sequence', 'shape': shape},
+            {'type': 'sequence', 'shape': shape}
+        )
 
-    def diff(self, X):
+    def postprocess_sequence(self, batch):
+        return self.embedding.transform(batch)
 
-        n = X.shape[0]
-        # TODO check that precision does evenly divide duration
-        k = int(self.duration / self.precision)
+    def _diff(self, wav):
+        """
 
-        d = np.array(
-            [np.sum((X[i] - X[i + k])**2) for i in range(n - k)])
-        t = np.array(
-            [self.duration + self.precision * i for i in range(n - k)])
+        Parameter
+        ---------
+        wav : str
+            Path to wav audio file
 
-        return t, d
+        Returns
+        -------
+        t : np.array
+            Timestamps
+        delta : np.array
+            Left-to-right Euclidean distance at each timestamp
+        """
+        current_file = wav, None, None
+        t, left, right = next(self.from_file(current_file))
+        delta = np.sqrt(np.sum((left - right) ** 2, axis=-1))
+        return t, delta
 
-    def peaks(self, t, d, threshold=None):
+    def _find_peaks(self, delta, min_duration=None):
+        """Find peaks indices
 
-        if threshold is None:
-            threshold = self.threshold
+        Parameter
+        ---------
+        delta : np.array
+            Left-to-right Euclidean distance
+        min_duration : float, optional
+            Minimum duration between two peaks, in seconds.
+            Defaults to instance `min_duration` attribute.
 
-        order = 1
-        if self.min_duration >= self.precision:
-            order = int(self.min_duration / self.precision)
-        maxima = scipy.signal.argrelmax(d, order=order)
+        Returns
+        -------
+        indices : np.array
+            Peaks indices
+        """
 
-        t_ = t[maxima]
-        d_ = d[maxima]
+        if min_duration is None:
+            min_duration = self.min_duration
 
-        # only keep high enough local maxima
-        high_maxima = np.where(d_ > threshold)
+        order = int(np.rint(min_duration / self.precision))
+        indices = scipy.signal.argrelmax(delta, order=order)[0]
 
-        return t_[high_maxima]
+        return indices
 
-    def _timeline(self, from_peaks, wav_duration):
+    def _filter_peaks(self, t, delta, indices, alpha=None):
+        """Filter out smaller peaks
 
-        # create list of segment boundaries
-        # do not forget very first and last boundaries
-        boundaries = np.hstack([[0.0], from_peaks, [wav_duration]])
+        Parameters
+        ----------
+        t : np.array
+            Timestamps
+        delta : np.array
+            Left-to-right Euclidean distance
+        indices : np.array
+            Peaks indices
+        alpha : float, optional
+            Filter out peaks smaller than μ + α x 𝜎
+            Defaults to instance `alpha` attribute
 
-        # return list of segments
-        return Timeline([Segment(*p) for p in pairwise(boundaries)])
+        Returns
+        -------
+        peaks : np.array
+            Peaks timestamps
+        """
+        if alpha is None:
+            alpha = self.alpha
 
-    def iter_steps(self, wav):
-        wav_duration = get_wav_duration(wav)
-        yield wav_duration
-        X = self.embed(wav, wav_duration)
-        yield X
-        t, d = self.diff(X)
-        yield t, d
-        peaks = self.peaks(t, d)
-        yield peaks
-        yield self._timeline(peaks, wav_duration)
+        threshold = np.mean(delta) + alpha * np.std(delta)
+        peaks = np.array([
+            t[i] for i in indices if delta[i] > threshold
+        ])
 
-    def __call__(self, wav):
-        for result in self.iter_steps(wav):
-            pass
-        return result
+        return peaks
+
+    def _build_annotation(self, wav, peaks):
+        """
+
+        Parameters
+        ----------
+        wav : str
+            Path to wav audio file
+        peaks : np.array
+            Peaks timestamps
+
+        Returns
+        -------
+        segmentation : pyannote.core.Annotation
+            Temporal segmentation
+        """
+        boundaries = np.hstack([[0], peaks, [get_wav_duration(wav)]])
+        segmentation = Annotation()
+        for i, (start, end) in enumerate(pairwise(boundaries)):
+            segment = Segment(start, end)
+            segmentation[segment] = i
+        return segmentation
+
+    def apply(self, wav):
+
+        t, delta = self._diff(wav)
+        indices = self._find_peaks(delta)
+        peaks = self._filter_peaks(t, delta, indices)
+        segmentation = self._build_annotation(wav, peaks)
+
+        return segmentation
