@@ -34,20 +34,23 @@ from scipy.stats import zscore
 import numpy as np
 
 
-class SpeechActivityDetectionBatchGenerator(YaafeMixin, FileBasedBatchGenerator):
+class SpeechActivityDetectionBatchGenerator(YaafeMixin,
+                                            FileBasedBatchGenerator):
 
     def __init__(self, feature_extractor, duration=3.2, normalize=False,
                  step=0.8, categorical=False, batch_size=32):
-
-        segment_generator = SlidingSegments(duration=duration, step=step, source='uem')
-        super(SpeechActivityDetectionBatchGenerator, self).__init__(
-            segment_generator, batch_size=batch_size)
 
         self.feature_extractor = feature_extractor
         self.duration = duration
         self.step = step
         self.normalize = normalize
         self.categorical = categorical
+
+        segment_generator = SlidingSegments(duration=duration,
+                                            step=step,
+                                            source='uem')
+        super(SpeechActivityDetectionBatchGenerator, self).__init__(
+            segment_generator, batch_size=batch_size)
 
     def signature(self):
 

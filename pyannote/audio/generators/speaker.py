@@ -38,15 +38,15 @@ class SpeakerEmbeddingBatchGenerator(YaafeMixin, FileBasedBatchGenerator):
     def __init__(self, feature_extractor, duration=3.2, normalize=False,
                  step=0.8, batch_size=32):
 
-        segment_generator = SlidingLabeledSegments(duration=duration,
-                                                   step=step)
-        super(SpeakerEmbeddingBatchGenerator, self).__init__(
-            segment_generator, batch_size=batch_size)
-
         self.feature_extractor = feature_extractor
         self.duration = duration
         self.step = step
         self.normalize = normalize
+
+        segment_generator = SlidingLabeledSegments(duration=duration,
+                                                   step=step)
+        super(SpeakerEmbeddingBatchGenerator, self).__init__(
+            segment_generator, batch_size=batch_size)
 
     def signature(self):
         return [
@@ -60,16 +60,16 @@ class SpeakerPairsBatchGenerator(YaafeMixin, FileBasedBatchGenerator):
     def __init__(self, feature_extractor, duration=3.2, normalize=False,
                  per_label=40, batch_size=32):
 
+        self.feature_extractor = feature_extractor
+        self.duration = duration
+        self.normalize = normalize
+        self.per_label = per_label
+
         pair_generator = RandomSegmentPairs(duration=duration,
                                             per_label=per_label,
                                             yield_label=False)
         super(SpeakerPairsBatchGenerator, self).__init__(
             pair_generator, batch_size=batch_size)
-
-        self.feature_extractor = feature_extractor
-        self.duration = duration
-        self.normalize = normalize
-        self.per_label = per_label
 
     def signature(self):
         shape = self.get_shape()
