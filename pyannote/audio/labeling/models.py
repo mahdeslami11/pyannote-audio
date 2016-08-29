@@ -107,9 +107,8 @@ class SequenceLabeling(object):
         if weights:
             self.model_.save_weights(weights, overwrite=overwrite)
 
-    def fit(self, input_shape, generator, samples_per_epoch, nb_epoch,
-            verbose=1, callbacks=[], validation_data=None,
-            nb_val_samples=None, class_weight={}, max_q_size=10):
+    def fit(self, input_shape, generator,
+            samples_per_epoch, nb_epoch, callbacks=[]):
         """Train model
 
         Parameters
@@ -124,18 +123,14 @@ class SequenceLabeling(object):
             default_callback = LoggingCallback(self, log_dir=self.log_dir)
             callbacks = [default_callback]
 
-        inputs = Input(shape=input_shape, name="input")
-        labels = self.design_model(input_shape)(inputs)
-        self.model_ = Model(input=inputs, output=labels)
+        self.model_ = self.design_model(input_shape)
         self.model_.compile(optimizer=self.optimizer,
                             loss='categorical_crossentropy',
                             metrics=['accuracy'])
 
         self.model_.fit_generator(
             generator, samples_per_epoch, nb_epoch,
-            verbose=1, callbacks=callbacks, validation_data=validation_data,
-            nb_val_samples=nb_val_samples, class_weight=class_weight,
-            max_q_size=max_q_size)
+            verbose=1, callbacks=callbacks)
 
     def predict(self, sequence, batch_size=32, verbose=0):
         """
