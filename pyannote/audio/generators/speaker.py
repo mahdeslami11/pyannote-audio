@@ -27,7 +27,7 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 
-from .base import YaafeMixin
+from .yaafe import YaafeMixin
 from pyannote.generators.fragment import SlidingLabeledSegments
 from pyannote.generators.fragment import RandomSegmentPairs
 from pyannote.generators.batch import FileBasedBatchGenerator

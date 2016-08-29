@@ -26,7 +26,7 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-from .base import YaafeMixin
+from .yaafe import YaafeMixin
 from pyannote.core import SlidingWindowFeature
 from pyannote.generators.fragment import SlidingSegments
 from pyannote.generators.batch import FileBasedBatchGenerator
