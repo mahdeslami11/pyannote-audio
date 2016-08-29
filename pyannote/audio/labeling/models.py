@@ -73,11 +73,11 @@ class SequenceLabeling(object):
 
         with open(architecture, 'r') as fp:
             yaml_string = fp.read()
-        self.labeling_ = model_from_yaml(yaml_string)
-        self.labeling_.load_weights(weights)
+        self.model_ = model_from_yaml(yaml_string)
+        self.model_.load_weights(weights)
         return self
 
-    def to_disk(self, architecture=None, weights=None, overwrite=False, input_shape=None, model=None):
+    def to_disk(self, architecture=None, weights=None, overwrite=False):
         """Save trained sequence labeling to disk
 
         Parameters
@@ -90,32 +90,22 @@ class SequenceLabeling(object):
             Overwrite (architecture or weights) file in case they exist.
         """
 
+        if not hasattr(self, 'model_'):
+            raise AttributeError('Model must be trained first.')
+
         if architecture and os.path.isfile(architecture) and not overwrite:
             raise ValueError("File '{architecture}' already exists.".format(architecture=architecture))
 
         if weights and os.path.isfile(weights) and not overwrite:
             raise ValueError("File '{weights}' already exists.".format(weights=weights))
 
-        if model is not None:
-            labeling = self.get_labeling(model)
-
-        elif hasattr(self, 'labeling_'):
-            labeling = self.labeling_
-
-        elif input_shape is None:
-            raise ValueError('Cannot save labeling to disk because input_shape is missing.')
-
-        else:
-            model = self.design_model(input_shape)
-            labeling = self.get_labeling(model)
-
         if architecture:
-            yaml_string = labeling.to_yaml()
+            yaml_string = self.model_.to_yaml()
             with open(architecture, 'w') as fp:
                 fp.write(yaml_string)
 
         if weights:
-            labeling.save_weights(weights, overwrite=overwrite)
+            self.model_.save_weights(weights, overwrite=overwrite)
 
     def fit(self, input_shape, generator, samples_per_epoch, nb_epoch,
             verbose=1, callbacks=[], validation_data=None,
@@ -134,8 +124,13 @@ class SequenceLabeling(object):
             default_callback = LoggingCallback(self, log_dir=self.log_dir)
             callbacks = [default_callback]
 
-        self.model_ = self.design_model(input_shape)
-        self.labeling_ = self.get_labeling(self.model_)
+        inputs = Input(shape=input_shape, name="input")
+        labels = self.design_model(input_shape)(inputs)
+        self.model_ = Model(input=inputs, output=labels)
+        self.model_.compile(optimizer=self.optimizer,
+                            loss='categorical_crossentropy',
+                            metrics=['accuracy'])
+
         self.model_.fit_generator(
             generator, samples_per_epoch, nb_epoch,
             verbose=1, callbacks=callbacks, validation_data=validation_data,
@@ -144,8 +139,13 @@ class SequenceLabeling(object):
 
     def predict(self, sequence, batch_size=32, verbose=0):
         """
+        Parameters
+        ----------
+        sequence :
+        batch_size : int, optional
+        verbose : int, optional
         """
-        return self.labeling_.predict(
+        return self.model_.predict(
             sequence, batch_size=batch_size, verbose=verbose)
 
 
@@ -164,7 +164,7 @@ class LSTMSequenceLabeling(SequenceLabeling):
         Defaults to [] (i.e. do not add any dense layer)
     bidirectional: boolean, optional
         When True, use bi-directional LSTMs.
-        Defaults to mono-directional LSTMs.
+        Defaults to mono-directional (forward) LSTMs.
     optimizer: str, optional
         Keras optimizer. Defaults to 'rmsprop'.
     log_dir: str, optional
@@ -183,7 +183,7 @@ class LSTMSequenceLabeling(SequenceLabeling):
         self.bidirectional = bidirectional
         self.optimizer = optimizer
 
-    def design_labeling(self, input_shape):
+    def design_model(self, input_shape):
         """Create Keras labeling model
 
         (The end user does not to use this method.)
@@ -210,6 +210,7 @@ class LSTMSequenceLabeling(SequenceLabeling):
                                activation='tanh',
                                dropout_W=0.0,
                                dropout_U=0.0)(forward)
+
                 if self.bidirectional:
                     backward = LSTM(name='backward_{i:d}'.format(i=i),
                                     output_dim=output_dim,
@@ -220,16 +221,15 @@ class LSTMSequenceLabeling(SequenceLabeling):
             else:
                 # first LSTM
                 forward = LSTM(name='forward_{i:d}'.format(i=i),
-                               # input_shape=input_shape,
                                output_dim=output_dim,
                                return_sequences=True,
                                activation='tanh',
                                dropout_W=0.0,
                                dropout_U=0.0)(x)
+
                 if self.bidirectional:
                     backward = LSTM(name='backward_{i:d}'.format(i=i),
                                     go_backwards=True,
-                                    #input_shape=input_shape,
                                     output_dim=output_dim,
                                     return_sequences=True,
                                     activation='tanh',
@@ -253,29 +253,3 @@ class LSTMSequenceLabeling(SequenceLabeling):
         outputs = TimeDistributed(Dense(self.output_dim, activation='softmax'))(x)
 
         return Model(input=inputs, output=outputs)
-
-    def get_labeling(self, model):
-        return model
-
-    def design_model(self, input_shape):
-        """Create Keras model and get ready for training
-
-        Parameters
-        ----------
-        input_shape: (n_samples, n_features) tuple
-            Shape of input sequences.
-
-        Returns
-        -------
-        model : Keras model
-        """
-
-        inputs = Input(shape=input_shape, name="input")
-        labels = self.design_labeling(input_shape)(inputs)
-        model = Model(input=inputs, output=labels)
-
-        model.compile(optimizer=self.optimizer,
-                      loss='categorical_crossentropy',
-                      metrics=['accuracy'])
-
-        return model
