@@ -54,7 +54,7 @@ from docopt import docopt
 
 from pyannote.audio.callback import LoggingCallback
 from pyannote.audio.features.yaafe import YaafeMFCC
-from pyannote.audio.labeling.models import SequenceLabeling, LSTMSequenceLabeling
+from pyannote.audio.labeling.models import SequenceLabeling, BiLSTMSequenceLabeling
 from pyannote.audio.generators.speech import SpeechActivityDetectionBatchGenerator
 
 from pyannote.audio.labeling.aggregation import SequenceLabelingAggregation
@@ -124,7 +124,7 @@ def train(dataset, dataset_dir, config_yml):
 
     # labeling
     output_dim = 2
-    labeling = LSTMSequenceLabeling(
+    labeling = BiLSTMSequenceLabeling(
         output_dim,
         lstm=lstm, dense=dense, bidirectional=bidirectional,
         optimizer=optimizer, log_dir=log_dir)
@@ -147,8 +147,7 @@ def train(dataset, dataset_dir, config_yml):
     input_shape = batch_generator.get_shape()
 
     labeling.fit(input_shape, batch_generator(file_generator, infinite=True),
-                 samples_per_epoch, nb_epoch, callbacks=[callback],
-                 max_q_size=10, verbose=1)
+                 samples_per_epoch, nb_epoch, callbacks=[callback])
 
 
 def test(dataset, dataset_dir, config_yml, weights_h5, output_dir):

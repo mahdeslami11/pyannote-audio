@@ -149,7 +149,7 @@ class SequenceLabeling(object):
             sequence, batch_size=batch_size, verbose=verbose)
 
 
-class LSTMSequenceLabeling(SequenceLabeling):
+class BiLSTMSequenceLabeling(SequenceLabeling):
     """Bi-directional LSTM for sequence labeling
 
     Parameters
@@ -175,7 +175,7 @@ class LSTMSequenceLabeling(SequenceLabeling):
                  bidirectional=False, optimizer='rmsprop',
                  log_dir=None):
 
-        super(LSTMSequenceLabeling, self).__init__(log_dir)
+        super(BiLSTMSequenceLabeling, self).__init__(log_dir)
 
         self.output_dim = output_dim
         self.lstm = lstm
