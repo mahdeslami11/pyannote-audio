@@ -42,20 +42,24 @@ from keras.callbacks import Callback
 
 
 class LoggingCallback(Callback):
-    """
-    modeling : SequenceLabeling or SequenceEmbedding
+    """Logging callback
+
+    Parameters
+    ----------
     log_dir : str
     log : list of tuples, optional
         Defaults to [('train', 'loss')]
     """
 
-    def __init__(self, modeling, log_dir, log=None):
+    def __init__(self, log_dir, log=None):
         super(LoggingCallback, self).__init__()
-
-        self.modeling = modeling
 
         # make sure path is absolute
         self.log_dir = os.path.realpath(log_dir)
+
+        # create log_dir directory (and subdirectory)
+        os.makedirs(self.log_dir)
+        os.makedirs(self.log_dir + '/weights')
 
         if log is None:
             log = [('train', 'loss')]
@@ -87,28 +91,30 @@ class LoggingCallback(Callback):
         value, minimize = get_value(epoch, subset, logs=logs)
         return value, minimize
 
+    def on_epoch_begin(self, epoch, logs={}):
+        """Save architecture before first epoch"""
+
+        if epoch > 0:
+            return
+
+        architecture = self.log_dir + '/architecture.yml'
+        yaml_string = self.model.to_yaml()
+        with open(architecture, 'w') as fp:
+            fp.write(yaml_string)
+
     def on_epoch_end(self, epoch, logs={}):
+        """Save weights (and various curves) after each epoch"""
 
         # keep track of when the epoch ended
         now = datetime.datetime.now().isoformat()
 
         # save model after this epoch
-        CURRENT_MODEL = self.log_dir + '/weights/{epoch:04d}.h5'
-        current_model = CURRENT_MODEL.format(epoch=epoch)
-
-        # create parent directory if it does not exist
-        if epoch == 0:
-            try:
-                os.makedirs(os.path.dirname(current_model))
-            except Exception as e:
-                pass
+        PATH = self.log_dir + '/weights/{epoch:04d}.h5'
+        current_weights = PATH.format(epoch=epoch)
 
         # save current weights
         try:
-            self.modeling.to_disk(
-                weights=current_model,
-                overwrite=True,
-                model=self.model)
+            self.model.save_weights(current_weights, overwrite=True)
         except Exception as e:
             pass
 
@@ -151,7 +157,7 @@ class LoggingCallback(Callback):
                     pass
 
                 try:
-                    os.symlink(current_model, link_name)
+                    os.symlink(current_weights, link_name)
                 except Exception as e:
                     pass
 
