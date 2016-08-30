@@ -1,0 +1,27 @@
+feature_extraction:
+   mfcc:
+      e: False
+      De: True
+      DDe: True
+      coefs: 11
+      D: True
+      DD: True
+   duration: 3.0
+   normalize: False
+
+network:
+   output_dim: 16
+   lstm: [16]
+   dense: [16]
+   bidirectional: True
+   space: sphere
+
+training:
+  triplet_loss:
+     per_label: 40
+     per_fold: 0
+     overlap: 0.5
+     margin: 0.2
+  batch_size: 1024
+  nb_epoch: 1000
+  optimizer: rmsprop
