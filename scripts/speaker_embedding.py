@@ -1,123 +1,154 @@
-import pyannote.core  # HACK
-import os.path
-import sys
+#!/usr/bin/env python
+# encoding: utf-8
+
+# The MIT License (MIT)
+
+# Copyright (c) 2016 CNRS
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# AUTHORS
+# Hervé BREDIN - http://herve.niderb.fr
+
+"""
+Speaker embedding
+
+Usage:
+  speaker_embedding train <config.yml> <dataset> <dataset_dir>
+  speaker_embedding -h | --help
+  speaker_embedding --version
+
+Options:
+  <config.yml>              Use this configuration file.
+  <dataset>                 Use this dataset (e.g. "etape.train" for training)
+  <dataset_dir>             Path to actual dataset material (e.g. '/Users/bredin/Corpora/etape')
+  -h --help                 Show this screen.
+  --version                 Show version.
+
+"""
+
 import yaml
-import random
-random.seed(1337)  # deterministic behavior
+import os.path
+import numpy as np
+from docopt import docopt
 
-# BEFORE ANY OTHER LIBRARIES...
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-
+from pyannote.audio.callback import LoggingCallback
+from pyannote.audio.features.yaafe import YaafeMFCC
+from pyannote.audio.embedding.models import TripletLossBiLSTMSequenceEmbedding
+from pyannote.audio.embedding.generator import TripletBatchGenerator
 from etape import Etape
 
-# FEATURE EXTRACTION
-from pyannote.audio.features.yaafe import YaafeMFCC
+def train(dataset, dataset_dir, config_yml):
 
-# TRAINING
-from pyannote.audio.embedding.models import TripletLossSequenceEmbedding
-from pyannote.audio.embedding.generator import TripletBatchGenerator
+    # load configuration file
+    with open(config_yml, 'r') as fp:
+        config = yaml.load(fp)
 
-# TESTING
-from pyannote.audio.embedding.callback import ValidationCheckpoint
-from pyannote.audio.generators.speaker import SpeakerPairsBatchGenerator
+    # deduce workdir from path of configuration file
+    workdir = os.path.dirname(config_yml)
 
-config_path = sys.argv[1]
-workdir = os.path.dirname(config_path)
+    # this is where model weights are saved after each epoch
+    log_dir = workdir + '/' + dataset
 
-with open(config_path, 'r') as fp:
-    config = yaml.load(fp)
+    # -- DATASET --
+    dataset, subset = dataset.split('.')
+    if dataset != 'etape':
+        msg = '{dataset} dataset is not supported.'
+        raise NotImplementedError(msg.format(dataset=dataset))
 
-# -- PROTOCOL --
-protocol = Etape(config['etape'])
+    protocol = Etape(dataset_dir)
 
-# -- FEATURE EXTRACTION --
+    if subset == 'train':
+        file_generator = protocol.train_iter()
+    elif subset == 'dev':
+        file_generator = protocol.dev_iter()
+    else:
+        msg = 'Training on {subset} subset is not allowed.'
+        raise NotImplementedError(msg.format(subset=subset))
 
-# input sequence duration
-duration = config['feature_extraction']['duration']
-# MFCCs
-feature_extractor = YaafeMFCC(**config['feature_extraction']['mfcc'])
-# normalization
-normalize = config['feature_extraction']['normalize']
+    # -- FEATURE EXTRACTION --
+    # input sequence duration
+    duration = config['feature_extraction']['duration']
+    # MFCCs
+    feature_extractor = YaafeMFCC(**config['feature_extraction']['mfcc'])
+    # normalization
+    normalize = config['feature_extraction']['normalize']
 
-# -- EMBEDDING STRUCTURE --
-# triplet loss margin
-margin = config['embedding']['margin']
-# embedding dimension
-output_dim = config['embedding']['output_dim']
-# internal embedding structure
-lstm = config['embedding']['lstm']
-dense = config['embedding']['dense']
-# bi-directional
-bidirectional = config['embedding']['bidirectional']
-# final activation
-space = config['embedding']['space'] # 'sphere' or 'quadrant'
+    # -- NETWORK STRUCTURE --
+    # internal model structure
+    output_dim = config['network']['output_dim']
+    lstm = config['network']['lstm']
+    dense = config['network']['dense']
+    # bi-directional
+    bidirectional = config['network']['bidirectional']
+    space = config['network']['space']
 
-# -- TRAINING --
+    # -- TRAINING --
+    # batch size
+    batch_size = config['training']['batch_size']
+    # number of epochs
+    nb_epoch = config['training']['nb_epoch']
+    # optimizer
+    optimizer = config['training']['optimizer']
 
-# estimated number of labels in training set
-# (used to estimate the number of samples in each epoch)
-n_labels_estimate = config['training']['n_labels_estimate']
-# number of labels in each group
-n_labels = config['training']['triplet']['n_labels']
-# number of samples per label
-per_label = config['training']['triplet']['per_label']
-# batch size
-batch_size = config['training']['batch_size']
-# number of epochs
-nb_epoch = config['training']['nb_epoch']
-# optimizer
-optimizer = config['training']['optimizer']
+    # -- TRIPLET LOSS --
+    margin = config['training']['triplet_loss']['margin']
+    per_fold = config['training']['triplet_loss']['per_fold']
+    per_label = config['training']['triplet_loss']['per_label']
+    overlap = config['training']['triplet_loss']['overlap']
 
-# -- TESTING --
+    # embedding
+    embedding = TripletLossBiLSTMSequenceEmbedding(
+        output_dim, lstm=lstm, dense=dense, bidirectional=bidirectional,
+        space=space, margin=margin, optimizer=optimizer, log_dir=log_dir)
 
-per_label_test = config['testing']['per_label']
-batch_size_test = config['testing']['batch_size']
+    # triplet generator for training
+    batch_generator = TripletBatchGenerator(
+        feature_extractor, file_generator, embedding,
+        duration=duration, overlap=overlap, normalize=normalize,
+        per_fold=per_fold, per_label=per_label, batch_size=batch_size)
 
-# -- LOGS --
+    # log loss during training and keep track of best model
+    log = [('train', 'loss')]
+    callback = LoggingCallback(log_dir=log_dir, log=log)
 
-checkpoint_h5 = workdir + '/weights.{epoch:03d}.{loss:.3f}.h5'
-architecture_yml = workdir + '/architecture.yml'
+    # estimated number of triplets per epoch
+    # (rounded to closest batch_size multiple)
+    samples_per_epoch = per_label * (per_label - 1) * batch_generator.n_labels
+    samples_per_epoch = samples_per_epoch - (samples_per_epoch % batch_size)
 
-# embedding
-embedding = TripletLossSequenceEmbedding(
-    output_dim, lstm=lstm, dense=dense,
-    bidirectional=bidirectional, space=space,
-    margin=margin, optimizer=optimizer,
-    checkpoint=checkpoint_h5)
+    # input shape (n_samples, n_features)
+    input_shape = batch_generator.get_shape()
 
-# pair generator for testing
-pair_generator = SpeakerPairsBatchGenerator(
-    feature_extractor,
-    duration=duration, normalize=normalize,
-    per_label=per_label_test, batch_size=batch_size_test)
+    embedding.fit(input_shape, batch_generator, samples_per_epoch, nb_epoch,
+                  callbacks=[callback])
 
-validation_checkpoint = ValidationCheckpoint(
-    embedding, pair_generator, protocol, checkpoint=workdir)
+if __name__ == '__main__':
 
-# triplet generator for training
-file_generator = protocol.train_iter()
-triplet_batch_generator = TripletBatchGenerator(
-    feature_extractor, file_generator, embedding,
-    duration=duration, overlap=0.0, normalize=normalize,
-    n_labels=n_labels, per_label=per_label,
-    batch_size=batch_size, forward_batch_size=n_labels * per_label)
+    arguments = docopt(__doc__, version='Speaker embedding')
 
-input_shape = triplet_batch_generator.get_shape()
+    if arguments['train']:
 
-# save model architecture
-embedding.to_disk(architecture=architecture_yml,
-                  input_shape=input_shape,
-                  overwrite=True)
+        # arguments
+        dataset = arguments['<dataset>']
+        dataset_dir = arguments['<dataset_dir>']
+        config_yml = arguments['<config.yml>']
 
-# training
-
-# number of (anchor, positive) pairs for one label
-# multiplied by (estimate) number of labels
-samples_per_epoch = per_label * (per_label - 1) * n_labels_estimate
-
-embedding.fit(input_shape, triplet_batch_generator,
-              samples_per_epoch, nb_epoch,
-              max_q_size=10, verbose=1,
-              callbacks=[validation_checkpoint])
+        # train the model
+        train(dataset, dataset_dir, config_yml)

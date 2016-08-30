@@ -26,43 +26,107 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
+import warnings
 import itertools
 import numpy as np
 from scipy.spatial.distance import pdist, squareform
 from pyannote.generators.batch import BaseBatchGenerator
-from ..generators.speaker import SpeakerEmbeddingBatchGenerator
+from ..generators.yaafe import YaafeMixin
+from pyannote.generators.batch import FileBasedBatchGenerator
+from pyannote.generators.fragment import SlidingLabeledSegments
+
+
+class LabeledSequencesBatchGenerator(YaafeMixin, FileBasedBatchGenerator):
+    """(X_batch, y_batch) batch generator
+
+    Yields batches made of sequences obtained using a sliding window over the
+    coverage of the reference. Heterogeneous segments (i.e. containing more
+    than one label) are skipped.
+
+    Parameters
+    ----------
+    feature_extractor : YaafeFeatureExtractor
+    duration: float, optional
+    step: float, optional
+        Duration and step of sliding window (in seconds).
+        Default to 3.2 and 0.8.
+    normalize: boolean, optional
+        Normalize (zscore) feature sequences
+
+    Returns
+    -------
+    X_batch : (batch_size, n_samples, n_features) numpy array
+        Batch of feature sequences
+    y_batch : (batch_size, ) numpy array
+        Batch of corresponding labels
+
+    Usage
+    -----
+    >>> batch_generator = LabeledSequencesBatchGenerator(feature_extractor)
+    >>> for X_batch, y_batch in batch_generator.from_file(current_file):
+    ...     # do something with
+    """
+
+    def __init__(self, feature_extractor, duration=3.0, normalize=False,
+                 step=0.75, batch_size=32):
+
+        self.feature_extractor = feature_extractor
+        self.duration = duration
+        self.step = step
+        self.normalize = normalize
+
+        segment_generator = SlidingLabeledSegments(duration=duration,
+                                                   step=step)
+        super(LabeledSequencesBatchGenerator, self).__init__(
+            segment_generator, batch_size=batch_size)
+
+    def signature(self):
+        return (
+            {'type': 'sequence', 'shape': self.get_shape()},
+            {'type': 'label'}
+        )
 
 
 class TripletGenerator(object):
-    """Yaafe sequence generator for triplet loss
+    """Triplet generator for triplet loss sequence embedding
 
-    Parameter
-    ---------
+    Generates ([Xa, Xp, Xn], 1) tuples where
+      * Xa is the anchor sequence (e.g. by speaker S)
+      * Xp is the positive sequence (also uttered by speaker S)
+      * Xn is the negative sequence (uttered by a different speaker)
+
+    and such that d(f(Xa), f(Xn)) < d(f(Xa), f(Xp)) + margin where
+      * f is the current state of the embedding network (being optimized)
+      * d is the euclidean distance
+      * margin is the triplet loss margin (e.g. 0.2, typically)
+
+    Parameters
+    ----------
     extractor: YaafeFeatureExtractor
-        Yaafe feature extraction (e.g. YaafeMFCC())
+        Yaafe feature extraction (e.g. YaafeMFCC instance)
     file_generator: iterable
-        File generator.
+        File generator (the training set, typically)
     embedding: TripletLossSequenceEmbedding
-        Triplet loss sequence embedding.
+        Triplet loss sequence embedding (currently being optimized)
     duration: float, optional
         Sequence duration. Defaults to 3 seconds.
     overlap: float, optional
         Sequence overlap ratio. Defaults to 0 (no overlap).
     normalize: boolean, optional
         When True, normalize sequence (z-score). Defaults to False.
-    n_labels: int, optional
-        Number of labels per group. Defaults to 40.
     per_label: int, optional
         Number of samples per label. Defaults to 40.
+    per_fold: int, optional
+        When provided, randomly split the training set into
+        fold of `per_fold` labels (e.g. 40) after each epoch.
+        Defaults to using the whole traning set.
     batch_size: int, optional
-    forward_batch_size: int, optional
-        Batch size to use for embedding. Defaults to 32.
+        Batch size. Defaults to 32.
     """
 
     def __init__(self, extractor, file_generator, embedding,
                  duration=3.0, overlap=0.0, normalize=False,
-                 n_labels=40, per_label=40,
-                 batch_size=32, forward_batch_size=32):
+                 per_fold=0, per_label=40, batch_size=32):
 
         self.extractor = extractor
         self.file_generator = file_generator
@@ -70,11 +134,11 @@ class TripletGenerator(object):
         self.duration = duration
         self.overlap = overlap
         self.normalize = normalize
-        self.n_labels = n_labels
+        self.per_fold = per_fold
         self.per_label = per_label
-        self.forward_batch_size = forward_batch_size
+        self.batch_size = batch_size
 
-        self.batch_sequence_generator_ = SpeakerEmbeddingBatchGenerator(
+        self.batch_sequence_generator_ = LabeledSequencesBatchGenerator(
             self.extractor,
             duration=self.duration,
             normalize=self.normalize,
@@ -83,12 +147,18 @@ class TripletGenerator(object):
 
         self.triplet_generator_ = self.iter_triplets()
 
-        super(TripletGenerator, self).__init__()
+        # HACK consume first element of generator
+        # this is meant to pre-generate all labeled sequences once and for all
+        # and get the number of unique labels into self.n_labels
+        next(self.triplet_generator_)
 
+
+        super(TripletGenerator, self).__init__()
 
     def iter_triplets(self):
 
-        # generate all sequences first
+        # pre-generate all labeled sequences (from the whole training set)
+        # this might be huge in memory
         X, y = [], []
         for batch_sequences, batch_labels in self.batch_sequence_generator_(self.file_generator):
             X.append(batch_sequences)
@@ -98,41 +168,96 @@ class TripletGenerator(object):
 
         # unique labels
         unique, y, counts = np.unique(y, return_inverse=True, return_counts=True)
-        n = len(unique)
+        self.n_labels = len(unique)
+
+        # warn that some labels have very few training samples
+        too_few_samples = np.sum(counts < self.per_label)
+        if too_few_samples > 0:
+            msg = '{n} labels (out of {N}) have less than {per_label} training samples.'
+            warnings.warn(msg.format(n=too_few_samples,
+                                     N=self.n_labels,
+                                     per_label=self.per_label))
+
+        # HACK (see __init__ for details on why this is done)
+        yield
 
         # infinite loop
         while True:
 
             # shuffle labels
-            shuffled_labels = np.random.choice(n, size=n, replace=False)
+            shuffled_labels = np.random.choice(self.n_labels,
+                                               size=self.n_labels,
+                                               replace=False)
 
-            # take them n_labels per n_labels
-            for k in range(n / self.n_labels):
-                from_label = k * self.n_labels
-                to_label = (k+1) * self.n_labels
+            if self.per_fold < 1:
+                self.per_fold = self.n_labels
+
+            # take them per_fold per per_fold
+            for k in range(self.n_labels / self.per_fold):
+                from_label = k * self.per_fold
+                to_label = (k+1) * self.per_fold
                 labels = shuffled_labels[from_label: to_label]
 
                 # select min(per_label, count) sequences
                 # at random for each label
-                indices = []
+
+                # per_label[i] contains the actual number of examples
+                # available for ith label -- as it may actually be smaller
+                # than the requested self.per_label for small classes (e.g.
+                # for speakers without only a few seconds of speech)
                 per_label = []
+
+                # indices contains the list of indices of all sequences
+                # to be used for later triplet selection
+                indices = []
+
                 for label in labels:
-                    per_label.append(min(self.per_label, counts[label]))
+
+                    # number of available sequences for current label
+                    # per_label.append(min(self.per_label, counts[label]))
+                    per_label.append(self.per_label)
+
+                    # NOTE the impact of choosing per_label instead of
+                    # min(per_label, counts[label]) should be evaluated.
+                    # indeed, for labels with a counts[label] smaller than
+                    # per_label, the following 'choice' will repeat sequences.
+                    # is this really an issue?
+
+                    # randomly choose this many sequences
+                    # from the set of available sequences
                     i = np.random.choice(
                         np.where(y == label)[0],
                         size=per_label[-1],
                         replace=True)
+
+                    # append indices of selected sequences
                     indices.append(i)
-                indices = np.hstack(indices)
+
+                # after this line, per_label[i] will contain the position of
+                # the first sequence of ith label so that the range
+                # per_label[i]: per_label[i+1] points to the indices
+                # corresponding to all sequences from ith label
                 per_label = np.hstack([[0], np.cumsum(per_label)])
 
-                # pre-compute distances
+                # turn indices into a 1-dimensional numpy array.
+                # combined with (above) per_label, it can be used
+                # to get all indices of sequences from a given label
+                indices = np.hstack(indices)
+
+                # pre-compute pairwise distances d(f(X), f(X')) between every
+                # pair (X, X') of selected sequences, where f is the current
+                # state of the embedding being optimized, and d is the
+                # euclidean distance
+
+                # selected sequences
                 sequences = X[indices]
+                # their embeddings (using current state of embedding network)
                 embeddings = self.embedding.transform(
-                    sequences, batch_size=self.forward_batch_size)
+                    sequences, batch_size=self.batch_size)
+                # pairwise euclidean distances
                 distances = squareform(pdist(embeddings, metric='euclidean'))
 
-                for i in range(self.n_labels):
+                for i in range(self.per_fold):
 
                     positives = list(range(per_label[i], per_label[i+1]))
                     negatives = list(range(per_label[i])) + list(range(per_label[i+1], per_label[-1]))
@@ -148,9 +273,14 @@ class TripletGenerator(object):
                         # choose one at random (if at least one exists)
                         if len(within_margin) < 1:
                             continue
+                        # TODO / add an option to choose the most difficult one
                         negative = negatives[np.random.choice(within_margin)]
 
                         yield [sequences[anchor], sequences[positive], sequences[negative]], 1
+
+                        # FIXME -- exit this loop when an epoch has ended
+                    # FIXME -- exit this loop when an epoch has ended
+                # FIXME -- exit this loop when an epoch has ended
 
     def __iter__(self):
         return self
@@ -177,40 +307,48 @@ class TripletGenerator(object):
 
 
 class TripletBatchGenerator(BaseBatchGenerator):
-    """Yaafe batch generator for triplet loss
+    """Triplet generator for triplet loss sequence embedding
 
-    Parameter
-    ---------
-    extractor: YaafeFeatureExtractor
-        Yaafe feature extraction (e.g. YaafeMFCC())
-    embedding: TripletLossSequenceEmbedding
-        Triplet loss sequence embedding.
+    Generates ([Xa, Xp, Xn], 1) batch tuples where
+      * Xa are anchor sequences (e.g. by speaker S)
+      * Xp are positive sequences (also uttered by speaker S)
+      * Xn are negative sequences (uttered by a different speaker)
+
+    and such that d(f(Xa), f(Xn)) < d(f(Xa), f(Xp)) + margin where
+      * f is the current state of the embedding network (being optimized)
+      * d is the euclidean distance
+      * margin is the triplet loss margin (e.g. 0.2, typically)
+
+    Parameters
+    ----------
+    feature_extractor: YaafeFeatureExtractor
+        Yaafe feature extraction (e.g. YaafeMFCC instance)
+    file_generator: iterable
+        File generator (the training set, typically)
+    sequence_embedding: TripletLossSequenceEmbedding
+        Triplet loss sequence embedding (currently being optimized)
     duration: float, optional
         Sequence duration. Defaults to 3 seconds.
     overlap: float, optional
         Sequence overlap ratio. Defaults to 0 (no overlap).
     normalize: boolean, optional
         When True, normalize sequence (z-score). Defaults to False.
-    n_labels: int, optional
-        Number of labels per batch. Defaults to 40.
     per_label: int, optional
         Number of samples per label. Defaults to 40.
+    per_fold: int, optional
+        Randomly split the training set into disjoint folds of `per_fold`
+        labels. Defaults to using one big fold.
     batch_size: int, optional
-        Number of sequences per batch. Defaults to 32
-    forward_batch_size: int, optional
-        Number of sequences per batch in forward pass.
+        Batch size. Defaults to 32.
     """
-
-    def __init__(self, extractor, file_generator, embedding,
-                 duration=3.0, overlap=0.0, normalize=False,
-                 n_labels=40, per_label=40,
-                 batch_size=32, forward_batch_size=32):
+    def __init__(self, feature_extractor, file_generator, sequence_embedding,
+                 duration=3.0, overlap=0.5, normalize=False,
+                 per_fold=0, per_label=40, batch_size=32):
 
         self.triplet_generator_ = TripletGenerator(
-            extractor, file_generator, embedding,
+            feature_extractor, file_generator, sequence_embedding,
             duration=duration, overlap=overlap, normalize=normalize,
-            n_labels=n_labels, per_label=per_label,
-            forward_batch_size=forward_batch_size)
+            per_fold=per_fold, per_label=per_label, batch_size=batch_size)
 
         super(TripletBatchGenerator, self).__init__(
             self.triplet_generator_, batch_size=batch_size)
@@ -220,3 +358,7 @@ class TripletBatchGenerator(BaseBatchGenerator):
 
     def get_shape(self):
         return self.triplet_generator_.get_shape()
+
+    @property
+    def n_labels(self):
+        return self.triplet_generator_.n_labels

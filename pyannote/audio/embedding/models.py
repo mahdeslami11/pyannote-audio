@@ -39,33 +39,62 @@ from keras.layers import Dense
 from keras.layers import Lambda
 from keras.layers import merge
 
-from .callback import EmbeddingCheckpoint
+from pyannote.audio.callback import LoggingCallback
 from keras.models import model_from_yaml
 
 
 class SequenceEmbedding(object):
-    """
+    """Base class for sequence embedding
 
     Parameters
     ----------
-    checkpoint: str, optional
-
+    log_dir: str, optional
+        When provided, log status after each epoch into this directory. This
+        will create several files, including loss plots and weights files.
     """
-    def __init__(self, checkpoint='weights.{epoch:03d}-{loss:.2f}.hdf5'):
+    def __init__(self, log_dir=None):
         super(SequenceEmbedding, self).__init__()
-        self.checkpoint = checkpoint
+        self.log_dir = log_dir
 
     @classmethod
     def from_disk(cls, architecture, weights):
+        """Load pre-trained sequence embedding from disk
+
+        Parameters
+        ----------
+        architecture : str
+            Path to architecture file (e.g. created by `to_disk` method)
+        weights : str
+            Path to pre-trained weight file (e.g. created by `to_disk` method)
+
+        Returns
+        -------
+        sequence_embedding : SequenceEmbedding
+            Pre-trained sequence embedding model.
+        """
         self = SequenceEmbedding()
 
         with open(architecture, 'r') as fp:
             yaml_string = fp.read()
-        self.embedding_ = model_from_yaml(yaml_string)
-        self.embedding_.load_weights(weights)
+        self.model_ = model_from_yaml(yaml_string)
+        self.model_.load_weights(weights)
         return self
 
     def to_disk(self, architecture=None, weights=None, overwrite=False, input_shape=None, model=None):
+        """Save trained sequence embedding to disk
+
+        Parameters
+        ----------
+        architecture : str, optional
+            When provided, path where to save architecture.
+        weights : str, optional
+            When provided, path where to save weights
+        overwrite : boolean, optional
+            Overwrite (architecture or weights) file in case they exist.
+        """
+
+        if not hasattr(self, 'model_'):
+            raise AttributeError('Model must be trained first.')
 
         if architecture and os.path.isfile(architecture) and not overwrite:
             raise ValueError("File '{architecture}' already exists.".format(architecture=architecture))
@@ -73,49 +102,156 @@ class SequenceEmbedding(object):
         if weights and os.path.isfile(weights) and not overwrite:
             raise ValueError("File '{weights}' already exists.".format(weights=weights))
 
-        if model is not None:
-            embedding = self.get_embedding(model)
-
-        elif hasattr(self, 'embedding_'):
-            embedding = self.embedding_
-
-        elif input_shape is None:
-            raise ValueError('Cannot save embedding to disk because input_shape is missing.')
-
-        else:
-            model = self.design_model(input_shape)
-            embedding = self.get_embedding(model)
-
         if architecture:
-            yaml_string = embedding.to_yaml()
+            yaml_string = self.model_.to_yaml()
             with open(architecture, 'w') as fp:
                 fp.write(yaml_string)
 
         if weights:
-            embedding.save_weights(weights, overwrite=overwrite)
+            self.model_.save_weights(weights, overwrite=overwrite)
 
-    def fit(self, input_shape, generator, samples_per_epoch, nb_epoch,
-            verbose=1, callbacks=[], validation_data=None,
-            nb_val_samples=None, class_weight={}, max_q_size=10):
+    def loss(self, y_true, y_pred):
+        raise NotImplementedError('')
 
-        if self.checkpoint:
-            callbacks.append(EmbeddingCheckpoint(self, checkpoint=self.checkpoint))
+    def fit(self, input_shape, generator,
+            samples_per_epoch, nb_epoch, callbacks=[]):
+        """Train model
+
+        Parameters
+        ----------
+        input_shape :
+        generator :
+        samples_per_epoch :
+        np_epoch :
+        callbacks :
+        """
+
+        if not callbacks and self.log_dir:
+            default_callback = LoggingCallback(self, log_dir=self.log_dir)
+            callbacks = [default_callback]
 
         self.model_ = self.design_model(input_shape)
-        self.embedding_ = self.get_embedding(self.model_)
+        self.model_.compile(optimizer=self.optimizer,
+                            loss=self.loss)
+
         self.model_.fit_generator(
             generator, samples_per_epoch, nb_epoch,
-            verbose=1, callbacks=callbacks, validation_data=validation_data,
-            nb_val_samples=nb_val_samples, class_weight=class_weight,
-            max_q_size=max_q_size)
+            verbose=1, callbacks=callbacks)
 
     def transform(self, sequence, batch_size=32, verbose=0):
+        if not hasattr(self, 'embedding_'):
+            self.embedding_ = self.get_embedding()
+
         return self.embedding_.predict(
             sequence, batch_size=batch_size, verbose=verbose)
 
 
-class TripletLossSequenceEmbedding(SequenceEmbedding):
-    """Triplet loss sequence embedding
+class BiLSTMSequenceEmbedding(SequenceEmbedding):
+        """Bi-directional LSTM sequence embedding
+
+        Parameters
+        ----------
+        output_dim: int
+            Embedding dimension.
+        lstm: list, optional
+            List of output dimension of stacked LSTMs.
+            Defaults to [12, ] (i.e. one LSTM with output dimension 12)
+        dense: list, optional
+            List of output dimension of additionnal stacked dense layers.
+            Defaults to [] (i.e. do not add any dense layer)
+        bidirectional: boolean, optional
+            When True, use bi-directional LSTMs
+        space: {'sphere', 'quadrant'}, optional
+            When 'sphere' (resp. 'quadrant'), use 'tanh' (resp. 'sigmoid') as
+            final activation. Defaults to 'sphere'.
+        optimizer: str, optional
+            Keras optimizer. Defaults to 'rmsprop'.
+        log_dir: str, optional
+            When provided, log status after each epoch into this directory. This
+            will create several files, including loss plots and weights files.
+        """
+        def __init__(self, output_dim, lstm=[12], dense=[],
+                     bidirectional=False, space='sphere',
+                     margin=0.2, optimizer='rmsprop', log_dir=None):
+
+            self.output_dim = output_dim
+            self.lstm = lstm
+            self.dense = dense
+            self.bidirectional = bidirectional
+            self.space = space
+            self.optimizer = optimizer
+
+            super(BiLSTMSequenceEmbedding, self).__init__(
+                log_dir=log_dir)
+
+        def design_embedding(self, input_shape):
+
+            inputs = Input(shape=input_shape,
+                           name="embedding_input")
+            x = inputs
+
+            # stack LSTM layers
+            n_lstm = len(self.lstm)
+            for i, output_dim in enumerate(self.lstm):
+
+                # last LSTM should not return a sequence
+                return_sequences = i+1 < n_lstm
+                if i:
+                    # all but first LSTM
+                    forward = LSTM(output_dim=output_dim,
+                                   return_sequences=return_sequences,
+                                   activation='tanh',
+                                   dropout_W=0.0,
+                                   dropout_U=0.0)(forward)
+                    if self.bidirectional:
+                        backward = LSTM(output_dim=output_dim,
+                                        return_sequences=return_sequences,
+                                        activation='tanh',
+                                        dropout_W=0.0,
+                                        dropout_U=0.0)(backward)
+                else:
+                    # first LSTM
+                    forward = LSTM(input_shape=input_shape,
+                                   output_dim=output_dim,
+                                   return_sequences=return_sequences,
+                                   activation='tanh',
+                                   dropout_W=0.0,
+                                   dropout_U=0.0)(x)
+                    if self.bidirectional:
+                        backward = LSTM(go_backwards=True,
+                                        input_shape=input_shape,
+                                        output_dim=output_dim,
+                                        return_sequences=return_sequences,
+                                        activation='tanh',
+                                        dropout_W=0.0,
+                                        dropout_U=0.0)(x)
+
+            # concatenate forward and backward
+            if self.bidirectional:
+                x = merge([forward, backward], mode='concat', concat_axis=1)
+            else:
+                x = forward
+
+            # stack dense layers
+            for i, output_dim in enumerate(self.dense):
+                x = Dense(output_dim, activation='tanh')(x)
+
+            # stack final dense layer
+            if self.space == 'sphere':
+                activation = 'tanh'
+            elif self.space == 'quadrant':
+                activation = 'sigmoid'
+            x = Dense(self.output_dim, activation=activation)(x)
+
+            # stack L2 normalization layer
+            embeddings = Lambda(lambda x: K.l2_normalize(x, axis=-1),
+                                name="embedding_output")(x)
+
+            return Model(input=inputs, output=embeddings)
+
+
+class TripletLossBiLSTMSequenceEmbedding(BiLSTMSequenceEmbedding):
+    """Triplet loss Bi-directional LSTM sequence embedding
 
     Parameters
     ----------
@@ -136,90 +272,26 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
         final activation. Defaults to 'sphere'.
     optimizer: str, optional
         Keras optimizer. Defaults to 'rmsprop'.
-    checkpoint: str
-        Where to store weights after each epoch
-        Defaults to 'weights.{epoch:03d}.hdf5'
+    log_dir: str, optional
+        When provided, log status after each epoch into this directory. This
+        will create several files, including loss plots and weights files.
     """
     def __init__(self, output_dim, lstm=[12], dense=[],
                  bidirectional=False, space='sphere',
-                 margin=0.2, optimizer='rmsprop',
-                 checkpoint='weights.{epoch:03d}.hdf5'):
+                 margin=0.2, optimizer='rmsprop', log_dir=None):
 
-        super(TripletLossSequenceEmbedding, self).__init__(
-            checkpoint=checkpoint)
-
-        self.output_dim = output_dim
         self.margin = margin
-        self.lstm = lstm
-        self.dense = dense
-        self.bidirectional = bidirectional
-        self.space = space
+
+        super(TripletLossBiLSTMSequenceEmbedding, self).__init__(
+            output_dim,
+            lstm=lstm,
+            dense=dense,
+            bidirectional=bidirectional,
+            space=space,
+            optimizer=optimizer,
+            log_dir=log_dir)
+
         self.optimizer = optimizer
-
-    def design_embedding(self, input_shape):
-
-        inputs = Input(shape=input_shape,
-                       name="embedding_input")
-        x = inputs
-
-        # stack LSTM layers
-        n_lstm = len(self.lstm)
-        for i, output_dim in enumerate(self.lstm):
-
-            # last LSTM should not return a sequence
-            return_sequences = i+1 < n_lstm
-            if i:
-                # all but first LSTM
-                forward = LSTM(output_dim=output_dim,
-                               return_sequences=return_sequences,
-                               activation='tanh',
-                               dropout_W=0.0,
-                               dropout_U=0.0)(forward)
-                if self.bidirectional:
-                    backward = LSTM(output_dim=output_dim,
-                                    return_sequences=return_sequences,
-                                    activation='tanh',
-                                    dropout_W=0.0,
-                                    dropout_U=0.0)(backward)
-            else:
-                # first LSTM
-                forward = LSTM(input_shape=input_shape,
-                               output_dim=output_dim,
-                               return_sequences=return_sequences,
-                               activation='tanh',
-                               dropout_W=0.0,
-                               dropout_U=0.0)(x)
-                if self.bidirectional:
-                    backward = LSTM(go_backwards=True,
-                                    input_shape=input_shape,
-                                    output_dim=output_dim,
-                                    return_sequences=return_sequences,
-                                    activation='tanh',
-                                    dropout_W=0.0,
-                                    dropout_U=0.0)(x)
-
-        # concatenate forward and backward
-        if self.bidirectional:
-            x = merge([forward, backward], mode='concat', concat_axis=1)
-        else:
-            x = forward
-
-        # stack dense layers
-        for i, output_dim in enumerate(self.dense):
-            x = Dense(output_dim, activation='tanh')(x)
-
-        # stack final dense layer
-        if self.space == 'sphere':
-            activation = 'tanh'
-        elif self.space == 'quadrant':
-            activation = 'sigmoid'
-        x = Dense(self.output_dim, activation=activation)(x)
-
-        # stack L2 normalization layer
-        embeddings = Lambda(lambda x: K.l2_normalize(x, axis=-1),
-                            name="embedding_output")(x)
-
-        return Model(input=inputs, output=embeddings)
 
     def _triplet_loss(self, inputs):
         p = K.sum(K.square(inputs[0] - inputs[1]), axis=-1, keepdims=True)
@@ -234,8 +306,12 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
     def _identity_loss(y_true, y_pred):
         return K.mean(y_pred - 0 * y_true)
 
-    def get_embedding(self, model):
-        return model.layers_by_depth[1][0]
+    def loss(self, y_true, y_pred):
+        return self._identity_loss(y_true, y_pred)
+
+    def get_embedding(self):
+        """Extract embedding from Keras model (a posteriori)"""
+        return self.model_.layers_by_depth[1][0]
 
     def design_model(self, input_shape):
         """
@@ -259,7 +335,5 @@ class TripletLossSequenceEmbedding(SequenceEmbedding):
             mode=self._triplet_loss, output_shape=self._output_shape)
 
         model = Model(input=[anchor, positive, negative], output=distance)
-
-        model.compile(optimizer=self.optimizer, loss=self._identity_loss)
 
         return model
