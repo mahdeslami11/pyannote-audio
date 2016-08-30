@@ -109,11 +109,9 @@ def train(dataset, dataset_dir, config_yml):
 
     # -- TRIPLET LOSS --
     margin = config['training']['triplet_loss']['margin']
-    n_labels = config['training']['triplet_loss']['n_labels']
+    per_fold = config['training']['triplet_loss']['per_fold']
     per_label = config['training']['triplet_loss']['per_label']
-    # number of classes to use in each epoch
-    # FIXME -- update ETAPE so that we can query this information directly
-    n_labels_estimate = config['training']['triplet_loss']['n_labels_estimate']
+    overlap = config['training']['triplet_loss']['overlap']
 
     # embedding
     embedding = TripletLossBiLSTMSequenceEmbedding(
@@ -123,17 +121,17 @@ def train(dataset, dataset_dir, config_yml):
     # triplet generator for training
     batch_generator = TripletBatchGenerator(
         feature_extractor, file_generator, embedding,
-        duration=duration, normalize=normalize,
-        n_labels=n_labels, per_label=per_label,
-        batch_size=batch_size, forward_batch_size=n_labels * per_label)
+        duration=duration, overlap=overlap, normalize=normalize,
+        per_fold=per_fold, per_label=per_label, batch_size=batch_size)
 
     # log loss during training and keep track of best model
     log = [('train', 'loss')]
     callback = LoggingCallback(log_dir=log_dir, log=log)
 
-    # number of (anchor, positive) pairs for one label
-    # multiplied by (estimate) number of labels
-    samples_per_epoch = per_label * (per_label - 1) * n_labels_estimate
+    # estimated number of triplets per epoch
+    # (rounded to closest batch_size multiple)
+    samples_per_epoch = per_label * (per_label - 1) * batch_generator.n_labels
+    samples_per_epoch = samples_per_epoch - (samples_per_epoch % batch_size)
 
     # input shape (n_samples, n_features)
     input_shape = batch_generator.get_shape()
