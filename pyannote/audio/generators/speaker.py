@@ -49,10 +49,10 @@ class SpeakerEmbeddingBatchGenerator(YaafeMixin, FileBasedBatchGenerator):
             segment_generator, batch_size=batch_size)
 
     def signature(self):
-        return [
+        return (
             {'type': 'sequence', 'shape': self.get_shape()},
             {'type': 'label'}
-        ]
+        )
 
 
 class SpeakerPairsBatchGenerator(YaafeMixin, FileBasedBatchGenerator):
