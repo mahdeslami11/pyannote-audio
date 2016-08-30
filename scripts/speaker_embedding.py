@@ -27,7 +27,7 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 """
-Speech activity detection
+Speaker embedding
 
 Usage:
   speaker_embedding train <config.yml> <dataset> <dataset_dir>
