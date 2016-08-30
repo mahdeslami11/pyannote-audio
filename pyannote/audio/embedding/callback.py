@@ -39,23 +39,6 @@ import numpy as np
 import scipy.stats
 
 
-class EmbeddingCheckpoint(Callback):
-
-    def __init__(self, sequence_embedding,
-                       checkpoint='weights.{epoch:03d}-{loss:.2f}.hdf5'):
-        super(EmbeddingCheckpoint, self).__init__()
-        self.sequence_embedding = sequence_embedding
-        self.checkpoint = checkpoint
-
-    def on_epoch_end(self, epoch, logs={}):
-        weights = self.checkpoint.format(epoch=epoch, **logs)
-        try:
-            self.sequence_embedding.to_disk(
-                weights=weights, overwrite=True, model=self.model)
-        except Exception as e:
-            # chat échaudé craint l'eau froide
-            pass
-
 class ValidationCheckpoint(Callback):
 
     def __init__(self, sequence_embedding, generator, protocol, checkpoint='/tmp/checkpoint'):
