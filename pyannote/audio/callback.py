@@ -49,13 +49,21 @@ class LoggingCallback(Callback):
     log_dir : str
     log : list of tuples, optional
         Defaults to [('train', 'loss')]
+    get_model : func
+        Function that takes Keras model as input and returns the actual model.
+        This is useful for embedding that are not directly optimized by Keras.
+        Defaults to identity function.
     """
 
-    def __init__(self, log_dir, log=None):
+    def __init__(self, log_dir, log=None, get_model=None):
         super(LoggingCallback, self).__init__()
 
         # make sure path is absolute
         self.log_dir = os.path.realpath(log_dir)
+
+        if get_model is None:
+            get_model = lambda model: model
+        self.get_model = get_model
 
         # create log_dir directory (and subdirectory)
         os.makedirs(self.log_dir)
@@ -98,7 +106,8 @@ class LoggingCallback(Callback):
             return
 
         architecture = self.log_dir + '/architecture.yml'
-        yaml_string = self.model.to_yaml()
+        model = self.get_model(self.model)
+        yaml_string = model.to_yaml()
         with open(architecture, 'w') as fp:
             fp.write(yaml_string)
 
@@ -114,7 +123,8 @@ class LoggingCallback(Callback):
 
         # save current weights
         try:
-            self.model.save_weights(current_weights, overwrite=True)
+            model = self.get_model(self.model)
+            model.save_weights(current_weights, overwrite=True)
         except Exception as e:
             pass
 
