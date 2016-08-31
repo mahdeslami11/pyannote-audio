@@ -126,7 +126,8 @@ def train(dataset, dataset_dir, config_yml):
 
     # log loss during training and keep track of best model
     log = [('train', 'loss')]
-    callback = LoggingCallback(log_dir=log_dir, log=log)
+    callback = LoggingCallback(log_dir=log_dir, log=log,
+                               get_model=embedding.get_embedding)
 
     # estimated number of triplets per epoch
     # (rounded to closest batch_size multiple)
