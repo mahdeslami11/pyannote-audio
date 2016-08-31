@@ -48,6 +48,7 @@ import os.path
 import numpy as np
 from docopt import docopt
 
+import pyannote.core
 from pyannote.audio.callback import LoggingCallback
 from pyannote.audio.features.yaafe import YaafeMFCC
 from pyannote.audio.embedding.models import TripletLossBiLSTMSequenceEmbedding
