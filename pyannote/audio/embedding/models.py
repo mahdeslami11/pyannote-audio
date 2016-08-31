@@ -76,8 +76,8 @@ class SequenceEmbedding(object):
 
         with open(architecture, 'r') as fp:
             yaml_string = fp.read()
-        self.model_ = model_from_yaml(yaml_string)
-        self.model_.load_weights(weights)
+        self.embedding_ = model_from_yaml(yaml_string)
+        self.embedding_.load_weights(weights)
         return self
 
     def to_disk(self, architecture=None, weights=None, overwrite=False, input_shape=None, model=None):
@@ -102,13 +102,15 @@ class SequenceEmbedding(object):
         if weights and os.path.isfile(weights) and not overwrite:
             raise ValueError("File '{weights}' already exists.".format(weights=weights))
 
+        embedding = self.get_embedding(self.model_)
+
         if architecture:
-            yaml_string = self.model_.to_yaml()
+            yaml_string = embedding.to_yaml()
             with open(architecture, 'w') as fp:
                 fp.write(yaml_string)
 
         if weights:
-            self.model_.save_weights(weights, overwrite=overwrite)
+            embedding.save_weights(weights, overwrite=overwrite)
 
     def loss(self, y_true, y_pred):
         raise NotImplementedError('')
@@ -140,7 +142,7 @@ class SequenceEmbedding(object):
 
     def transform(self, sequence, batch_size=32, verbose=0):
         if not hasattr(self, 'embedding_'):
-            self.embedding_ = self.get_embedding()
+            self.embedding_ = self.get_embedding(self.model_)
 
         return self.embedding_.predict(
             sequence, batch_size=batch_size, verbose=verbose)
@@ -309,9 +311,9 @@ class TripletLossBiLSTMSequenceEmbedding(BiLSTMSequenceEmbedding):
     def loss(self, y_true, y_pred):
         return self._identity_loss(y_true, y_pred)
 
-    def get_embedding(self):
+    def get_embedding(self, model):
         """Extract embedding from Keras model (a posteriori)"""
-        return self.model_.layers_by_depth[1][0]
+        return model.layers_by_depth[1][0]
 
     def design_model(self, input_shape):
         """
