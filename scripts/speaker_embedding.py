@@ -268,21 +268,28 @@ def tune(dataset, dataset_dir, config_yml, weights_dir, output_dir):
             break
         epochs += 1
 
-    for epoch in range(epochs):
+    LINE = '{epoch:04d} {eer:.6f}\n'
+    PATH = output_dir + '/eer.{dataset}.txt'
+    with open(PATH.format(dataset=dataset), 'w') as fp:
+        
+        for epoch in range(epochs):
 
-        # load model for this epoch
-        weights_h5 = WEIGHTS_H5.format(epoch=epoch)
-        sequence_embedding = SequenceEmbedding.from_disk(
-            architecture_yml, weights_h5)
+            # load model for this epoch
+            weights_h5 = WEIGHTS_H5.format(epoch=epoch)
+            sequence_embedding = SequenceEmbedding.from_disk(
+                architecture_yml, weights_h5)
 
-        # pairwise euclidean distances between embeddings
-        batch_size = config['testing']['batch_size']
-        x = sequence_embedding.transform(X, batch_size=batch_size, verbose=0)
-        distances = pdist(x, metric='euclidean')
-        PATH = output_dir + '/plot.{epoch:04d}'
-        eer = plot_det_curve(y_true, -distances, PATH.format(epoch=epoch))
-        msg = 'Epoch #{epoch:04d} | EER = {eer:.2f}%'
-        print(msg.format(epoch=epoch, eer=100 * eer))
+            # pairwise euclidean distances between embeddings
+            batch_size = config['testing']['batch_size']
+            x = sequence_embedding.transform(X, batch_size=batch_size, verbose=0)
+            distances = pdist(x, metric='euclidean')
+            PATH = output_dir + '/plot.{epoch:04d}'
+            eer = plot_det_curve(y_true, -distances, PATH.format(epoch=epoch))
+
+            msg = 'Epoch #{epoch:04d} | EER = {eer:.2f}%'
+            print(msg.format(epoch=epoch, eer=100 * eer))
+
+            fp.write(LINE.format(epoch=epoch, eer=eer))
 
 
 def test(dataset, dataset_dir, config_yml, weights_h5, output_dir):
