@@ -203,7 +203,7 @@ def test(dataset, dataset_dir, config_yml, weights_h5, output_dir):
         sequence_labeling, feature_extractor, normalize=normalize,
         duration=duration, step=step)
 
-    collar = 0.500
+    collar = 0.0
     error_rate = DetectionErrorRate(collar=collar)
     accuracy = DetectionAccuracy(collar=collar)
     precision = DetectionPrecision(collar=collar)
@@ -222,15 +222,24 @@ def test(dataset, dataset_dir, config_yml, weights_h5, output_dir):
 
         for wav, uem, reference in file_generator:
 
+            speech_turns = reference.get_timeline()
+            speech_regions = speech_turns.coverage()
+
+            overlap = Timeline()
+            for segment, other_segment in speech_turns.co_iter(speech_turns):
+                if segment == other_segment:
+                    continue
+                overlap.add(segment & other_segment)
+
             uri = os.path.splitext(os.path.basename(wav))[0]
 
             predictions = aggregation.apply(wav)
             hypothesis = binarizer.apply(predictions, dimension=1)
 
-            e = error_rate(reference, hypothesis, uem=uem)
-            a = accuracy(reference, hypothesis, uem=uem)
-            p = precision(reference, hypothesis, uem=uem)
-            r = recall(reference, hypothesis, uem=uem)
+            e = error_rate(overlap, hypothesis, uem=speech_regions)
+            a = accuracy(overlap, hypothesis, uem=speech_regions)
+            p = precision(overlap, hypothesis, uem=speech_regions)
+            r = recall(overlap, hypothesis, uem=speech_regions)
             f = f_measure(p, r)
 
             line = LINE.format(uri=uri, e=e, a=a, p=p, r=r, f=f)
