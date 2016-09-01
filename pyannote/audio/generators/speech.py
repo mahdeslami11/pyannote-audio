@@ -106,3 +106,85 @@ class SpeechActivityDetectionBatchGenerator(YaafeMixin,
             segment, mode='center', fixed=duration)
 
         return [X, y]
+
+
+class OverlappingSpeechDetectionBatchGenerator(YaafeMixin,
+                                               FileBasedBatchGenerator):
+
+    def __init__(self, feature_extractor, duration=3.2, normalize=False,
+                 step=0.8, batch_size=32):
+
+        self.feature_extractor = feature_extractor
+        self.duration = duration
+        self.step = step
+        self.normalize = normalize
+
+        # source = 'coverage' ensures only speech regions are covered
+        segment_generator = SlidingSegments(duration=duration,
+                                            step=step,
+                                            source='coverage')
+        super(OverlappingSpeechDetectionBatchGenerator, self).__init__(
+            segment_generator, batch_size=batch_size)
+
+    def signature(self):
+
+        shape = self.yaafe_get_shape()
+        dimension = 2
+
+        return [
+            {'type': 'sequence', 'shape': shape},
+            {'type': 'sequence', 'shape': (shape[0], dimension)}
+        ]
+
+    def preprocess(self, current_file, identifier=None):
+        """Pre-compute file-wise X and y"""
+
+        current_file = self.yaafe_preprocess(
+            current_file, identifier=identifier)
+
+        if identifier in self.preprocessed_.setdefault('y', {}):
+            return current_file
+
+        X = self.preprocessed_['X'][identifier]
+        sw = X.sliding_window
+        n_samples = X.getNumber()
+
+        y = np.zeros((n_samples + 1, 2), dtype=np.int8)
+        # [0,1] ==> overlapping speech / [1, 0] ==> speech / [0, 0] ==> unknown
+
+        wav, uem, reference = current_file
+        timeline = reference.get_timeline()
+
+        # speech regions
+        for segment in timeline:
+            indices = sw.crop(segment, mode='loose')
+            y[indices, 0] = 1
+
+        # overlapping speech regions
+        for segment, other_segment in timeline.co_iter(timeline):
+            if segment == other_segment:
+                continue
+
+            overlap = segment & other_segment
+            indices = sw.crop(overlap, mode='loose')
+            y[indices, 1] = 1
+            y[indices, 0] = 0
+
+        y = SlidingWindowFeature(y[:-1], sw)
+        self.preprocessed_['y'][identifier] = y
+
+        return current_file
+
+    # defaults to extracting frames centered on segment
+    def process_segment(self, segment, signature=None, identifier=None):
+        """Extract X and y subsequences"""
+
+        X = self.yaafe_process_segment(
+            segment, signature=signature, identifier=identifier)
+
+        duration = signature.get('duration', None)
+
+        y = self.preprocessed_['y'][identifier].crop(
+            segment, mode='center', fixed=duration)
+
+        return [X, y]
