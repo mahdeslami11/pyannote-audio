@@ -64,6 +64,7 @@ from pyannote.metrics.detection import DetectionErrorRate, DetectionAccuracy, \
                                        DetectionPrecision, DetectionRecall
 from pyannote.metrics import f_measure
 from pyannote.core.json import dump_to
+from pyannote.core import Timeline
 
 from etape import Etape
 
