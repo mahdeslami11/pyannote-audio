@@ -26,8 +26,66 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-
+import scipy.signal
+import numpy as np
 from pyannote.core import Segment, Timeline, Annotation
+from pyannote.core.util import pairwise
+
+
+class Peak(object):
+    """Peak detection
+
+    Peaks are detected on min_duration windows.
+    Only peaks greater than mu + alpha * sigma are kept.
+
+    Parameters
+    ----------
+    alpha : float, optional
+        Adaptative threshold multiplicative coefficient. Defaults to 1.
+    min_duration : float, optional
+        Defaults to 1 second.
+
+    """
+    def __init__(self, alpha=1.0, min_duration=1.0):
+        super(Peak, self).__init__()
+        self.alpha = alpha
+        self.min_duration = min_duration
+
+    def apply(self, predictions):
+        """Peak detection
+
+        Parameter
+        ---------
+        predictions : SlidingWindowFeature
+            Predictions returned by segmentation approaches.
+
+        Returns
+        -------
+        segmentation : Timeline
+            Partition.
+        """
+        y = predictions.data
+        sw = predictions.sliding_window
+
+        precision = sw.step
+        order = int(np.rint(self.min_duration / precision))
+        indices = scipy.signal.argrelmax(y, order=order)[0]
+
+        threshold = np.nanmean(y) + self.alpha * np.nanstd(y)
+
+        peak_time = np.array([sw[i].middle for i in indices if y[i] > threshold])
+
+        n_windows = len(y)
+        start_time = sw[0].start
+        end_time = sw[n_windows].end
+
+        boundaries = np.hstack([[start_time], peak_time, [end_time]])
+        segmentation = Timeline()
+        for i, (start, end) in enumerate(pairwise(boundaries)):
+            segment = Segment(start, end)
+            segmentation.add(segment)
+
+        return segmentation
 
 
 class Binarize(object):
