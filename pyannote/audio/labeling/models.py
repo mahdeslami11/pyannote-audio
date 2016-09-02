@@ -113,10 +113,17 @@ class SequenceLabeling(object):
 
         Parameters
         ----------
-        input_shape :
-        callbacks :
-
-        For all other parameters, see Keras documentation for `fit_generator`
+        input_shape : tuple
+            (n_samples, n_features) tuple describing the shape of input
+            features sequences.
+        generator : iterable
+            Batch generator
+        samples_per_epoch : int
+            Number of sequences per epoch.
+        np_epoch : int
+            Number of epochs.
+        callbacks : list
+            List of Keras callbacks.
         """
 
         if not callbacks and self.log_dir:
