@@ -257,25 +257,28 @@ def tune(dataset, dataset_dir, config_yml, weights_dir, output_dir):
     # this is where model architecture was saved
     architecture_yml = os.path.dirname(weights_dir) + '/architecture.yml'
 
-    # determine which is the latest available model by looking for weight files
-    # (e.g. 0015.h5 for epoch #15)
-    # TODO dichotomic search
+    output_dir = output_dir + '/' + dataset
+
+    try:
+        os.makedirs(output_dir)
+    except Exception as e:
+        pass
+
+    nb_epoch = config['training']['nb_epoch']
     WEIGHTS_H5 = weights_dir + '/{epoch:04d}.h5'
-    epochs = 0
-    while True:
-        weights_h5 = WEIGHTS_H5.format(epoch=epochs)
-        if not os.path.isfile(weights_h5):
-            break
-        epochs += 1
 
     LINE = '{epoch:04d} {eer:.6f}\n'
-    PATH = output_dir + '/eer.{dataset}.txt'
+    PATH = output_dir + '/eer.txt'
     with open(PATH.format(dataset=dataset), 'w') as fp:
-        
-        for epoch in range(epochs):
+
+        for epoch in range(nb_epoch):
 
             # load model for this epoch
             weights_h5 = WEIGHTS_H5.format(epoch=epoch)
+
+            if not os.path.isfile(weights_h5):
+                continue
+
             sequence_embedding = SequenceEmbedding.from_disk(
                 architecture_yml, weights_h5)
 
@@ -290,6 +293,12 @@ def tune(dataset, dataset_dir, config_yml, weights_dir, output_dir):
             print(msg.format(epoch=epoch, eer=100 * eer))
 
             fp.write(LINE.format(epoch=epoch, eer=eer))
+
+            # save distribution plots after each epoch
+            space = config['network']['space']
+            xlim = (0, 2 if space == 'sphere' else np.sqrt(2.))
+            plot_distributions(y_true, distances, PATH.format(epoch=epoch),
+                               xlim=xlim, ymax=3, nbins=100)
 
 
 def test(dataset, dataset_dir, config_yml, weights_h5, output_dir):
