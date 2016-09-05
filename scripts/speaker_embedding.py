@@ -293,6 +293,7 @@ def tune(dataset, dataset_dir, config_yml, weights_dir, output_dir):
             print(msg.format(epoch=epoch, eer=100 * eer))
 
             fp.write(LINE.format(epoch=epoch, eer=eer))
+            fp.flush()
 
             # save distribution plots after each epoch
             space = config['network']['space']
