@@ -36,17 +36,18 @@ class Peak(object):
     """Peak detection
 
     Peaks are detected on min_duration windows.
-    Only peaks greater than mu + alpha * sigma are kept.
+    Only peaks greater than p(5) + alpha * (p(95) - p(5)) are kept
+    where p(x) is xth percentile.
 
     Parameters
     ----------
     alpha : float, optional
-        Adaptative threshold multiplicative coefficient. Defaults to 1.
+        Adaptative threshold coefficient. Defaults to 0.5
     min_duration : float, optional
         Defaults to 1 second.
 
     """
-    def __init__(self, alpha=1.0, min_duration=1.0):
+    def __init__(self, alpha=0.5, min_duration=1.0):
         super(Peak, self).__init__()
         self.alpha = alpha
         self.min_duration = min_duration
@@ -71,7 +72,9 @@ class Peak(object):
         order = int(np.rint(self.min_duration / precision))
         indices = scipy.signal.argrelmax(y, order=order)[0]
 
-        threshold = np.nanmean(y) + self.alpha * np.nanstd(y)
+        mini = np.nanpercentile(y, 5)
+        maxi = np.nanpercentile(y, 95)
+        threshold = mini + self.alpha * (maxi - mini)
 
         peak_time = np.array([sw[i].middle for i in indices if y[i] > threshold])
 
