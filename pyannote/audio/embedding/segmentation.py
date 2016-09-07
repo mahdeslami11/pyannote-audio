@@ -120,3 +120,86 @@ class SequenceEmbeddingSegmentation(YaafeMixin, FileBasedBatchGenerator):
         window = SlidingWindow(duration=2 * self.duration,
                                step=self.step, start=0.)
         return SlidingWindowFeature(y, window)
+
+
+class GaussianDivergenceSegmentation(YaafeMixin, FileBasedBatchGenerator):
+    """Segmentation based on
+
+    Computes the gaussian divergence between features of two (left and right)
+    sliding windows.
+
+    Parameters
+    ----------
+    feature_extractor : YaafeFeatureExtractor
+        Yaafe feature extractor
+    normalize : boolean, optional
+        Set to True to z-score normalize
+    duration : float, optional
+    step : float, optional
+        Sliding window duration and step (in seconds).
+        Defaults to 1 second window with 100ms step.
+
+    Usage
+    -----
+    >>> feature_extractor = YaafeFeatureExtractor(...)
+    >>> segmentation = GaussianDivergenceSegmentation(feature_extractor)
+    >>> predictions = segmentation.apply('audio.wav')
+    >>> segmentation = Peak().apply(predictions)
+
+    See also
+    --------
+    pyannote.audio.signal.Peak
+
+    """
+    def __init__(self, feature_extractor, normalize=False,
+                 duration=1.000, step=0.100):
+
+        # feature sequence
+        self.feature_extractor = feature_extractor
+        self.normalize = normalize
+
+        # (left vs. right) sliding windows
+        self.duration = duration
+        self.step = step
+        generator = TwinSlidingSegments(duration=duration, step=step)
+
+        super(GaussianDivergenceSegmentation, self).__init__(generator,
+                                                             batch_size=-1)
+
+    def signature(self):
+        shape = self.get_shape()
+        return (
+            {'type': 'timestamp'},
+            {'type': 'sequence', 'shape': shape},
+            {'type': 'sequence', 'shape': shape}
+        )
+
+    def apply(self, wav):
+        """Computes distance between sliding windows embeddings
+
+        Parameter
+        ---------
+        wav : str
+            Path to wav audio file
+
+        Returns
+        -------
+        predictions : SlidingWindowFeature
+        """
+
+        from pyannote.algorithms.stats.gaussian import Gaussian
+
+        current_file = wav, None, None
+        t, left, right = next(self.from_file(current_file))
+
+        y = []
+        for xL, xR in zip(left, right):
+            gL = Gaussian(covariance_type='diag').fit(xL)
+            gR = Gaussian(covariance_type='diag').fit(xR)
+            y.append(gL.divergence(gR))
+
+        y = np.array(y)
+
+        window = SlidingWindow(duration=2 * self.duration,
+                               step=self.step, start=0.)
+        return SlidingWindowFeature(y, window)
