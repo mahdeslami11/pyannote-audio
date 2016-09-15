@@ -69,6 +69,7 @@ except ImportError as e:
         def call(self, x, mask=None):
             return K.mean(x, axis=1)
 
+    custom_objects ={"GlobalAveragePooling1D": GlobalAveragePooling1D}
 
 from pyannote.audio.callback import LoggingCallback
 from keras.models import model_from_yaml
@@ -107,7 +108,8 @@ class SequenceEmbedding(object):
 
         with open(architecture, 'r') as fp:
             yaml_string = fp.read()
-        self.embedding_ = model_from_yaml(yaml_string)
+        self.embedding_ = model_from_yaml(yaml_string,
+                                          custom_objects=custom_objects)
         self.embedding_.load_weights(weights)
         return self
 
