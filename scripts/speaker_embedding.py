@@ -116,6 +116,7 @@ def train(dataset, dataset_dir, config_yml):
     # internal model structure
     output_dim = config['network']['output_dim']
     lstm = config['network']['lstm']
+    pooling = config['network'].get('pooling', 'last')
     dense = config['network']['dense']
     # bi-directional
     bidirectional = config['network']['bidirectional']
@@ -137,7 +138,7 @@ def train(dataset, dataset_dir, config_yml):
 
     # embedding
     embedding = TripletLossBiLSTMSequenceEmbedding(
-        output_dim, lstm=lstm, dense=dense, bidirectional=bidirectional,
+        output_dim, lstm=lstm, pooling=pooling, dense=dense, bidirectional=bidirectional,
         space=space, margin=margin, optimizer=optimizer, log_dir=log_dir)
 
     # triplet generator for training

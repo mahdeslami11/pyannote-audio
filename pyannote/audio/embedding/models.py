@@ -39,6 +39,37 @@ from keras.layers import Dense
 from keras.layers import Lambda
 from keras.layers import merge
 
+try:
+    from keras.layers.pooling import GlobalAveragePooling1D
+
+except ImportError as e:
+    from keras.engine import Layer, InputSpec
+
+    class _GlobalPooling1D(Layer):
+
+        def __init__(self, **kwargs):
+            super(_GlobalPooling1D, self).__init__(**kwargs)
+            self.input_spec = [InputSpec(ndim=3)]
+
+        def get_output_shape_for(self, input_shape):
+            return (input_shape[0], input_shape[2])
+
+        def call(self, x, mask=None):
+            raise NotImplementedError
+
+
+    class GlobalAveragePooling1D(_GlobalPooling1D):
+        '''Global average pooling operation for temporal data.
+        # Input shape
+            3D tensor with shape: `(samples, steps, features)`.
+        # Output shape
+            2D tensor with shape: `(samples, features)`.
+        '''
+
+        def call(self, x, mask=None):
+            return K.mean(x, axis=1)
+
+
 from pyannote.audio.callback import LoggingCallback
 from keras.models import model_from_yaml
 
@@ -158,6 +189,10 @@ class BiLSTMSequenceEmbedding(SequenceEmbedding):
         lstm: list, optional
             List of output dimension of stacked LSTMs.
             Defaults to [12, ] (i.e. one LSTM with output dimension 12)
+        pooling: {'last', 'average'}
+            By default ('last'), only the last output of the last LSTM layer is
+            returned. Use 'average' pooling if you want the last LSTM layer to
+            return the whole sequence and take the average.
         dense: list, optional
             List of output dimension of additionnal stacked dense layers.
             Defaults to [] (i.e. do not add any dense layer)
@@ -172,12 +207,13 @@ class BiLSTMSequenceEmbedding(SequenceEmbedding):
             When provided, log status after each epoch into this directory. This
             will create several files, including loss plots and weights files.
         """
-        def __init__(self, output_dim, lstm=[12], dense=[],
+        def __init__(self, output_dim, lstm=[12], pooling='last', dense=[],
                      bidirectional=False, space='sphere',
                      margin=0.2, optimizer='rmsprop', log_dir=None):
 
             self.output_dim = output_dim
             self.lstm = lstm
+            self.pooling = pooling
             self.dense = dense
             self.bidirectional = bidirectional
             self.space = space
@@ -196,8 +232,15 @@ class BiLSTMSequenceEmbedding(SequenceEmbedding):
             n_lstm = len(self.lstm)
             for i, output_dim in enumerate(self.lstm):
 
-                # last LSTM should not return a sequence
-                return_sequences = i+1 < n_lstm
+                if self.pooling == 'last':
+                    # only last LSTM should not return a sequence
+                    return_sequences = i+1 < n_lstm
+                elif self.pooling == 'average':
+                    return_sequences = True
+                else:
+                    raise NotImplementedError(
+                        'unknown "{pooling}" pooling'.format(pooling=self.pooling))
+
                 if i:
                     # all but first LSTM
                     forward = LSTM(output_dim=output_dim,
@@ -212,7 +255,7 @@ class BiLSTMSequenceEmbedding(SequenceEmbedding):
                                         dropout_W=0.0,
                                         dropout_U=0.0)(backward)
                 else:
-                    # first LSTM
+                    # first forward LSTM needs to be given the input shape
                     forward = LSTM(input_shape=input_shape,
                                    output_dim=output_dim,
                                    return_sequences=return_sequences,
@@ -220,6 +263,8 @@ class BiLSTMSequenceEmbedding(SequenceEmbedding):
                                    dropout_W=0.0,
                                    dropout_U=0.0)(x)
                     if self.bidirectional:
+                        # first backward LSTM needs to be given the input shape
+                        # AND to be told to process the sequence backward
                         backward = LSTM(go_backwards=True,
                                         input_shape=input_shape,
                                         output_dim=output_dim,
@@ -227,6 +272,11 @@ class BiLSTMSequenceEmbedding(SequenceEmbedding):
                                         activation='tanh',
                                         dropout_W=0.0,
                                         dropout_U=0.0)(x)
+
+            if self.pooling == 'average':
+                forward = GlobalAveragePooling1D()(forward)
+                if self.bidirectional:
+                    backward = GlobalAveragePooling1D()(backward)
 
             # concatenate forward and backward
             if self.bidirectional:
@@ -264,6 +314,10 @@ class TripletLossBiLSTMSequenceEmbedding(BiLSTMSequenceEmbedding):
     lstm: list, optional
         List of output dimension of stacked LSTMs.
         Defaults to [12, ] (i.e. one LSTM with output dimension 12)
+    pooling: {'last', 'average'}
+        By default ('last'), only the last output of the last LSTM layer is
+        returned. Use 'average' pooling if you want the last LSTM layer to
+        return the whole sequence and take the average.
     dense: list, optional
         List of output dimension of additionnal stacked dense layers.
         Defaults to [] (i.e. do not add any dense layer)
@@ -278,7 +332,7 @@ class TripletLossBiLSTMSequenceEmbedding(BiLSTMSequenceEmbedding):
         When provided, log status after each epoch into this directory. This
         will create several files, including loss plots and weights files.
     """
-    def __init__(self, output_dim, lstm=[12], dense=[],
+    def __init__(self, output_dim, lstm=[12], pooling='last', dense=[],
                  bidirectional=False, space='sphere',
                  margin=0.2, optimizer='rmsprop', log_dir=None):
 
@@ -287,6 +341,7 @@ class TripletLossBiLSTMSequenceEmbedding(BiLSTMSequenceEmbedding):
         super(TripletLossBiLSTMSequenceEmbedding, self).__init__(
             output_dim,
             lstm=lstm,
+            pooling=pooling,
             dense=dense,
             bidirectional=bidirectional,
             space=space,
