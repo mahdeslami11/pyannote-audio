@@ -150,55 +150,59 @@ class SequenceEmbedding(object):
             sequence, batch_size=batch_size, verbose=verbose)
 
 
-class BiLSTMSequenceEmbedding(SequenceEmbedding):
-    """Bi-directional LSTM sequence embedding
+class TristouNet(object):
+    """TristouNet sequence embedding
 
     Reference
     ---------
     Hervé Bredin, "TristouNet: Triplet Loss for Speaker Turn Embedding"
-    Submitted to ICASSP 2017. https://arxiv.org/abs/1609.04301
+    Submitted to ICASSP 2017.
+    https://arxiv.org/abs/1609.04301
 
     Parameters
     ----------
-    output_dim: int
-        Embedding dimension.
     lstm: list, optional
         List of output dimension of stacked LSTMs.
-        Defaults to [12, ] (i.e. one LSTM with output dimension 12)
+        Defaults to [16, ] (i.e. one LSTM with output dimension 16)
+    bidirectional: boolean, optional
+        When True, use bi-directional LSTMs
     pooling: {'last', 'average'}
         By default ('last'), only the last output of the last LSTM layer is
         returned. Use 'average' pooling if you want the last LSTM layer to
         return the whole sequence and take the average.
     dense: list, optional
-        List of output dimension of additionnal stacked dense layers.
-        Defaults to [] (i.e. do not add any dense layer)
-    bidirectional: boolean, optional
-        When True, use bi-directional LSTMs
+        Number of units of additionnal stacked dense layers.
+        Defaults to [16, ] (i.e. add one dense layer with 16 units)
+    output_dim: int, optional
+        Embedding dimension. Defaults to 16
     space: {'sphere', 'quadrant'}, optional
         When 'sphere' (resp. 'quadrant'), use 'tanh' (resp. 'sigmoid') as
         final activation. Defaults to 'sphere'.
-    optimizer: str, optional
-        Keras optimizer. Defaults to 'rmsprop'.
-    log_dir: str, optional
-        When provided, log status after each epoch into this directory. This
-        will create several files, including loss plots and weights files.
     """
-    def __init__(self, output_dim, lstm=[12], pooling='last', dense=[],
-                 bidirectional=False, space='sphere',
-                 margin=0.2, optimizer='rmsprop', log_dir=None):
 
-        self.output_dim = output_dim
+    def __init__(self, lstm=[16,], bidirectional=True, pooling='average',
+                 dense=[16,], output_dim=16, space='sphere'):
+
         self.lstm = lstm
+        self.bidirectional = bidirectional
         self.pooling = pooling
         self.dense = dense
-        self.bidirectional = bidirectional
+        self.output_dim = output_dim
         self.space = space
-        self.optimizer = optimizer
 
-        super(BiLSTMSequenceEmbedding, self).__init__(
-            log_dir=log_dir)
+    def __call__(self, input_shape):
+        """
 
-    def design_embedding(self, input_shape):
+        Parameters
+        ----------
+        input_shape : (n_frames, n_features) tuple
+            Shape of input sequence.
+
+        Returns
+        -------
+        model : Keras model
+
+        """
 
         inputs = Input(shape=input_shape,
                        name="embedding_input")
@@ -277,52 +281,32 @@ class BiLSTMSequenceEmbedding(SequenceEmbedding):
 
         return Model(input=inputs, output=embeddings)
 
-class TripletLossBiLSTMSequenceEmbedding(BiLSTMSequenceEmbedding):
-    """Triplet loss Bi-directional LSTM sequence embedding
+
+class TripletLossSequenceEmbedding(SequenceEmbedding):
+    """Triplet loss for sequence embedding
+
+    Reference
+    ---------
+    Hervé Bredin, "TristouNet: Triplet Loss for Speaker Turn Embedding"
+    Submitted to ICASSP 2017. https://arxiv.org/abs/1609.04301
 
     Parameters
     ----------
-    output_dim: int
-        Embedding dimension.
-    margin: float, optional
-        Defaults to 0.2
-    lstm: list, optional
-        List of output dimension of stacked LSTMs.
-        Defaults to [12, ] (i.e. one LSTM with output dimension 12)
-    pooling: {'last', 'average'}
-        By default ('last'), only the last output of the last LSTM layer is
-        returned. Use 'average' pooling if you want the last LSTM layer to
-        return the whole sequence and take the average.
-    dense: list, optional
-        List of output dimension of additionnal stacked dense layers.
-        Defaults to [] (i.e. do not add any dense layer)
-    bidirectional: boolean, optional
-        When True, use bi-directional LSTMs
-    space: {'sphere', 'quadrant'}, optional
-        When 'sphere' (resp. 'quadrant'), use 'tanh' (resp. 'sigmoid') as
-        final activation. Defaults to 'sphere'.
+    design_embedding : callable, or func
+        This function should take input_shape as input and return a Keras model
+        (see TristouNet.__call__ for an example)
     optimizer: str, optional
         Keras optimizer. Defaults to 'rmsprop'.
     log_dir: str, optional
         When provided, log status after each epoch into this directory. This
         will create several files, including loss plots and weights files.
     """
-    def __init__(self, output_dim, lstm=[12], pooling='last', dense=[],
-                 bidirectional=False, space='sphere',
-                 margin=0.2, optimizer='rmsprop', log_dir=None):
+    def __init__(self, design_embedding, margin=0.2, optimizer='rmsprop', log_dir=None):
 
+        super(TripletLossSequenceEmbedding, self).__init__(log_dir=log_dir)
+
+        self.design_embedding = design_embedding
         self.margin = margin
-
-        super(TripletLossBiLSTMSequenceEmbedding, self).__init__(
-            output_dim,
-            lstm=lstm,
-            pooling=pooling,
-            dense=dense,
-            bidirectional=bidirectional,
-            space=space,
-            optimizer=optimizer,
-            log_dir=log_dir)
-
         self.optimizer = optimizer
 
     def _triplet_loss(self, inputs):

@@ -65,7 +65,8 @@ import pyannote.core
 from pyannote.audio.callback import LoggingCallback
 from pyannote.audio.features.yaafe import YaafeMFCC
 from pyannote.audio.embedding.models import SequenceEmbedding
-from pyannote.audio.embedding.models import TripletLossBiLSTMSequenceEmbedding
+from pyannote.audio.embedding.models import TristouNet
+from pyannote.audio.embedding.models import TripletLossSequenceEmbedding
 from pyannote.audio.embedding.generator import TripletBatchGenerator
 from pyannote.audio.embedding.generator import LabeledSequencesBatchGenerator
 from pyannote.database import get_database
@@ -132,9 +133,11 @@ def train(dataset, medium_template, config_yml):
     overlap = config['training']['triplet_loss']['overlap']
 
     # embedding
-    embedding = TripletLossBiLSTMSequenceEmbedding(
-        output_dim, lstm=lstm, pooling=pooling, dense=dense, bidirectional=bidirectional,
-        space=space, margin=margin, optimizer=optimizer, log_dir=log_dir)
+    get_embedding = TristouNet(
+        lstm=lstm, bidirectional=bidirectional, pooling=pooling,
+        dense=dense, output_dim=output_dim, space=space)
+    embedding = TripletLossSequenceEmbedding(
+        get_embedding, margin=margin, optimizer=optimizer, log_dir=log_dir)
 
     # triplet generator for training
     batch_generator = TripletBatchGenerator(
@@ -269,7 +272,6 @@ def tune(dataset, medium_template, config_yml, weights_dir, output_dir):
 
             # load model for this epoch
             weights_h5 = WEIGHTS_H5.format(epoch=epoch)
-
             if not os.path.isfile(weights_h5):
                 continue
 
