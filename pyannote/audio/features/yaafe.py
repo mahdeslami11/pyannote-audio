@@ -31,14 +31,9 @@ from __future__ import unicode_literals
 import numpy as np
 import yaafelib
 import scipy.io.wavfile
-from scipy.stats import zscore
 
 from pyannote.core.segment import SlidingWindow
 from pyannote.core.feature import SlidingWindowFeature
-from pyannote.generators.batch import FileBasedBatchGenerator
-from pyannote.core import PYANNOTE_SEGMENT
-
-from .utils import get_wav_duration
 
 
 class YaafeFrame(SlidingWindow):
