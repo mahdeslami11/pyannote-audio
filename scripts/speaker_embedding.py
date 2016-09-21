@@ -64,14 +64,13 @@ from docopt import docopt
 import pyannote.core
 from pyannote.audio.callback import LoggingCallback
 from pyannote.audio.features.yaafe import YaafeMFCC
-from pyannote.audio.embedding.models import SequenceEmbedding
+from pyannote.audio.embedding.base import SequenceEmbedding
 from pyannote.audio.embedding.models import TristouNet
-from pyannote.audio.embedding.models import TripletLossSequenceEmbedding
+from pyannote.audio.embedding.losses import TripletLoss
 from pyannote.audio.embedding.generator import TripletBatchGenerator
 from pyannote.audio.embedding.generator import LabeledSequencesBatchGenerator
 from pyannote.database import get_database
 from scipy.spatial.distance import pdist, squareform
-from scipy.stats import hmean
 
 from pyannote.metrics.plot.binary_classification import plot_det_curve, \
                                                         plot_distributions, \
@@ -136,7 +135,7 @@ def train(dataset, medium_template, config_yml):
     get_embedding = TristouNet(
         lstm=lstm, bidirectional=bidirectional, pooling=pooling,
         dense=dense, output_dim=output_dim, space=space)
-    embedding = TripletLossSequenceEmbedding(
+    embedding = TripletLoss(
         get_embedding, margin=margin, optimizer=optimizer, log_dir=log_dir)
 
     # triplet generator for training
