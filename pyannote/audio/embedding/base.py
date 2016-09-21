@@ -118,7 +118,7 @@ class SequenceEmbedding(object):
 
         Parameters
         ----------
-        input_shape : (n_samples, n_features) tuple
+        input_shape : (n_frames, n_features) tuple
             Shape of input sequence
         generator : iterable
             The output of the generator must be a tuple (inputs, targets) or a
@@ -128,7 +128,7 @@ class SequenceEmbedding(object):
             samples have been seen by the model.
         samples_per_epoch : int
             Number of samples to process before going to the next epoch.
-        np_epoch : int
+        nb_epoch : int
             Total number of iterations on the data
         callbacks : list, optional
             List of callbacks to be called during training.
@@ -151,9 +151,23 @@ class SequenceEmbedding(object):
             generator, samples_per_epoch, nb_epoch,
             verbose=1, callbacks=callbacks)
 
-    def transform(self, sequence, batch_size=32, verbose=0):
+    def transform(self, sequences, batch_size=32, verbose=0):
+        """Apply pre-trained embedding to sequences
+
+        Parameters
+        ----------
+        sequences : (n_samples, n_frames, n_features) array
+            Array of sequences
+        batch_size : int, optional
+            Number of samples per batch
+        verbose : int, optional
+
+        Returns
+        -------
+        embeddings : (n_samples, n_dimensions)
+        """
         if not hasattr(self, 'embedding_'):
             self.embedding_ = self.loss.get_embedding(self.model_)
 
         return self.embedding_.predict(
-            sequence, batch_size=batch_size, verbose=verbose)
+            sequences, batch_size=batch_size, verbose=verbose)

@@ -41,7 +41,7 @@ class Loss(object):
     ----------
     design_embedding : function or callable
         This function should take input_shape as input and return a Keras model
-        should take a sequence as input, and return the embedding as output.
+        that takes a sequence as input, and returns the embedding as output.
 
     See also
     --------

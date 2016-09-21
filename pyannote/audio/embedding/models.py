@@ -78,7 +78,7 @@ class TristouNet(object):
         self.space = space
 
     def __call__(self, input_shape):
-        """
+        """Design embedding
 
         Parameters
         ----------
@@ -88,7 +88,6 @@ class TristouNet(object):
         Returns
         -------
         model : Keras model
-
         """
 
         inputs = Input(shape=input_shape,
@@ -110,20 +109,23 @@ class TristouNet(object):
 
             if i:
                 # all but first LSTM
-                forward = LSTM(output_dim=output_dim,
+                forward = LSTM(name='forward_{i:d}'.format(i=i),
+                               output_dim=output_dim,
                                return_sequences=return_sequences,
                                activation='tanh',
                                dropout_W=0.0,
                                dropout_U=0.0)(forward)
                 if self.bidirectional:
-                    backward = LSTM(output_dim=output_dim,
+                    backward = LSTM(name='backward_{i:d}'.format(i=i),
+                                    output_dim=output_dim,
                                     return_sequences=return_sequences,
                                     activation='tanh',
                                     dropout_W=0.0,
                                     dropout_U=0.0)(backward)
             else:
                 # first forward LSTM needs to be given the input shape
-                forward = LSTM(input_shape=input_shape,
+                forward = LSTM(name='forward_{i:d}'.format(i=i),
+                               input_shape=input_shape,
                                output_dim=output_dim,
                                return_sequences=return_sequences,
                                activation='tanh',
@@ -132,7 +134,8 @@ class TristouNet(object):
                 if self.bidirectional:
                     # first backward LSTM needs to be given the input shape
                     # AND to be told to process the sequence backward
-                    backward = LSTM(go_backwards=True,
+                    backward = LSTM(name='backward_{i:d}'.format(i=i),
+                                    go_backwards=True,
                                     input_shape=input_shape,
                                     output_dim=output_dim,
                                     return_sequences=return_sequences,
@@ -153,7 +156,9 @@ class TristouNet(object):
 
         # stack dense layers
         for i, output_dim in enumerate(self.dense):
-            x = Dense(output_dim, activation='tanh')(x)
+            x = Dense(output_dim,
+                      activation='tanh',
+                      name='dense_{i:d}'.format(i=i))(x)
 
         # stack final dense layer
         if self.space == 'sphere':
