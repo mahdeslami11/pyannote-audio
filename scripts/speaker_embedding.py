@@ -33,6 +33,7 @@ Usage:
   speaker_embedding train <config.yml> <dataset> <medium_template>
   speaker_embedding tune <config.yml> <weights_dir> <dataset> <medium_template> <output_dir>
   speaker_embedding apply <config.yml> <weights.h5> <dataset> <medium_template> <output_dir>
+  speaker_embedding compare <config.yml> <dataset> <medium_template> <output_dir>
   speaker_embedding -h | --help
   speaker_embedding --version
 
@@ -67,8 +68,8 @@ from pyannote.audio.embedding.models import SequenceEmbedding
 from pyannote.audio.embedding.models import TripletLossBiLSTMSequenceEmbedding
 from pyannote.audio.embedding.generator import TripletBatchGenerator
 from pyannote.audio.embedding.generator import LabeledSequencesBatchGenerator
-from scipy.spatial.distance import pdist
 from pyannote.database import get_database
+from scipy.spatial.distance import pdist, squareform
 from scipy.stats import hmean
 
 from pyannote.metrics.plot.binary_classification import plot_det_curve, \
@@ -294,6 +295,62 @@ def tune(dataset, medium_template, config_yml, weights_dir, output_dir):
             plot_distributions(y_true, distances, PATH.format(epoch=epoch),
                                xlim=xlim, ymax=3, nbins=100)
 
+def compare(dataset, medium_template, config_yml, output_dir):
+
+    import itertools
+    from pyannote.algorithms.stats.gaussian import Gaussian
+
+    # load configuration file
+    with open(config_yml, 'r') as fp:
+        config = yaml.load(fp)
+
+    X, y_true = generate_test(dataset, medium_template, config)
+
+    n_sequences = X.shape[0]
+
+    gaussians = []
+    for x in X:
+        g = Gaussian(covariance_type='diag').fit(x)
+        gaussians.append(g)
+
+    bic = np.zeros((n_sequences, n_sequences), dtype=np.float)
+    for i, j in itertools.combinations(range(n_sequences), 2):
+        bic[i, j], _ = gaussians[i].bic(gaussians[j], penalty_coef=0.)
+
+    distances = squareform(bic, checks=False)
+
+    # -- distances distributions
+    plot_distributions(y_true, distances, output_dir + '/plot.bic', xlim=(0, 20), ymax=0.5, nbins=100)
+
+    # -- precision / recall curve
+    auc = plot_precision_recall_curve(y_true, -distances, output_dir + '/plot.bic')
+    msg = 'BIC | AUC = {auc:.2f}%'
+    print(msg.format(auc=100 * auc))
+
+    # -- det curve
+    eer = plot_det_curve(y_true, -distances, output_dir + '/plot.bic')
+    msg = 'BIC | EER = {eer:.2f}%'
+    print(msg.format(eer=100 * eer))
+
+    divergence = np.zeros((n_sequences, n_sequences), dtype=np.float)
+    for i, j in itertools.combinations(range(n_sequences), 2):
+        divergence[i, j] = gaussians[i].divergence(gaussians[j])
+
+    distances = squareform(divergence, checks=False)
+
+    # -- distances distributions
+    plot_distributions(y_true, distances, output_dir + '/plot.divergence', xlim=(0, 20), ymax=0.5, nbins=100)
+
+    # -- precision / recall curve
+    auc = plot_precision_recall_curve(y_true, -distances, output_dir + '/plot.divergence')
+    msg = 'Divergence | AUC = {auc:.2f}%'
+    print(msg.format(auc=100 * auc))
+
+    # -- det curve
+    eer = plot_det_curve(y_true, -distances, output_dir + '/plot.divergence')
+    msg = 'Divergence | EER = {eer:.2f}%'
+    print(msg.format(eer=100 * eer))
+
 
 
 def test(dataset, medium_template, config_yml, weights_h5, output_dir):
@@ -366,5 +423,12 @@ if __name__ == '__main__':
 
         tune(dataset, medium_template, config_yml, weights_dir, output_dir)
 
+    if arguments['compare']:
+
+        # arguments
+        config_yml = arguments['<config.yml>']
+        dataset = arguments['<dataset>']
+        medium_template = arguments['<medium_template>']
         output_dir = arguments['<output_dir>']
 
+        compare(dataset, medium_template, config_yml, output_dir)
