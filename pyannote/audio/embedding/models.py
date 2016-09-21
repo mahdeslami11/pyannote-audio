@@ -182,127 +182,131 @@ class SequenceEmbedding(object):
 
 
 class BiLSTMSequenceEmbedding(SequenceEmbedding):
-        """Bi-directional LSTM sequence embedding
+    """Bi-directional LSTM sequence embedding
 
-        Parameters
-        ----------
-        output_dim: int
-            Embedding dimension.
-        lstm: list, optional
-            List of output dimension of stacked LSTMs.
-            Defaults to [12, ] (i.e. one LSTM with output dimension 12)
-        pooling: {'last', 'average'}
-            By default ('last'), only the last output of the last LSTM layer is
-            returned. Use 'average' pooling if you want the last LSTM layer to
-            return the whole sequence and take the average.
-        dense: list, optional
-            List of output dimension of additionnal stacked dense layers.
-            Defaults to [] (i.e. do not add any dense layer)
-        bidirectional: boolean, optional
-            When True, use bi-directional LSTMs
-        space: {'sphere', 'quadrant'}, optional
-            When 'sphere' (resp. 'quadrant'), use 'tanh' (resp. 'sigmoid') as
-            final activation. Defaults to 'sphere'.
-        optimizer: str, optional
-            Keras optimizer. Defaults to 'rmsprop'.
-        log_dir: str, optional
-            When provided, log status after each epoch into this directory. This
-            will create several files, including loss plots and weights files.
-        """
-        def __init__(self, output_dim, lstm=[12], pooling='last', dense=[],
-                     bidirectional=False, space='sphere',
-                     margin=0.2, optimizer='rmsprop', log_dir=None):
+    Reference
+    ---------
+    Hervé Bredin, "TristouNet: Triplet Loss for Speaker Turn Embedding"
+    Submitted to ICASSP 2017. https://arxiv.org/abs/1609.04301
 
-            self.output_dim = output_dim
-            self.lstm = lstm
-            self.pooling = pooling
-            self.dense = dense
-            self.bidirectional = bidirectional
-            self.space = space
-            self.optimizer = optimizer
+    Parameters
+    ----------
+    output_dim: int
+        Embedding dimension.
+    lstm: list, optional
+        List of output dimension of stacked LSTMs.
+        Defaults to [12, ] (i.e. one LSTM with output dimension 12)
+    pooling: {'last', 'average'}
+        By default ('last'), only the last output of the last LSTM layer is
+        returned. Use 'average' pooling if you want the last LSTM layer to
+        return the whole sequence and take the average.
+    dense: list, optional
+        List of output dimension of additionnal stacked dense layers.
+        Defaults to [] (i.e. do not add any dense layer)
+    bidirectional: boolean, optional
+        When True, use bi-directional LSTMs
+    space: {'sphere', 'quadrant'}, optional
+        When 'sphere' (resp. 'quadrant'), use 'tanh' (resp. 'sigmoid') as
+        final activation. Defaults to 'sphere'.
+    optimizer: str, optional
+        Keras optimizer. Defaults to 'rmsprop'.
+    log_dir: str, optional
+        When provided, log status after each epoch into this directory. This
+        will create several files, including loss plots and weights files.
+    """
+    def __init__(self, output_dim, lstm=[12], pooling='last', dense=[],
+                 bidirectional=False, space='sphere',
+                 margin=0.2, optimizer='rmsprop', log_dir=None):
 
-            super(BiLSTMSequenceEmbedding, self).__init__(
-                log_dir=log_dir)
+        self.output_dim = output_dim
+        self.lstm = lstm
+        self.pooling = pooling
+        self.dense = dense
+        self.bidirectional = bidirectional
+        self.space = space
+        self.optimizer = optimizer
 
-        def design_embedding(self, input_shape):
+        super(BiLSTMSequenceEmbedding, self).__init__(
+            log_dir=log_dir)
 
-            inputs = Input(shape=input_shape,
-                           name="embedding_input")
-            x = inputs
+    def design_embedding(self, input_shape):
 
-            # stack LSTM layers
-            n_lstm = len(self.lstm)
-            for i, output_dim in enumerate(self.lstm):
+        inputs = Input(shape=input_shape,
+                       name="embedding_input")
+        x = inputs
 
-                if self.pooling == 'last':
-                    # only last LSTM should not return a sequence
-                    return_sequences = i+1 < n_lstm
-                elif self.pooling == 'average':
-                    return_sequences = True
-                else:
-                    raise NotImplementedError(
-                        'unknown "{pooling}" pooling'.format(pooling=self.pooling))
+        # stack LSTM layers
+        n_lstm = len(self.lstm)
+        for i, output_dim in enumerate(self.lstm):
 
-                if i:
-                    # all but first LSTM
-                    forward = LSTM(output_dim=output_dim,
-                                   return_sequences=return_sequences,
-                                   activation='tanh',
-                                   dropout_W=0.0,
-                                   dropout_U=0.0)(forward)
-                    if self.bidirectional:
-                        backward = LSTM(output_dim=output_dim,
-                                        return_sequences=return_sequences,
-                                        activation='tanh',
-                                        dropout_W=0.0,
-                                        dropout_U=0.0)(backward)
-                else:
-                    # first forward LSTM needs to be given the input shape
-                    forward = LSTM(input_shape=input_shape,
-                                   output_dim=output_dim,
-                                   return_sequences=return_sequences,
-                                   activation='tanh',
-                                   dropout_W=0.0,
-                                   dropout_U=0.0)(x)
-                    if self.bidirectional:
-                        # first backward LSTM needs to be given the input shape
-                        # AND to be told to process the sequence backward
-                        backward = LSTM(go_backwards=True,
-                                        input_shape=input_shape,
-                                        output_dim=output_dim,
-                                        return_sequences=return_sequences,
-                                        activation='tanh',
-                                        dropout_W=0.0,
-                                        dropout_U=0.0)(x)
-
-            if self.pooling == 'average':
-                forward = GlobalAveragePooling1D()(forward)
-                if self.bidirectional:
-                    backward = GlobalAveragePooling1D()(backward)
-
-            # concatenate forward and backward
-            if self.bidirectional:
-                x = merge([forward, backward], mode='concat', concat_axis=1)
+            if self.pooling == 'last':
+                # only last LSTM should not return a sequence
+                return_sequences = i+1 < n_lstm
+            elif self.pooling == 'average':
+                return_sequences = True
             else:
-                x = forward
+                raise NotImplementedError(
+                    'unknown "{pooling}" pooling'.format(pooling=self.pooling))
 
-            # stack dense layers
-            for i, output_dim in enumerate(self.dense):
-                x = Dense(output_dim, activation='tanh')(x)
+            if i:
+                # all but first LSTM
+                forward = LSTM(output_dim=output_dim,
+                               return_sequences=return_sequences,
+                               activation='tanh',
+                               dropout_W=0.0,
+                               dropout_U=0.0)(forward)
+                if self.bidirectional:
+                    backward = LSTM(output_dim=output_dim,
+                                    return_sequences=return_sequences,
+                                    activation='tanh',
+                                    dropout_W=0.0,
+                                    dropout_U=0.0)(backward)
+            else:
+                # first forward LSTM needs to be given the input shape
+                forward = LSTM(input_shape=input_shape,
+                               output_dim=output_dim,
+                               return_sequences=return_sequences,
+                               activation='tanh',
+                               dropout_W=0.0,
+                               dropout_U=0.0)(x)
+                if self.bidirectional:
+                    # first backward LSTM needs to be given the input shape
+                    # AND to be told to process the sequence backward
+                    backward = LSTM(go_backwards=True,
+                                    input_shape=input_shape,
+                                    output_dim=output_dim,
+                                    return_sequences=return_sequences,
+                                    activation='tanh',
+                                    dropout_W=0.0,
+                                    dropout_U=0.0)(x)
 
-            # stack final dense layer
-            if self.space == 'sphere':
-                activation = 'tanh'
-            elif self.space == 'quadrant':
-                activation = 'sigmoid'
-            x = Dense(self.output_dim, activation=activation)(x)
+        if self.pooling == 'average':
+            forward = GlobalAveragePooling1D()(forward)
+            if self.bidirectional:
+                backward = GlobalAveragePooling1D()(backward)
 
-            # stack L2 normalization layer
-            embeddings = Lambda(lambda x: K.l2_normalize(x, axis=-1),
-                                name="embedding_output")(x)
+        # concatenate forward and backward
+        if self.bidirectional:
+            x = merge([forward, backward], mode='concat', concat_axis=1)
+        else:
+            x = forward
 
-            return Model(input=inputs, output=embeddings)
+        # stack dense layers
+        for i, output_dim in enumerate(self.dense):
+            x = Dense(output_dim, activation='tanh')(x)
 
+        # stack final dense layer
+        if self.space == 'sphere':
+            activation = 'tanh'
+        elif self.space == 'quadrant':
+            activation = 'sigmoid'
+        x = Dense(self.output_dim, activation=activation)(x)
+
+        # stack L2 normalization layer
+        embeddings = Lambda(lambda x: K.l2_normalize(x, axis=-1),
+                            name="embedding_output")(x)
+
+        return Model(input=inputs, output=embeddings)
 
 class TripletLossBiLSTMSequenceEmbedding(BiLSTMSequenceEmbedding):
     """Triplet loss Bi-directional LSTM sequence embedding
