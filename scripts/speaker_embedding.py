@@ -30,16 +30,16 @@
 Speaker embedding
 
 Usage:
-  speaker_embedding train <config.yml> <dataset> <dataset_dir>
-  speaker_embedding tune <config.yml> <weights_dir> <dataset> <dataset_dir> <output_dir>
-  speaker_embedding apply <config.yml> <weights.h5> <dataset> <dataset_dir> <output_dir>
+  speaker_embedding train <config.yml> <dataset> <medium_template>
+  speaker_embedding tune <config.yml> <weights_dir> <dataset> <medium_template> <output_dir>
+  speaker_embedding apply <config.yml> <weights.h5> <dataset> <medium_template> <output_dir>
   speaker_embedding -h | --help
   speaker_embedding --version
 
 Options:
   <config.yml>              Use this configuration file.
-  <dataset>                 Use this dataset (e.g. "etape.train" for training)
-  <dataset_dir>             Path to actual dataset material (e.g. '/Users/bredin/Corpora/etape')
+  <dataset>                 Use this dataset (e.g. "Etape.SpeakerDiarization.TV.train" for training)
+  <medium_template>         Path template to actual media files (e.g. '/Users/bredin/Corpora/etape/{uri}.wav')
   <weights.h5>              Path to pre-trained model weights. File
                             'architecture.yml' must live in the same directory.
   <output_dir>              Path where to save results.
@@ -67,8 +67,8 @@ from pyannote.audio.embedding.models import SequenceEmbedding
 from pyannote.audio.embedding.models import TripletLossBiLSTMSequenceEmbedding
 from pyannote.audio.embedding.generator import TripletBatchGenerator
 from pyannote.audio.embedding.generator import LabeledSequencesBatchGenerator
-from etape import Etape
 from scipy.spatial.distance import pdist
+from pyannote.database import get_database
 from scipy.stats import hmean
 
 from pyannote.metrics.plot.binary_classification import plot_det_curve, \
@@ -76,7 +76,7 @@ from pyannote.metrics.plot.binary_classification import plot_det_curve, \
                                                         plot_precision_recall_curve
 
 
-def train(dataset, dataset_dir, config_yml):
+def train(dataset, medium_template, config_yml):
 
     # load configuration file
     with open(config_yml, 'r') as fp:
@@ -89,20 +89,14 @@ def train(dataset, dataset_dir, config_yml):
     log_dir = workdir + '/' + dataset
 
     # -- DATASET --
-    dataset, subset = dataset.split('.')
-    if dataset != 'etape':
-        msg = '{dataset} dataset is not supported.'
-        raise NotImplementedError(msg.format(dataset=dataset))
+    db, task, protocol, subset = dataset.split('.')
+    database = get_database(db, medium_template=medium_template)
+    protocol = database.get_protocol(task, protocol)
 
-    protocol = Etape(dataset_dir)
+    if not hasattr(protocol, subset):
+        raise NotImplementedError('')
 
-    if subset == 'train':
-        file_generator = protocol.train_iter()
-    elif subset == 'dev':
-        file_generator = protocol.dev_iter()
-    else:
-        msg = 'Training on {subset} subset is not allowed.'
-        raise NotImplementedError(msg.format(subset=subset))
+    file_generator = getattr(protocol, subset)()
 
     # -- FEATURE EXTRACTION --
     # input sequence duration
@@ -166,7 +160,7 @@ def train(dataset, dataset_dir, config_yml):
 
 
 
-def generate_test(dataset, dataset_dir, config):
+def generate_test(dataset, medium_template, config):
 
     # -- DATASET --
     dataset, subset = dataset.split('.')
@@ -174,17 +168,15 @@ def generate_test(dataset, dataset_dir, config):
         msg = '{dataset} dataset is not supported.'
         raise NotImplementedError(msg.format(dataset=dataset))
 
-    protocol = Etape(dataset_dir)
+    # -- DATASET --
+    db, task, protocol, subset = dataset.split('.')
+    database = get_database(db, medium_template=medium_template)
+    protocol = database.get_protocol(task, protocol)
 
-    if subset == 'train':
-        file_generator = protocol.train_iter()
-    elif subset == 'dev':
-        file_generator = protocol.dev_iter()
-    elif subset == 'test':
-        file_generator = protocol.test_iter()
-    else:
-        msg = 'Testing on {subset} subset is not supported.'
-        raise NotImplementedError(msg.format(subset=subset))
+    if not hasattr(protocol, subset):
+        raise NotImplementedError('')
+
+    file_generator = getattr(protocol, subset)()
 
     # -- FEATURE EXTRACTION --
     # input sequence duration
@@ -247,13 +239,13 @@ def generate_test(dataset, dataset_dir, config):
 
     return X, y_true
 
-def tune(dataset, dataset_dir, config_yml, weights_dir, output_dir):
+def tune(dataset, medium_template, config_yml, weights_dir, output_dir):
 
     # load configuration file
     with open(config_yml, 'r') as fp:
         config = yaml.load(fp)
 
-    X, y_true = generate_test(dataset, dataset_dir, config)
+    X, y_true = generate_test(dataset, medium_template, config)
 
     # this is where model architecture was saved
     architecture_yml = os.path.dirname(weights_dir) + '/architecture.yml'
@@ -303,13 +295,14 @@ def tune(dataset, dataset_dir, config_yml, weights_dir, output_dir):
                                xlim=xlim, ymax=3, nbins=100)
 
 
-def test(dataset, dataset_dir, config_yml, weights_h5, output_dir):
+
+def test(dataset, medium_template, config_yml, weights_h5, output_dir):
 
     # load configuration file
     with open(config_yml, 'r') as fp:
         config = yaml.load(fp)
 
-    X, y_true = generate_test(dataset, dataset_dir, config)
+    X, y_true = generate_test(dataset, medium_template, config)
 
     # this is where model architecture was saved
     architecture_yml = os.path.dirname(os.path.dirname(weights_h5)) + '/architecture.yml'
@@ -345,11 +338,11 @@ if __name__ == '__main__':
 
         # arguments
         dataset = arguments['<dataset>']
-        dataset_dir = arguments['<dataset_dir>']
+        medium_template = arguments['<medium_template>']
         config_yml = arguments['<config.yml>']
 
         # train the model
-        train(dataset, dataset_dir, config_yml)
+        train(dataset, medium_template, config_yml)
 
     if arguments['apply']:
 
@@ -357,10 +350,10 @@ if __name__ == '__main__':
         config_yml = arguments['<config.yml>']
         weights_h5 = arguments['<weights.h5>']
         dataset = arguments['<dataset>']
-        dataset_dir = arguments['<dataset_dir>']
+        medium_template = arguments['<medium_template>']
         output_dir = arguments['<output_dir>']
 
-        test(dataset, dataset_dir, config_yml, weights_h5, output_dir)
+        test(dataset, medium_template, config_yml, weights_h5, output_dir)
 
     if arguments['tune']:
 
@@ -368,7 +361,10 @@ if __name__ == '__main__':
         config_yml = arguments['<config.yml>']
         weights_dir = arguments['<weights_dir>']
         dataset = arguments['<dataset>']
-        dataset_dir = arguments['<dataset_dir>']
+        medium_template = arguments['<medium_template>']
         output_dir = arguments['<output_dir>']
 
-        tune(dataset, dataset_dir, config_yml, weights_dir, output_dir)
+        tune(dataset, medium_template, config_yml, weights_dir, output_dir)
+
+        output_dir = arguments['<output_dir>']
+
