@@ -33,16 +33,27 @@ from keras.models import model_from_yaml
 
 
 class SequenceEmbedding(object):
-    """Base class for sequence embedding
+    """Sequence embedding
 
     Parameters
     ----------
+    loss : pyannote.audio.embedding.losses.Loss
+        `Loss` instance. It is expected to implement the following methods:
+        __call__, design_model, and get_embedding
+    optimizer: str, optional
+        Keras optimizer. Defaults to 'rmsprop'.
     log_dir: str, optional
         When provided, log status after each epoch into this directory. This
         will create several files, including loss plots and weights files.
+
+    See also
+    --------
+    pyannote.audio.embedding.losses.Loss for more details on `loss` parameter
     """
-    def __init__(self, log_dir=None):
+    def __init__(self, loss=None, optimizer='rmsprop', log_dir=None):
         super(SequenceEmbedding, self).__init__()
+        self.loss = loss
+        self.optimizer = optimizer
         self.log_dir = log_dir
 
     @classmethod
@@ -91,7 +102,7 @@ class SequenceEmbedding(object):
         if weights and os.path.isfile(weights) and not overwrite:
             raise ValueError("File '{weights}' already exists.".format(weights=weights))
 
-        embedding = self.get_embedding(self.model_)
+        embedding = self.loss.get_embedding(self.model_)
 
         if architecture:
             yaml_string = embedding.to_yaml()
@@ -103,41 +114,46 @@ class SequenceEmbedding(object):
 
     def fit(self, input_shape, generator,
             samples_per_epoch, nb_epoch, callbacks=[]):
-        """Train model
+        """Train the embedding
 
         Parameters
         ----------
-        input_shape :
-        generator :
-        samples_per_epoch :
-        np_epoch :
-        callbacks :
+        input_shape : (n_samples, n_features) tuple
+            Shape of input sequence
+        generator : iterable
+            The output of the generator must be a tuple (inputs, targets) or a
+            tuple (inputs, targets, sample_weights). All arrays should contain
+            the same number of samples. The generator is expected to loop over
+            its data indefinitely. An epoch finishes when `samples_per_epoch`
+            samples have been seen by the model.
+        samples_per_epoch : int
+            Number of samples to process before going to the next epoch.
+        np_epoch : int
+            Total number of iterations on the data
+        callbacks : list, optional
+            List of callbacks to be called during training.
+            Defaults to [LoggingCallback()]
+
+        See also
+        --------
+        keras.engine.training.Model.fit_generator
         """
 
         if not callbacks and self.log_dir:
             default_callback = LoggingCallback(self, log_dir=self.log_dir)
             callbacks = [default_callback]
 
-        self.model_ = self.design_model(input_shape)
+        self.model_ = self.loss.design_model(input_shape)
         self.model_.compile(optimizer=self.optimizer,
                             loss=self.loss)
 
-        self.model_.fit_generator(
+        return self.model_.fit_generator(
             generator, samples_per_epoch, nb_epoch,
             verbose=1, callbacks=callbacks)
 
     def transform(self, sequence, batch_size=32, verbose=0):
         if not hasattr(self, 'embedding_'):
-            self.embedding_ = self.get_embedding(self.model_)
+            self.embedding_ = self.loss.get_embedding(self.model_)
 
         return self.embedding_.predict(
             sequence, batch_size=batch_size, verbose=verbose)
-
-    def loss(self, y_true, y_pred):
-        raise NotImplementedError('')
-
-    def design_model(self, input_shape):
-        raise NotImplementedError('')
-
-    def get_embedding(self, model):
-        raise NotImplementedError('')

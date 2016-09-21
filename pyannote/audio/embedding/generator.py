@@ -106,8 +106,8 @@ class TripletGenerator(object):
         Yaafe feature extraction (e.g. YaafeMFCC instance)
     file_generator: iterable
         File generator (the training set, typically)
-    embedding: TripletLossSequenceEmbedding
-        Triplet loss sequence embedding (currently being optimized)
+    embedding: SequenceEmbedding
+        Sequence embedding (currently being optimized)
     duration: float, optional
         Sequence duration. Defaults to 3 seconds.
     overlap: float, optional
@@ -124,13 +124,14 @@ class TripletGenerator(object):
         Batch size. Defaults to 32.
     """
 
-    def __init__(self, extractor, file_generator, embedding,
+    def __init__(self, extractor, file_generator, embedding, margin=0.2,
                  duration=3.0, overlap=0.0, normalize=False,
                  per_fold=0, per_label=40, batch_size=32):
 
         self.extractor = extractor
         self.file_generator = file_generator
         self.embedding = embedding
+        self.margin = margin
         self.duration = duration
         self.overlap = overlap
         self.normalize = normalize
@@ -268,7 +269,7 @@ class TripletGenerator(object):
                         # find all negatives within the margin
                         d = distances[anchor, positive]
                         within_margin = np.where(
-                            distances[anchor, negatives] < d + self.embedding.margin)[0]
+                            distances[anchor, negatives] < d + self.margin)[0]
 
                         # choose one at random (if at least one exists)
                         if len(within_margin) < 1:
@@ -342,7 +343,7 @@ class TripletBatchGenerator(BaseBatchGenerator):
         Batch size. Defaults to 32.
     """
     def __init__(self, feature_extractor, file_generator, sequence_embedding,
-                 duration=3.0, overlap=0.5, normalize=False,
+                 margin=0.2, duration=3.0, overlap=0.5, normalize=False,
                  per_fold=0, per_label=40, batch_size=32):
 
         self.triplet_generator_ = TripletGenerator(

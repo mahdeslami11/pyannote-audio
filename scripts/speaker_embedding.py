@@ -135,19 +135,21 @@ def train(dataset, medium_template, config_yml):
     get_embedding = TristouNet(
         lstm=lstm, bidirectional=bidirectional, pooling=pooling,
         dense=dense, output_dim=output_dim, space=space)
-    embedding = TripletLoss(
-        get_embedding, margin=margin, optimizer=optimizer, log_dir=log_dir)
+
+    loss = TripletLoss(get_embedding, margin=margin)
+
+    embedding = SequenceEmbedding(loss=loss, optimizer=optimizer, log_dir=log_dir)
 
     # triplet generator for training
     batch_generator = TripletBatchGenerator(
-        feature_extractor, file_generator, embedding,
+        feature_extractor, file_generator, embedding, margin=margin,
         duration=duration, overlap=overlap, normalize=normalize,
         per_fold=per_fold, per_label=per_label, batch_size=batch_size)
 
     # log loss during training and keep track of best model
     log = [('train', 'loss')]
     callback = LoggingCallback(log_dir=log_dir, log=log,
-                               get_model=embedding.get_embedding)
+                               get_model=loss.get_embedding)
 
     # estimated number of triplets per epoch
     # (rounded to closest batch_size multiple)
