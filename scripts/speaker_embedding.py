@@ -161,15 +161,7 @@ def train(dataset, medium_template, config_yml):
                   callbacks=[callback])
 
 
-
-
 def generate_test(dataset, medium_template, config):
-
-    # -- DATASET --
-    dataset, subset = dataset.split('.')
-    if dataset != 'etape':
-        msg = '{dataset} dataset is not supported.'
-        raise NotImplementedError(msg.format(dataset=dataset))
 
     # -- DATASET --
     db, task, protocol, subset = dataset.split('.')
