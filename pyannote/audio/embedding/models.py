@@ -38,38 +38,7 @@ from keras.layers import Dropout
 from keras.layers import Dense
 from keras.layers import Lambda
 from keras.layers import merge
-
-try:
-    from keras.layers.pooling import GlobalAveragePooling1D
-
-except ImportError as e:
-    from keras.engine import Layer, InputSpec
-
-    class _GlobalPooling1D(Layer):
-
-        def __init__(self, **kwargs):
-            super(_GlobalPooling1D, self).__init__(**kwargs)
-            self.input_spec = [InputSpec(ndim=3)]
-
-        def get_output_shape_for(self, input_shape):
-            return (input_shape[0], input_shape[2])
-
-        def call(self, x, mask=None):
-            raise NotImplementedError
-
-
-    class GlobalAveragePooling1D(_GlobalPooling1D):
-        '''Global average pooling operation for temporal data.
-        # Input shape
-            3D tensor with shape: `(samples, steps, features)`.
-        # Output shape
-            2D tensor with shape: `(samples, features)`.
-        '''
-
-        def call(self, x, mask=None):
-            return K.mean(x, axis=1)
-
-    custom_objects ={"GlobalAveragePooling1D": GlobalAveragePooling1D}
+from keras.layers.pooling import GlobalAveragePooling1D
 
 from pyannote.audio.callback import LoggingCallback
 from keras.models import model_from_yaml
