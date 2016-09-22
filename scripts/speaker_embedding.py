@@ -141,7 +141,7 @@ def train(dataset, medium_template, config_yml):
     embedding = SequenceEmbedding(loss=loss, optimizer=optimizer, log_dir=log_dir)
 
     # triplet generator for training
-    batch_generator = TripletBatchGenerator(
+    generator = TripletBatchGenerator(
         feature_extractor, file_generator, embedding, margin=margin,
         duration=duration, overlap=overlap, normalize=normalize,
         per_fold=per_fold, per_label=per_label, batch_size=batch_size)
@@ -153,13 +153,13 @@ def train(dataset, medium_template, config_yml):
 
     # estimated number of triplets per epoch
     # (rounded to closest batch_size multiple)
-    samples_per_epoch = per_label * (per_label - 1) * batch_generator.n_labels
+    samples_per_epoch = per_label * (per_label - 1) * generator.n_labels
     samples_per_epoch = samples_per_epoch - (samples_per_epoch % batch_size)
 
     # input shape (n_samples, n_features)
-    input_shape = batch_generator.get_shape()
+    input_shape = generator.get_shape()
 
-    embedding.fit(input_shape, batch_generator, samples_per_epoch, nb_epoch,
+    embedding.fit(input_shape, generator, samples_per_epoch, nb_epoch,
                   callbacks=[callback])
 
 
