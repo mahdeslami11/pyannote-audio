@@ -35,8 +35,8 @@ from pyannote.generators.fragment import TwinSlidingSegments
 from ..generators.yaafe import YaafeMixin
 
 
-class SequenceEmbeddingSegmentation(YaafeMixin, FileBasedBatchGenerator):
-    """Segmentation based on
+class Segmentation(YaafeMixin, FileBasedBatchGenerator):
+    """Segmentation based on sequence embedding
 
     Computes the euclidean distance between the embeddings of two
     (left and right) sliding windows.
@@ -58,7 +58,7 @@ class SequenceEmbeddingSegmentation(YaafeMixin, FileBasedBatchGenerator):
     -----
     >>> sequence_embedding = SequenceEmbedding.from_disk('architecture_yml', 'weights.h5')
     >>> feature_extractor = YaafeFeatureExtractor(...)
-    >>> segmentation = SequenceEmbeddingSegmentation(sequence_embedding, feature_extractor)
+    >>> segmentation = Segmentation(sequence_embedding, feature_extractor)
     >>> predictions = segmentation.apply('audio.wav')
     >>> segmentation = Peak().apply(predictions)
 
@@ -83,7 +83,7 @@ class SequenceEmbeddingSegmentation(YaafeMixin, FileBasedBatchGenerator):
         self.step = step
         generator = TwinSlidingSegments(duration=duration, step=step)
 
-        super(SequenceEmbeddingSegmentation, self).__init__(generator,
+        super(Segmentation, self).__init__(generator,
                                                             batch_size=-1)
 
     def signature(self):
