@@ -41,6 +41,7 @@ setup(
         'pyannote.generators >= 0.1.1',
         'pyannote.database >= 0.3',
         'keras >= 1.1.0',
+        'theano >= 0.8.2',
     ],
     # versioneer
     version=versioneer.get_version(),
