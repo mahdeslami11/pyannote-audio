@@ -52,19 +52,20 @@ import os.path
 import numpy as np
 from docopt import docopt
 
+import pyannote.core
 from pyannote.audio.callback import LoggingCallback
 from pyannote.audio.features.yaafe import YaafeMFCC
-from pyannote.audio.labeling.models import SequenceLabeling, BiLSTMSequenceLabeling
+from pyannote.audio.labeling.base import SequenceLabeling
+from pyannote.audio.labeling.models import StackedLSTM
 from pyannote.audio.generators.speech import SpeechActivityDetectionBatchGenerator
-
 from pyannote.audio.labeling.aggregation import SequenceLabelingAggregation
 from pyannote.audio.signal import Binarize
+from pyannote.database import get_database
 from pyannote.metrics.detection import DetectionErrorRate, DetectionAccuracy, \
                                        DetectionPrecision, DetectionRecall
 from pyannote.metrics import f_measure
 from pyannote.core.json import dump_to
 
-from etape import Etape
 
 def train(dataset, medium_template, config_yml):
 
@@ -117,11 +118,11 @@ def train(dataset, medium_template, config_yml):
     optimizer = config['training']['optimizer']
 
     # labeling
-    output_dim = 2
-    labeling = BiLSTMSequenceLabeling(
-        output_dim,
-        lstm=lstm, dense=dense, bidirectional=bidirectional,
-        optimizer=optimizer, log_dir=log_dir)
+    n_classes = 2
+    design_model = StackedLSTM(n_classes=n_classes,
+        lstm=lstm, bidirectional=bidirectional,dense=dense)
+
+    labeling = SequenceLabeling(design_model, optimizer=optimizer, log_dir=log_dir)
 
     # segment generator for training
     step = duration * (1. - overlap)
@@ -137,11 +138,12 @@ def train(dataset, medium_template, config_yml):
     # number of samples per epoch + round it to closest batch
     samples_per_epoch = batch_size * int(np.ceil((3600 * hours_per_epoch / step) / batch_size))
 
-    # input shape (n_samples, n_features)
+    # input shape (n_frames, n_features)
     input_shape = batch_generator.get_shape()
 
-    labeling.fit(input_shape, batch_generator(file_generator, infinite=True),
-                 samples_per_epoch, nb_epoch, callbacks=[callback])
+    generator = batch_generator(file_generator, infinite=True)
+
+    labeling.fit(input_shape, generator, samples_per_epoch, nb_epoch, callbacks=[callback])
 
 
 def test(dataset, medium_template, config_yml, weights_h5, output_dir):

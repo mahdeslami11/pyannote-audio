@@ -26,174 +26,51 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-import os.path
 
 from keras.models import Model
-
 from keras.layers import Input
 from keras.layers import LSTM
 from keras.layers import Dense
 from keras.layers import merge
 from keras.layers.wrappers import TimeDistributed
 
-from pyannote.audio.callback import LoggingCallback
-from keras.models import model_from_yaml
 
-
-class SequenceLabeling(object):
-    """Base class for sequence labeling
+class StackedLSTM(object):
+    """Stacked LSTM
 
     Parameters
     ----------
-    log_dir: str, optional
-        When provided, log status after each epoch into this directory. This
-        will create several files, including loss plots and weights files.
+    n_classes : int, optional
+        Number of output classes. Defaults to 2 (binary classification).
+    lstm: list, optional
+        List of output dimension of stacked LSTMs.
+        Defaults to [16, ] (i.e. one LSTM with output dimension 16)
+    bidirectional: boolean, optional
+        When True, use bi-directional LSTMs
+    dense: list, optional
+        Number of units of additionnal stacked dense layers.
+        Defaults to [16, ] (i.e. add one dense layer with 16 units)
     """
-    def __init__(self, log_dir=None):
-        super(SequenceLabeling, self).__init__()
-        self.log_dir = log_dir
+    def __init__(self, n_classes=2, lstm=[16], bidirectional=True, dense=[16]):
 
-    @classmethod
-    def from_disk(cls, architecture, weights):
-        """Load pre-trained sequence labeling from disk
+        super(StackedLSTM, self).__init__()
+
+        self.lstm = lstm
+        self.bidirectional = bidirectional
+        self.dense = dense
+        self.n_classes = n_classes
+
+    def __call__(self, input_shape):
+        """Design labeling model
 
         Parameters
         ----------
-        architecture : str
-            Path to architecture file (e.g. created by `to_disk` method)
-        weights : str
-            Path to pre-trained weight file (e.g. created by `to_disk` method)
+        input_shape : (n_frames, n_features) tuple
+            Shape of input sequence.
 
         Returns
         -------
-        sequence_labeling : SequenceLabeling
-            Pre-trained sequence labeling model.
-        """
-        self = SequenceLabeling()
-
-        with open(architecture, 'r') as fp:
-            yaml_string = fp.read()
-        self.model_ = model_from_yaml(yaml_string)
-        self.model_.load_weights(weights)
-        return self
-
-    def to_disk(self, architecture=None, weights=None, overwrite=False):
-        """Save trained sequence labeling to disk
-
-        Parameters
-        ----------
-        architecture : str, optional
-            When provided, path where to save architecture.
-        weights : str, optional
-            When provided, path where to save weights
-        overwrite : boolean, optional
-            Overwrite (architecture or weights) file in case they exist.
-        """
-
-        if not hasattr(self, 'model_'):
-            raise AttributeError('Model must be trained first.')
-
-        if architecture and os.path.isfile(architecture) and not overwrite:
-            raise ValueError("File '{architecture}' already exists.".format(architecture=architecture))
-
-        if weights and os.path.isfile(weights) and not overwrite:
-            raise ValueError("File '{weights}' already exists.".format(weights=weights))
-
-        if architecture:
-            yaml_string = self.model_.to_yaml()
-            with open(architecture, 'w') as fp:
-                fp.write(yaml_string)
-
-        if weights:
-            self.model_.save_weights(weights, overwrite=overwrite)
-
-    def fit(self, input_shape, generator,
-            samples_per_epoch, nb_epoch, callbacks=[]):
-        """Train model
-
-        Parameters
-        ----------
-        input_shape : tuple
-            (n_samples, n_features) tuple describing the shape of input
-            features sequences.
-        generator : iterable
-            Batch generator
-        samples_per_epoch : int
-            Number of sequences per epoch.
-        np_epoch : int
-            Number of epochs.
-        callbacks : list
-            List of Keras callbacks.
-        """
-
-        if not callbacks and self.log_dir:
-            default_callback = LoggingCallback(self, log_dir=self.log_dir)
-            callbacks = [default_callback]
-
-        self.model_ = self.design_model(input_shape)
-        self.model_.compile(optimizer=self.optimizer,
-                            loss='categorical_crossentropy',
-                            metrics=['accuracy'])
-
-        self.model_.fit_generator(
-            generator, samples_per_epoch, nb_epoch,
-            verbose=1, callbacks=callbacks)
-
-    def predict(self, sequence, batch_size=32, verbose=0):
-        """
-        Parameters
-        ----------
-        sequence :
-        batch_size : int, optional
-        verbose : int, optional
-        """
-        return self.model_.predict(
-            sequence, batch_size=batch_size, verbose=verbose)
-
-
-class BiLSTMSequenceLabeling(SequenceLabeling):
-    """Bi-directional LSTM for sequence labeling
-
-    Parameters
-    ----------
-    output_dim: int
-        Number of output classes.
-    lstm: list, optional
-        List of output dimension of stacked LSTMs.
-        Defaults to [12] (i.e. one LSTM with 12 units)
-    dense: list, optional
-        List of output dimension of additionnal stacked dense layers.
-        Defaults to [] (i.e. do not add any dense layer)
-    bidirectional: boolean, optional
-        When True, use bi-directional LSTMs.
-        Defaults to mono-directional (forward) LSTMs.
-    optimizer: str, optional
-        Keras optimizer. Defaults to 'rmsprop'.
-    log_dir: str, optional
-        When provided, log status after each epoch into this directory. This
-        will create several files, including loss plots and weights files.
-    """
-    def __init__(self, output_dim, lstm=[12], dense=[],
-                 bidirectional=False, optimizer='rmsprop',
-                 log_dir=None):
-
-        super(BiLSTMSequenceLabeling, self).__init__(log_dir)
-
-        self.output_dim = output_dim
-        self.lstm = lstm
-        self.dense = dense
-        self.bidirectional = bidirectional
-        self.optimizer = optimizer
-
-    def design_model(self, input_shape):
-        """Create Keras labeling model
-
-        (The end user does not to use this method.)
-
-        Parameters
-        ----------
-        input_shape : (n_samples,n_features) tuple
-            Expected shape of input sequences
+        model : Keras model
         """
 
         inputs = Input(shape=input_shape,
@@ -240,7 +117,6 @@ class BiLSTMSequenceLabeling(SequenceLabeling):
 
         # concatenate forward and backward
         if self.bidirectional:
-            # FIXME -- check value of concat_axis=1
             x = merge([forward, backward], mode='concat', concat_axis=2)
         else:
             x = forward
@@ -252,6 +128,8 @@ class BiLSTMSequenceLabeling(SequenceLabeling):
                                       name='dense_{i:d}'.format(i=i)))(x)
 
         # one dimension per class
-        outputs = TimeDistributed(Dense(self.output_dim, activation='softmax'))(x)
+        outputs = TimeDistributed(Dense(self.n_classes,
+                                        activation='softmax',
+                                        name="labeling_output"))(x)
 
         return Model(input=inputs, output=outputs)
