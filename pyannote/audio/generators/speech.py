@@ -47,7 +47,7 @@ class SpeechActivityDetectionBatchGenerator(YaafeMixin,
 
         segment_generator = SlidingSegments(duration=duration,
                                             step=step,
-                                            source='uem')
+                                            source='annotated')
         super(SpeechActivityDetectionBatchGenerator, self).__init__(
             segment_generator, batch_size=batch_size)
 
@@ -77,10 +77,12 @@ class SpeechActivityDetectionBatchGenerator(YaafeMixin,
         y = np.zeros((n_samples + 1, 2), dtype=np.int8)
         # [0,1] ==> speech / [1, 0] ==> non speech / [0, 0] ==> unknown
 
-        wav, uem, reference = current_file
-        coverage = reference.get_timeline().coverage()
+        annotated = current_file['annotated']
+        annotation = current_file['annotation']
 
-        for gap in coverage.gaps(uem):
+        coverage = annotation.get_timeline().coverage()
+
+        for gap in coverage.gaps(annotated):
             indices = sw.crop(gap, mode='loose')
             y[indices, 0] = 1
 
@@ -152,8 +154,10 @@ class OverlappingSpeechDetectionBatchGenerator(YaafeMixin,
         y = np.zeros((n_samples + 1, 2), dtype=np.int8)
         # [0,1] ==> overlapping speech / [1, 0] ==> speech / [0, 0] ==> unknown
 
-        wav, uem, reference = current_file
-        timeline = reference.get_timeline()
+        annotated = current_file['annotated']
+        annotation = current_file['annotation']
+
+        timeline = annotation.get_timeline()
 
         # speech regions
         for segment in timeline:

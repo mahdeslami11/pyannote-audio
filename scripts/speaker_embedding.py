@@ -30,17 +30,17 @@
 Speaker embedding
 
 Usage:
-  speaker_embedding train <config.yml> <dataset> <medium_template>
-  speaker_embedding tune <config.yml> <weights_dir> <dataset> <medium_template> <output_dir>
-  speaker_embedding apply <config.yml> <weights.h5> <dataset> <medium_template> <output_dir>
-  speaker_embedding compare <config.yml> <dataset> <medium_template> <output_dir>
+  speaker_embedding train <config.yml> <dataset> <wav_template>
+  speaker_embedding tune <config.yml> <weights_dir> <dataset> <wav_template> <output_dir>
+  speaker_embedding apply <config.yml> <weights.h5> <dataset> <wav_template> <output_dir>
+  speaker_embedding compare <config.yml> <dataset> <wav_template> <output_dir>
   speaker_embedding -h | --help
   speaker_embedding --version
 
 Options:
   <config.yml>              Use this configuration file.
   <dataset>                 Use this dataset (e.g. "Etape.SpeakerDiarization.TV.train" for training)
-  <medium_template>         Path template to actual media files (e.g. '/Users/bredin/Corpora/etape/{uri}.wav')
+  <wav_template>         Path template to actual media files (e.g. '/Users/bredin/Corpora/etape/{uri}.wav')
   <weights.h5>              Path to pre-trained model weights. File
                             'architecture.yml' must live in the same directory.
   <output_dir>              Path where to save results.
@@ -382,6 +382,7 @@ def test(dataset, medium_template, config_yml, weights_h5, output_dir):
     msg = 'EER = {eer:.2f}%'
     print(msg.format(eer=100 * eer))
 
+
 if __name__ == '__main__':
 
     arguments = docopt(__doc__, version='Speaker embedding')
@@ -390,7 +391,7 @@ if __name__ == '__main__':
 
         # arguments
         dataset = arguments['<dataset>']
-        medium_template = arguments['<medium_template>']
+        medium_template = {'wav': arguments['<wav_template>']}
         config_yml = arguments['<config.yml>']
 
         # train the model
@@ -402,7 +403,7 @@ if __name__ == '__main__':
         config_yml = arguments['<config.yml>']
         weights_h5 = arguments['<weights.h5>']
         dataset = arguments['<dataset>']
-        medium_template = arguments['<medium_template>']
+        medium_template = {'wav': arguments['<wav_template>']}
         output_dir = arguments['<output_dir>']
 
         test(dataset, medium_template, config_yml, weights_h5, output_dir)
@@ -413,7 +414,7 @@ if __name__ == '__main__':
         config_yml = arguments['<config.yml>']
         weights_dir = arguments['<weights_dir>']
         dataset = arguments['<dataset>']
-        medium_template = arguments['<medium_template>']
+        medium_template = {'wav': arguments['<wav_template>']}
         output_dir = arguments['<output_dir>']
 
         tune(dataset, medium_template, config_yml, weights_dir, output_dir)
@@ -423,7 +424,7 @@ if __name__ == '__main__':
         # arguments
         config_yml = arguments['<config.yml>']
         dataset = arguments['<dataset>']
-        medium_template = arguments['<medium_template>']
+        medium_template = {'wav': arguments['<wav_template>']}
         output_dir = arguments['<output_dir>']
 
         compare(dataset, medium_template, config_yml, output_dir)

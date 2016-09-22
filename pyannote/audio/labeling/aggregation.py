@@ -121,7 +121,7 @@ class SequenceLabelingAggregation(YaafeMixin, FileBasedBatchGenerator):
         """
 
         # apply sequence labeling to the whole file
-        current_file = wav, None, None
+        current_file = {'uri': wav, 'medium': {'wav': wav}}
         predictions = next(self.from_file(current_file))
         n_sequences, _, n_classes = predictions.shape
 

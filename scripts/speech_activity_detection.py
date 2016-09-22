@@ -30,15 +30,15 @@
 Speech activity detection
 
 Usage:
-  speech_activity_detection train <config.yml> <dataset> <dataset_dir>
-  speech_activity_detection apply <config.yml> <weights.h5> <dataset> <dataset_dir> <output_dir>
+  speech_activity_detection train <config.yml> <dataset> <wav_template>
+  speech_activity_detection apply <config.yml> <weights.h5> <dataset> <wav_template> <output_dir>
   speech_activity_detection -h | --help
   speech_activity_detection --version
 
 Options:
   <config.yml>              Use this configuration file.
   <dataset>                 Use this dataset (e.g. "etape.train" for training)
-  <dataset_dir>             Path to actual dataset material (e.g. '/Users/bredin/Corpora/etape')
+  <wav_template>         Path template to actual media files (e.g. '/Users/bredin/Corpora/etape/{uri}.wav')
   <weights.h5>              Path to pre-trained model weights. File
                             'architecture.yml' must live in the same directory.
   <output_dir>              Path where to save results.
@@ -66,7 +66,7 @@ from pyannote.core.json import dump_to
 
 from etape import Etape
 
-def train(dataset, dataset_dir, config_yml):
+def train(dataset, medium_template, config_yml):
 
     # load configuration file
     with open(config_yml, 'r') as fp:
@@ -79,20 +79,14 @@ def train(dataset, dataset_dir, config_yml):
     log_dir = workdir + '/' + dataset
 
     # -- DATASET --
-    dataset, subset = dataset.split('.')
-    if dataset != 'etape':
-        msg = '{dataset} dataset is not supported.'
-        raise NotImplementedError(msg.format(dataset=dataset))
+    db, task, protocol, subset = dataset.split('.')
+    database = get_database(db, medium_template=medium_template)
+    protocol = database.get_protocol(task, protocol)
 
-    protocol = Etape(dataset_dir)
+    if not hasattr(protocol, subset):
+        raise NotImplementedError('')
 
-    if subset == 'train':
-        file_generator = protocol.train_iter()
-    elif subset == 'dev':
-        file_generator = protocol.dev_iter()
-    else:
-        msg = 'Training on {subset} subset is not allowed.'
-        raise NotImplementedError(msg.format(subset=subset))
+    file_generator = getattr(protocol, subset)()
 
     # -- FEATURE EXTRACTION --
     # input sequence duration
@@ -150,7 +144,7 @@ def train(dataset, dataset_dir, config_yml):
                  samples_per_epoch, nb_epoch, callbacks=[callback])
 
 
-def test(dataset, dataset_dir, config_yml, weights_h5, output_dir):
+def test(dataset, medium_template, config_yml, weights_h5, output_dir):
 
     # load configuration file
     with open(config_yml, 'r') as fp:
@@ -160,22 +154,14 @@ def test(dataset, dataset_dir, config_yml, weights_h5, output_dir):
     architecture_yml = os.path.dirname(os.path.dirname(weights_h5)) + '/architecture.yml'
 
     # -- DATASET --
-    dataset, subset = dataset.split('.')
-    if dataset != 'etape':
-        msg = '{dataset} dataset is not supported.'
-        raise NotImplementedError(msg.format(dataset=dataset))
+    db, task, protocol, subset = dataset.split('.')
+    database = get_database(db, medium_template=medium_template)
+    protocol = database.get_protocol(task, protocol)
 
-    protocol = Etape(dataset_dir)
+    if not hasattr(protocol, subset):
+        raise NotImplementedError('')
 
-    if subset == 'train':
-        file_generator = protocol.train_iter()
-    elif subset == 'dev':
-        file_generator = protocol.dev_iter()
-    elif subset == 'test':
-        file_generator = protocol.test_iter()
-    else:
-        msg = 'Testing on {subset} subset is not supported.'
-        raise NotImplementedError(msg.format(subset=subset))
+    file_generator = getattr(protocol, subset)()
 
     # -- FEATURE EXTRACTION --
     # input sequence duration
@@ -219,17 +205,20 @@ def test(dataset, dataset_dir, config_yml, weights_h5, output_dir):
         fp.write(header)
         fp.flush()
 
-        for wav, uem, reference in file_generator:
+        for current_file in file_generator:
 
-            uri = os.path.splitext(os.path.basename(wav))[0]
+            uri = current_file['uri']
+            wav = current_file['medium']['wav']
+            annotated = current_file['annotated']
+            annotation = current_file['annotation']
 
             predictions = aggregation.apply(wav)
             hypothesis = binarizer.apply(predictions, dimension=1)
 
-            e = error_rate(reference, hypothesis, uem=uem)
-            a = accuracy(reference, hypothesis, uem=uem)
-            p = precision(reference, hypothesis, uem=uem)
-            r = recall(reference, hypothesis, uem=uem)
+            e = error_rate(annotation, hypothesis, uem=annotated)
+            a = accuracy(annotation, hypothesis, uem=annotated)
+            p = precision(annotation, hypothesis, uem=annotated)
+            r = recall(annotation, hypothesis, uem=annotated)
             f = f_measure(p, r)
 
             line = LINE.format(uri=uri, e=e, a=a, p=p, r=r, f=f)
@@ -260,11 +249,11 @@ if __name__ == '__main__':
 
         # arguments
         dataset = arguments['<dataset>']
-        dataset_dir = arguments['<dataset_dir>']
+        medium_template = {'wav': arguments['<wav_template>']}
         config_yml = arguments['<config.yml>']
 
         # train the model
-        train(dataset, dataset_dir, config_yml)
+        train(dataset, medium_template, config_yml)
 
     if arguments['apply']:
 
@@ -272,7 +261,7 @@ if __name__ == '__main__':
         config_yml = arguments['<config.yml>']
         weights_h5 = arguments['<weights.h5>']
         dataset = arguments['<dataset>']
-        dataset_dir = arguments['<dataset_dir>']
+        medium_template = {'wav': arguments['<wav_template>']}
         output_dir = arguments['<output_dir>']
 
-        test(dataset, dataset_dir, config_yml, weights_h5, output_dir)
+        test(dataset, medium_template, config_yml, weights_h5, output_dir)

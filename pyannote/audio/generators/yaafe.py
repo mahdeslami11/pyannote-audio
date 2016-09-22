@@ -53,7 +53,7 @@ class YaafeMixin:
         if identifier in self.preprocessed_.setdefault('X', {}):
             return current_file
 
-        wav = current_file['medium']
+        wav = current_file['medium']['wav']
         features = self.feature_extractor(wav)
 
         self.preprocessed_['X'][identifier] = features
