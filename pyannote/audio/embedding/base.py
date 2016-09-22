@@ -139,8 +139,9 @@ class SequenceEmbedding(object):
         keras.engine.training.Model.fit_generator
         """
 
-        if not callbacks and self.log_dir:
-            default_callback = LoggingCallback(self, log_dir=self.log_dir)
+        if not callbacks and self.log_dir is not None:
+            default_callback = LoggingCallback(
+                self.log_dir, get_model=self.loss.get_embedding)
             callbacks = [default_callback]
 
         self.model_ = self.loss.design_model(input_shape)
