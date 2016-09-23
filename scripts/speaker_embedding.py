@@ -68,7 +68,7 @@ from pyannote.audio.embedding.base import SequenceEmbedding
 from pyannote.audio.embedding.models import TristouNet
 from pyannote.audio.embedding.losses import TripletLoss
 from pyannote.audio.embedding.generator import TripletBatchGenerator
-from pyannote.audio.embedding.generator import LabeledSequencesBatchGenerator
+from pyannote.audio.generators.labels import LabeledFixedDurationSequencesBatchGenerator
 from pyannote.database import get_database
 from scipy.spatial.distance import pdist, squareform
 
@@ -187,7 +187,7 @@ def generate_test(dataset, medium_template, config):
     per_label = config['testing']['per_label']
     batch_size = config['testing']['batch_size']
 
-    batch_generator = LabeledSequencesBatchGenerator(
+    batch_generator = LabeledFixedDurationSequencesBatchGenerator(
         feature_extractor,
         duration=duration,
         normalize=normalize,

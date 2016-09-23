@@ -31,60 +31,8 @@ import itertools
 import numpy as np
 from scipy.spatial.distance import pdist, squareform
 from pyannote.generators.batch import BaseBatchGenerator
-from ..generators.yaafe import YaafeMixin
-from pyannote.generators.batch import FileBasedBatchGenerator
-from pyannote.generators.fragment import SlidingLabeledSegments
-
-
-class LabeledSequencesBatchGenerator(YaafeMixin, FileBasedBatchGenerator):
-    """(X_batch, y_batch) batch generator
-
-    Yields batches made of sequences obtained using a sliding window over the
-    coverage of the reference. Heterogeneous segments (i.e. containing more
-    than one label) are skipped.
-
-    Parameters
-    ----------
-    feature_extractor : YaafeFeatureExtractor
-    duration: float, optional
-    step: float, optional
-        Duration and step of sliding window (in seconds).
-        Default to 3.2 and 0.8.
-    normalize: boolean, optional
-        Normalize (zscore) feature sequences
-
-    Returns
-    -------
-    X_batch : (batch_size, n_samples, n_features) numpy array
-        Batch of feature sequences
-    y_batch : (batch_size, ) numpy array
-        Batch of corresponding labels
-
-    Usage
-    -----
-    >>> batch_generator = LabeledSequencesBatchGenerator(feature_extractor)
-    >>> for X_batch, y_batch in batch_generator.from_file(current_file):
-    ...     # do something with
-    """
-
-    def __init__(self, feature_extractor, duration=3.0, normalize=False,
-                 step=0.75, batch_size=32):
-
-        self.feature_extractor = feature_extractor
-        self.duration = duration
-        self.step = step
-        self.normalize = normalize
-
-        segment_generator = SlidingLabeledSegments(duration=duration,
-                                                   step=step)
-        super(LabeledSequencesBatchGenerator, self).__init__(
-            segment_generator, batch_size=batch_size)
-
-    def signature(self):
-        return (
-            {'type': 'sequence', 'shape': self.get_shape()},
-            {'type': 'label'}
-        )
+from pyannote.audio.generators.labels import \
+    LabeledFixedDurationSequencesBatchGenerator
 
 
 class TripletGenerator(object):
@@ -128,6 +76,8 @@ class TripletGenerator(object):
                  duration=3.0, overlap=0.0, normalize=False,
                  per_fold=0, per_label=40, batch_size=32):
 
+        super(TripletGenerator, self).__init__()
+
         self.extractor = extractor
         self.file_generator = file_generator
         self.embedding = embedding
@@ -139,7 +89,7 @@ class TripletGenerator(object):
         self.per_label = per_label
         self.batch_size = batch_size
 
-        self.batch_sequence_generator_ = LabeledSequencesBatchGenerator(
+        self.generator_ = LabeledFixedDurationSequencesBatchGenerator(
             self.extractor,
             duration=self.duration,
             normalize=self.normalize,
@@ -148,20 +98,18 @@ class TripletGenerator(object):
 
         self.triplet_generator_ = self.iter_triplets()
 
-        # HACK consume first element of generator
+        # consume first element of generator
         # this is meant to pre-generate all labeled sequences once and for all
         # and get the number of unique labels into self.n_labels
         next(self.triplet_generator_)
 
-
-        super(TripletGenerator, self).__init__()
 
     def iter_triplets(self):
 
         # pre-generate all labeled sequences (from the whole training set)
         # this might be huge in memory
         X, y = [], []
-        for batch_sequences, batch_labels in self.batch_sequence_generator_(self.file_generator):
+        for batch_sequences, batch_labels in self.generator_(self.file_generator):
             X.append(batch_sequences)
             y.append(batch_labels)
         X = np.vstack(X)
@@ -293,7 +241,7 @@ class TripletGenerator(object):
         return next(self.triplet_generator_)
 
     def get_shape(self):
-        return self.batch_sequence_generator_.get_shape()
+        return self.generator_.get_shape()
 
     def signature(self):
         shape = self.get_shape()
