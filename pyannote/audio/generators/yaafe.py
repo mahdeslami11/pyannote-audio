@@ -36,7 +36,8 @@ class YaafeMixin:
         return self.yaafe_get_shape()
 
     def yaafe_get_shape(self):
-        n_samples = self.feature_extractor.sliding_window().samples(self.duration, mode='center')
+        n_samples = self.feature_extractor.sliding_window().samples(
+            self.duration, mode='center')
         dimension = self.feature_extractor.dimension()
         return (n_samples, dimension)
 
