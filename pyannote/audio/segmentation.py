@@ -129,6 +129,8 @@ class BICSegmentation(YaafeMixin, FileBasedBatchGenerator):
         Yaafe feature extractor
     normalize : boolean, optional
         Set to True to z-score normalize
+    covariance_type : {'diag', 'full'}
+        Covariance type. Defaults to 'full'.
     duration : float, optional
     step : float, optional
         Sliding window duration and step (in seconds).
@@ -147,7 +149,7 @@ class BICSegmentation(YaafeMixin, FileBasedBatchGenerator):
 
     """
     def __init__(self, feature_extractor, normalize=False,
-                 duration=1.000, step=0.100):
+                 covariance_type='full', duration=1.000, step=0.100):
 
         # feature sequence
         self.feature_extractor = feature_extractor
@@ -157,6 +159,8 @@ class BICSegmentation(YaafeMixin, FileBasedBatchGenerator):
         self.duration = duration
         self.step = step
         generator = TwinSlidingSegments(duration=duration, step=step)
+
+        self.covariance_type = covariance_type
 
         super(BICSegmentation, self).__init__(generator, batch_size=-1)
 
@@ -188,8 +192,8 @@ class BICSegmentation(YaafeMixin, FileBasedBatchGenerator):
 
         y = []
         for xL, xR in zip(left, right):
-            gL = Gaussian(covariance_type='diag').fit(xL)
-            gR = Gaussian(covariance_type='diag').fit(xR)
+            gL = Gaussian(covariance_type=self.covariance_type).fit(xL)
+            gR = Gaussian(covariance_type=self.covariance_type).fit(xR)
             y.append(gL.bic(gR, penalty_coef=0)[0])
 
         y = np.array(y)
