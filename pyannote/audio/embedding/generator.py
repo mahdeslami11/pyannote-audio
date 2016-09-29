@@ -203,8 +203,8 @@ class TripletGenerator(object):
                 # their embeddings (using current state of embedding network)
                 embeddings = self.embedding.transform(
                     sequences, batch_size=self.batch_size)
-                # pairwise euclidean distances
-                distances = squareform(pdist(embeddings, metric='euclidean'))
+                # pairwise squared euclidean distances
+                distances = squareform(pdist(embeddings, metric='sqeuclidean'))
 
                 for i in range(self.per_fold):
 
