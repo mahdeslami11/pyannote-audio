@@ -93,17 +93,17 @@ class Loss(object):
 class TripletLoss(Loss):
     """Triplet loss for sequence embedding
 
-            anchor        |-----------|     |---------|
-            input    -->  | embedding | --> |         |
-            sequence      |-----------|     |         |
-                                            |         |
-            positive      |-----------|     | triplet |
-            input    -->  | embedding | --> |         | --> loss value
-            sequence      |-----------|     |  loss   |
-                                            |         |
-            negative      |-----------|     |         |
-            input    -->  | embedding | --> |         |
-            sequence      |-----------|     |---------|
+            anchor        |-----------|           |---------|
+            input    -->  | embedding | --> a --> |         |
+            sequence      |-----------|           |         |
+                                                  |         |
+            positive      |-----------|           | triplet |
+            input    -->  | embedding | --> p --> |         | --> loss value
+            sequence      |-----------|           |  loss   |
+                                                  |         |
+            negative      |-----------|           |         |
+            input    -->  | embedding | --> n --> |         |
+            sequence      |-----------|           |---------|
 
     Parameters
     ----------
@@ -112,6 +112,9 @@ class TripletLoss(Loss):
         as a Keras model
     margin : float, optional
         Triplet loss margin. Defaults to 0.2.
+    positive_only : boolean, optional
+        When False, loss is d(a, p) - d(a, n) + margin.
+        Default (True) is max(0, d(a, p) - d(a, n) + margin).
 
     Reference
     ---------
@@ -123,16 +126,20 @@ class TripletLoss(Loss):
     An example of `design_embedding` can be found in
     pyannote.audio.embedding.models.TristouNet.__call__
     """
-    def __init__(self, design_embedding, margin=0.2):
+    def __init__(self, design_embedding, margin=0.2, positive_only=True):
         super(TripletLoss, self).__init__(design_embedding)
         self.margin = margin
+        self.positive_only = positive_only
         # HACK https://github.com/fchollet/keras/issues/3833
         self.__name__ = 'TripletLoss'
 
     def _triplet_loss(self, inputs):
         p = K.sum(K.square(inputs[0] - inputs[1]), axis=-1, keepdims=True)
         n = K.sum(K.square(inputs[0] - inputs[2]), axis=-1, keepdims=True)
-        return K.maximum(0, p + self.margin - n)
+        loss = p + self.margin - n
+        if self.positive_only:
+            loss = K.maximum(0, loss)
+        return loss
 
     @staticmethod
     def _output_shape(input_shapes):
