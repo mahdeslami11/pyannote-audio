@@ -26,7 +26,7 @@
 # AUTHORS
 # Gregory GELLY - gregory.gelly@limsi.fr
 
-from keras.optimizers import Optimizer 
+from keras.optimizers import Optimizer
 import keras.backend as K
 
 class SMORMS3(Optimizer):
@@ -88,6 +88,7 @@ class SMORMS3(Optimizer):
         base_config = super(SMORMS3, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
+
 class SSMORMS3(Optimizer):
     '''SSMORMS3 optimizer for Stabilized SMORMS3.
     Slight modification of SMORMS3 that stabilizes its behavior
@@ -138,4 +139,3 @@ class SSMORMS3(Optimizer):
         config = {'epsilon': self.epsilon}
         base_config = super(SSMORMS3, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
-
