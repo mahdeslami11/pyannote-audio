@@ -73,7 +73,7 @@ class SequenceEmbedding(object):
         self.embedding_.load_weights(weights)
         return self
 
-    def to_disk(self, architecture=None, weights=None, overwrite=False, input_shape=None, model=None):
+    def to_disk(self, architecture=None, weights=None, overwrite=False):
         """Save trained sequence embedding to disk
 
         Parameters

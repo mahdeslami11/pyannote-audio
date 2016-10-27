@@ -70,6 +70,7 @@ class TristouNet(object):
     def __init__(self, lstm=[16,], bidirectional=True, pooling='average',
                  dense=[16,], output_dim=16, space='sphere'):
 
+        super(TristouNet, self).__init__()
         self.lstm = lstm
         self.bidirectional = bidirectional
         self.pooling = pooling
