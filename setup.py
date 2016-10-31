@@ -39,9 +39,10 @@ setup(
     install_requires=[
         'pyannote.core >= 0.7.2',
         'pyannote.generators >= 0.1.1',
-        'pyannote.database >= 0.3',
+        'pyannote.database >= 0.4',
         'keras >= 1.1.0',
         'theano >= 0.8.2',
+        'scikit-optimize >= 0.2',
     ],
     # versioneer
     version=versioneer.get_version(),

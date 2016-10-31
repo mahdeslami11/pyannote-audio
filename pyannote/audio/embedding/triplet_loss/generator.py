@@ -81,7 +81,7 @@ class TripletGenerator(object):
     per_fold: int, optional
         When provided, randomly split the training set into
         fold of `per_fold` labels (e.g. 40) after each epoch.
-        Defaults to using the whole traning set.
+        Defaults to using the whole training set.
     batch_size: int, optional
         Batch size. Defaults to 32.
     """
