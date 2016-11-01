@@ -181,7 +181,7 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
 
             p = purity(reference, hypothesis)
             c = coverage(reference, hypothesis)
-            f += f_measure(p, c, beta=beta)
+            f += f_measure(c, p, beta=beta)
 
         return 1 - (f / n)
 
@@ -307,7 +307,7 @@ def test(protocol, tune_dir, apply_dir, subset='test', beta=1.0):
 
         p = purity(reference, hard)
         c = coverage(reference, hard)
-        f = f_measure(p, c, beta=beta)
+        f = f_measure(c, p, beta=beta)
         fscore.append(f)
 
         line = TEMPLATE.format(
