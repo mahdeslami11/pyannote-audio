@@ -118,8 +118,8 @@ Configuration file:
     This will create the following files that contains the hard and soft
     outputs of speech activity detection.
 
-        <tune_dir>/apply/<database.task.protocol>.<subset>/{uri}.hard
-                                                          /{uri}.soft
+        <tune_dir>/apply/<database.task.protocol>.<subset>/{uri}.hard.json
+                                                          /{uri}.soft.pkl
                                                           /eval.txt
 
     This means that file whose unique resource identifier is {uri} has been
