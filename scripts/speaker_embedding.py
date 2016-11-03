@@ -33,7 +33,7 @@ Usage:
   speaker_embedding train [--subset=<subset> --duration=<duration>] <experiment_dir> <database.task.protocol> <wav_template>
   speaker_embedding tune [--subset=<subset> --false-alarm=<beta>] <train_dir> <database.task.protocol> <wav_template>
   speaker_embedding test [--subset=<subset> --false-alarm=<beta>] <tune_dir> <database.task.protocol> <wav_template>
-  speaker_embedding apply [--subset=<subset>] <tune_dir> <database.task.protocol> <wav_template>
+  speaker_embedding apply [--subset=<subset> --step=<step>] <tune_dir> <database.task.protocol> <wav_template>
   speaker_embedding -h | --help
   speaker_embedding --version
 
@@ -53,6 +53,8 @@ Options:
                              In "apply" mode, default subset is "test".
   --false-alarm=<beta>       Set importance of false alarm with respect to
                              false rejection [default: 1.0]
+  --step=<step>              Set step (in seconds) for embedding extraction.
+                             [default: 0.1]
   -h --help                  Show this screen.
   --version                  Show version.
 
@@ -411,7 +413,7 @@ def test(protocol, tune_dir, subset='test', beta=1.0):
                           fscore=actual_fscore))
 
 
-def embed(protocol, tune_dir, apply_dir, subset='test'):
+def embed(protocol, tune_dir, apply_dir, subset='test', step=0.1):
 
     os.makedirs(apply_dir)
 
@@ -446,7 +448,7 @@ def embed(protocol, tune_dir, apply_dir, subset='test'):
     extraction = Extraction(sequence_embedding,
                             feature_extraction,
                             duration=duration,
-                            step=0.1)
+                            step=step)
     EMBED_PKL = apply_dir + '/{uri}.pkl'
 
     for test_file in getattr(protocol, subset)():
@@ -506,4 +508,5 @@ if __name__ == '__main__':
         if subset is None:
             subset = 'test'
         apply_dir = tune_dir + '/apply/' + arguments['<database.task.protocol>'] + '.' + subset
-        embed(protocol, tune_dir, apply_dir, subset=subset)
+        step = float(arguments['--step'])
+        embed(protocol, tune_dir, apply_dir, subset=subset, step=step)
