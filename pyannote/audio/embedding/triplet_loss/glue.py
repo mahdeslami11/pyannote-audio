@@ -67,8 +67,6 @@ class TripletLoss(Glue):
         super(TripletLoss, self).__init__()
         self.margin = margin
         self.positive_only = positive_only
-        # # HACK https://github.com/fchollet/keras/issues/3833
-        # self.__name__ = 'TripletLoss'
 
     def _triplet_loss(self, inputs):
         p = K.sum(K.square(inputs[0] - inputs[1]), axis=-1, keepdims=True)
