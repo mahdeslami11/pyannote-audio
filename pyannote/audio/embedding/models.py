@@ -35,6 +35,8 @@ from keras.layers import Dense
 from keras.layers import Lambda
 from keras.layers import merge
 from keras.layers.pooling import GlobalAveragePooling1D
+from keras.layers.wrappers import Bidirectional
+from keras.layers.wrappers import TimeDistributed
 
 
 class TristouNet(object):
