@@ -35,6 +35,8 @@ from keras.layers import Dense
 from keras.layers import Lambda
 from keras.layers import merge
 from keras.layers.pooling import GlobalAveragePooling1D
+from keras.layers.wrappers import Bidirectional
+from keras.layers.wrappers import TimeDistributed
 
 
 class TristouNet(object):
@@ -169,6 +171,109 @@ class TristouNet(object):
         x = Dense(self.output_dim, activation=activation)(x)
 
         # stack L2 normalization layer
+        embeddings = Lambda(lambda x: K.l2_normalize(x, axis=-1),
+                            name="embedding_output")(x)
+
+        return Model(input=inputs, output=embeddings)
+
+
+class TrottiNet(object):
+    """TrottiNet sequence embedding
+
+    Parameters
+    ----------
+    lstm: list, optional
+        List of output dimension of stacked LSTMs.
+        Defaults to [16, ] (i.e. one LSTM with output dimension 16)
+    bidirectional: boolean, optional
+        When True, use bi-directional LSTMs
+    dense: list, optional
+        Number of units of additionnal stacked dense layers.
+        Defaults to [16, ] (i.e. add one dense layer with 16 units)
+    output_dim: int, optional
+        Embedding dimension. Defaults to 16
+    space: {'sphere', 'quadrant'}, optional
+        When 'sphere' (resp. 'quadrant'), use 'tanh' (resp. 'sigmoid') as
+        final activation. Defaults to 'sphere'.
+    """
+
+    def __init__(self, lstm=[16,], bidirectional=True,
+                 dense=[16,], output_dim=16, space='sphere'):
+
+        super(TrottiNet, self).__init__()
+        self.lstm = lstm
+        self.bidirectional = bidirectional
+        self.dense = dense
+        self.output_dim = output_dim
+        self.space = space
+
+    def __call__(self, input_shape):
+        """Design embedding
+
+        Parameters
+        ----------
+        input_shape : (n_frames, n_features) tuple
+            Shape of input sequence.
+
+        Returns
+        -------
+        model : Keras model
+        """
+
+        inputs = Input(shape=input_shape,
+                       name="embedding_input")
+        x = inputs
+
+        # stack (bidirectional) LSTM layers
+        for i, output_dim in enumerate(self.lstm):
+
+            if i:
+                lstm = LSTM(name='lstm_{i:d}'.format(i=i),
+                            output_dim=output_dim,
+                            return_sequences=True,
+                            activation='tanh',
+                            dropout_W=0.0,
+                            dropout_U=0.0)
+            else:
+                # we need to provide input_shape to first LSTM
+                lstm = LSTM(name='lstm_{i:d}'.format(i=i),
+                            input_shape=input_shape,
+                            output_dim=output_dim,
+                            return_sequences=True,
+                            activation='tanh',
+                            dropout_W=0.0,
+                            dropout_U=0.0)
+
+            if self.bidirectional:
+                lstm = Bidirectional(lstm, merge_mode='concat')
+
+            x = lstm(x)
+
+        # stack dense layers
+        for i, output_dim in enumerate(self.dense):
+
+            dense = Dense(output_dim,
+                          activation='tanh',
+                          name='dense_{i:d}'.format(i=i))
+
+            x = TimeDistributed(dense)(x)
+
+        # stack final dense layer
+        if self.space == 'sphere':
+            activation = 'tanh'
+        elif self.space == 'quadrant':
+            activation = 'sigmoid'
+
+        dense = Dense(self.output_dim,
+                      activation=activation,
+                      name='final_dense')
+        x = TimeDistributed(dense)(x)
+
+        # average pooling
+        pooling = GlobalAveragePooling1D(name='pooling')
+        x = pooling(x)
+
+        # L2 normalization layer
         embeddings = Lambda(lambda x: K.l2_normalize(x, axis=-1),
                             name="embedding_output")(x)
 
