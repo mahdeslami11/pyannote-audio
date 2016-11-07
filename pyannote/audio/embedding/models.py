@@ -197,13 +197,12 @@ class TrottiNet(object):
         final activation. Defaults to 'sphere'.
     """
 
-    def __init__(self, lstm=[16,], bidirectional=True, pooling='average',
+    def __init__(self, lstm=[16,], bidirectional=True,
                  dense=[16,], output_dim=16, space='sphere'):
 
         super(TrottiNet, self).__init__()
         self.lstm = lstm
         self.bidirectional = bidirectional
-        self.pooling = pooling
         self.dense = dense
         self.output_dim = output_dim
         self.space = space
