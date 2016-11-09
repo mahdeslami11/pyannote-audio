@@ -394,6 +394,10 @@ def test(protocol, tune_dir, subset='test', beta=1.0):
     far = fpr
     thresholds = -thresholds
 
+    eer_index = np.where(far > frr)[0][0]
+    eer = .25 * (far[eer_index-1] + far[eer_index] +
+                 frr[eer_index-1] + frr[eer_index])
+
     fscore = 1. - f_measure(1. - frr, 1. - far, beta=beta)
 
     opt_i = np.nanargmin(fscore)
@@ -402,12 +406,14 @@ def test(protocol, tune_dir, subset='test', beta=1.0):
     opt_frr = frr[opt_i]
     opt_fscore = fscore[opt_i]
 
-    TEMPLATE = '{condition} {alpha:.5f} {far:.5f} {frr:.5f} {fscore:.5f}'
+    print('# cond. thresh  far     frr     fscore  eer')
+    TEMPLATE = '{condition} {alpha:.5f} {far:.5f} {frr:.5f} {fscore:.5f} {eer:.5f}'
     print(TEMPLATE.format(condition='optimal',
                           alpha=opt_alpha,
                           far=opt_far,
                           frr=opt_frr,
-                          fscore=opt_fscore))
+                          fscore=opt_fscore,
+                          eer=eer))
 
     alpha = tune['alpha']
     actual_i = np.searchsorted(thresholds, alpha)
@@ -419,7 +425,8 @@ def test(protocol, tune_dir, subset='test', beta=1.0):
                           alpha=alpha,
                           far=actual_far,
                           frr=actual_frr,
-                          fscore=actual_fscore))
+                          fscore=actual_fscore,
+                          eer=eer))
 
 
 def embed(protocol, tune_dir, apply_dir, subset='test', step=0.1):
