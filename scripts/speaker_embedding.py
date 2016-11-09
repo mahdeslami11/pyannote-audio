@@ -33,7 +33,7 @@ Usage:
   speaker_embedding train [--subset=<subset> --duration=<duration>] <experiment_dir> <database.task.protocol> <wav_template>
   speaker_embedding tune [--subset=<subset> --false-alarm=<beta>] <train_dir> <database.task.protocol> <wav_template>
   speaker_embedding test [--subset=<subset> --false-alarm=<beta>] <tune_dir> <database.task.protocol> <wav_template>
-  speaker_embedding apply [--subset=<subset> --step=<step>] <tune_dir> <database.task.protocol> <wav_template>
+  speaker_embedding apply [--subset=<subset> --step=<step> --layer=<index>] <tune_dir> <database.task.protocol> <wav_template>
   speaker_embedding -h | --help
   speaker_embedding --version
 
@@ -55,6 +55,8 @@ Options:
                              false rejection [default: 1.0]
   --step=<step>              Set step (in seconds) for embedding extraction.
                              [default: 0.1]
+  --layer=<index>            Index of layer for which to return the activation.
+                             Defaults to final layer.
   -h --help                  Show this screen.
   --version                  Show version.
 
@@ -429,7 +431,8 @@ def test(protocol, tune_dir, subset='test', beta=1.0):
                           eer=eer))
 
 
-def embed(protocol, tune_dir, apply_dir, subset='test', step=0.1):
+def embed(protocol, tune_dir, apply_dir, subset='test',
+          step=0.1, layer_index=None):
 
     os.makedirs(apply_dir)
 
@@ -463,8 +466,9 @@ def embed(protocol, tune_dir, apply_dir, subset='test', step=0.1):
 
     extraction = Extraction(sequence_embedding,
                             feature_extraction,
-                            duration=duration,
-                            step=step)
+                            duration=duration, step=step,
+                            layer_index=layer_index)
+
     EMBED_PKL = apply_dir + '/{uri}.pkl'
 
     for test_file in getattr(protocol, subset)():
@@ -473,6 +477,7 @@ def embed(protocol, tune_dir, apply_dir, subset='test', step=0.1):
         embedding = extraction.apply(wav)
         with open(EMBED_PKL.format(uri=uri), 'w') as fp:
             pickle.dump(embedding, fp)
+
 
 if __name__ == '__main__':
 
@@ -525,4 +530,11 @@ if __name__ == '__main__':
             subset = 'test'
         apply_dir = tune_dir + '/apply/' + arguments['<database.task.protocol>'] + '.' + subset
         step = float(arguments['--step'])
-        embed(protocol, tune_dir, apply_dir, subset=subset, step=step)
+
+        layer_index = arguments['--layer']
+        if layer_index is not None:
+            layer_index = int(layer_index)
+
+        embed(protocol, tune_dir, apply_dir,
+              subset=subset, step=step,
+              layer_index=layer_index)
