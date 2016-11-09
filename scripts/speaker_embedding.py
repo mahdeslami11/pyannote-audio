@@ -286,7 +286,7 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
         sequence_embedding = SequenceEmbedding.from_disk(
             architecture_yml, weights_h5)
 
-        fX = sequence_embedding.transform(X, batch_size=batch_size, verbose=0)
+        fX = sequence_embedding.transform(X, batch_size=batch_size)
 
         # compute euclidean distance between every pair of sequences
         y_distance = pdist(fX, metric=distance)
@@ -385,7 +385,7 @@ def test(protocol, tune_dir, subset='test', beta=1.0):
         architecture_yml, weights_h5)
 
     X, y = generate_test(protocol, subset, feature_extraction, duration)
-    fX = sequence_embedding.transform(X, batch_size=batch_size, verbose=0)
+    fX = sequence_embedding.transform(X, batch_size=batch_size)
     y_distance = pdist(fX, metric=distance)
     y_true = pdist(y, metric='chebyshev') < 1
 
