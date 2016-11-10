@@ -316,7 +316,8 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
         epoch = int(res.x[0])
         alpha = alphas[epoch]
 
-        params = {'epoch': epoch,
+        params = {'nb_epoch': nb_epoch,
+                  'epoch': epoch,
                   'alpha': alpha}
         with open(tune_dir + '/tune.yml', 'w') as fp:
             yaml.dump(params, fp, default_flow_style=False)
