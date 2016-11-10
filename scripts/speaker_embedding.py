@@ -153,6 +153,10 @@ from pyannote.audio.generators.labels import \
     LabeledFixedDurationSequencesBatchGenerator
 from scipy.spatial.distance import pdist, squareform
 
+from pyannote.metrics.plot.binary_classification import plot_distributions
+from pyannote.metrics.plot.binary_classification import plot_det_curve
+from pyannote.metrics.plot.binary_classification import plot_precision_recall_curve
+
 from pyannote.audio.embedding.extraction import Extraction
 
 import skopt
@@ -351,9 +355,14 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
     return res
 
 
-def test(protocol, tune_dir, subset='test', beta=1.0):
+def test(protocol, tune_dir, test_dir, subset, beta=1.0):
 
     batch_size = 32
+
+    try:
+        os.makedirs(test_dir)
+    except Exception as e:
+        pass
 
     train_dir = os.path.dirname(os.path.dirname(tune_dir))
 
@@ -409,27 +418,32 @@ def test(protocol, tune_dir, subset='test', beta=1.0):
     opt_frr = frr[opt_i]
     opt_fscore = fscore[opt_i]
 
-    print('# cond. thresh  far     frr     fscore  eer')
-    TEMPLATE = '{condition} {alpha:.5f} {far:.5f} {frr:.5f} {fscore:.5f} {eer:.5f}'
-    print(TEMPLATE.format(condition='optimal',
-                          alpha=opt_alpha,
-                          far=opt_far,
-                          frr=opt_frr,
-                          fscore=opt_fscore,
-                          eer=eer))
-
     alpha = tune['alpha']
     actual_i = np.searchsorted(thresholds, alpha)
     actual_far = far[actual_i]
     actual_frr = frr[actual_i]
     actual_fscore = fscore[actual_i]
 
-    print(TEMPLATE.format(condition='actual ',
-                          alpha=alpha,
-                          far=actual_far,
-                          frr=actual_frr,
-                          fscore=actual_fscore,
-                          eer=eer))
+    save_to = test_dir + '/' + subset
+    plot_distributions(y_true, y_distance, save_to)
+    eer = plot_det_curve(y_true, -y_distance, save_to)
+    plot_precision_recall_curve(y_true, -y_distance, save_to)
+
+    with open(save_to + '.txt', 'w') as fp:
+        fp.write('# cond. thresh  far     frr     fscore  eer\n')
+        TEMPLATE = '{condition} {alpha:.5f} {far:.5f} {frr:.5f} {fscore:.5f} {eer:.5f}\n'
+        fp.write(TEMPLATE.format(condition='optimal',
+                                 alpha=opt_alpha,
+                                 far=opt_far,
+                                 frr=opt_frr,
+                                 fscore=opt_fscore,
+                                 eer=eer))
+        fp.write(TEMPLATE.format(condition='actual ',
+                                 alpha=alpha,
+                                 far=actual_far,
+                                 frr=actual_frr,
+                                 fscore=actual_fscore,
+                                 eer=eer))
 
 
 def embed(protocol, tune_dir, apply_dir, subset='test',
@@ -523,7 +537,8 @@ if __name__ == '__main__':
         if subset is None:
             subset = 'test'
         beta = float(arguments['--false-alarm'])
-        test(protocol, tune_dir, subset=subset, beta=beta)
+        test_dir = tune_dir + '/test/' + arguments['<database.task.protocol>']
+        test(protocol, tune_dir, test_dir, subset, beta=beta)
 
     if arguments['apply']:
         tune_dir = arguments['<tune_dir>']
