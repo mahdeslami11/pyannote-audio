@@ -30,6 +30,7 @@ import os.path
 
 import keras.backend as K
 from pyannote.audio.callback import LoggingCallback
+
 from keras.models import model_from_yaml
 from pyannote.audio.keras_utils import CUSTOM_OBJECTS
 
@@ -109,9 +110,9 @@ class SequenceEmbedding(object):
             embedding.save_weights(weights, overwrite=overwrite)
 
     def fit(self, design_embedding,
-            protocol, nb_epoch, subset='train',
+            protocol, nb_epoch, train='train',
             optimizer='rmsprop', batch_size=None,
-            log_dir=None):
+            log_dir=None, validation='development'):
 
         """Train the embedding
 
@@ -125,8 +126,10 @@ class SequenceEmbedding(object):
 
         nb_epoch : int
             Total number of iterations on the data
-        subset : {'train', 'development', 'test'}, optional
+        train : {'train', 'development', 'test'}, optional
             Defaults to 'train'.
+        validation: {'train', 'development', 'test'}, optional
+            Defaults to 'development'.
         optimizer: str, optional
             Keras optimizer. Defaults to 'rmsprop'.
         batch_size : int, optional
@@ -150,7 +153,7 @@ class SequenceEmbedding(object):
                 log_dir, extract_embedding=extract_embedding)
             callbacks.append(callback)
 
-        file_generator = getattr(protocol, subset)()
+        file_generator = getattr(protocol, train)()
         generator = self.glue.get_generator(
             file_generator, batch_size=batch_size)
 
@@ -161,15 +164,24 @@ class SequenceEmbedding(object):
                 callbacks.extend(stuff.callbacks(
                     extract_embedding=extract_embedding))
 
-        self.model_ = self.glue.build_model(generator.shape, design_embedding)
+        if validation:
+            from pyannote.audio.embedding.callbacks import ValidateEmbedding
+            file_generator = getattr(protocol, validation)()
+            callback = ValidateEmbedding(self.glue, file_generator, log_dir)
+            callbacks.append(callback)
+
+        # if generator has n_labels attribute, pass it to build_model
+        n_labels = getattr(generator, 'n_labels', None)
+        self.model_ = self.glue.build_model(
+            generator.shape, design_embedding, n_labels=n_labels)
         self.model_.compile(optimizer=optimizer, loss=self.glue.loss)
 
         samples_per_epoch = generator.get_samples_per_epoch(
-            protocol, subset=subset)
+            protocol, subset=train)
 
         return self.model_.fit_generator(
             generator, samples_per_epoch, nb_epoch,
-            verbose=1, callbacks=callbacks)
+            verbose=1, callbacks=callbacks, max_q_size=1)
 
     def transform(self, sequences, layer_index=None, batch_size=32):
         """Apply pre-trained embedding to sequences
