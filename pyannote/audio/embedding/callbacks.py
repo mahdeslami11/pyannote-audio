@@ -137,7 +137,7 @@ class ValidateEmbedding(Callback):
             cosine_distance = pdist(fX, metric='cosine')
             distances = np.arccos(np.clip(1.0 - cosine_distance, -1.0, 1.0))
         else:
-            distances = pdist(fX, metric=metric)
+            distances = pdist(fX, metric=self.distance)
 
         prefix = self.log_dir + '/plot.{epoch:04d}'.format(epoch=epoch)
 
