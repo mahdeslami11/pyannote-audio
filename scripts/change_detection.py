@@ -110,6 +110,9 @@ from pyannote.metrics.segmentation import SegmentationPurity
 from pyannote.metrics.segmentation import SegmentationCoverage
 from pyannote.metrics import f_measure
 
+# needed for register_custom_object to be called
+import pyannote.audio.embedding.models
+
 
 def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
 
