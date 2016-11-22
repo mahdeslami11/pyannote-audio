@@ -194,7 +194,9 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
 
         # save best parameters so far
         epoch, alpha = res.x
-        params = {'epoch': int(epoch),
+        params = {'status': {'nb_epoch': nb_epoch,
+                             'purity': beta},
+                  'epoch': int(epoch),
                   'alpha': float(alpha)}
         with open(tune_dir + '/tune.yml', 'w') as fp:
             yaml.dump(params, fp, default_flow_style=False)
