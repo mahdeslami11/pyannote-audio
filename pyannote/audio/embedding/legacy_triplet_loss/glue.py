@@ -81,13 +81,13 @@ class LegacyTripletLoss(Glue):
         p = K.sum(K.square(inputs[0] - inputs[1]), axis=-1, keepdims=True)
         n = K.sum(K.square(inputs[0] - inputs[2]), axis=-1, keepdims=True)
         loss = p + self.margin - n
-        return loss
+        return K.maximum(loss, 0)
 
     def _loss_cosine(self, inputs):
         p = -K.sum(inputs[0] * inputs[1], axis=-1, keepdims=True)
         n = -K.sum(inputs[0] * inputs[2], axis=-1, keepdims=True)
         loss = p + self.margin - n
-        return loss
+        return K.maximum(loss, 0)
 
     @staticmethod
     def _output_shape(input_shapes):
