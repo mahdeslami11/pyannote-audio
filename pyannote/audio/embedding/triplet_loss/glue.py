@@ -42,23 +42,28 @@ def triplet_loss(inputs, distance=None):
 
     d_embeddings = 0.0 * embeddings
 
+    # consider every embedding as anchor
     for ii, (anchor, anchor_label) in enumerate(zip(embeddings, labels)):
+
+        # consider every other embedding with the same label as positive
         for kk, (positive, positive_label) in enumerate(zip(embeddings, labels)):
 
+            # if same embedding or different labels, skip
             if (ii == kk) or (anchor_label != positive_label):
                 continue
 
-                for ll, (negative, negative_label) in enumerate(zip(embeddings, labels)):
+            for ll, (negative, negative_label) in enumerate(zip(embeddings, labels)):
 
-                    if negative_label == positive_label:
-                        continue
+                # if same label, skip
+                if negative_label == positive_label:
+                    continue
 
-                    [cost_, d_anchor_, d_positive_, d_negative_] = distance(
-                        anchor, positive, negative)
-                    cost += cost_
-                    d_embeddings[ii, :] += d_anchor_
-                    d_embeddings[kk, :] += d_positive_
-                    d_embeddings[ll, :] += d_negative_
+                [cost_, d_anchor_, d_positive_, d_negative_] = distance(
+                    anchor, positive, negative)
+                cost += cost_
+                d_embeddings[ii, :] += d_anchor_
+                d_embeddings[kk, :] += d_positive_
+                d_embeddings[ll, :] += d_negative_
 
     return [cost, d_embeddings]
 
