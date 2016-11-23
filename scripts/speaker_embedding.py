@@ -222,13 +222,22 @@ def train(protocol, duration, experiment_dir, train_dir, subset='train',
                   log_dir=train_dir, validation=validation)
 
 
-def generate_test(protocol, subset, feature_extraction, duration):
+def generate_test(protocol, subset, feature_extraction,
+                  duration, min_duration=None):
 
     np.random.seed(1337)
 
-    # generate set of labeled sequences
-    generator = FixedDurationSequences(
-        feature_extraction, duration=duration, step=duration, batch_size=-1)
+    if min_duration is None:
+        # generate set of labeled sequences
+        generator = FixedDurationSequences(
+            feature_extraction, duration=duration,
+            step=duration, batch_size=-1)
+    else:
+        generator = VariableDurationSequences(
+            feature_extraction,
+            max_duration=duration, min_duration=min_duration,
+            batch_size=-1)
+
     X, y = zip(*generator(getattr(protocol, subset)()))
     X, y = np.vstack(X), np.hstack(y)
 
@@ -261,11 +270,13 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
             break
         nb_epoch += 1
 
+    min_duration = None
     duration = os.path.basename(train_dir)
     if '-' in duration:
-        raise NotImplementedError(
-            'Tuning of variable-duration embedding is not supported yet.')
+        min_duration, duration = duration.split('-')
+        min_duration = float(min_duration)
     duration = float(duration)
+
     config_dir = os.path.dirname(os.path.dirname(os.path.dirname(train_dir)))
     config_yml = config_dir + '/config.yml'
     with open(config_yml, 'r') as fp:
@@ -281,7 +292,8 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
 
     distance = config['glue'].get('params', {}).get('distance', 'sqeuclidean')
 
-    X, y = generate_test(protocol, subset, feature_extraction, duration)
+    X, y = generate_test(protocol, subset, feature_extraction,
+                         duration, min_duration=min_duration)
 
     alphas = {}
 
@@ -375,10 +387,11 @@ def test(protocol, tune_dir, test_dir, subset, beta=1.0):
 
     train_dir = os.path.dirname(os.path.dirname(tune_dir))
 
+    min_duration = None
     duration = os.path.basename(train_dir)
     if '-' in duration:
-        raise NotImplementedError(
-            'Testing of variable-duration embedding is not supported yet.')
+        min_duration, duration = duration.split('-')
+        min_duration = float(min_duration)
     duration = float(duration)
 
     config_dir = os.path.dirname(os.path.dirname(os.path.dirname(train_dir)))
@@ -408,7 +421,8 @@ def test(protocol, tune_dir, test_dir, subset, beta=1.0):
     sequence_embedding = SequenceEmbedding.from_disk(
         architecture_yml, weights_h5)
 
-    X, y = generate_test(protocol, subset, feature_extraction, duration)
+    X, y = generate_test(protocol, subset, feature_extraction,
+                         duration, min_duration=min_duration)
     fX = sequence_embedding.transform(X, batch_size=batch_size)
     if distance == 'angular':
         cosine_distance = pdist(fX, metric='cosine')
@@ -463,7 +477,6 @@ def test(protocol, tune_dir, test_dir, subset, beta=1.0):
                                  fscore=actual_fscore,
                                  eer=eer))
 
-
 def embed(protocol, tune_dir, apply_dir, subset='test',
           step=0.1, layer_index=None):
 
@@ -473,8 +486,7 @@ def embed(protocol, tune_dir, apply_dir, subset='test',
 
     duration = os.path.basename(train_dir)
     if '-' in duration:
-        raise NotImplementedError(
-            'Application of variable-duration embedding is not supported yet.')
+        _, duration = duration.split('-')
     duration = float(duration)
 
     config_dir = os.path.dirname(os.path.dirname(os.path.dirname(train_dir)))
