@@ -27,7 +27,7 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 import numpy as np
-from pyannote.core import SlidingWindow, SlidingWindowFeature
+from pyannote.core import Segment, SlidingWindow, SlidingWindowFeature
 from pyannote.generators.batch import FileBasedBatchGenerator
 from pyannote.generators.fragment import SlidingSegments
 from pyannote.audio.generators.yaafe import YaafeMixin
@@ -136,6 +136,10 @@ class SequenceEmbeddingAggregation(YaafeMixin, FileBasedBatchGenerator):
                         'medium': {'wav': wav},
                         'annotation': from_annotation}
         (segments, (embeddings, masks)) = next(self.from_file(current_file))
+
+        # HACK make sure last segment is cropped at wav duration
+        duration = get_wav_duration(wav)
+        segments[-1] = segments[-1] & Segment(0., duration)
 
         n_sequences, _, dimension = embeddings.shape
 
