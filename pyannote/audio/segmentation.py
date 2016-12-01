@@ -98,7 +98,7 @@ class GaussianDivergenceSegmentation(YaafeMixin, FileBasedBatchGenerator):
 
         from pyannote.algorithms.stats.gaussian import Gaussian
 
-        current_file = {'uri': wav, 'medium': {'wav': wav}}
+        current_file = {'uri': wav, 'wav': wav}
         t, left, right = next(self.from_file(current_file))
 
         y = []
@@ -181,7 +181,7 @@ class BICSegmentation(YaafeMixin, FileBasedBatchGenerator):
 
         from pyannote.algorithms.stats.gaussian import Gaussian
 
-        current_file = {'uri': wav, 'medium': {'wav': wav}}
+        current_file = {'uri': wav, 'wav': wav}
         t, left, right = next(self.from_file(current_file))
 
         y = []

@@ -106,7 +106,7 @@ class Segmentation(YaafeMixin, FileBasedBatchGenerator):
         """
 
         # apply sequence labeling to the whole file
-        current_file = {'uri': wav, 'medium': {'wav': wav}}
+        current_file = {'uri': wav, 'wav': wav}
 
         t, left, right = next(self.from_file(current_file))
         y = np.sqrt(np.sum((left - right) ** 2, axis=-1))

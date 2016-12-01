@@ -133,7 +133,7 @@ class SequenceEmbeddingAggregation(YaafeMixin, FileBasedBatchGenerator):
         """
 
         current_file = {'uri': wav,
-                        'medium': {'wav': wav},
+                        'wav': wav,
                         'annotation': from_annotation}
         (segments, (embeddings, masks)) = next(self.from_file(current_file))
 

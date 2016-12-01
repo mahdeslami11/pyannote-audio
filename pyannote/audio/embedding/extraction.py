@@ -96,7 +96,7 @@ class Extraction(YaafeMixin, FileBasedBatchGenerator):
         embeddings : SlidingWindowFeature
         """
 
-        current_file = {'uri': wav, 'medium': {'wav': wav}}
+        current_file = {'uri': wav, 'wav': wav}
         data = next(self.from_file(current_file))
         window = SlidingWindow(duration=self.duration,
                                step=self.step, start=0.)

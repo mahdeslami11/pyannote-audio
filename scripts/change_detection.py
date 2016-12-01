@@ -175,7 +175,7 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
             if uri in predictions[epoch]:
                 prediction = predictions[epoch][uri]
             else:
-                wav = dev_file['medium']['wav']
+                wav = dev_file['wav']
                 prediction = segmentation.apply(wav)
                 predictions[epoch][uri] = prediction
 
@@ -294,7 +294,7 @@ def test(protocol, tune_dir, apply_dir, subset='test', beta=1.0):
     for test_file in getattr(protocol, subset)():
 
         uri = test_file['uri']
-        wav = test_file['medium']['wav']
+        wav = test_file['wav']
         soft = segmentation.apply(wav)
         hard = peak.apply(soft)
 
@@ -333,14 +333,14 @@ if __name__ == '__main__':
 
     arguments = docopt(__doc__, version='(Speaker) change detection')
 
-    medium_template = {}
+    preprocessors = {}
     if '<wav_template>' in arguments:
-        medium_template = {'wav': arguments['<wav_template>']}
+        preprocessors = {'wav': arguments['<wav_template>']}
 
     if '<database.task.protocol>' in arguments:
         protocol = arguments['<database.task.protocol>']
         database_name, task_name, protocol_name = protocol.split('.')
-        database = get_database(database_name, medium_template=medium_template)
+        database = get_database(database_name, preprocessors=preprocessors)
         protocol = database.get_protocol(task_name, protocol_name)
 
     subset = arguments['--subset']

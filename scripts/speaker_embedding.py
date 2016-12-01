@@ -522,7 +522,7 @@ def embed(protocol, tune_dir, apply_dir, subset='test',
     EMBED_PKL = apply_dir + '/{uri}.pkl'
 
     for test_file in getattr(protocol, subset)():
-        wav = test_file['medium']['wav']
+        wav = test_file['wav']
         uri = test_file['uri']
         embedding = extraction.apply(wav)
         with open(EMBED_PKL.format(uri=uri), 'w') as fp:
@@ -533,14 +533,14 @@ if __name__ == '__main__':
 
     arguments = docopt(__doc__, version='Speaker embedding')
 
-    medium_template = {}
+    preprocessors = {}
     if '<wav_template>' in arguments:
-        medium_template = {'wav': arguments['<wav_template>']}
+        preprocessors = {'wav': arguments['<wav_template>']}
 
     if '<database.task.protocol>' in arguments:
         protocol = arguments['<database.task.protocol>']
         database_name, task_name, protocol_name = protocol.split('.')
-        database = get_database(database_name, medium_template=medium_template)
+        database = get_database(database_name, preprocessors=preprocessors)
         protocol = database.get_protocol(task_name, protocol_name)
 
     subset = arguments['--subset']
