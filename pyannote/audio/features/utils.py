@@ -29,15 +29,10 @@
 
 from __future__ import division
 
-import wave
-import contextlib
+import pysndfile.sndio
 
 
 def get_wav_duration(wav):
-
-    with contextlib.closing(wave.open(wav, 'r')) as fp:
-        n_frames = fp.getnframes()
-        frame_rate = fp.getframerate()
-        duration = n_frames / frame_rate
-
-    return duration
+    y, sample_rate, _ = pysndfile.sndio.read(wav)
+    n_samples = y.shape[0]
+    return n_samples / sample_rate

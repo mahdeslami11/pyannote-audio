@@ -30,7 +30,7 @@ from __future__ import unicode_literals
 
 import numpy as np
 import yaafelib
-import scipy.io.wavfile
+import pysndfile.sndio
 
 from pyannote.core.segment import SlidingWindow
 from pyannote.core.feature import SlidingWindowFeature
@@ -99,13 +99,15 @@ class YaafeFeatureExtractor(object):
                           stepSize=self.step_size,
                           sampleRate=self.sample_rate)
 
-    def __call__(self, wav):
+    def __call__(self, wav, channel=0):
         """Extract features
 
         Parameters
         ----------
         wav : string
             Path to wav file.
+        channel : int
+            Processed channel. Defaults to first channel.
 
         Returns
         -------
@@ -113,9 +115,21 @@ class YaafeFeatureExtractor(object):
 
         """
 
-        definition = self.definition()
+        # --- load audio file
+        y, sample_rate, encoding = pysndfile.sndio.read(wav)
+        assert sample_rate == self.sample_rate, "sample rate mismatch"
+
+        # reshape before selecting channel
+        if len(y.shape) < 2:
+            y = y.reshape(-1, 1)
+        y = y[:, channel]
+
+        # Yaafe needs this: float64, column-contiguous, and shape
+        y = np.array(y, dtype=np.float64, order='C').reshape(1, -1)
+
 
         # --- prepare the feature plan
+        definition = self.definition()
         feature_plan = yaafelib.FeaturePlan(sample_rate=self.sample_rate)
         for name, recipe in definition:
             assert feature_plan.addFeature(
@@ -127,14 +141,11 @@ class YaafeFeatureExtractor(object):
         engine = yaafelib.Engine()
         engine.load(data_flow)
 
-        sample_rate, raw_audio = scipy.io.wavfile.read(wav)
-        assert sample_rate == self.sample_rate, "sample rate mismatch"
-
-        audio = np.array(raw_audio, dtype=np.float64, order='C').reshape(1, -1)
-
-        features = engine.processAudio(audio)
+        # --- extract features
+        features = engine.processAudio(y)
         data = np.hstack([features[name] for name, _ in definition])
 
+        # --- return as SlidingWindowFeature
         sliding_window = YaafeFrame(
             blockSize=self.block_size, stepSize=self.step_size,
             sampleRate=self.sample_rate)
