@@ -99,7 +99,7 @@ class YaafeFeatureExtractor(object):
                           stepSize=self.step_size,
                           sampleRate=self.sample_rate)
 
-    def __call__(self, wav, channel=0):
+    def __call__(self, wav, channel=1):
         """Extract features
 
         Parameters
@@ -122,7 +122,7 @@ class YaafeFeatureExtractor(object):
         # reshape before selecting channel
         if len(y.shape) < 2:
             y = y.reshape(-1, 1)
-        y = y[:, channel]
+        y = y[:, channel - 1]
 
         # Yaafe needs this: float64, column-contiguous, and shape
         y = np.array(y, dtype=np.float64, order='C').reshape(1, -1)
