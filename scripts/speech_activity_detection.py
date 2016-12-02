@@ -30,9 +30,9 @@
 Speech activity detection
 
 Usage:
-  speech_activity_detection train [--subset=<subset>] <experiment_dir> <database.task.protocol> <wav_template>
-  speech_activity_detection tune  [--subset=<subset> --recall=<beta>] <train_dir> <database.task.protocol> <wav_template>
-  speech_activity_detection apply [--subset=<subset> --recall=<beta>] <tune_dir> <database.task.protocol> <wav_template>
+  speech_activity_detection train [--database=<db.yml> --subset=<subset>] <experiment_dir> <database.task.protocol>
+  speech_activity_detection tune  [--database=<db.yml> --subset=<subset> --recall=<beta>] <train_dir> <database.task.protocol>
+  speech_activity_detection apply [--database=<db.yml> --subset=<subset> --recall=<beta>] <tune_dir> <database.task.protocol>
   speech_activity_detection -h | --help
   speech_activity_detection --version
 
@@ -42,14 +42,12 @@ Options:
                              in this directory. See "Configuration file"
                              section below for more details.
   <database.task.protocol>   Set evaluation protocol (e.g. "Etape.SpeakerDiarization.TV")
-  <wav_template>             Set path to actual wave files. This path is
-                             expected to contain a {uri} placeholder that will
-                             be replaced automatically by the actual unique
-                             resource identifier (e.g. '/Etape/{uri}.wav').
   <train_dir>                Set path to the directory containing pre-trained
                              models (i.e. the output of "train" mode).
   <tune_dir>                 Set path to the directory containing optimal
                              hyper-parameters (i.e. the output of "tune" mode).
+  --database=<db.yml>        Path to database configuration file.
+                             [default: ~/.pyannote/db.yml]
   --subset=<subset>          Set subset (train|developement|test).
                              In "train" mode, default subset is "train".
                              In "tune" mode, default subset is "development".
@@ -59,6 +57,12 @@ Options:
                              Use higher values if you want to improve recall.
   -h --help                  Show this screen.
   --version                  Show version.
+
+
+Database configuration file:
+    The database configuration provides details as to where actual files are
+    stored. See `pyannote.audio.util.FileFinder` docstring for more information
+    on the expected format.
 
 Configuration file:
     The configuration of each experiment is described in a file called
@@ -149,6 +153,7 @@ from pyannote.audio.labeling.aggregation import SequenceLabelingAggregation
 from pyannote.audio.signal import Binarize
 
 from pyannote.database import get_database
+from pyannote.database.util import FileFinder
 from pyannote.audio.optimizers import SSMORMS3
 
 import skopt
@@ -438,9 +443,8 @@ if __name__ == '__main__':
 
     arguments = docopt(__doc__, version='Speech activity detection')
 
-    preprocessors = {}
-    if '<wav_template>' in arguments:
-        preprocessors = {'wav': arguments['<wav_template>']}
+    db_yml = os.path.expanduser(arguments['--database'])
+    preprocessors = {'wav': FileFinder(db_yml)}
 
     if '<database.task.protocol>' in arguments:
         protocol = arguments['<database.task.protocol>']

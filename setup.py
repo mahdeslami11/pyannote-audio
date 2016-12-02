@@ -40,18 +40,16 @@ setup(
         'pyannote.core >= 0.8',
         'pyannote.metrics >= 0.10.2',
         'pyannote.generators >= 0.4.1',
-        'pyannote.database >= 0.5',
+        'pyannote.database >= 0.6',
         'pysndfile >= 0.2.11',
         'keras >= 1.1.0',
         'theano >= 0.8.2',
         'scikit-optimize >= 0.2',
         'pyYAML >= 3.12'
     ],
-
     # versioneer
     version=versioneer.get_version(),
     cmdclass=versioneer.get_cmdclass(),
-
     # PyPI
     name='pyannote.audio',
     description=('Audio processing'),

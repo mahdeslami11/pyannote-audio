@@ -30,10 +30,10 @@
 Speaker embedding
 
 Usage:
-  speaker_embedding train [--subset=<subset> --duration=<duration> --min-duration=<duration> --validation=<subset>] <experiment_dir> <database.task.protocol> <wav_template>
-  speaker_embedding tune [--subset=<subset> --false-alarm=<beta>] <train_dir> <database.task.protocol> <wav_template>
-  speaker_embedding test [--subset=<subset> --false-alarm=<beta>] <tune_dir> <database.task.protocol> <wav_template>
-  speaker_embedding apply [--subset=<subset> --step=<step> --layer=<index>] <tune_dir> <database.task.protocol> <wav_template>
+  speaker_embedding train [--database=<db.yml> --subset=<subset> --duration=<duration> --min-duration=<duration> --validation=<subset>] <experiment_dir> <database.task.protocol>
+  speaker_embedding tune [--database=<db.yml> --subset=<subset> --false-alarm=<beta>] <train_dir> <database.task.protocol>
+  speaker_embedding test [--database=<db.yml> --subset=<subset> --false-alarm=<beta>] <tune_dir> <database.task.protocol>
+  speaker_embedding apply [--database=<db.yml> --subset=<subset> --step=<step> --layer=<index>] <tune_dir> <database.task.protocol>
   speaker_embedding -h | --help
   speaker_embedding --version
 
@@ -43,10 +43,8 @@ Options:
                              in this directory. See "Configuration file"
                              section below for more details.
   <database.task.protocol>   Set evaluation protocol (e.g. "Etape.SpeakerDiarization.TV")
-  <wav_template>             Set path to actual wave files. This path is
-                             expected to contain a {uri} placeholder that will
-                             be replaced automatically by the actual unique
-                             resource identifier (e.g. '/Etape/{uri}.wav').
+  --database=<db.yml>        Path to database configuration file.
+                             [default: ~/.pyannote/db.yml]
   --subset=<subset>          Set subset (train|developement|test).
                              In "train" mode, default subset is "train".
                              In "tune" mode, default subset is "development".
@@ -64,6 +62,11 @@ Options:
                              Defaults to final layer.
   -h --help                  Show this screen.
   --version                  Show version.
+
+Database configuration file:
+    The database configuration provides details as to where actual files are
+    stored. See `pyannote.audio.util.FileFinder` docstring for more information
+    on the expected format.
 
 Configuration file:
     The configuration of each experiment is described in a file called
@@ -85,11 +88,8 @@ Configuration file:
        name: TristouNet
        params:                        # this experiments relies
           lstm: [16]                  # on one LSTM layer (16 outputs)
-          bidirectional: True         # which is bidirectional
-          pooling: average            # and whose output are averaged over the sequence,
-          dense: [16]                 # and one internal dense layer
-          space: sphere               # embedding live on the unit hypersphere
-          output_dim: 16              # of dimension 16
+          bidirectional: 'concat'     # which is bidirectional
+          mlp: [16, 16]               # and two dense MLP layers
 
     glue:
        name: LegacyTripletLoss
@@ -151,6 +151,7 @@ import matplotlib.pyplot as plt
 import pyannote.core
 
 from pyannote.database import get_database
+from pyannote.database.util import FileFinder
 from pyannote.audio.optimizers import SSMORMS3
 
 from pyannote.audio.embedding.base import SequenceEmbedding
@@ -533,9 +534,8 @@ if __name__ == '__main__':
 
     arguments = docopt(__doc__, version='Speaker embedding')
 
-    preprocessors = {}
-    if '<wav_template>' in arguments:
-        preprocessors = {'wav': arguments['<wav_template>']}
+    db_yml = os.path.expanduser(arguments['--database'])
+    preprocessors = {'wav': FileFinder(db_yml)}
 
     if '<database.task.protocol>' in arguments:
         protocol = arguments['<database.task.protocol>']

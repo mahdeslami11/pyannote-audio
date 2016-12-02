@@ -30,8 +30,8 @@
 (Speaker) change detection
 
 Usage:
-  change_detection tune  [--subset=<subset> --purity=<beta>] <train_dir> <database.task.protocol> <wav_template>
-  change_detection apply [--subset=<subset> --purity=<beta>] <tune_dir> <database.task.protocol> <wav_template>
+  change_detection tune  [--database=<db.yml> --subset=<subset> --purity=<beta>] <train_dir> <database.task.protocol>
+  change_detection apply [--database=<db.yml> --subset=<subset> --purity=<beta>] <tune_dir> <database.task.protocol>
   change_detection -h | --help
   change_detection --version
 
@@ -39,12 +39,10 @@ Options:
   <train_dir>                Set path to the directory containing pre-trained
                              models (i.e. speaker embeddings).
   <database.task.protocol>   Set evaluation protocol (e.g. "Etape.SpeakerDiarization.TV")
-  <wav_template>             Set path to actual wave files. This path is
-                             expected to contain a {uri} placeholder that will
-                             be replaced automatically by the actual unique
-                             resource identifier (e.g. '/Etape/{uri}.wav').
   <tune_dir>                 Set path to the directory containing optimal
                              hyper-parameters (i.e. the output of "tune" mode).
+  --database=<db.yml>        Path to database configuration file.
+                             [default: ~/.pyannote/db.yml]
   --subset=<subset>          Set subset (developement|test).
                              In "tune" mode, default subset is "development".
                              In "apply" mode, default subset is "test".
@@ -53,6 +51,11 @@ Options:
                              Use higher values if you want to improve purity.
   -h --help                  Show this screen.
   --version                  Show version.
+
+Database configuration file:
+    The database configuration provides details as to where actual files are
+    stored. See `pyannote.audio.util.FileFinder` docstring for more information
+    on the expected format.
 
 "tune" mode:
     Then, one should tune the hyper-parameters using "tune" mode.
@@ -100,6 +103,7 @@ from pyannote.audio.embedding.segmentation import Segmentation
 from pyannote.audio.signal import Peak
 
 from pyannote.database import get_database
+from pyannote.database.util import FileFileFinder
 from pyannote.audio.optimizers import SSMORMS3
 
 import skopt
@@ -333,9 +337,8 @@ if __name__ == '__main__':
 
     arguments = docopt(__doc__, version='(Speaker) change detection')
 
-    preprocessors = {}
-    if '<wav_template>' in arguments:
-        preprocessors = {'wav': arguments['<wav_template>']}
+    db_yml = os.path.expanduser(arguments['--database'])
+    preprocessors = {'wav': FileFinder(db_yml)}
 
     if '<database.task.protocol>' in arguments:
         protocol = arguments['<database.task.protocol>']
