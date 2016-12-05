@@ -137,16 +137,13 @@ class SequenceEmbeddingAggregation(YaafeMixin, FileBasedBatchGenerator):
                         'annotation': from_annotation}
         (segments, (embeddings, masks)) = next(self.from_file(current_file))
 
-        # HACK make sure last segment is cropped at wav duration
-        duration = get_wav_duration(wav)
-        segments[-1] = segments[-1] & Segment(0., duration)
-
         n_sequences, _, dimension = embeddings.shape
 
         # estimate total number of frames (over the duration of the whole file)
         # based on feature extractor internal sliding window and file duration
         samples_window = self.feature_extractor.sliding_window()
-        n_samples = samples_window.samples(get_wav_duration(wav)) + 3
+        duration = segments[-1].start + self.duration
+        n_samples = samples_window.samples(duration) + 3
 
         # +3 is a hack to avoid later IndexError resulting from rounding error
         # when cropping samples_window
@@ -161,8 +158,8 @@ class SequenceEmbeddingAggregation(YaafeMixin, FileBasedBatchGenerator):
         for i, segment in enumerate(segments):
 
             # indices of frames overlapped by sequence #i
-            indices = samples_window.crop(
-                segment, mode='center', fixed=self.duration)
+            indices = samples_window.crop(segment, mode='center',
+                                          fixed=self.duration)
 
             k[indices] += masks[i]
             fX[indices] += embeddings[i] * masks[i]
