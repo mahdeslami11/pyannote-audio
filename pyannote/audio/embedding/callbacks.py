@@ -148,6 +148,8 @@ class ValidateEmbedding(Callback):
             xlim = (0, 4)
         elif self.distance == 'cosine':
             xlim = (-1.0, 1.0)
+        else:
+            xlim = None
         plot_distributions(self.y_, distances, prefix,
                            xlim=xlim, ymax=3, nbins=100)
 
