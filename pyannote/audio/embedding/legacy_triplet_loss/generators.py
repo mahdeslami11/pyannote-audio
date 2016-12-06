@@ -60,13 +60,12 @@ class TripletGenerator(object):
     margin : float, optional
         Defaults to 0.2.
     duration: float, optional
-        Sequence duration. Defaults to 3 seconds.
+    step: float, optional
+        Duration and step of sliding window (in seconds). Default to 3s and 1s.
     min_duration: float, optional
         Sequence minimum duration. When provided, generates sequences with
         random duration in range [min_duration, duration]. Defaults to
         fixed-duration sequences.
-    overlap: float, optional
-        Sequence overlap ratio. Defaults to 0 (no overlap).
     per_label: int, optional
         Number of samples per label. Defaults to 40.
     per_fold: int, optional
@@ -79,7 +78,7 @@ class TripletGenerator(object):
 
     def __init__(self, extractor, file_generator,
                  distance='sqeuclidean', margin=0.2,
-                 duration=3.0, min_duration=None, overlap=0.8,
+                 duration=3.0, min_duration=None, step=1.0,
                  per_fold=0, per_label=40, batch_size=32):
 
         super(TripletGenerator, self).__init__()
@@ -90,7 +89,7 @@ class TripletGenerator(object):
         self.margin = margin
         self.duration = duration
         self.min_duration = min_duration
-        self.overlap = overlap
+        self.step = step
         self.per_fold = per_fold
         self.per_label = per_label
         self.batch_size = batch_size
@@ -99,7 +98,7 @@ class TripletGenerator(object):
             self.generator_ = FixedDurationSequences(
                 self.extractor,
                 duration=self.duration,
-                step=(1 - self.overlap) * self.duration,
+                step=self.step,
                 batch_size=-1)
         else:
             self.generator_ = VariableDurationSequences(
@@ -294,16 +293,15 @@ class TripletBatchGenerator(BaseBatchGenerator):
         File generator (the training set, typically)
     distance: {'sqeuclidean', 'cosine'}
         Distance for which the embedding is optimized. Defaults to 'sqeuclidean'.
+    margin : float, optional
+        Defaults to 0.2.
+    duration: float, optional
+    step: float, optional
+        Duration and step of sliding window (in seconds). Default to 3s and 1s.
     min_duration: float, optional
         Sequence minimum duration. When provided, generates sequences with
         random duration in range [min_duration, duration]. Defaults to
         fixed-duration sequences.
-    margin : float, optional
-        Defaults to 0.2.
-    duration: float, optional
-        Sequence duration. Defaults to 3 seconds.
-    overlap: float, optional
-        Sequence overlap ratio. Defaults to 0 (no overlap).
     per_label: int, optional
         Number of samples per label. Defaults to 40.
     per_fold: int, optional
@@ -314,13 +312,13 @@ class TripletBatchGenerator(BaseBatchGenerator):
     """
     def __init__(self, feature_extractor, file_generator,
                  distance='sqeuclidean', margin=0.2,
-                 duration=3.0, min_duration=None, overlap=0.5,
+                 duration=3.0, min_duration=None, step=1.0,
                  per_fold=0, per_label=40, batch_size=32):
 
         self.triplet_generator_ = TripletGenerator(
             feature_extractor, file_generator,
             margin=margin, distance=distance,
-            duration=duration, min_duration=min_duration, overlap=overlap,
+            duration=duration, min_duration=min_duration, step=step,
             per_fold=per_fold, per_label=per_label, batch_size=batch_size)
 
         super(TripletBatchGenerator, self).__init__(

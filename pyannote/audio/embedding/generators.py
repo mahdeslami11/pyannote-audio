@@ -41,7 +41,7 @@ from pyannote.audio.embedding.callbacks import UpdateGeneratorEmbedding
 class SequenceGenerator(object):
 
     def __init__(self, feature_extractor, file_generator,
-                 duration=3.0, min_duration=None, overlap=0.8,
+                 duration=3.0, min_duration=None, step=1.0,
                  per_label=3, cache=None):
 
         super(SequenceGenerator, self).__init__()
@@ -50,7 +50,7 @@ class SequenceGenerator(object):
         self.file_generator = file_generator
         self.duration = duration
         self.min_duration = min_duration
-        self.overlap = overlap
+        self.step = step
         self.per_label = per_label
         self.cache = cache
 
@@ -58,7 +58,7 @@ class SequenceGenerator(object):
             self.generator_ = FixedDurationSequences(
                 self.feature_extractor,
                 duration=self.duration,
-                step=(1 - self.overlap) * self.duration,
+                step=self.step,
                 batch_size=1 if self.cache else -1)
         else:
             self.generator_ = VariableDurationSequences(
@@ -191,7 +191,8 @@ class DerivativeBatchGenerator(BaseBatchGenerator):
     distance: {'sqeuclidean', 'cosine', 'angular'}
         Distance for which the embedding is optimized. Defaults to 'angular'.
     duration: float, optional
-        Sequence duration. Defaults to 3 seconds.
+    step: float, optional
+        Duration and step of sliding window (in seconds). Default to 3s and 1s.
     min_duration: float, optional
         Sequence minimum duration. When provided, generates sequences with
         random duration in range [min_duration, duration]. Defaults to
@@ -209,7 +210,7 @@ class DerivativeBatchGenerator(BaseBatchGenerator):
     """
 
     def __init__(self, feature_extractor, file_generator, compute_derivatives,
-                 distance='angular', duration=3.0, min_duration=None,
+                 distance='angular', duration=3.0, min_duration=None, step=1.0,
                  per_label=3, per_fold=20, per_batch=12, n_threads=1,
                  cache=None):
 
@@ -217,7 +218,7 @@ class DerivativeBatchGenerator(BaseBatchGenerator):
 
         self.sequence_generator_ = SequenceGenerator(
             feature_extractor, file_generator,
-             duration=duration, min_duration=min_duration,
+             duration=duration, step=step, min_duration=min_duration,
              per_label=per_label, cache=self.cache)
 
         self.n_labels = self.sequence_generator_.n_labels
