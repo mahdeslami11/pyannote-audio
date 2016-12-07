@@ -150,6 +150,10 @@ class YaafeFeatureExtractor(object):
             blockSize=self.block_size, stepSize=self.step_size,
             sampleRate=self.sample_rate)
 
+        if np.any(np.isnan(data)):
+            msg = 'Features extracted from "{wav}" contain NaNs.'
+            warnings.warn(msg.format(wav=wav))
+
         return SlidingWindowFeature(data, sliding_window)
 
 
