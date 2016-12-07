@@ -165,9 +165,8 @@ class SequenceEmbedding(object):
                     extract_embedding=extract_embedding))
 
         if validation:
-            from pyannote.audio.embedding.callbacks import ValidateEmbedding
-            file_generator = getattr(protocol, validation)()
-            callback = ValidateEmbedding(self.glue, file_generator, log_dir)
+            from pyannote.audio.embedding.callbacks import SpeakerDiarizationValidation
+            callback = SpeakerDiarizationValidation(self.glue, protocol, validation, log_dir)
             callbacks.append(callback)
 
         # if generator has n_labels attribute, pass it to build_model

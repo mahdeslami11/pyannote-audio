@@ -78,10 +78,10 @@ class UpdateGeneratorEmbedding(Callback):
         sequence_embedding.embedding_.set_weights(current_weights)
 
 
-class ValidateEmbedding(Callback):
+class SpeakerDiarizationValidation(Callback):
 
-    def __init__(self, glue, file_generator, log_dir):
-        super(ValidateEmbedding, self).__init__()
+    def __init__(self, glue, protocol, subset, log_dir):
+        super(SpeakerDiarizationValidation, self).__init__()
 
         self.distance = glue.distance
         self.extract_embedding = glue.extract_embedding
@@ -107,6 +107,7 @@ class ValidateEmbedding(Callback):
 
         # randomly select (at most) 100 sequences from each label to ensure
         # all labels have (more or less) the same weight in the evaluation
+        file_generator = getattr(protocol, subset)()
         X, y = zip(*generator(file_generator))
         X = np.vstack(X)
         y = np.hstack(y)
