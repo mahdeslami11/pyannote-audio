@@ -35,6 +35,7 @@ import pysndfile.sndio
 
 from pyannote.core.segment import SlidingWindow
 from pyannote.core.feature import SlidingWindowFeature
+from pyannote.audio.features.utils import PyannoteFeatureExtractionError
 
 
 class YaafeFrame(SlidingWindow):
