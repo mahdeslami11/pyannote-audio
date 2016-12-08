@@ -101,7 +101,7 @@ class YaafeFeatureExtractor(object):
                           stepSize=self.step_size,
                           sampleRate=self.sample_rate)
 
-    def __call__(self, wav, channel=1):
+    def __call__(self, wav, channel=1, **kwargs):
         """Extract features
 
         Parameters
