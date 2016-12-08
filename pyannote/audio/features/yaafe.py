@@ -117,7 +117,10 @@ class YaafeFeatureExtractor(object):
         """
 
         # --- load audio file
-        y, sample_rate, encoding = pysndfile.sndio.read(wav)
+        try:
+            y, sample_rate, encoding = pysndfile.sndio.read(wav)
+        except IOError as e:
+            raise PyannoteFeatureExtractionError(e)
         assert sample_rate == self.sample_rate, "sample rate mismatch"
 
         # reshape before selecting channel
