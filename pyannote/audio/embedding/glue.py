@@ -146,7 +146,7 @@ class BatchGlue(Glue):
     def __init__(self, feature_extractor,
                  duration=3.0, min_duration=None, step=1.5,
                  distance='angular', per_label=3, per_fold=20, per_batch=12,
-                 n_threads=1, cache=None):
+                 n_threads=1, cache=None, robust=False):
 
         super(BatchGlue, self).__init__(
             feature_extractor, duration, min_duration=min_duration,
@@ -168,6 +168,7 @@ class BatchGlue(Glue):
         self.n_threads = n_threads
         self.pool_ = multiprocessing.Pool(self.n_threads)
         self.cache = cache
+        self.robust = robust
 
     @staticmethod
     def _output_shape(input_shapes):
@@ -190,7 +191,7 @@ class BatchGlue(Glue):
             duration=self.duration, min_duration=self.min_duration, step=self.step,
             per_label=self.per_label, per_fold=self.per_fold,
             per_batch=self.per_batch, n_threads=self.n_threads,
-            cache=self.cache)
+            cache=self.cache, robust=self.robust)
 
     def loss(self, y_true, y_pred):
         return self._derivative_loss(y_true, y_pred)

@@ -35,6 +35,10 @@ import pysndfile.sndio
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 
 
+class PyannoteFeatureExtractionError(Exception):
+    pass
+
+
 def get_wav_duration(wav):
     y, sample_rate, _ = pysndfile.sndio.read(wav)
     n_samples = y.shape[0]
@@ -67,7 +71,8 @@ class Precomputed(object):
     def __call__(self, wav):
 
         if wav not in self.f_:
-            return None
+            msg = 'Cannot extract features from "{wav}".'
+            raise PyannoteFeatureExtractionError(msg.format(wav=wav))
 
         data = np.array(self.f_['wav'])
         return SlidingWindowFeature(data, self.sliding_window_)

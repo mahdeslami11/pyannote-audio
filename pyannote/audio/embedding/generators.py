@@ -39,10 +39,18 @@ from pyannote.audio.embedding.callbacks import UpdateGeneratorEmbedding
 
 
 class SequenceGenerator(object):
+    """
+
+    Parameters
+    ----------
+    robust: bool, optional
+        When True, skip files for which feature extraction fails.
+
+    """
 
     def __init__(self, feature_extractor, file_generator,
                  duration=3.0, min_duration=None, step=1.0,
-                 per_label=3, cache=None):
+                 per_label=3, cache=None, robust=False):
 
         super(SequenceGenerator, self).__init__()
 
@@ -53,6 +61,7 @@ class SequenceGenerator(object):
         self.step = step
         self.per_label = per_label
         self.cache = cache
+        self.robust = robust
 
         if self.min_duration is None:
             self.generator_ = FixedDurationSequences(
@@ -120,14 +129,16 @@ class SequenceGenerator(object):
 
         # in memory
         if cache is None:
-            Xy_generator = self.generator_(self.file_generator)
+            Xy_generator = self.generator_(self.file_generator,
+                                           robust=self.robust)
             X, y = zip(*Xy_generator)
             X = np.vstack(X)
             y = np.hstack(y)
 
         # in HDF5 file
         elif not os.path.isfile(cache):
-            Xy_generator = self.generator_(self.file_generator)
+            Xy_generator = self.generator_(self.file_generator,
+                                           robust=self.robust)
             self._precompute(Xy_generator, cache)
 
         if cache:
@@ -150,8 +161,13 @@ class SequenceGenerator(object):
 
             # HACK
             X_, y_ = X[i], y[i]
+
             if np.any(np.isnan(X_)):
-                continue
+                if self.robust:
+                    continue
+                else:
+                    msg = 'Sequence #{i:d} contains NaNs.'
+                    raise ValueError(msg.format(i=i))
 
             yield X_, y_
 
@@ -213,19 +229,22 @@ class DerivativeBatchGenerator(BaseBatchGenerator):
         Defaults to 1.
     cache: str, optional
         Defaults to 'in-memory'
+    robust: bool, optional
+        When True, skip files for which feature extraction fails.
     """
 
     def __init__(self, feature_extractor, file_generator, compute_derivatives,
                  distance='angular', duration=3.0, min_duration=None, step=1.0,
                  per_label=3, per_fold=20, per_batch=12, n_threads=1,
-                 cache=None):
+                 cache=None, robust=False):
 
         self.cache = cache
+        self.robust = robust
 
         self.sequence_generator_ = SequenceGenerator(
             feature_extractor, file_generator,
              duration=duration, step=step, min_duration=min_duration,
-             per_label=per_label, cache=self.cache)
+             per_label=per_label, cache=self.cache, robust=self.robust)
 
         self.n_labels = self.sequence_generator_.n_labels
         self.per_label = per_label

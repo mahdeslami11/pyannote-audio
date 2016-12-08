@@ -30,7 +30,7 @@
 Feature extraction
 
 Usage:
-  feature_extraction [--database=<db.yml>] <experiment_dir> <database.task.protocol>
+  feature_extraction [--robust --database=<db.yml>] <experiment_dir> <database.task.protocol>
   feature_extraction -h | --help
   feature_extraction --version
 
@@ -42,6 +42,7 @@ Options:
   <database.task.protocol>   Set evaluation protocol (e.g. "Etape.SpeakerDiarization.TV")
   --database=<db.yml>        Path to database configuration file.
                              [default: ~/.pyannote/db.yml]
+  --robust                   When provided, skip files for which feature extraction fails.
   -h --help                  Show this screen.
   --version                  Show version.
 
@@ -80,8 +81,10 @@ import pyannote.database
 from pyannote.database import get_database
 from pyannote.database.util import FileFinder
 
+from pyannote.audio.features.utils import PyannoteFeatureExtractionError
 
-def extract(database_name, task_name, protocol_name, preprocessors, experiment_dir):
+
+def extract(database_name, task_name, protocol_name, preprocessors, experiment_dir, robust=False):
 
     database = get_database(database_name, preprocessors=preprocessors)
     protocol = database.get_protocol(task_name, protocol_name, progress=True)
@@ -128,11 +131,31 @@ def extract(database_name, task_name, protocol_name, preprocessors, experiment_d
                 continue
 
             try:
-                data = feature_extraction(wav).data
-            except IOError as e:
+                features = feature_extraction(wav)
+            except PyannoteFeatureExtractionError as e:
+                if robust:
+                    msg = 'Feature extraction failedfor file "{wav}".'
+                    msg = msg.format(wav=wav)
+                    continue
+                else:
+                    raise e
+
+            if features is None:
+                msg = 'Feature extraction returned None for file "{wav}".'
+                msg = msg.format(wav=wav)
+                if not robust:
+                    raise PyannoteFeatureExtractionError(msg)
+                warnings.warn(msg)
                 continue
 
+            data = features.data
+
             if np.any(np.isnan(data)):
+                msg = 'Feature extraction returned NaNs for file "{wav}".'
+                msg = msg.format(wav=wav)
+                if not robust:
+                    raise PyannoteFeatureExtractionError(msg)
+                warnings.warn(msg)
                 continue
 
             fp.create_dataset(wav, data=data)
@@ -147,5 +170,5 @@ if __name__ == '__main__':
 
     database_name, task_name, protocol_name = arguments['<database.task.protocol>'].split('.')
     experiment_dir = arguments['<experiment_dir>']
-
-    extract(database_name, task_name, protocol_name, preprocessors, experiment_dir)
+    robust = arguments['--robust']
+    extract(database_name, task_name, protocol_name, preprocessors, experiment_dir, robust=robust)

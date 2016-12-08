@@ -79,7 +79,17 @@ class YaafeMixin:
             return current_file
 
         wav = current_file['wav']
-        features = self.feature_extractor(wav)
+
+        try:
+            features = self.feature_extractor(wav)
+
+        except Exception as e:
+            msg = 'Cannot extract features from "{wav}".'
+            raise PyannoteFeatureExtractionError(msg.format(wav=wav))
+
+        if features is None:
+            msg = 'Cannot extract features from "{wav}".'
+            raise PyannoteFeatureExtractionError(msg.format(wav=wav))
 
         self.preprocessed_['X'][identifier] = features
 
