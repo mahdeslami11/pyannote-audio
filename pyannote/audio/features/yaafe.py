@@ -90,9 +90,6 @@ class YaafeFeatureExtractor(object):
         self.block_size = block_size
         self.step_size = step_size
 
-    def extract(self, wav):
-        return self.__call__(wav)
-
     def dimension(self):
         raise NotImplementedError('')
 
@@ -101,14 +98,14 @@ class YaafeFeatureExtractor(object):
                           stepSize=self.step_size,
                           sampleRate=self.sample_rate)
 
-    def __call__(self, wav, channel=1, **kwargs):
+    def __call__(self, filename, channel=1, **kwargs):
         """Extract features
 
         Parameters
         ----------
-        wav : string
-            Path to wav file.
-        channel : int
+        filename : string
+            Path to audio file.
+        channel : int, optional
             Processed channel. Defaults to first channel.
 
         Returns
@@ -119,7 +116,7 @@ class YaafeFeatureExtractor(object):
 
         # --- load audio file
         try:
-            y, sample_rate, encoding = pysndfile.sndio.read(wav)
+            y, sample_rate, encoding = pysndfile.sndio.read(filename)
         except IOError as e:
             raise PyannoteFeatureExtractionError(e)
         assert sample_rate == self.sample_rate, "sample rate mismatch"
@@ -156,8 +153,8 @@ class YaafeFeatureExtractor(object):
             sampleRate=self.sample_rate)
 
         if np.any(np.isnan(data)):
-            msg = 'Features extracted from "{wav}" contain NaNs.'
-            warnings.warn(msg.format(wav=wav))
+            msg = 'Features extracted from "{filename}" contain NaNs.'
+            warnings.warn(msg.format(filename=filename))
 
         return SlidingWindowFeature(data, sliding_window)
 
