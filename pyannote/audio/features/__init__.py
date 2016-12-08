@@ -25,3 +25,7 @@
 
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
+
+
+from .yaafe import YaafeCompound, YaafeZCR, YaafeMFCC
+from .utils import Precomputed
