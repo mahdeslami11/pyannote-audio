@@ -66,7 +66,18 @@ class LoggingCallback(Callback):
         self.extract_embedding = extract_embedding
 
         # create log_dir directory (and subdirectory)
-        os.makedirs(self.log_dir)
+        try:
+            os.makedirs(self.log_dir)
+        except OSError as e:
+            # this happens when log_dir already exists.
+            # we need this **not** to fail because this directory
+            # may contain pre-computed (cached) sequences
+            pass
+
+        # this will fail if the directory already exists
+        # and this is OK  because 'weights' directory
+        # usually contains the output of very long computations
+        # and you do not want to erase them by mistake :/
         os.makedirs(self.log_dir + '/weights')
 
         if log is None:
