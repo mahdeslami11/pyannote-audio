@@ -142,7 +142,7 @@ class SequenceGenerator(object):
         generator = random_label_index(
             y, per_label=self.per_label, return_label=False)
 
-        # HACK (see __init__ for details on why this is done)
+        # see __init__ for details on why this is done
         yield
 
         while True:
