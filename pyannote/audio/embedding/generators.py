@@ -147,7 +147,13 @@ class SequenceGenerator(object):
 
         while True:
             i = next(generator)
-            yield X[i], y[i]
+
+            # HACK
+            X_, y_ = X[i], y[i]
+            if np.any(np.isnan(X_)):
+                continue
+
+            yield X_, y_
 
         if cache:
             fp.close()
