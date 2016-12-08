@@ -107,7 +107,7 @@ def extract(database_name, task_name, protocol_name, preprocessors, experiment_d
         config = yaml.load(fp)
 
     feature_extraction_name = config['feature_extraction']['name']
-    features = __import__('pyannote.audio.features.yaafe',
+    features = __import__('pyannote.audio.features',
                           fromlist=[feature_extraction_name])
     FeatureExtraction = getattr(features, feature_extraction_name)
     feature_extraction = FeatureExtraction(
