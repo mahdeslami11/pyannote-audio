@@ -62,6 +62,8 @@ class Precomputed(object):
         self.sliding_window_ = SlidingWindow(
             start=start, duration=duration, step=step)
 
+        self.dimension_ = self.f_.attrs['dimension']
+
     def __call__(self, wav):
 
         if wav not in self.f_:
@@ -69,3 +71,9 @@ class Precomputed(object):
 
         data = np.array(self.f_['wav'])
         return SlidingWindowFeature(data, self.sliding_window_)
+
+    def sliding_window(self):
+        return self.sliding_window_
+
+    def dimension(self):
+        return self.dimension_

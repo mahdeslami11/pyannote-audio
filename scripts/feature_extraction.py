@@ -118,6 +118,9 @@ def extract(database_name, task_name, protocol_name, preprocessors, experiment_d
         fp.attrs['duration'] = sliding_window.duration
         fp.attrs['step'] = sliding_window.step
 
+        dimension = feature_extraction.dimension()
+        fp.attrs['dimension'] = dimension
+
         for item in items:
 
             wav = item['wav']
