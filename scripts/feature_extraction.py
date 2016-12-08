@@ -134,7 +134,7 @@ def extract(database_name, task_name, protocol_name, preprocessors, experiment_d
                 features = feature_extraction(wav)
             except PyannoteFeatureExtractionError as e:
                 if robust:
-                    msg = 'Feature extraction failedfor file "{wav}".'
+                    msg = 'Feature extraction failed for file "{wav}".'
                     msg = msg.format(wav=wav)
                     continue
                 else:
