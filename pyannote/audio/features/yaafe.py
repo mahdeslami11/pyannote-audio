@@ -126,9 +126,7 @@ class YaafeFeatureExtractor(object):
             y = y.reshape(-1, 1)
         y = y[:, channel - 1]
 
-        # Yaafe needs this: float64, column-contiguous, and shape
-        y = np.array(y, dtype=np.float64, order='C').reshape(1, -1)
-
+        y = y.reshape(1, -1)
 
         # --- prepare the feature plan
         definition = self.definition()
