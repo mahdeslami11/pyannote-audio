@@ -29,10 +29,10 @@
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.generators.batch import FileBasedBatchGenerator
 from pyannote.generators.fragment import SlidingSegments
-from ..generators.yaafe import YaafeMixin
+from pyannote.audio.generators.periodic import PeriodicFeaturesMixin
 
 
-class Extraction(YaafeMixin, FileBasedBatchGenerator):
+class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     """Embedding extraction
 
     Parameters

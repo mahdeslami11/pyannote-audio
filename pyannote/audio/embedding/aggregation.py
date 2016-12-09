@@ -30,11 +30,12 @@ import numpy as np
 from pyannote.core import Segment, SlidingWindow, SlidingWindowFeature
 from pyannote.generators.batch import FileBasedBatchGenerator
 from pyannote.generators.fragment import SlidingSegments
-from pyannote.audio.generators.yaafe import YaafeMixin
+from pyannote.audio.generators.periodic import PeriodicFeaturesMixin
 from ..features.utils import get_wav_duration
 
 
-class SequenceEmbeddingAggregation(YaafeMixin, FileBasedBatchGenerator):
+class SequenceEmbeddingAggregation(PeriodicFeaturesMixin,
+                                   FileBasedBatchGenerator):
     """Embedding extraction
 
     Parameters

@@ -32,11 +32,11 @@ from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.generators.batch import FileBasedBatchGenerator
 from pyannote.generators.fragment import SlidingSegments
 
-from ..generators.yaafe import YaafeMixin
-from ..features.utils import get_wav_duration
+from pyannote.audio.generators.periodic import PeriodicFeaturesMixin
+from pyannote.audio.features.utils import get_wav_duration
 
 
-class SequenceLabelingAggregation(YaafeMixin, FileBasedBatchGenerator):
+class SequenceLabelingAggregation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     """Aggregate pre-trained sequence labeling predictions on overlapping windows
 
     Parameters

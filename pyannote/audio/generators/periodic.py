@@ -31,7 +31,7 @@ from cachetools import LRUCache
 CACHE_MAXSIZE = 12
 
 
-class YaafeMixin:
+class PeriodicFeaturesMixin:
 
     """
     cache_preprocessed_ : bool
@@ -45,9 +45,9 @@ class YaafeMixin:
 
     @property
     def shape(self):
-        return self.yaafe_get_shape()
+        return self.periodic_get_shape()
 
-    def yaafe_get_shape(self):
+    def periodic_get_shape(self):
         n_samples = self.feature_extractor.sliding_window().samples(
             self.duration, mode='center')
         dimension = self.feature_extractor.dimension()
@@ -55,10 +55,10 @@ class YaafeMixin:
 
     # defaults to features pre-computing
     def preprocess(self, current_file, identifier=None):
-        return self.yaafe_preprocess(
+        return self.periodic_preprocess(
             current_file, identifier=identifier)
 
-    def yaafe_preprocess(self, current_file, identifier=None):
+    def periodic_preprocess(self, current_file, identifier=None):
         """
         Parameters
         ----------
@@ -97,10 +97,11 @@ class YaafeMixin:
 
     # defaults to extracting frames centered on segment
     def process_segment(self, segment, signature=None, identifier=None):
-        return self.yaafe_process_segment(
+        return self.periodic_process_segment(
             segment, signature=signature, identifier=identifier)
 
-    def yaafe_process_segment(self, segment, signature=None, identifier=None):
+    def periodic_process_segment(self, segment, signature=None,
+                                 identifier=None):
         duration = signature.get('duration', None)
         return self.preprocessed_['X'][identifier].crop(
             segment, mode='center', fixed=duration)

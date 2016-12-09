@@ -31,10 +31,11 @@ import numpy as np
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.generators.batch import FileBasedBatchGenerator
 from pyannote.generators.fragment import TwinSlidingSegments
-from .generators.yaafe import YaafeMixin
+from pyannote.audio.generators.periodic import PeriodicFeaturesMixin
 
 
-class GaussianDivergenceSegmentation(YaafeMixin, FileBasedBatchGenerator):
+class GaussianDivergenceSegmentation(PeriodicFeaturesMixin,
+                                     FileBasedBatchGenerator):
     """Segmentation based on gaussian divergence
 
     Computes the gaussian divergence between features of two (left and right)
@@ -114,7 +115,7 @@ class GaussianDivergenceSegmentation(YaafeMixin, FileBasedBatchGenerator):
         return SlidingWindowFeature(y, window)
 
 
-class BICSegmentation(YaafeMixin, FileBasedBatchGenerator):
+class BICSegmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     """Segmentation based on BIC
 
     Computes the BIC criterion between features of two (left and right)

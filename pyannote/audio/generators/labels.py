@@ -26,15 +26,14 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-
-from .yaafe import YaafeMixin
+from pyannote.audio.generators.periodic import PeriodicFeaturesMixin
 from pyannote.generators.batch import FileBasedBatchGenerator
 from pyannote.generators.fragment import SlidingLabeledSegments
 from pyannote.generators.fragment import RandomLabeledSegments
 import numpy as np
 
 
-class FixedDurationSequences(YaafeMixin, FileBasedBatchGenerator):
+class FixedDurationSequences(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     """(X_batch, y_batch) batch generator
 
     Yields batches made of sequences obtained using a sliding window over the
@@ -82,7 +81,8 @@ class FixedDurationSequences(YaafeMixin, FileBasedBatchGenerator):
         )
 
 
-class VariableDurationSequences(YaafeMixin, FileBasedBatchGenerator):
+class VariableDurationSequences(PeriodicFeaturesMixin,
+                                FileBasedBatchGenerator):
 
     def __init__(self, feature_extractor, min_duration=1.0, max_duration=5.0,
                  batch_size=32):

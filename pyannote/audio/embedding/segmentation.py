@@ -31,10 +31,10 @@ import numpy as np
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.generators.batch import FileBasedBatchGenerator
 from pyannote.generators.fragment import TwinSlidingSegments
-from ..generators.yaafe import YaafeMixin
+from pyannote.audio.generators.periodic import PeriodicFeaturesMixin
 
 
-class Segmentation(YaafeMixin, FileBasedBatchGenerator):
+class Segmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     """Segmentation based on sequence embedding
 
     Computes the euclidean distance between the embeddings of two

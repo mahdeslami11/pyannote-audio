@@ -26,7 +26,7 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-from .yaafe import YaafeMixin
+from pyannote.audio.generators.periodic import PeriodicFeaturesMixin
 from pyannote.core import SlidingWindowFeature
 from pyannote.generators.fragment import SlidingSegments
 from pyannote.generators.batch import FileBasedBatchGenerator
@@ -34,7 +34,7 @@ from scipy.stats import zscore
 import numpy as np
 
 
-class SpeechActivityDetectionBatchGenerator(YaafeMixin,
+class SpeechActivityDetectionBatchGenerator(PeriodicFeaturesMixin,
                                             FileBasedBatchGenerator):
 
     def __init__(self, feature_extractor,
@@ -65,7 +65,7 @@ class SpeechActivityDetectionBatchGenerator(YaafeMixin,
 
         # extract features for the whole file
         # (if it has not been done already)
-        current_file = self.yaafe_preprocess(
+        current_file = self.periodic_preprocess(
             current_file, identifier=identifier)
 
         # if labels have already been extracted, do nothing
@@ -104,7 +104,7 @@ class SpeechActivityDetectionBatchGenerator(YaafeMixin,
     def process_segment(self, segment, signature=None, identifier=None):
         """Extract X and y subsequences"""
 
-        X = self.yaafe_process_segment(
+        X = self.periodic_process_segment(
             segment, signature=signature, identifier=identifier)
 
         duration = signature.get('duration', None)
@@ -115,7 +115,7 @@ class SpeechActivityDetectionBatchGenerator(YaafeMixin,
         return [X, y]
 
 
-class OverlappingSpeechDetectionBatchGenerator(YaafeMixin,
+class OverlappingSpeechDetectionBatchGenerator(PeriodicFeaturesMixin,
                                                FileBasedBatchGenerator):
 
     def __init__(self, feature_extractor, duration=3.2,
@@ -145,7 +145,7 @@ class OverlappingSpeechDetectionBatchGenerator(YaafeMixin,
     def preprocess(self, current_file, identifier=None):
         """Pre-compute file-wise X and y"""
 
-        current_file = self.yaafe_preprocess(
+        current_file = self.periodic_preprocess(
             current_file, identifier=identifier)
 
         if identifier in self.preprocessed_.setdefault('y', {}):
@@ -187,7 +187,7 @@ class OverlappingSpeechDetectionBatchGenerator(YaafeMixin,
     def process_segment(self, segment, signature=None, identifier=None):
         """Extract X and y subsequences"""
 
-        X = self.yaafe_process_segment(
+        X = self.periodic_process_segment(
             segment, signature=signature, identifier=identifier)
 
         duration = signature.get('duration', None)
