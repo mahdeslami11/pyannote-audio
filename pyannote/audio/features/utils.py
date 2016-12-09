@@ -64,7 +64,7 @@ class Precomputed(object):
         path = '{root_dir}'.format(root_dir=root_dir)
         if database is not None:
             path += '/{database}'.format(database=database)
-        path += '/{uri}_{channel:d}.5'.format(uri=uri, channel=channel)
+        path += '/{uri}_{channel:d}.h5'.format(uri=uri, channel=channel)
         return path
 
     def __init__(self, root_dir=None):
