@@ -72,6 +72,7 @@ Configuration file:
 import yaml
 import h5py
 import os.path
+import warnings
 import itertools
 import numpy as np
 from docopt import docopt
@@ -81,6 +82,7 @@ import pyannote.database
 from pyannote.database import get_database
 from pyannote.database.util import FileFinder
 
+from pyannote.audio.features.utils import Precomputed
 from pyannote.audio.features.utils import PyannoteFeatureExtractionError
 
 
@@ -113,53 +115,69 @@ def extract(database_name, task_name, protocol_name, preprocessors, experiment_d
     feature_extraction = FeatureExtraction(
         **config['feature_extraction'].get('params', {}))
 
-    features_h5 = experiment_dir + '/features.h5'
-    with h5py.File(features_h5, mode='a', libver='latest') as fp:
+    sliding_window = feature_extraction.sliding_window()
+    dimension = feature_extraction.dimension()
 
-        sliding_window = feature_extraction.sliding_window()
-        fp.attrs['start'] = sliding_window.start
-        fp.attrs['duration'] = sliding_window.duration
-        fp.attrs['step'] = sliding_window.step
+    # create metadata file at root that contains
+    # sliding window and dimension information
+    path = Precomputed.get_config_path(experiment_dir)
+    f = h5py.File(path)
+    f.attrs['start'] = sliding_window.start
+    f.attrs['duration'] = sliding_window.duration
+    f.attrs['step'] = sliding_window.step
+    f.attrs['dimension'] = dimension
+    f.close()
 
-        dimension = feature_extraction.dimension()
-        fp.attrs['dimension'] = dimension
+    for item in items:
 
-        for item in items:
+        path = Precomputed.get_path(experiment_dir, **item)
 
-            wav = item['wav']
-            if wav in fp:
-                continue
+        directory = os.path.dirname(path)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
 
-            try:
-                features = feature_extraction(wav)
-            except PyannoteFeatureExtractionError as e:
-                if robust:
-                    msg = 'Feature extraction failed for file "{wav}".'
-                    msg = msg.format(wav=wav)
-                    continue
-                else:
-                    raise e
+        if os.path.exists(path):
+            continue
 
-            if features is None:
-                msg = 'Feature extraction returned None for file "{wav}".'
-                msg = msg.format(wav=wav)
-                if not robust:
-                    raise PyannoteFeatureExtractionError(msg)
+        filename = item['wav']
+
+        try:
+            # NOTE item contains the 'channel' key
+            features = feature_extraction(filename, **item)
+        except PyannoteFeatureExtractionError as e:
+            if robust:
+                msg = 'Feature extraction failed for file "{filename}".'
+                msg = msg.format(filename=filename)
                 warnings.warn(msg)
                 continue
+            else:
+                raise e
 
-            data = features.data
+        if features is None:
+            msg = 'Feature extraction returned None for file "{filename}".'
+            msg = msg.format(filename=filename)
+            if not robust:
+                raise PyannoteFeatureExtractionError(msg)
+            warnings.warn(msg)
+            continue
 
-            if np.any(np.isnan(data)):
-                msg = 'Feature extraction returned NaNs for file "{wav}".'
-                msg = msg.format(wav=wav)
-                if not robust:
-                    raise PyannoteFeatureExtractionError(msg)
-                warnings.warn(msg)
-                continue
+        data = features.data
 
-            fp.create_dataset(wav, data=data)
+        if np.any(np.isnan(data)):
+            msg = 'Feature extraction returned NaNs for file "{filename}".'
+            msg = msg.format(filename=filename)
+            if not robust:
+                raise PyannoteFeatureExtractionError(msg)
+            warnings.warn(msg)
+            continue
 
+        f = h5py.File(path)
+        f.attrs['start'] = sliding_window.start
+        f.attrs['duration'] = sliding_window.duration
+        f.attrs['step'] = sliding_window.step
+        f.attrs['dimension'] = dimension
+        f.create_dataset('features', data=data)
+        f.close()
 
 if __name__ == '__main__':
 
