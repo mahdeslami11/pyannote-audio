@@ -27,6 +27,6 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 
-from .yaafe import YaafeCompound, YaafeZCR, YaafeMFCC
+from .with_yaafe import YaafeCompound, YaafeZCR, YaafeMFCC
 from .with_librosa import LibrosaMFCC
 from .utils import Precomputed

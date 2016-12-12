@@ -143,7 +143,7 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
 
     # -- FEATURE EXTRACTION --
     feature_extraction_name = config['feature_extraction']['name']
-    features = __import__('pyannote.audio.features.yaafe',
+    features = __import__('pyannote.audio.features',
                           fromlist=[feature_extraction_name])
     FeatureExtraction = getattr(features, feature_extraction_name)
     feature_extraction = FeatureExtraction(
@@ -262,7 +262,7 @@ def test(protocol, tune_dir, apply_dir, subset='test', beta=1.0):
 
     # -- FEATURE EXTRACTION --
     feature_extraction_name = config['feature_extraction']['name']
-    features = __import__('pyannote.audio.features.yaafe',
+    features = __import__('pyannote.audio.features',
                           fromlist=[feature_extraction_name])
     FeatureExtraction = getattr(features, feature_extraction_name)
     feature_extraction = FeatureExtraction(
