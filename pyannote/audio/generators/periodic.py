@@ -30,6 +30,8 @@
 from cachetools import LRUCache
 CACHE_MAXSIZE = 12
 
+from pyannote.audio.features.utils import PyannoteFeatureExtractionError
+
 
 class PeriodicFeaturesMixin:
 
