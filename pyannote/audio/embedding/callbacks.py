@@ -173,7 +173,7 @@ class SpeakerDiarizationValidation(Callback):
 
 class SpeakerRecognitionValidation(Callback):
 
-    def __int__(self, glue, protocol, subset, log_dir):
+    def __init__(self, glue, protocol, subset, log_dir):
         super(SpeakerRecognitionValidation, self).__init__()
         self.glue = glue
         self.protocol = protocol
