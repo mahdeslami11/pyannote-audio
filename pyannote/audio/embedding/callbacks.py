@@ -39,7 +39,7 @@ from pyannote.audio.embedding.base import SequenceEmbedding
 from pyannote.audio.generators.labels import FixedDurationSequences
 from pyannote.audio.generators.labels import VariableDurationSequences
 
-from scipy.spatial.distance import pdist
+from pyannote.audio.embedding.utils import pdist, cdist, l2_normalize, get_range
 from pyannote.metrics.plot.binary_classification import plot_det_curve
 from pyannote.metrics.plot.binary_classification import plot_distributions
 
@@ -134,25 +134,14 @@ class SpeakerDiarizationValidation(Callback):
 
         embedding = self.extract_embedding(self.model)
         fX = embedding.predict(self.X_)
-        if self.distance == 'angular':
-            cosine_distance = pdist(fX, metric='cosine')
-            distances = np.arccos(np.clip(1.0 - cosine_distance, -1.0, 1.0))
-        else:
-            distances = pdist(fX, metric=self.distance)
-
+        distances = pdist(fX, metric=self.distance)
         prefix = self.log_dir + '/plot.{epoch:04d}'.format(epoch=epoch)
 
-        # plot distributions of positive & negative scores
-        if self.distance == 'angular':
-            xlim = (0, np.pi)
-        elif self.distance == 'sqeuclidean':
-            xlim = (0, 4)
-        elif self.distance == 'cosine':
-            xlim = (-1.0, 1.0)
-        else:
-            xlim = None
-        plot_distributions(self.y_, distances, prefix,
-                           xlim=xlim, ymax=3, nbins=100)
+        # plot distance distribution every 10 epochs (and 10 first epochs)
+        xlim = get_range(metric=self.distance)
+        if (epoch < 10) or (epoch % 10 == 0):
+            plot_distributions(self.y_, distances, prefix,
+                               xlim=xlim, ymax=3, nbins=100)
 
         # plot DET curve
         eer = plot_det_curve(self.y_, -distances, prefix)
