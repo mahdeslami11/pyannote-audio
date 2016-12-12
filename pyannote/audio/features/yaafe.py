@@ -90,6 +90,15 @@ class YaafeFeatureExtractor(object):
         self.block_size = block_size
         self.step_size = step_size
 
+        self.engine_ = yaafelib.Engine()
+
+        feature_plan = yaafelib.FeaturePlan(sample_rate=self.sample_rate)
+        for name, recipe in self.definition():
+            assert feature_plan.addFeature(
+                "{name}: {recipe}".format(name=name, recipe=recipe))
+        data_flow = feature_plan.getDataFlow()
+        self.engine_.load(data_flow)
+
     def dimension(self):
         raise NotImplementedError('')
 
@@ -123,27 +132,15 @@ class YaafeFeatureExtractor(object):
 
         # reshape before selecting channel
         if len(y.shape) < 2:
-            y = y.reshape(-1, 1)
+            y = y.reshape((-1, 1))
         y = y[:, channel - 1]
 
-        y = y.reshape(1, -1)
-
-        # --- prepare the feature plan
-        definition = self.definition()
-        feature_plan = yaafelib.FeaturePlan(sample_rate=self.sample_rate)
-        for name, recipe in definition:
-            assert feature_plan.addFeature(
-                "{name}: {recipe}".format(name=name, recipe=recipe))
-
-        # --- prepare the Yaafe engine
-        data_flow = feature_plan.getDataFlow()
-
-        engine = yaafelib.Engine()
-        engine.load(data_flow)
+        # Yaafe needs this: float64, column-contiguous, 2-dimensional
+        y = np.array(y, dtype=np.float64, order='C').reshape((1, -1))
 
         # --- extract features
-        features = engine.processAudio(y)
-        data = np.hstack([features[name] for name, _ in definition])
+        features = self.engine_.processAudio(y)
+        data = np.hstack([features[name] for name, _ in self.definition()])
 
         # --- return as SlidingWindowFeature
         sliding_window = YaafeFrame(
@@ -258,18 +255,18 @@ class YaafeMFCC(YaafeFeatureExtractor):
         e=True, coefs=11, De=False, DDe=False, D=False, DD=False,
     ):
 
-        super(YaafeMFCC, self).__init__(
-            sample_rate=sample_rate,
-            block_size=block_size,
-            step_size=step_size
-        )
-
         self.e = e
         self.coefs = coefs
         self.De = De
         self.DDe = DDe
         self.D = D
         self.DD = DD
+
+        super(YaafeMFCC, self).__init__(
+            sample_rate=sample_rate,
+            block_size=block_size,
+            step_size=step_size
+        )
 
     def dimension(self):
 
