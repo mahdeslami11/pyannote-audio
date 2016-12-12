@@ -28,6 +28,7 @@
 
 
 import numpy as np
+import itertools
 import datetime
 
 from keras.callbacks import Callback
@@ -145,6 +146,102 @@ class SpeakerDiarizationValidation(Callback):
 
         # plot DET curve
         eer = plot_det_curve(self.y_, -distances, prefix)
+
+        # store equal error rate in file
+        mode = 'a' if epoch else 'w'
+        with open(self.log_dir + '/eer.txt', mode=mode) as fp:
+            fp.write(self.EER_TEMPLATE_.format(epoch=epoch, eer=eer, now=now))
+            fp.flush()
+
+        # plot eer = f(epoch)
+        self.eer_.append(eer)
+        best_epoch = np.argmin(self.eer_)
+        best_value = np.min(self.eer_)
+        fig = plt.figure()
+        plt.plot(self.eer_, 'b')
+        plt.plot([best_epoch], [best_value], 'bo')
+        plt.grid(True)
+        plt.xlabel('epoch')
+        plt.ylabel('EER on test')
+        TITLE = 'EER = {best_value:.5g} on test @ epoch #{best_epoch:d}'
+        title = TITLE.format(best_value=best_value, best_epoch=best_epoch)
+        plt.title(title)
+        plt.tight_layout()
+        plt.savefig(self.log_dir + '/eer.png', dpi=150)
+        plt.close(fig)
+
+
+class SpeakerRecognitionValidation(Callback):
+
+    def __int__(self, glue, protocol, subset, log_dir):
+        super(SpeakerRecognitionValidation, self).__init__()
+        self.glue = glue
+        self.protocol = protocol
+        self.subset = subset
+        self.log_dir = log_dir
+
+        self.EER_TEMPLATE_ = '{epoch:04d} {now} {eer:5f}\n'
+        self.eer_ = []
+
+    def on_epoch_end(self, epoch, logs={}):
+
+        # keep track of current time
+        now = datetime.datetime.now().isoformat()
+        prefix = self.log_dir + '/plot.{epoch:04d}'.format(epoch=epoch)
+
+        aggregation = SequenceEmbeddingAggregation(
+            self.glue.extract_embedding(self.model),
+            self.glue.feature_extractor,
+            duration=self.glue.duration,
+            min_duration=self.glue.min_duration,
+            step=.5 * self.glue.duration,
+            layer_index=-2)
+
+        # TODO / pass layer_index as parameter
+
+        aggregation.cache_preprocessed_ = False
+
+        # embed enroll and test recordings
+
+        method = '{subset}_enroll'.format(subset=self.subset)
+        enroll = getattr(self.protocol, method)(yield_name=True)
+
+        method = '{subset}_test'.format(subset=self.subset)
+        test = getattr(self.protocol, method)(yield_name=True)
+
+        fX = {}
+        for name, item in itertools.chain(enroll, test):
+                if name in fX:
+                        continue
+                wav = item['wav']
+                sad = item['annotation']
+                embeddings = aggregation.apply(wav, sad)
+                fX[name] = np.sum(embeddings.data, axis=0)
+
+        # perform trials
+
+        method = '{subset}_keys'.format(subset=self.subset)
+        keys = getattr(self.protocol, method)()
+
+        enroll_fX = l2_normalize(np.vstack([fX[name] for name in keys.index]))
+        test_fX = l2_normalize(np.vstack([fX[name] for name in keys]))
+
+        D = cdist(enroll_fX, test_fX, metric=self.glue.distance)
+
+        y_true = []
+        y_pred = []
+        key_mapping = {0: None, -1: 0, 1: 1}
+        for i, _ in enumerate(keys.index):
+            for j, _ in enumerate(keys):
+                y = key_mapping[keys.iloc[i, j]]
+                if y is None:
+                    continue
+
+                y_true.append(y)
+                y_pred.append(D[i, j])
+
+        # plot DET curve
+        eer = plot_det_curve(y_true, -y_pred, prefix)
 
         # store equal error rate in file
         mode = 'a' if epoch else 'w'
