@@ -93,7 +93,7 @@ class LibrosaFeatureExtractor(object):
         except IOError as e:
             raise PyannoteFeatureExtractionError(e.message)
 
-        if np.any(np.isnan(data)):
+        if np.any(np.isnan(y)):
             msg = 'pysndfile output contains NaNs'
             raise PyannoteFeatureExtractionError(msg.format(filename=filename))
 
