@@ -189,10 +189,14 @@ class SpeakerRecognitionValidation(Callback):
         now = datetime.datetime.now().isoformat()
         prefix = self.log_dir + '/plot.{epoch:04d}'.format(epoch=epoch)
 
+
+        sequence_embedding = SequenceEmbedding()
+        sequence_embedding.embedding_ = self.glue.extract_embedding(self.model)
+
         from pyannote.audio.embedding.aggregation import \
             SequenceEmbeddingAggregation
         aggregation = SequenceEmbeddingAggregation(
-            self.glue.extract_embedding(self.model),
+            sequence_embedding,
             self.glue.feature_extractor,
             duration=self.glue.duration,
             min_duration=self.glue.min_duration,
