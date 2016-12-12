@@ -27,6 +27,7 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 import os.path
+import warnings
 
 import keras.backend as K
 from pyannote.audio.callback import LoggingCallback
@@ -165,8 +166,30 @@ class SequenceEmbedding(object):
                     extract_embedding=extract_embedding))
 
         if validation:
-            from pyannote.audio.embedding.callbacks import SpeakerDiarizationValidation
-            callback = SpeakerDiarizationValidation(self.glue, protocol, validation, log_dir)
+
+            from pyannote.database.protocol.speaker_diarization import \
+                SpeakerDiarizationProtocol
+            from pyannote.database.protocol.speaker_recognition import \
+                SpeakerRecognitionProtocol
+
+            # speaker diarization
+            if isinstance(protocol, SpeakerDiarizationProtocol):
+                from pyannote.audio.embedding.callbacks import \
+                    SpeakerDiarizationValidation
+                callback = SpeakerDiarizationValidation(
+                    self.glue, protocol, validation, log_dir)
+
+            # speaker recognition
+            elif isinstance(protocol, SpeakerRecognitionProtocol):
+                from pyannote.audio.embedding.callbacks import \
+                    SpeakerRecognitionValidation
+                callback = SpeakerRecognitionValidation(
+                    self.glue, protocol, validation, log_dir)
+
+            else:
+                warnings.warn(
+                    'No validation callback available for this protocol.')
+
             callbacks.append(callback)
 
         # if generator has n_labels attribute, pass it to build_model
