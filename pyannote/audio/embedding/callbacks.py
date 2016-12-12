@@ -246,6 +246,9 @@ class SpeakerRecognitionValidation(Callback):
                 y_true.append(y)
                 y_pred.append(D[i, j])
 
+        y_true = np.array(y_true)
+        y_pred = np.array(y_pred)
+
         # plot DET curve
         eer = plot_det_curve(y_true, -y_pred, prefix)
 
