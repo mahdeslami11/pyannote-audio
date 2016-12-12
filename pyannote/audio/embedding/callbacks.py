@@ -35,8 +35,6 @@ from keras.callbacks import Callback
 from keras.models import model_from_yaml
 from pyannote.audio.keras_utils import CUSTOM_OBJECTS
 
-from pyannote.audio.embedding.base import SequenceEmbedding
-
 from pyannote.audio.generators.labels import FixedDurationSequences
 from pyannote.audio.generators.labels import VariableDurationSequences
 
@@ -67,7 +65,9 @@ class UpdateGeneratorEmbedding(Callback):
             custom_objects=CUSTOM_OBJECTS)
         current_weights = current_embedding.get_weights()
 
+        from pyannote.audio.embedding.base import SequenceEmbedding
         sequence_embedding = SequenceEmbedding()
+
         sequence_embedding.embedding_ = architecture
         sequence_embedding.embedding_.set_weights(current_weights)
         setattr(self.generator, self.name, sequence_embedding)
