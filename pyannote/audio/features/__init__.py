@@ -28,4 +28,5 @@
 
 
 from .yaafe import YaafeCompound, YaafeZCR, YaafeMFCC
+from .with_librosa import LibrosaMFCC
 from .utils import Precomputed
