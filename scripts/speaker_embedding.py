@@ -541,7 +541,8 @@ if __name__ == '__main__':
         protocol = arguments['<database.task.protocol>']
         database_name, task_name, protocol_name = protocol.split('.')
         database = get_database(database_name, preprocessors=preprocessors)
-        protocol = database.get_protocol(task_name, protocol_name)
+        protocol = database.get_protocol(task_name, protocol_name,
+                                         progress=True)
 
     subset = arguments['--subset']
 
