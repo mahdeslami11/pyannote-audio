@@ -83,7 +83,7 @@ class PeriodicFeaturesMixin:
         wav = current_file['wav']
 
         try:
-            features = self.feature_extractor(wav)
+            features = self.feature_extractor(wav, **current_file)
 
         except Exception as e:
             msg = 'Cannot extract features from "{wav}".'
