@@ -39,6 +39,7 @@ from pyannote.audio.generators.labels import FixedDurationSequences
 from pyannote.audio.generators.labels import VariableDurationSequences
 
 from pyannote.audio.embedding.utils import pdist, cdist, l2_normalize, get_range
+from pyannote.metrics.binary_classification import det_curve
 from pyannote.metrics.plot.binary_classification import plot_det_curve
 from pyannote.metrics.plot.binary_classification import plot_distributions
 
@@ -138,14 +139,19 @@ class SpeakerDiarizationValidation(Callback):
         distances = pdist(fX, metric=self.distance)
         prefix = self.log_dir + '/plot.{epoch:04d}'.format(epoch=epoch)
 
-        # plot distance distribution every 10 epochs (and 10 first epochs)
+        # plot distance distribution every 20 epochs (and 10 first epochs)
         xlim = get_range(metric=self.distance)
-        if (epoch < 10) or (epoch % 10 == 0):
+        if (epoch < 10) or (epoch % 20 == 0):
             plot_distributions(self.y_, distances, prefix,
-                               xlim=xlim, ymax=3, nbins=100)
+                               xlim=xlim, ymax=3, nbins=100, dpi=150)
 
-        # plot DET curve
-        eer = plot_det_curve(self.y_, -distances, prefix)
+        # plot DET curve once every 20 epochs (and 10 first epochs)
+        if (epoch < 10) or (epoch % 20 == 0):
+            eer = plot_det_curve(self.y_, distances, prefix,
+                                 distances=True, dpi=150)
+        else:
+            eer = det_curve(self.y_, distances, prefix,
+                            distances=True)
 
         # store equal error rate in file
         mode = 'a' if epoch else 'w'
@@ -250,8 +256,14 @@ class SpeakerRecognitionValidation(Callback):
         y_true = np.array(y_true)
         y_pred = np.array(y_pred)
 
-        # plot DET curve
-        eer = plot_det_curve(y_true, -y_pred, prefix)
+
+        # plot DET curve once every 20 epochs (and 10 first epochs)
+        if (epoch < 10) or (epoch % 20 == 0):
+            eer = plot_det_curve(y_true, y_pred, prefix,
+                                 distances=True, dpi=150)
+        else:
+            eer = det_curve(y_true, y_pred, prefix,
+                            distances=True)
 
         # store equal error rate in file
         mode = 'a' if epoch else 'w'
