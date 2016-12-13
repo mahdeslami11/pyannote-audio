@@ -30,6 +30,7 @@
 from __future__ import division
 
 import h5py
+import os.path
 import numpy as np
 import pysndfile.sndio
 from pyannote.core import SlidingWindow, SlidingWindowFeature
@@ -88,16 +89,17 @@ class Precomputed(object):
     def dimension(self):
         return self.dimension_
 
-    def __call__(self, wav, database=None, uri=None, channel=1, **kwargs):
+    def __call__(self, filename, database=None, uri=None, channel=1, **kwargs):
 
         path = self.get_path(self.root_dir, database=database,
                              uri=uri, channel=channel)
 
         if not os.path.exists(path):
-            msg = 'No precomputed features for "{wav}".'
-            raise PyannoteFeatureExtractionError(msg.format(wav=wav))
+            msg = 'No precomputed features for "{filename}".'
+            raise PyannoteFeatureExtractionError(msg.format(filename=filename))
 
         f = h5py.File(path)
         data = np.array(f['features'])
         f.close()
+
         return SlidingWindowFeature(data, self.sliding_window_)
