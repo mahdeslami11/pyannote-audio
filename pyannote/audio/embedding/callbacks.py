@@ -136,21 +136,21 @@ class SpeakerDiarizationValidation(Callback):
 
         embedding = self.extract_embedding(self.model)
         fX = embedding.predict(self.X_)
-        distances = pdist(fX, metric=self.distance)
+        distance = pdist(fX, metric=self.distance)
         prefix = self.log_dir + '/plot.{epoch:04d}'.format(epoch=epoch)
 
         # plot distance distribution every 20 epochs (and 10 first epochs)
         xlim = get_range(metric=self.distance)
         if (epoch < 10) or (epoch % 20 == 0):
-            plot_distributions(self.y_, distances, prefix,
+            plot_distributions(self.y_, distance, prefix,
                                xlim=xlim, ymax=3, nbins=100, dpi=150)
 
         # plot DET curve once every 20 epochs (and 10 first epochs)
         if (epoch < 10) or (epoch % 20 == 0):
-            eer = plot_det_curve(self.y_, distances, prefix,
+            eer = plot_det_curve(self.y_, distance, prefix,
                                  distances=True, dpi=150)
         else:
-            eer = det_curve(self.y_, distances, prefix,
+            eer = det_curve(self.y_, distance, prefix,
                             distances=True)
 
         # store equal error rate in file
