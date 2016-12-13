@@ -188,7 +188,8 @@ class LibrosaMFCC(LibrosaFeatureExtractor):
         mfcc = librosa.feature.mfcc(
             y=y, sr=sample_rate, n_mfcc=n_mfcc,
             n_fft=n_fft, hop_length=hop_length,
-            n_mels=self.n_mels, fmin=self.fmin, fmax=self.fmax)
+            n_mels=self.n_mels, htk=True,
+            fmin=self.fmin, fmax=self.fmax)
 
         if self.De or self.D:
             mfcc_d = librosa.feature.delta(
