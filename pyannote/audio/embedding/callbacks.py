@@ -150,8 +150,7 @@ class SpeakerDiarizationValidation(Callback):
             eer = plot_det_curve(self.y_, distance, prefix,
                                  distances=True, dpi=150)
         else:
-            eer = det_curve(self.y_, distance, prefix,
-                            distances=True)
+            eer = det_curve(self.y_, distance, distances=True)
 
         # store equal error rate in file
         mode = 'a' if epoch else 'w'
