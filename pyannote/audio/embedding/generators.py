@@ -34,7 +34,6 @@ import numpy as np
 from pyannote.generators.batch import BaseBatchGenerator
 from pyannote.generators.indices import random_label_index
 from pyannote.audio.generators.labels import FixedDurationSequences
-from pyannote.audio.generators.labels import VariableDurationSequences
 from pyannote.audio.embedding.callbacks import UpdateGeneratorEmbedding
 
 
@@ -63,18 +62,12 @@ class SequenceGenerator(object):
         self.cache = cache
         self.robust = robust
 
-        if self.min_duration is None:
-            self.generator_ = FixedDurationSequences(
-                self.feature_extractor,
-                duration=self.duration,
-                step=self.step,
-                batch_size=1 if self.cache else -1)
-        else:
-            self.generator_ = VariableDurationSequences(
-                self.feature_extractor,
-                max_duration=self.duration,
-                min_duration=self.min_duration,
-                batch_size=1 if self.cache else -1)
+        self.generator_ = FixedDurationSequences(
+            self.feature_extractor,
+            duration=self.duration,
+            min_duration=self.min_duration,
+            step=self.step,
+            batch_size=1 if self.cache else -1)
 
         # there is no need to cache preprocessed features
         # as the generator is iterated only once
