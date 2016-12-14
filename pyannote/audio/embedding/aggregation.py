@@ -31,7 +31,6 @@ from pyannote.core import Segment, SlidingWindow, SlidingWindowFeature
 from pyannote.generators.batch import FileBasedBatchGenerator
 from pyannote.generators.fragment import SlidingSegments
 from pyannote.audio.generators.periodic import PeriodicFeaturesMixin
-from ..features.utils import get_wav_duration
 
 
 class SequenceEmbeddingAggregation(PeriodicFeaturesMixin,
@@ -57,7 +56,7 @@ class SequenceEmbeddingAggregation(PeriodicFeaturesMixin,
     >>> sequence_embedding = SequenceEmbedding.from_disk('architecture_yml', 'weights.h5')
     >>> feature_extraction = YaafeFeatureExtractor(...)
     >>> extraction = SequenceEmbeddingAggregation(sequence_embedding, feature_extraction)
-    >>> embedding = extraction.apply('audio.wav')
+    >>> embedding = extraction.apply(current_file)
 
     """
     def __init__(self, sequence_embedding, feature_extractor,
@@ -119,23 +118,19 @@ class SequenceEmbeddingAggregation(PeriodicFeaturesMixin,
         return self.sequence_embedding.transform(
             sequences, layer_index=self.layer_index), masks
 
-    def apply(self, wav, from_annotation):
+    def apply(self, current_file):
         """Compute embeddings on a partition
 
         Parameter
         ---------
-        wav : str
-            Path to wav audio file
-        from_annotation : Annotation
+        current_file : dict
+
 
         Returns
         -------
         embeddings : SlidingWindowFeature
         """
 
-        current_file = {'uri': wav,
-                        'wav': wav,
-                        'annotation': from_annotation}
         (segments, (embeddings, masks)) = next(self.from_file(current_file))
 
         n_sequences, _, dimension = embeddings.shape

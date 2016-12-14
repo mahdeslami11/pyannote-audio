@@ -34,6 +34,7 @@ import os.path
 import numpy as np
 import pysndfile.sndio
 from pyannote.core import SlidingWindow, SlidingWindowFeature
+from pyannote.database.util import get_unique_identifier
 
 
 class PyannoteFeatureExtractionError(Exception):
@@ -61,11 +62,9 @@ class Precomputed(object):
         return path
 
     @staticmethod
-    def get_path(root_dir, database=None, uri=None, channel=1, **kwargs):
-        path = '{root_dir}'.format(root_dir=root_dir)
-        if database is not None:
-            path += '/{database}'.format(database=database)
-        path += '/{uri}_{channel:d}.h5'.format(uri=uri, channel=channel)
+    def get_path(root_dir, item):
+        uri = get_unique_identifier(item)
+        path = '{root_dir}/{uri}.h5'.format(root_dir=root_dir, uri=uri)
         return path
 
     def __init__(self, root_dir=None):
@@ -89,14 +88,14 @@ class Precomputed(object):
     def dimension(self):
         return self.dimension_
 
-    def __call__(self, filename, database=None, uri=None, channel=1, **kwargs):
+    def __call__(self, item):
 
-        path = self.get_path(self.root_dir, database=database,
-                             uri=uri, channel=channel)
+        path = self.get_path(self.root_dir, item)
 
         if not os.path.exists(path):
-            msg = 'No precomputed features for "{filename}".'
-            raise PyannoteFeatureExtractionError(msg.format(filename=filename))
+            uri = get_unique_identifier(item)
+            msg = 'No precomputed features for "{uri}".'
+            raise PyannoteFeatureExtractionError(msg.format(uri=uri))
 
         f = h5py.File(path)
         data = np.array(f['features'])

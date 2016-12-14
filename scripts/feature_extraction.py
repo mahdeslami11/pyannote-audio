@@ -81,7 +81,9 @@ import pyannote.core
 import pyannote.database
 from pyannote.database import get_database
 from pyannote.database.util import FileFinder
+from pyannote.database.util import get_unique_identifier
 
+from pyannote.audio.util import mkdir_p
 from pyannote.audio.features.utils import Precomputed
 from pyannote.audio.features.utils import PyannoteFeatureExtractionError
 
@@ -130,32 +132,27 @@ def extract(database_name, task_name, protocol_name, preprocessors, experiment_d
 
     for item in items:
 
-        path = Precomputed.get_path(experiment_dir, **item)
-
-        directory = os.path.dirname(path)
-        if not os.path.exists(directory):
-            os.makedirs(directory)
+        uri = get_unique_identifier(item)
+        path = Precomputed.get_path(experiment_dir, item)
 
         if os.path.exists(path):
             continue
 
-        filename = item['wav']
-
         try:
             # NOTE item contains the 'channel' key
-            features = feature_extraction(filename, **item)
+            features = feature_extraction(item)
         except PyannoteFeatureExtractionError as e:
             if robust:
-                msg = 'Feature extraction failed for file "{filename}".'
-                msg = msg.format(filename=filename)
+                msg = 'Feature extraction failed for file "{uri}".'
+                msg = msg.format(uri=uri)
                 warnings.warn(msg)
                 continue
             else:
                 raise e
 
         if features is None:
-            msg = 'Feature extraction returned None for file "{filename}".'
-            msg = msg.format(filename=filename)
+            msg = 'Feature extraction returned None for file "{uri}".'
+            msg = msg.format(uri=uri)
             if not robust:
                 raise PyannoteFeatureExtractionError(msg)
             warnings.warn(msg)
@@ -164,12 +161,15 @@ def extract(database_name, task_name, protocol_name, preprocessors, experiment_d
         data = features.data
 
         if np.any(np.isnan(data)):
-            msg = 'Feature extraction returned NaNs for file "{filename}".'
-            msg = msg.format(filename=filename)
+            msg = 'Feature extraction returned NaNs for file "{uri}".'
+            msg = msg.format(uri=uri)
             if not robust:
                 raise PyannoteFeatureExtractionError(msg)
             warnings.warn(msg)
             continue
+
+        # create parent directory
+        mkdir_p(os.path.dirname(path))
 
         f = h5py.File(path)
         f.attrs['start'] = sliding_window.start

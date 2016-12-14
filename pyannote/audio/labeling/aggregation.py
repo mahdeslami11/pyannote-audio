@@ -55,7 +55,7 @@ class SequenceLabelingAggregation(PeriodicFeaturesMixin, FileBasedBatchGenerator
     >>> sequence_labeling = SequenceLabeling.from_disk('architecture.yml', 'weights.h5')
     >>> feature_extractor = YaafeFeatureExtractor(...)
     >>> aggregation = SequenceLabelingAggregation(sequence_labeling, feature_extractor)
-    >>> predictions = aggregation.apply('audio.wav')
+    >>> predictions = aggregation.apply(current_file)
     """
 
     def __init__(self, sequence_labeling, feature_extractor,
@@ -103,13 +103,12 @@ class SequenceLabelingAggregation(PeriodicFeaturesMixin, FileBasedBatchGenerator
         """
         return self.sequence_labeling.predict(mono_batch)
 
-    def apply(self, wav):
+    def apply(self, current_file):
         """
 
         Parameter
         ---------
-        wav : str
-            Path to wav audio file
+        current_file : dict
 
         Returns
         -------
@@ -118,13 +117,13 @@ class SequenceLabelingAggregation(PeriodicFeaturesMixin, FileBasedBatchGenerator
         """
 
         # apply sequence labeling to the whole file
-        current_file = {'uri': wav, 'wav': wav}
         predictions = next(self.from_file(current_file))
         n_sequences, _, n_classes = predictions.shape
 
         # estimate total number of frames (over the duration of the whole file)
         # based on feature extractor internal sliding window and file duration
         samples_window = self.feature_extractor.sliding_window()
+        wav = current_file['wav']
         n_samples = samples_window.samples(get_wav_duration(wav)) + 3
 
         # +3 is a hack to avoid later IndexError resulting from rounding error

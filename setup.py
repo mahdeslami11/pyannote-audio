@@ -39,8 +39,8 @@ setup(
     install_requires=[
         'pyannote.core >= 0.8',
         'pyannote.metrics >= 0.11',
-        'pyannote.generators >= 0.5',
-        'pyannote.database >= 0.6',
+        'pyannote.generators >= 0.6',
+        'pyannote.database >= 0.9',
         'pysndfile >= 0.2.11',
         'keras >= 1.1.0',
         'theano >= 0.8.2',

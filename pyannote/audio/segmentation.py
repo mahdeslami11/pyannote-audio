@@ -54,7 +54,7 @@ class GaussianDivergenceSegmentation(PeriodicFeaturesMixin,
     -----
     >>> feature_extractor = YaafeFeatureExtractor(...)
     >>> segmentation = GaussianDivergenceSegmentation(feature_extractor)
-    >>> predictions = segmentation.apply('audio.wav')
+    >>> predictions = segmentation.apply(current_file)
     >>> segmentation = Peak().apply(predictions)
 
     See also
@@ -84,13 +84,12 @@ class GaussianDivergenceSegmentation(PeriodicFeaturesMixin,
             {'type': 'sequence', 'shape': shape}
         )
 
-    def apply(self, wav):
+    def apply(self, current_file):
         """Computes distance between sliding windows embeddings
 
         Parameter
         ---------
-        wav : str
-            Path to wav audio file
+        current_file : dict
 
         Returns
         -------
@@ -99,7 +98,6 @@ class GaussianDivergenceSegmentation(PeriodicFeaturesMixin,
 
         from pyannote.algorithms.stats.gaussian import Gaussian
 
-        current_file = {'uri': wav, 'wav': wav}
         t, left, right = next(self.from_file(current_file))
 
         y = []
@@ -136,7 +134,7 @@ class BICSegmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     -----
     >>> feature_extractor = YaafeFeatureExtractor(...)
     >>> segmentation = BICSegmentation(feature_extractor)
-    >>> predictions = segmentation.apply('audio.wav')
+    >>> predictions = segmentation.apply(current_file)
     >>> segmentation = Peak().apply(predictions)
 
     See also
@@ -167,13 +165,12 @@ class BICSegmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
             {'type': 'sequence', 'shape': shape}
         )
 
-    def apply(self, wav):
-        """Computes distance between sliding windows embeddings
+    def apply(self, current_file):
+        """Computes BIC distance between sliding windows
 
         Parameter
         ---------
-        wav : str
-            Path to wav audio file
+        current_file : dict
 
         Returns
         -------
@@ -182,7 +179,6 @@ class BICSegmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
 
         from pyannote.algorithms.stats.gaussian import Gaussian
 
-        current_file = {'uri': wav, 'wav': wav}
         t, left, right = next(self.from_file(current_file))
 
         y = []

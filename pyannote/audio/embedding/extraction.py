@@ -54,7 +54,7 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     >>> sequence_embedding = SequenceEmbedding.from_disk('architecture_yml', 'weights.h5')
     >>> feature_extraction = YaafeFeatureExtractor(...)
     >>> extraction = Extraction(sequence_embedding, feature_extraction)
-    >>> embedding = extraction.apply('audio.wav')
+    >>> embedding = extraction.apply(current_file)
 
     """
     def __init__(self, sequence_embedding, feature_extractor,
@@ -83,20 +83,18 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
         return self.sequence_embedding.transform(
             mono_batch, layer_index=self.layer_index)
 
-    def apply(self, wav):
+    def apply(self, current_file):
         """Compute embeddings on a sliding window
 
         Parameter
         ---------
-        wav : str
-            Path to wav audio file
+        current_file : dict
 
         Returns
         -------
         embeddings : SlidingWindowFeature
         """
 
-        current_file = {'uri': wav, 'wav': wav}
         data = next(self.from_file(current_file))
         window = SlidingWindow(duration=self.duration,
                                step=self.step, start=0.)

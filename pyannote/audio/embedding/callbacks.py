@@ -225,9 +225,7 @@ class SpeakerRecognitionValidation(Callback):
         for name, item in itertools.chain(enroll, test):
                 if name in fX:
                         continue
-                wav = item['wav']
-                sad = item['annotation']
-                embeddings = aggregation.apply(wav, sad)
+                embeddings = aggregation.apply(item)
                 fX[name] = np.sum(embeddings.data, axis=0)
 
         # perform trials

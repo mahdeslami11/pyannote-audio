@@ -56,7 +56,7 @@ class Segmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     >>> sequence_embedding = SequenceEmbedding.from_disk('architecture_yml', 'weights.h5')
     >>> feature_extractor = YaafeFeatureExtractor(...)
     >>> segmentation = Segmentation(sequence_embedding, feature_extractor)
-    >>> predictions = segmentation.apply('audio.wav')
+    >>> predictions = segmentation.apply(current_file)
     >>> segmentation = Peak().apply(predictions)
 
     See also
@@ -92,13 +92,12 @@ class Segmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     def postprocess_sequence(self, mono_batch):
         return self.sequence_embedding.transform(mono_batch)
 
-    def apply(self, wav):
+    def apply(self, current_file):
         """Computes distance between sliding windows embeddings
 
         Parameter
         ---------
-        wav : str
-            Path to wav audio file
+        current_file : dict
 
         Returns
         -------
@@ -106,11 +105,8 @@ class Segmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
         """
 
         # apply sequence labeling to the whole file
-        current_file = {'uri': wav, 'wav': wav}
-
         t, left, right = next(self.from_file(current_file))
         y = np.sqrt(np.sum((left - right) ** 2, axis=-1))
-
 
         window = SlidingWindow(duration=2 * self.duration,
                                step=self.step, start=0.)

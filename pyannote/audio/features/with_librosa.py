@@ -39,6 +39,7 @@ import pysndfile.sndio
 from pyannote.core.segment import SlidingWindow
 from pyannote.core.feature import SlidingWindowFeature
 from pyannote.audio.features.utils import PyannoteFeatureExtractionError
+from pyannote.database.util import get_unique_identifier
 
 
 class LibrosaFeatureExtractor(object):
@@ -72,15 +73,12 @@ class LibrosaFeatureExtractor(object):
     def dimension(self):
         raise NotImplementedError('')
 
-    def __call__(self, filename, channel=1, **kwargs):
+    def __call__(self, item):
         """Extract features
 
         Parameters
         ----------
-        filename : string
-            Path to audio file.
-        channel : int, optional
-            Processed channel. Defaults to first channel.
+        item : dict
 
         Returns
         -------
@@ -89,24 +87,29 @@ class LibrosaFeatureExtractor(object):
         """
 
         try:
-            y, sample_rate, encoding = pysndfile.sndio.read(filename)
+            wav = item['wav']
+            y, sample_rate, encoding = pysndfile.sndio.read(wav)
         except IOError as e:
             raise PyannoteFeatureExtractionError(e.message)
 
         if np.any(np.isnan(y)):
-            msg = 'pysndfile output contains NaNs'
-            raise PyannoteFeatureExtractionError(msg.format(filename=filename))
+            uri = get_unique_identifier(item)
+            msg = 'pysndfile output contains NaNs for file "{uri}".'
+            raise PyannoteFeatureExtractionError(msg.format(uri=uri))
 
         # reshape before selecting channel
         if len(y.shape) < 2:
             y = y.reshape(-1, 1)
+
+        channel = item.get('channel', 1)
         y = y[:, channel - 1]
 
         data = self.process(y, sample_rate)
 
         if np.any(np.isnan(data)):
-            msg = 'Features extracted from "{filename}" contain NaNs.'
-            warnings.warn(msg.format(filename=filename))
+            uri = get_unique_identifier(item)
+            msg = 'Features extracted from "{uri}" contain NaNs.'
+            warnings.warn(msg.format(uri=uri))
 
         return SlidingWindowFeature(data.T, self.sliding_window_)
 

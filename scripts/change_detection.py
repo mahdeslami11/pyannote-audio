@@ -97,12 +97,15 @@ import matplotlib.pyplot as plt
 import pyannote.core
 import pyannote.core.json
 
+from pyannote.audio.util import mkdir_p
+
 from pyannote.audio.embedding.base import SequenceEmbedding
 from pyannote.audio.embedding.segmentation import Segmentation
 
 from pyannote.audio.signal import Peak
 
 from pyannote.database import get_database
+from pyannote.database.util import get_unique_identifier
 from pyannote.database.util import FileFileFinder
 from pyannote.audio.optimizers import SSMORMS3
 
@@ -172,15 +175,14 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
         f, n = 0., 0
         for dev_file in getattr(protocol, subset)():
 
-            uri = dev_file['uri']
+            uri = get_unique_identifier(dev_file)
             reference = dev_file['annotation']
             n += 1
 
             if uri in predictions[epoch]:
                 prediction = predictions[epoch][uri]
             else:
-                wav = dev_file['wav']
-                prediction = segmentation.apply(wav)
+                prediction = segmentation.apply(dev_file)
                 predictions[epoch][uri] = prediction
 
             peak = Peak(alpha=alpha)
@@ -297,15 +299,19 @@ def test(protocol, tune_dir, apply_dir, subset='test', beta=1.0):
 
     for test_file in getattr(protocol, subset)():
 
-        uri = test_file['uri']
-        wav = test_file['wav']
-        soft = segmentation.apply(wav)
+        soft = segmentation.apply(test_file)
         hard = peak.apply(soft)
 
-        with open(SOFT_PKL.format(uri=uri), 'w') as fp:
+        uri = get_unique_identifier(test_file)
+
+        path = SOFT_PKL.format(uri=uri)
+        mkdir_p(os.path.dirname(path))
+        with open(path, 'w') as fp:
             pickle.dump(soft, fp)
 
-        with open(HARD_JSON.format(uri=uri), 'w') as fp:
+        path = HARD_JSON.format(uri=uri)
+        mkdir_p(os.path.dirname(path))
+        with open(path, 'w') as fp:
             pyannote.core.json.dump(hard, fp)
 
         try:

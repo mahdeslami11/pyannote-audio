@@ -152,6 +152,9 @@ import pyannote.core
 
 from pyannote.database import get_database
 from pyannote.database.util import FileFinder
+from pyannote.database.util import get_unique_identifier
+from pyannote.audio.util import mkdir_p
+
 from pyannote.audio.optimizers import SSMORMS3
 
 from pyannote.audio.embedding.base import SequenceEmbedding
@@ -523,9 +526,12 @@ def embed(protocol, tune_dir, apply_dir, subset='test',
     EMBED_PKL = apply_dir + '/{uri}.pkl'
 
     for test_file in getattr(protocol, subset)():
-        wav = test_file['wav']
-        uri = test_file['uri']
-        embedding = extraction.apply(wav)
+        embedding = extraction.apply(test_file)
+
+        uri = get_unique_identifier(test_file)
+        path = EMBED_PKL.format(uri=uri)
+        mkdir_p(os.path.dirname(path))
+
         with open(EMBED_PKL.format(uri=uri), 'w') as fp:
             pickle.dump(embedding, fp)
 
