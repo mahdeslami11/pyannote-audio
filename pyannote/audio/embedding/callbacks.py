@@ -229,10 +229,10 @@ class SpeakerRecognitionValidation(Callback):
 
         fX = {}
         for name, item in itertools.chain(enroll, test):
-                if name in fX:
-                        continue
-                embeddings = aggregation.apply(item)
-                fX[name] = np.sum(embeddings.data, axis=0)
+            if name in fX:
+                continue
+            embeddings = aggregation.apply(item)
+            fX[name] = np.sum(embeddings.data, axis=0)
 
         # perform trials
 
