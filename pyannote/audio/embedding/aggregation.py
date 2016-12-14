@@ -139,9 +139,9 @@ class SequenceEmbeddingAggregation(PeriodicFeaturesMixin,
         # based on feature extractor internal sliding window and file duration
         samples_window = self.feature_extractor.sliding_window()
         duration = segments[-1].start + self.duration
-        n_samples = samples_window.samples(duration) + 3
+        n_samples = samples_window.samples(duration) + 4
 
-        # +3 is a hack to avoid later IndexError resulting from rounding error
+        # +4 is a hack to avoid later IndexError resulting from rounding error
         # when cropping samples_window
 
         # k[i] contains the number of sequences that overlap with frame #i
