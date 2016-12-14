@@ -85,6 +85,7 @@ class SpeakerDiarizationValidation(Callback):
     def __init__(self, glue, protocol, subset, log_dir):
         super(SpeakerDiarizationValidation, self).__init__()
 
+        self.subset = subset
         self.distance = glue.distance
         self.extract_embedding = glue.extract_embedding
         self.log_dir = log_dir
@@ -137,7 +138,8 @@ class SpeakerDiarizationValidation(Callback):
         embedding = self.extract_embedding(self.model)
         fX = embedding.predict(self.X_)
         distance = pdist(fX, metric=self.distance)
-        prefix = self.log_dir + '/plot.{epoch:04d}'.format(epoch=epoch)
+        prefix = self.log_dir + '/{subset}.plot.{epoch:04d}'.format(
+            subset=self.subset, epoch=epoch)
 
         # plot distance distribution every 20 epochs (and 10 first epochs)
         xlim = get_range(metric=self.distance)
@@ -154,7 +156,8 @@ class SpeakerDiarizationValidation(Callback):
 
         # store equal error rate in file
         mode = 'a' if epoch else 'w'
-        with open(self.log_dir + '/eer.txt', mode=mode) as fp:
+        path = self.log_dir + '/{subset}.eer.txt'.format(subset=self.subset)
+        with open(path, mode=mode) as fp:
             fp.write(self.EER_TEMPLATE_.format(epoch=epoch, eer=eer, now=now))
             fp.flush()
 
@@ -168,12 +171,15 @@ class SpeakerDiarizationValidation(Callback):
         plt.plot([0, epoch], [best_value, best_value], 'k--')
         plt.grid(True)
         plt.xlabel('epoch')
-        plt.ylabel('EER on test')
-        TITLE = 'EER = {best_value:.5g} on test @ epoch #{best_epoch:d}'
-        title = TITLE.format(best_value=best_value, best_epoch=best_epoch)
+        plt.ylabel('EER on {subset}'.format(subset=self.subset))
+        TITLE = 'EER = {best_value:.5g} on {subset} @ epoch #{best_epoch:d}'
+        title = TITLE.format(best_value=best_value,
+                             best_epoch=best_epoch,
+                             subset=self.subset)
         plt.title(title)
         plt.tight_layout()
-        plt.savefig(self.log_dir + '/eer.png', dpi=150)
+        path = self.log_dir + '/{subset}.eer.png'.format(subset=self.subset)
+        plt.savefig(path, dpi=150)
         plt.close(fig)
 
 
@@ -193,7 +199,8 @@ class SpeakerRecognitionValidation(Callback):
 
         # keep track of current time
         now = datetime.datetime.now().isoformat()
-        prefix = self.log_dir + '/plot.{epoch:04d}'.format(epoch=epoch)
+        prefix = self.log_dir + '/{subset}.plot.{epoch:04d}'.format(
+            epoch=epoch, subset=self.subset)
 
         from pyannote.audio.embedding.base import SequenceEmbedding
         sequence_embedding = SequenceEmbedding()
@@ -210,7 +217,6 @@ class SpeakerRecognitionValidation(Callback):
             layer_index=-2)
 
         # TODO / pass layer_index as parameter
-
         aggregation.cache_preprocessed_ = False
 
         # embed enroll and test recordings
@@ -262,7 +268,8 @@ class SpeakerRecognitionValidation(Callback):
 
         # store equal error rate in file
         mode = 'a' if epoch else 'w'
-        with open(self.log_dir + '/eer.txt', mode=mode) as fp:
+        path = self.log_dir + '/{subset}.eer.txt'.format(subset=self.subset)
+        with open(path, mode=mode) as fp:
             fp.write(self.EER_TEMPLATE_.format(epoch=epoch, eer=eer, now=now))
             fp.flush()
 
@@ -276,10 +283,13 @@ class SpeakerRecognitionValidation(Callback):
         plt.plot([0, epoch], [best_value, best_value], 'k--')
         plt.grid(True)
         plt.xlabel('epoch')
-        plt.ylabel('EER on test')
-        TITLE = 'EER = {best_value:.5g} on test @ epoch #{best_epoch:d}'
-        title = TITLE.format(best_value=best_value, best_epoch=best_epoch)
+        plt.ylabel('EER on {subset}'.format(subset=self.subset))
+        TITLE = 'EER = {best_value:.5g} on {subset} @ epoch #{best_epoch:d}'
+        title = TITLE.format(best_value=best_value,
+                             best_epoch=best_epoch,
+                             subset=self.subset)
         plt.title(title)
         plt.tight_layout()
-        plt.savefig(self.log_dir + '/eer.png', dpi=150)
+        path = self.log_dir + '/{subset}.eer.png'.format(subset=self.subset)
+        plt.savefig(path, dpi=150)
         plt.close(fig)
