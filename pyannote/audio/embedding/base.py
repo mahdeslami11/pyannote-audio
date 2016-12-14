@@ -113,7 +113,7 @@ class SequenceEmbedding(object):
     def fit(self, design_embedding,
             protocol, nb_epoch, train='train',
             optimizer='rmsprop', batch_size=None,
-            log_dir=None, validation='development'):
+            log_dir=None, validation=['development']):
 
         """Train the embedding
 
@@ -129,8 +129,9 @@ class SequenceEmbedding(object):
             Total number of iterations on the data
         train : {'train', 'development', 'test'}, optional
             Defaults to 'train'.
-        validation: {'train', 'development', 'test'}, optional
-            Defaults to 'development'.
+        validation: list, optional
+            List of validation subsets among {'train', 'development', 'test'}.
+            Defaults to ['development'].
         optimizer: str, optional
             Keras optimizer. Defaults to 'rmsprop'.
         batch_size : int, optional
@@ -176,21 +177,22 @@ class SequenceEmbedding(object):
             if isinstance(protocol, SpeakerDiarizationProtocol):
                 from pyannote.audio.embedding.callbacks import \
                     SpeakerDiarizationValidation
-                callback = SpeakerDiarizationValidation(
-                    self.glue, protocol, validation, log_dir)
+                ValidationCallback = SpeakerDiarizationValidation
 
             # speaker recognition
             elif isinstance(protocol, SpeakerRecognitionProtocol):
                 from pyannote.audio.embedding.callbacks import \
                     SpeakerRecognitionValidation
-                callback = SpeakerRecognitionValidation(
-                    self.glue, protocol, validation, log_dir)
+                ValidationCallback = SpeakerRecognitionValidation
 
             else:
                 warnings.warn(
                     'No validation callback available for this protocol.')
 
-            callbacks.append(callback)
+            for subset in validation:
+                callback = ValidationCallback(
+                    self.glue, protocol, subset, log_dir)
+                callbacks.append(callback)
 
         # if generator has n_labels attribute, pass it to build_model
         n_labels = getattr(generator, 'n_labels', None)
