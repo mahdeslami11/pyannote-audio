@@ -264,7 +264,7 @@ class SpeakerRecognitionValidation(Callback):
             eer = plot_det_curve(y_true, y_pred, prefix,
                                  distances=True, dpi=150)
         else:
-            _, _, _, eer = det_curve(y_true, y_pred, prefix, distances=True)
+            _, _, _, eer = det_curve(y_true, y_pred, distances=True)
 
         # store equal error rate in file
         mode = 'a' if epoch else 'w'
