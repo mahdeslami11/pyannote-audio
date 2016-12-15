@@ -185,17 +185,15 @@ class SpeakerDiarizationValidation(Callback):
 
 class SpeakerRecognitionValidation(Callback):
 
-    def __init__(self, glue, protocol, subset, log_dir, n_threads=12):
+    def __init__(self, glue, protocol, subset, log_dir):
         super(SpeakerRecognitionValidation, self).__init__()
         self.glue = glue
         self.protocol = protocol
         self.subset = subset
         self.log_dir = log_dir
-        self.n_threads = n_threads
 
         self.EER_TEMPLATE_ = '{epoch:04d} {now} {eer:5f}\n'
         self.eer_ = []
-        self.pool_ = multiprocessing.Pool(self.n_threads)
 
     def on_epoch_end(self, epoch, logs={}):
 
@@ -229,20 +227,12 @@ class SpeakerRecognitionValidation(Callback):
         method = '{subset}_test'.format(subset=self.subset)
         test = getattr(self.protocol, method)(yield_name=True)
 
-        def func(named_item):
-            name, item = named_item
+        fX = {}
+        for name, item in itertools.chain(enroll, test):
+            if name in fX:
+                continue
             embeddings = aggregation.apply(item)
-            return name, np.sum(embeddings.data, axis=0)
-
-        fX = dict(self.pool_.imap_unordered(
-            func, itertools.chain(enroll, test)))
-        #
-        # fX = {}
-        # for name, item in itertools.chain(enroll, test):
-        #     if name in fX:
-        #         continue
-        #     embeddings = aggregation.apply(item)
-        #     fX[name] = np.sum(embeddings.data, axis=0)
+            fX[name] = np.sum(embeddings.data, axis=0)
 
         # perform trials
 
