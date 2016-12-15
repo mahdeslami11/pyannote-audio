@@ -30,6 +30,7 @@
 import numpy as np
 import itertools
 import multiprocessing
+from functools import partial
 import datetime
 
 from keras.callbacks import Callback
@@ -184,6 +185,12 @@ class SpeakerDiarizationValidation(Callback):
         plt.close(fig)
 
 
+def embed(named_item, aggregation=None):
+    name, item = named_item
+    embeddings = aggregation.apply(item)
+    return name, np.sum(embeddings.data, axis=0)
+
+
 class SpeakerRecognitionValidation(Callback):
 
     def __init__(self, glue, protocol, subset, log_dir, n_threads=12):
@@ -230,20 +237,9 @@ class SpeakerRecognitionValidation(Callback):
         method = '{subset}_test'.format(subset=self.subset)
         test = getattr(self.protocol, method)(yield_name=True)
 
-        def func(named_item):
-            name, item = named_item
-            embeddings = aggregation.apply(item)
-            return name, np.sum(embeddings.data, axis=0)
-
+        process_item = partial(embed, aggregation=aggregation)
         fX = dict(self.pool_.imap_unordered(
-            func, itertools.chain(enroll, test)))
-        #
-        # fX = {}
-        # for name, item in itertools.chain(enroll, test):
-        #     if name in fX:
-        #         continue
-        #     embeddings = aggregation.apply(item)
-        #     fX[name] = np.sum(embeddings.data, axis=0)
+            process_item, itertools.chain(enroll, test)))
 
         # perform trials
 
