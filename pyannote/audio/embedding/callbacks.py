@@ -185,7 +185,21 @@ class SpeakerDiarizationValidation(Callback):
         plt.close(fig)
 
 
-def embed(named_item, aggregation=None):
+def embed(named_item, glue=None, sequence_embedding=None):
+
+    from pyannote.audio.embedding.aggregation import \
+        SequenceEmbeddingAggregation
+
+    aggregation = SequenceEmbeddingAggregation(
+        sequence_embedding,
+        glue.feature_extractor,
+        duration=glue.duration,
+        min_duration=glue.min_duration,
+        step=glue.duration,
+        layer_index=-2)  # TODO pass layer_index as parameter
+
+    aggregation.cache_preprocessed_ = False
+
     name, item = named_item
     embeddings = aggregation.apply(item)
     return name, np.sum(embeddings.data, axis=0)
@@ -216,17 +230,6 @@ class SpeakerRecognitionValidation(Callback):
         sequence_embedding = SequenceEmbedding()
         sequence_embedding.embedding_ = self.glue.extract_embedding(self.model)
 
-        from pyannote.audio.embedding.aggregation import \
-            SequenceEmbeddingAggregation
-        aggregation = SequenceEmbeddingAggregation(
-            sequence_embedding,
-            self.glue.feature_extractor,
-            duration=self.glue.duration,
-            min_duration=self.glue.min_duration,
-            step=.5 * self.glue.duration,
-            layer_index=-2)
-
-        # TODO / pass layer_index as parameter
         aggregation.cache_preprocessed_ = False
 
         # embed enroll and test recordings
@@ -237,8 +240,9 @@ class SpeakerRecognitionValidation(Callback):
         method = '{subset}_test'.format(subset=self.subset)
         test = getattr(self.protocol, method)(yield_name=True)
 
-        process_item = partial(embed, aggregation=aggregation)
-        fX = dict(self.pool_.imap_unordered(
+        process_item = partial(
+            embed, sequence_embedding=sequence_embedding, glue=self.glue)
+        fX = dict(self.pool_.imap(
             process_item, itertools.chain(enroll, test)))
 
         # perform trials
