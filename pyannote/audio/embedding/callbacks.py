@@ -230,8 +230,6 @@ class SpeakerRecognitionValidation(Callback):
         sequence_embedding = SequenceEmbedding()
         sequence_embedding.embedding_ = self.glue.extract_embedding(self.model)
 
-        aggregation.cache_preprocessed_ = False
-
         # embed enroll and test recordings
 
         method = '{subset}_enroll'.format(subset=self.subset)
