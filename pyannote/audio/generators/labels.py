@@ -74,6 +74,8 @@ class FixedDurationSequences(PeriodicFeaturesMixin, FileBasedBatchGenerator):
         self.min_duration = min_duration
         self.step = step
 
+        self.shape_ = self.shape
+
         segment_generator = SlidingLabeledSegments(
             duration=self.duration,
             min_duration=self.min_duration,
@@ -88,12 +90,34 @@ class FixedDurationSequences(PeriodicFeaturesMixin, FileBasedBatchGenerator):
             {'type': 'label'}
         )
 
+    def pack_sequence(self, sequences):
+        """
+        Parameters
+        ----------
+        sequences : list
+            List of variable length feature sequences
+
+        Returns
+        -------
+        batch : (batch_size, n_samples, n_features)
+            Zero-padded batch of feature sequences
+        """
+
+        zero_padded = []
+        for sequence in sequences:
+            zeros = np.zeros(self.shape_, dtype=np.float32)
+            n_samples = min(self.shape_[0], sequence.shape[0])
+            zeros[:n_samples, :] = sequence[:n_samples]
+            zero_padded.append(zeros)
+
+        return np.stack(zero_padded)
+
 
 class VariableDurationSequences(PeriodicFeaturesMixin,
                                 FileBasedBatchGenerator):
 
-    def __init__(self, feature_extractor, min_duration=1.0, max_duration=5.0,
-                 batch_size=32):
+    def __init__(self, feature_extractor, min_duration=1.0,
+                 max_duration=5.0, batch_size=32):
 
         self.feature_extractor = feature_extractor
         self.min_duration = min_duration
@@ -103,10 +127,11 @@ class VariableDurationSequences(PeriodicFeaturesMixin,
         self.duration = max_duration
 
         # pre-compute shape of zero-padded sequences
-        n_features = self.feature_extractor.dimension()
-        n_samples = self.feature_extractor.sliding_window().samples(
-            self.max_duration, mode='center')
-        self.shape_ = (n_samples, n_features)
+        # n_features = self.feature_extractor.dimension()
+        # n_samples = self.feature_extractor.sliding_window().samples(
+        #     self.max_duration, mode='center')
+        # self.shape_ = (n_samples, n_features)
+        self.shape_ = self.shape
 
         segment_generator = RandomLabeledSegments(
             min_duration=self.min_duration,
