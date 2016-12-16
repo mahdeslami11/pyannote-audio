@@ -44,7 +44,7 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     duration : float, optional
     step : float, optional
         Sliding window duration and step (in seconds).
-        Defaults to 1 second window with 100ms step.
+        Defaults to 5s window with 50% step.
     layer_index : int, optional
         Index of layer for which to return the activation.
         Defaults to returning the activation of the final layer.
@@ -58,7 +58,7 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
 
     """
     def __init__(self, sequence_embedding, feature_extractor,
-                 duration=1.000, step=0.100, layer_index=None):
+                 duration=1.000, step=None, layer_index=None):
 
         # feature sequence
         self.feature_extractor = feature_extractor

@@ -45,11 +45,12 @@ class Glue(object):
     feature_extractor
     duration : float, optional
     min_duration : float, optional
+    step : float, optional
     distance : {'sqeuclidean', 'cosine', 'angular'}, optional
     """
 
     def __init__(self, feature_extractor,
-                 duration=5.0, step=2.5, min_duration=None,
+                 duration=5.0, step=None, min_duration=None,
                  distance='sqeuclidean', **kwargs):
         super(Glue, self).__init__()
         self.feature_extractor = feature_extractor
@@ -144,7 +145,7 @@ class BatchGlue(Glue):
         Number of folds per batch. Defaults to 12.
     """
     def __init__(self, feature_extractor,
-                 duration=3.0, min_duration=None, step=1.5,
+                 duration=5.0, min_duration=None, step=None,
                  distance='angular', per_label=3, per_fold=20, per_batch=12,
                  n_threads=1, cache=None, robust=False):
 
@@ -188,7 +189,8 @@ class BatchGlue(Glue):
         return DerivativeBatchGenerator(
             self.feature_extractor, file_generator,
             self.compute_derivatives, distance=self.distance,
-            duration=self.duration, min_duration=self.min_duration, step=self.step,
+            duration=self.duration, min_duration=self.min_duration,
+            step=self.step,
             per_label=self.per_label, per_fold=self.per_fold,
             per_batch=self.per_batch, n_threads=self.n_threads,
             cache=self.cache, robust=self.robust)

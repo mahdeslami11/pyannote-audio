@@ -48,7 +48,7 @@ class SequenceLabelingAggregation(PeriodicFeaturesMixin, FileBasedBatchGenerator
     duration : float, optional
     step : float, optional
         Sliding window duration and step (in seconds).
-        Defaults to 3 seconds window with 750ms step.
+        Defaults to 3 seconds window with half step.
 
     Usage
     -----
@@ -59,7 +59,7 @@ class SequenceLabelingAggregation(PeriodicFeaturesMixin, FileBasedBatchGenerator
     """
 
     def __init__(self, sequence_labeling, feature_extractor,
-                 duration=3., step=0.75):
+                 duration=3., step=None):
 
         # feature sequence
         self.feature_extractor = feature_extractor

@@ -48,7 +48,7 @@ class SequenceGenerator(object):
     """
 
     def __init__(self, feature_extractor, file_generator,
-                 duration=3.0, min_duration=None, step=1.0,
+                 duration=5.0, min_duration=None, step=None,
                  per_label=3, cache=None, robust=False):
 
         super(SequenceGenerator, self).__init__()
@@ -207,7 +207,7 @@ class DerivativeBatchGenerator(BaseBatchGenerator):
         Distance for which the embedding is optimized. Defaults to 'angular'.
     duration: float, optional
     step: float, optional
-        Duration and step of sliding window (in seconds). Default to 3s and 1s.
+        Duration and step of sliding window (in seconds). Default to 5s and 2.5s.
     min_duration: float, optional
         Sequence minimum duration. When provided, generates sequences with
         random duration in range [min_duration, duration]. Defaults to
@@ -227,7 +227,7 @@ class DerivativeBatchGenerator(BaseBatchGenerator):
     """
 
     def __init__(self, feature_extractor, file_generator, compute_derivatives,
-                 distance='angular', duration=3.0, min_duration=None, step=1.0,
+                 distance='angular', duration=5.0, min_duration=None, step=None,
                  per_label=3, per_fold=20, per_batch=12, n_threads=1,
                  cache=None, robust=False):
 

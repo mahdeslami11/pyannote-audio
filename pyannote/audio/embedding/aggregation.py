@@ -46,7 +46,7 @@ class SequenceEmbeddingAggregation(PeriodicFeaturesMixin,
     duration : float, optional
     step : float, optional
         Sliding window duration and step (in seconds).
-        Defaults to 1 second window with 100ms step.
+        Defaults to 5s window with 50% step.
     layer_index : int, optional
         Index of layer for which to return the activation.
         Defaults to returning the activation of the final layer.
@@ -60,7 +60,7 @@ class SequenceEmbeddingAggregation(PeriodicFeaturesMixin,
 
     """
     def __init__(self, sequence_embedding, feature_extractor,
-                 duration=5.0, min_duration=None, step=1.0, layer_index=None):
+                 duration=5.0, min_duration=None, step=None, layer_index=None):
 
         # feature extractor (e.g. YaafeMFCC)
         self.feature_extractor = feature_extractor

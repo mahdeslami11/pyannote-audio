@@ -46,7 +46,7 @@ class FixedDurationSequences(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     duration: float, optional
     step: float, optional
         Duration and step of sliding window (in seconds).
-        Default to 3s and 750ms.
+        Default to 5s and 2.5s.
     min_duration: float, optional
         When provided, will do its best to yield segments of length `duration`,
         but shortest segments are also permitted (as long as they are longer
@@ -66,8 +66,8 @@ class FixedDurationSequences(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     ...     # do something with
     """
 
-    def __init__(self, feature_extractor, duration=3.0, min_duration=None,
-                 step=0.75, batch_size=32):
+    def __init__(self, feature_extractor, duration=5.0, min_duration=None,
+                 step=None, batch_size=32):
 
         self.feature_extractor = feature_extractor
         self.duration = duration

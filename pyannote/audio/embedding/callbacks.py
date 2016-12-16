@@ -98,7 +98,7 @@ class SpeakerDiarizationValidation(Callback):
             generator = FixedDurationSequences(
                 glue.feature_extractor,
                 duration=glue.duration,
-                step=glue.duration,
+                step=glue.step,
                 batch_size=-1)
         else:
             # initialize variable duration sequence generator
@@ -213,7 +213,7 @@ class SpeakerRecognitionValidation(Callback):
             self.glue.feature_extractor,
             duration=self.glue.duration,
             min_duration=self.glue.min_duration,
-            step=.5 * self.glue.duration,
+            step=self.glue.step,
             layer_index=-2)
 
         # TODO / pass layer_index as parameter

@@ -32,7 +32,6 @@ import numpy as np
 from scipy.spatial.distance import pdist, squareform
 from pyannote.generators.batch import BaseBatchGenerator
 from pyannote.audio.generators.labels import FixedDurationSequences
-from pyannote.audio.generators.labels import VariableDurationSequences
 from pyannote.audio.embedding.callbacks import UpdateGeneratorEmbedding
 
 
@@ -61,7 +60,8 @@ class TripletGenerator(object):
         Defaults to 0.2.
     duration: float, optional
     step: float, optional
-        Duration and step of sliding window (in seconds). Default to 3s and 1s.
+        Duration and step of sliding window (in seconds).
+        Default to 3s and half duration.
     min_duration: float, optional
         Sequence minimum duration. When provided, generates sequences with
         random duration in range [min_duration, duration]. Defaults to
@@ -78,7 +78,7 @@ class TripletGenerator(object):
 
     def __init__(self, extractor, file_generator,
                  distance='sqeuclidean', margin=0.2,
-                 duration=3.0, min_duration=None, step=1.0,
+                 duration=3.0, min_duration=None, step=None,
                  per_fold=0, per_label=40, batch_size=32):
 
         super(TripletGenerator, self).__init__()
@@ -94,18 +94,12 @@ class TripletGenerator(object):
         self.per_label = per_label
         self.batch_size = batch_size
 
-        if self.min_duration is None:
-            self.generator_ = FixedDurationSequences(
-                self.extractor,
-                duration=self.duration,
-                step=self.step,
-                batch_size=-1)
-        else:
-            self.generator_ = VariableDurationSequences(
-                self.extractor,
-                max_duration=self.duration,
-                min_duration=self.min_duration,
-                batch_size=-1)
+        self.generator_ = FixedDurationSequences(
+            self.extractor,
+            duration=self.duration,
+            min_duration=self.min_duration,
+            step=self.step,
+            batch_size=-1)
 
         self.triplet_generator_ = self.iter_triplets()
 
@@ -297,7 +291,8 @@ class TripletBatchGenerator(BaseBatchGenerator):
         Defaults to 0.2.
     duration: float, optional
     step: float, optional
-        Duration and step of sliding window (in seconds). Default to 3s and 1s.
+        Duration and step of sliding window (in seconds).
+        Default to 3s and half step.
     min_duration: float, optional
         Sequence minimum duration. When provided, generates sequences with
         random duration in range [min_duration, duration]. Defaults to
@@ -312,7 +307,7 @@ class TripletBatchGenerator(BaseBatchGenerator):
     """
     def __init__(self, feature_extractor, file_generator,
                  distance='sqeuclidean', margin=0.2,
-                 duration=3.0, min_duration=None, step=1.0,
+                 duration=3.0, min_duration=None, step=None,
                  per_fold=0, per_label=40, batch_size=32):
 
         self.triplet_generator_ = TripletGenerator(
