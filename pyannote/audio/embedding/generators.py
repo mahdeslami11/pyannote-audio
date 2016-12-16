@@ -82,7 +82,7 @@ class SequenceGenerator(object):
 
     def _precompute(self, Xy_generator, cache):
 
-        with h5py.File(cache, mode='w', libver='latest') as fp:
+        with h5py.File(cache, mode='w') as fp:
 
             # initialize with a fixed number of sequences
             n_sequences = 1000
@@ -135,7 +135,7 @@ class SequenceGenerator(object):
             self._precompute(Xy_generator, cache)
 
         if cache:
-            fp = h5py.File(cache, mode='r', libver='latest')
+            fp = h5py.File(cache, mode='r')
             X = fp['X']
             y = fp['y']
 
