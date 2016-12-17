@@ -38,12 +38,12 @@ class GregoryGellySAD(object):
         self.sad_yml = sad_yml
         self.file_finder_ = FileFinder(self.sad_yml)
 
-    def __call__(self, **item):
+    def __call__(self, item):
 
         speaker = item['speaker']
         annotation = Annotation()
 
-        sad_xml = self.file_finder_(**item)
+        sad_xml = self.file_finder_(item)
         with open(sad_xml, 'r') as fp:
             content = xml.dom.minidom.parse(fp)
         segments = content.getElementsByTagName('SpeechSegment')
