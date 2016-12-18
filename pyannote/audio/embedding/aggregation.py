@@ -50,6 +50,8 @@ class SequenceEmbeddingAggregation(PeriodicFeaturesMixin,
     layer_index : int, optional
         Index of layer for which to return the activation.
         Defaults to returning the activation of the final layer.
+    batch_size : int, optional
+        Size of batch used when embedding. Defaults to 32
 
     Usage
     -----
@@ -60,7 +62,8 @@ class SequenceEmbeddingAggregation(PeriodicFeaturesMixin,
 
     """
     def __init__(self, sequence_embedding, feature_extractor,
-                 duration=5.0, min_duration=None, step=None, layer_index=None):
+                 duration=5.0, min_duration=None, step=None,
+                 layer_index=None, batch_size=32):
 
         # feature extractor (e.g. YaafeMFCC)
         self.feature_extractor = feature_extractor
@@ -68,7 +71,6 @@ class SequenceEmbeddingAggregation(PeriodicFeaturesMixin,
         # sequence embedding
         self.sequence_embedding = sequence_embedding
 
-        #
         self.duration = duration
         self.min_duration = min_duration
         self.step = step
@@ -77,6 +79,8 @@ class SequenceEmbeddingAggregation(PeriodicFeaturesMixin,
             step=step, source='annotation')
 
         self.layer_index = layer_index
+
+        self.apply_batch_size_ = batch_size
 
         # pre-compute shape of zero-padded sequences
         n_features = self.feature_extractor.dimension()
@@ -115,8 +119,11 @@ class SequenceEmbeddingAggregation(PeriodicFeaturesMixin,
 
     def postprocess_sequence(self, mono_batch):
         sequences, masks = mono_batch
-        return self.sequence_embedding.transform(
-            sequences, layer_index=self.layer_index), masks
+        embeddings = self.sequence_embedding.transform(
+            sequences,
+            layer_index=self.layer_index,
+            batch_size=self.apply_batch_size_)
+        return embeddings, masks
 
     def apply(self, current_file):
         """Compute embeddings on a partition
