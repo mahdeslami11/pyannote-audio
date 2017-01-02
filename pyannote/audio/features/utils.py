@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016 CNRS
+# Copyright (c) 2016-2017 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -32,6 +32,7 @@ from __future__ import division
 import h5py
 import os.path
 import numpy as np
+from struct import unpack
 import pysndfile.sndio
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.database.util import get_unique_identifier
@@ -102,3 +103,42 @@ class Precomputed(object):
         f.close()
 
         return SlidingWindowFeature(data, self.sliding_window_)
+
+
+class PrecomputedHTK(object):
+
+    def __init__(self, root_dir=None, duration=0.025):
+        super(PrecomputedHTK, self).__init__()
+        self.root_dir = root_dir
+        self.duration = duration
+
+    @staticmethod
+    def get_path(root_dir, item):
+        uri = get_unique_identifier(item)
+        path = '{root_dir}/{uri}.htk'.format(root_dir=root_dir, uri=uri)
+        return path
+
+    # http://codereview.stackexchange.com/questions/
+    # 1496/reading-a-binary-file-containing-periodic-samples
+    @staticmethod
+    def load_htk(file_htk):
+        with open(file_htk, 'rb') as fp:
+            data = fp.read(12)
+            num_samples, sample_period, sample_size, _ = unpack('>iihh', data)
+            num_features = int(sample_size / 4)
+            num_samples = int(num_samples)
+            X = np.empty((num_samples, num_features))
+            for i in range(num_samples):
+                data = fp.read(sample_size)
+                X[i, :] = unpack('>' + ('f' * (sample_size // 4)), data)
+        return X, sample_period
+
+    def __call__(self, item):
+
+        file_htk = self.get_path(self.root_dir, item)
+        X, sample_period = self.load_htk(file_htk)
+        sw = SlidingWindow(start=0.,
+                           duration=self.duration,
+                           step=sample_period * 1e-7)
+
+        return SlidingWindowFeature(X, sw)
