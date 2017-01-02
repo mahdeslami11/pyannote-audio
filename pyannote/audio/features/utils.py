@@ -108,7 +108,7 @@ class Precomputed(object):
 
 class PrecomputedHTK(object):
 
-    def __init__(self, root_dir=None, duration=0.025):
+    def __init__(self, root_dir=None, duration=0.025, step=None):
         super(PrecomputedHTK, self).__init__()
         self.root_dir = root_dir
         self.duration = duration
@@ -129,10 +129,17 @@ class PrecomputedHTK(object):
 
         X, sample_period = self.load_htk(file_htk)
 
+        self.dimension_ = X.shape[1]
+        self.step = sample_period * 1e-7
+
+        # don't trust HTK header when 'step' is provided by the user.
+        # HACK remove this when Pepe's HTK files are fixed...
+        if step is not None:
+            self.step = step
+
         self.sliding_window_ = SlidingWindow(start=0.,
                                              duration=self.duration,
-                                             step=sample_period * 1e-7)
-        self.dimension_ = X.shape[1]
+                                             step=self.step)
 
     def sliding_window(self):
         return self.sliding_window_
