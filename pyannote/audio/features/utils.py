@@ -31,6 +31,7 @@ from __future__ import division
 
 import h5py
 import os.path
+from glob import glob
 import numpy as np
 from struct import unpack
 import pysndfile.sndio
@@ -111,6 +112,33 @@ class PrecomputedHTK(object):
         super(PrecomputedHTK, self).__init__()
         self.root_dir = root_dir
         self.duration = duration
+
+        # load any htk file in root_dir/database
+        path = '{root_dir}/*/*.htk'.format(root_dir=root_dir)
+        found = glob(path)
+
+        # FIXME switch to Py3.5 and use glob 'recursive' parameter
+        # http://stackoverflow.com/questions/2186525/
+        # use-a-glob-to-find-files-recursively-in-python
+
+        if len(found) > 0:
+            file_htk = found[0]
+        else:
+            msg = "Could not find any HTK file in '{root_dir}'."
+            raise ValueError(msg.format(root_dir=root_dir))
+
+        X, sample_period = self.load_htk(file_htk)
+
+        self.sliding_window_ = SlidingWindow(start=0.,
+                                             duration=self.duration,
+                                             step=sample_period * 1e-7)
+        self.dimension_ = X.shape[1]
+
+    def sliding_window(self):
+        return self.sliding_window_
+
+    def dimension(self):
+        return self.dimension_
 
     @staticmethod
     def get_path(root_dir, item):
