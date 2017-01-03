@@ -128,7 +128,6 @@ class PrecomputedHTK(object):
             raise ValueError(msg.format(root_dir=root_dir))
 
         X, sample_period = self.load_htk(file_htk)
-
         self.dimension_ = X.shape[1]
         self.step = sample_period * 1e-7
 
@@ -169,11 +168,6 @@ class PrecomputedHTK(object):
         return X, sample_period
 
     def __call__(self, item):
-
         file_htk = self.get_path(self.root_dir, item)
-        X, sample_period = self.load_htk(file_htk)
-        sw = SlidingWindow(start=0.,
-                           duration=self.duration,
-                           step=sample_period * 1e-7)
-
-        return SlidingWindowFeature(X, sw)
+        X, _ = self.load_htk(file_htk)
+        return SlidingWindowFeature(X, self.sliding_window_)
