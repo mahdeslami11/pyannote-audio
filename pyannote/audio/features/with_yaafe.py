@@ -117,6 +117,8 @@ class YaafeFeatureExtractor(object):
         features = self.engine_.processAudio(y)
         data = np.hstack([features[name] for name, _ in self.definition()])
 
+        self.engine_.reset()
+
         # --- return as SlidingWindowFeature
         if np.any(np.isnan(data)):
             uri = get_unique_identifier(item)
