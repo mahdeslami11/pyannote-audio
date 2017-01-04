@@ -53,11 +53,10 @@ class YaafeFeatureExtractor(object):
 
     """
 
-    def __init__(self, sample_rate=16000, duration=0.025, step=0.010):
+    def __init__(self, duration=0.025, step=0.010):
 
         super(YaafeFeatureExtractor, self).__init__()
 
-        self.sample_rate = sample_rate
         self.duration = duration
         self.step = step
 
@@ -67,13 +66,6 @@ class YaafeFeatureExtractor(object):
                                              step=self.step)
 
         self.engine_ = yaafelib.Engine()
-
-        feature_plan = yaafelib.FeaturePlan(sample_rate=self.sample_rate)
-        for name, recipe in self.definition():
-            assert feature_plan.addFeature(
-                "{name}: {recipe}".format(name=name, recipe=recipe))
-        data_flow = feature_plan.getDataFlow()
-        self.engine_.load(data_flow)
 
     def dimension(self):
         raise NotImplementedError('')
@@ -100,7 +92,16 @@ class YaafeFeatureExtractor(object):
             y, sample_rate, encoding = pysndfile.sndio.read(wav)
         except IOError as e:
             raise PyannoteFeatureExtractionError(e)
-        assert sample_rate == self.sample_rate, "sample rate mismatch"
+
+        # --- update data_flow every time sample rate changes
+        if not hasattr(self, 'sample_rate_') or self.sample_rate_ != sample_rate:
+            self.sample_rate_ = sample_rate
+            feature_plan = yaafelib.FeaturePlan(sample_rate=self.sample_rate_)
+            for name, recipe in self.definition():
+                assert feature_plan.addFeature(
+                    "{name}: {recipe}".format(name=name, recipe=recipe))
+            data_flow = feature_plan.getDataFlow()
+            self.engine_.load(data_flow)
 
         # reshape before selecting channel
         if len(y.shape) < 2:
@@ -127,17 +128,12 @@ class YaafeFeatureExtractor(object):
 
 class YaafeCompound(YaafeFeatureExtractor):
 
-    def __init__(self, extractors,
-                 sample_rate=16000, duration=0.025, step=0.010):
+    def __init__(self, extractors, duration=0.025, step=0.010):
 
-        assert all(e.sample_rate == sample_rate for e in extractors)
         assert all(e.duration == duration for e in extractors)
         assert all(e.step == step for e in extractors)
 
-        super(YaafeCompound, self).__init__(
-            sample_rate=sample_rate,
-            duration=duration,
-            step=step)
+        super(YaafeCompound, self).__init__(duration=duration, step=step)
 
         self.extractors = extractors
 
@@ -159,8 +155,8 @@ class YaafeZCR(YaafeFeatureExtractor):
 
     def definition(self):
 
-        blockSize = int(self.sample_rate * self.duration)
-        stepSize = int(self.sample_rate * self.step)
+        blockSize = int(self.sample_rate_ * self.duration)
+        stepSize = int(self.sample_rate_ * self.step)
 
         d = [(
             "zcr",
@@ -192,8 +188,6 @@ class YaafeMFCC(YaafeFeatureExtractor):
     Parameters
     ----------
 
-    sample_rate : int, optional
-        Defaults to 16000 (i.e. 16kHz)
     duration : float, optional
         Defaults to 0.025.
     step : float, optional
@@ -223,7 +217,7 @@ class YaafeMFCC(YaafeFeatureExtractor):
     """
 
     def __init__(
-        self, sample_rate=16000, duration=0.025, step=0.010,
+        self, duration=0.025, step=0.010,
         e=True, coefs=11, De=False, DDe=False, D=False, DD=False,
     ):
 
@@ -234,8 +228,7 @@ class YaafeMFCC(YaafeFeatureExtractor):
         self.D = D
         self.DD = DD
 
-        super(YaafeMFCC, self).__init__(
-            sample_rate=sample_rate, duration=duration, step=step)
+        super(YaafeMFCC, self).__init__(duration=duration, step=step)
 
     def dimension(self):
 
@@ -251,8 +244,8 @@ class YaafeMFCC(YaafeFeatureExtractor):
 
     def definition(self):
 
-        blockSize = int(self.sample_rate * self.duration)
-        stepSize = int(self.sample_rate * self.step)
+        blockSize = int(self.sample_rate_ * self.duration)
+        stepSize = int(self.sample_rate_ * self.step)
 
         d = []
 
