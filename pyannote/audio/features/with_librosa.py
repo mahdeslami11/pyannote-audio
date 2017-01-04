@@ -165,7 +165,8 @@ class LibrosaMFCC(LibrosaFeatureExtractor):
 
     def __init__(self, duration=0.025, step=0.01,
                  e=False, De=True, DDe=True,
-                 coefs=19, D=True, DD=True):
+                 coefs=19, D=True, DD=True,
+                 fmin=0.0, fmax=None, n_mels=40):
 
         super(LibrosaMFCC, self).__init__(duration=duration, step=step)
 
@@ -176,9 +177,9 @@ class LibrosaMFCC(LibrosaFeatureExtractor):
         self.D = D
         self.DD = DD
 
-        self.n_mels = 40     #
-        self.fmin = 0.0      # 130.0
-        self.fmax = None   # 6854.0
+        self.n_mels = n_mels  # yaafe / 40
+        self.fmin = fmin      # yaafe / 130.0
+        self.fmax = fmax      # yaafe / 6854.0
 
     def process(self, y, sample_rate):
 
