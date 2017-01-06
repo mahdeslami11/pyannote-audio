@@ -119,6 +119,7 @@ class CenterLoss(BatchGlue):
         trigger = Input(shape=(n_labels, ), name="trigger")
         x = Dense(output_dim, activation='linear', name='dense')(trigger)
         centers = Lambda(lambda x: K.l2_normalize(x, axis=-1),
+                         output_shape=(None, output_dim),
                          name="centers")(x)
 
         model = Model(input=trigger, output=centers)
