@@ -113,7 +113,8 @@ class SequenceEmbedding(object):
     def fit(self, design_embedding,
             protocol, nb_epoch, train='train',
             optimizer='rmsprop', batch_size=None,
-            log_dir=None, validation=['development']):
+            log_dir=None, validation=['development'],
+            max_q_size=1):
 
         """Train the embedding
 
@@ -140,6 +141,10 @@ class SequenceEmbedding(object):
             When provided, log status after each epoch into this directory.
             This will create several files, including loss plots and weights
             files.
+        max_q_size: int, optional
+            Maximum size for the generator queue. In case the generator depends
+            on the current state of the model and/or you cannot run the
+            generator in parallel to the model, set max_q_size to 0.
 
         See also
         --------
@@ -205,7 +210,7 @@ class SequenceEmbedding(object):
 
         return self.model_.fit_generator(
             generator, samples_per_epoch, nb_epoch,
-            verbose=1, callbacks=callbacks, max_q_size=1)
+            verbose=1, callbacks=callbacks, max_q_size=max_q_size)
 
     def transform(self, sequences, layer_index=None, batch_size=32):
         """Apply pre-trained embedding to sequences
