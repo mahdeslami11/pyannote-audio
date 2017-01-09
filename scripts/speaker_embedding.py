@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016 CNRS
+# Copyright (c) 2016-2017 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -30,7 +30,8 @@
 Speaker embedding
 
 Usage:
-  speaker_embedding train [--database=<db.yml> --subset=<subset> --duration=<duration> --min-duration=<duration> --validation=<subset>] <experiment_dir> <database.task.protocol>
+  speaker_embedding train [--cache=<cache.h5> --robust --parallel --database=<db.yml> --subset=<subset> --duration=<duration> --min-duration=<duration> --step=<step> --validation=<subset>...] <experiment_dir> <database.task.protocol>
+  speaker_embedding validation [--database=<db.yml> --subset=<subset>] <train_dir> <database.task.protocol>
   speaker_embedding tune [--database=<db.yml> --subset=<subset> --false-alarm=<beta>] <train_dir> <database.task.protocol>
   speaker_embedding test [--database=<db.yml> --subset=<subset> --false-alarm=<beta>] <tune_dir> <database.task.protocol>
   speaker_embedding apply [--database=<db.yml> --subset=<subset> --step=<step> --layer=<index>] <tune_dir> <database.task.protocol>
@@ -43,21 +44,25 @@ Options:
                              in this directory. See "Configuration file"
                              section below for more details.
   <database.task.protocol>   Set evaluation protocol (e.g. "Etape.SpeakerDiarization.TV")
+  --cache=<cache.h5>         When provided, cache and/or use cached sequences.
+  --robust                   When provided, skip files for which feature extraction fails.
+  --parallel                 Run batch generator in parallel (faster, but possibly less robust).
   --database=<db.yml>        Path to database configuration file.
                              [default: ~/.pyannote/db.yml]
   --subset=<subset>          Set subset (train|developement|test).
-                             In "train" mode, default subset is "train".
-                             In "tune" mode, default subset is "development".
-                             In "apply" mode, default subset is "test".
+                             In "train" mode, default is "train".
+                             In "validation" mode, default is "development".
+                             In "tune" mode, default is "development".
+                             In "apply" mode, default is "test".
   --duration=<D>             Set duration of embedded sequences [default: 5.0]
   --min-duration=<d>         Use sequences with duration in range [<d>, <D>].
                              Defaults to sequences with fixed duration D.
+  --step=<step>              Set step between sequences, in seconds.
+                             Defaults to half duration.
   --validation=<subset>      Set validation subset (train|development|test).
-                             [default: development]
+                             May be repeated.
   --false-alarm=<beta>       Set importance of false alarm with respect to
                              false rejection [default: 1.0]
-  --step=<step>              Set step (in seconds) for embedding extraction.
-                             [default: 0.1]
   --layer=<index>            Index of layer for which to return the activation.
                              Defaults to final layer.
   -h --help                  Show this screen.
@@ -83,6 +88,12 @@ Configuration file:
           DDe: True                  # with 1st and 2nd derivatives
           D: True                    # without energy, but with
           DD: True                   # energy derivatives
+
+    preprocessors:
+       annotation:
+           name: GregoryGellySAD
+           params:
+              sad_yml: /vol/work1/bredin/sre10/sad.yml
 
     architecture:
        name: TristouNet
@@ -110,6 +121,18 @@ Configuration file:
     <database.task.protocol> protocol. By default, <subset> is "train".
     This directory is called <train_dir> in the subsequent "tune" mode.
 
+"validation" mode:
+    When "train" mode is launched without --validation (recommended), use the
+    "validation" mode to run validation in parallel. "validation" mode will
+    watch the <train_dir> directory, and run validation experiments every time
+    a new epoch has ended. This will create the following directory that
+    contains validation results:
+
+        <train_dir>/validation/<database.task.protocol>.<subset>
+
+    You can run multiple "validation" in parallel (e.g. for every subset,
+    protocol, task, or database).
+
 "tune" mode:
     Then, one should tune the hyper-parameters using "tune" mode.
     This will create the following directory that contains a file called
@@ -136,11 +159,15 @@ Configuration file:
 
 """
 
+import time
 import yaml
 import pickle
 import os.path
+import datetime
 import functools
+import itertools
 import numpy as np
+np.random.seed(1337)
 
 from docopt import docopt
 
@@ -150,24 +177,32 @@ import matplotlib.pyplot as plt
 
 import pyannote.core
 
+# file management
 from pyannote.database import get_database
 from pyannote.database.util import FileFinder
 from pyannote.database.util import get_unique_identifier
+
+from pyannote.database.protocol import SpeakerDiarizationProtocol
+from pyannote.database.protocol import SpeakerRecognitionProtocol
+
 from pyannote.audio.util import mkdir_p
 
 from pyannote.audio.optimizers import SSMORMS3
-
 from pyannote.audio.embedding.base import SequenceEmbedding
-
 from pyannote.audio.generators.labels import FixedDurationSequences
 from pyannote.audio.generators.labels import VariableDurationSequences
-from scipy.spatial.distance import pdist, squareform
+
+# evaluation
+from pyannote.audio.embedding.utils import pdist, cdist
+from pyannote.audio.embedding.utils import get_range, l2_normalize
+from pyannote.metrics.binary_classification import det_curve
 
 from pyannote.metrics.plot.binary_classification import plot_distributions
 from pyannote.metrics.plot.binary_classification import plot_det_curve
 from pyannote.metrics.plot.binary_classification import plot_precision_recall_curve
 
 from pyannote.audio.embedding.extraction import Extraction
+from pyannote.audio.embedding.aggregation import SequenceEmbeddingAggregation
 
 # needed for register_custom_object to be called
 import pyannote.audio.embedding.models
@@ -181,7 +216,8 @@ from pyannote.metrics import f_measure
 
 
 def train(protocol, duration, experiment_dir, train_dir, subset='train',
-          min_duration=None, validation='development'):
+          min_duration=None, step=None, validation=[],
+          cache=False, robust=False, parallel=False):
 
     # -- TRAINING --
     nb_epoch = 1000
@@ -192,6 +228,15 @@ def train(protocol, duration, experiment_dir, train_dir, subset='train',
     config_yml = experiment_dir + '/config.yml'
     with open(config_yml, 'r') as fp:
         config = yaml.load(fp)
+
+    # -- PREPROCESSORS --
+    for key, preprocessor in config.get('preprocessors', {}).items():
+        preprocessor_name = preprocessor['name']
+        preprocessor_params = preprocessor.get('params', {})
+        preprocessors = __import__('pyannote.audio.preprocessors',
+                                   fromlist=[preprocessor_name])
+        Preprocessor = getattr(preprocessors, preprocessor_name)
+        protocol.preprocessors[key] = Preprocessor(**preprocessor_params)
 
     # -- FEATURE EXTRACTION --
     feature_extraction_name = config['feature_extraction']['name']
@@ -216,31 +261,193 @@ def train(protocol, duration, experiment_dir, train_dir, subset='train',
     Glue = getattr(glues, glue_name)
     glue = Glue(feature_extraction,
                 duration=duration,
+                step=step,
                 min_duration=min_duration,
+                cache=cache,
+                robust=robust,
                 **config['glue'].get('params', {}))
 
     # actual training
     embedding = SequenceEmbedding(glue=glue)
     embedding.fit(architecture, protocol, nb_epoch, train=subset,
                   optimizer=optimizer, batch_size=batch_size,
-                  log_dir=train_dir, validation=validation)
+                  log_dir=train_dir, validation=validation,
+                  max_q_size=1 if parallel else 0)
+
+
+def speaker_recognition_xp(aggregation, protocol, subset='development',
+                           distance='angular', threads=None):
+
+    method = '{subset}_enroll'.format(subset=subset)
+    enroll = getattr(protocol, method)(yield_name=True)
+
+    method = '{subset}_test'.format(subset=subset)
+    test = getattr(protocol, method)(yield_name=True)
+
+    # TODO parallelize using multiprocessing
+    fX = {}
+    for name, item in itertools.chain(enroll, test):
+        if name in fX:
+            continue
+        embeddings = aggregation.apply(item)
+        fX[name] = np.sum(embeddings.data, axis=0)
+
+    method = '{subset}_keys'.format(subset=subset)
+    keys = getattr(protocol, method)()
+
+    enroll_fX = l2_normalize(np.vstack([fX[name] for name in keys.index]))
+    test_fX = l2_normalize(np.vstack([fX[name] for name in keys]))
+
+    D = cdist(enroll_fX, test_fX, metric=distance)
+
+    y_true = []
+    y_pred = []
+    key_mapping = {0: None, -1: 0, 1: 1}
+    for i, _ in enumerate(keys.index):
+        for j, _ in enumerate(keys):
+            y = key_mapping[keys.iloc[i, j]]
+            if y is None:
+                continue
+
+            y_true.append(y)
+            y_pred.append(D[i, j])
+
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+
+    return det_curve(y_true, y_pred, distances=True)
+
+
+def speaker_diarization_xp(sequence_embedding, X, y, distance='angular'):
+
+    fX = sequence_embedding.transform(X)
+
+    # compute distance between every pair of sequences
+    y_pred = pdist(fX, metric=distance)
+
+    # compute same/different groundtruth
+    y_true = pdist(y, metric='chebyshev') < 1
+
+    # return DET curve
+    return det_curve(y_true, y_pred, distances=True)
+
+
+def validate(protocol, train_dir, validation_dir, subset='development'):
+
+    mkdir_p(validation_dir)
+
+    # -- DURATIONS --
+    duration, min_duration, step = path_to_duration(os.path.basename(train_dir))
+
+    # -- CONFIGURATION --
+    config_dir = os.path.dirname(os.path.dirname(os.path.dirname(train_dir)))
+    config_yml = config_dir + '/config.yml'
+    with open(config_yml, 'r') as fp:
+        config = yaml.load(fp)
+
+    # -- DISTANCE --
+    distance = config['glue'].get('params', {}).get('distance', 'sqeuclidean')
+
+    # -- PREPROCESSORS --
+    for key, preprocessor in config.get('preprocessors', {}).items():
+        preprocessor_name = preprocessor['name']
+        preprocessor_params = preprocessor.get('params', {})
+        preprocessors = __import__('pyannote.audio.preprocessors',
+                                   fromlist=[preprocessor_name])
+        Preprocessor = getattr(preprocessors, preprocessor_name)
+        protocol.preprocessors[key] = Preprocessor(**preprocessor_params)
+
+    # -- FEATURE EXTRACTION --
+    feature_extraction_name = config['feature_extraction']['name']
+    features = __import__('pyannote.audio.features',
+                          fromlist=[feature_extraction_name])
+    FeatureExtraction = getattr(features, feature_extraction_name)
+    feature_extraction = FeatureExtraction(
+        **config['feature_extraction'].get('params', {}))
+
+    architecture_yml = train_dir + '/architecture.yml'
+    WEIGHTS_H5 = train_dir + '/weights/{epoch:04d}.h5'
+
+    EER_TEMPLATE = '{epoch:04d} {now} {eer:5f}\n'
+    eers = []
+
+    path = validation_dir + '/{subset}.eer.txt'.format(subset=subset)
+    with open(path, mode='w') as fp:
+
+        epoch = 0
+        while True:
+
+            # wait until weight file is available
+            weights_h5 = WEIGHTS_H5.format(epoch=epoch)
+            if not os.path.isfile(weights_h5):
+                time.sleep(60)
+                continue
+
+            now = datetime.datetime.now().isoformat()
+
+            # load current model
+            sequence_embedding = SequenceEmbedding.from_disk(
+                architecture_yml, weights_h5)
+
+            # if speaker recognition protocol
+            if isinstance(protocol, SpeakerRecognitionProtocol):
+
+                aggregation = SequenceEmbeddingAggregation(
+                    sequence_embedding, feature_extraction,
+                    duration=duration, min_duration=min_duration,
+                    step=step, layer_index=-2, batch_size=8192)
+                aggregation.cache_preprocessed_ = False
+
+                # compute equal error rate
+                _, _, _, eer = speaker_recognition_xp(
+                    aggregation, protocol, subset=subset, distance=distance)
+
+            elif isinstance(protocol, SpeakerDiarizationProtocol):
+
+                if epoch == 0:
+                    X, y = generate_test(
+                        protocol, subset, feature_extraction,
+                        duration, min_duration=min_duration, step=step)
+
+                _, _, _, eer = speaker_diarization_xp(
+                    sequence_embedding, X, y, distance=distance)
+
+            fp.write(EER_TEMPLATE.format(epoch=epoch, eer=eer, now=now))
+            fp.flush()
+
+            eers.append(eer)
+            best_epoch = np.argmin(eers)
+            best_value = np.min(eers)
+            fig = plt.figure()
+            plt.plot(eers, 'b')
+            plt.plot([best_epoch], [best_value], 'bo')
+            plt.plot([0, epoch], [best_value, best_value], 'k--')
+            plt.grid(True)
+            plt.xlabel('epoch')
+            plt.ylabel('EER on {subset}'.format(subset=subset))
+            TITLE = 'EER = {best_value:.5g} on {subset} @ epoch #{best_epoch:d}'
+            title = TITLE.format(best_value=best_value,
+                                 best_epoch=best_epoch,
+                                 subset=subset)
+            plt.title(title)
+            plt.tight_layout()
+            path = validation_dir + '/{subset}.eer.png'.format(subset=subset)
+            plt.savefig(path, dpi=150)
+            plt.close(fig)
+
+            # skip to next epoch
+            epoch += 1
 
 
 def generate_test(protocol, subset, feature_extraction,
-                  duration, min_duration=None):
+                  duration, min_duration=None, step=None):
 
     np.random.seed(1337)
 
-    if min_duration is None:
-        # generate set of labeled sequences
-        generator = FixedDurationSequences(
-            feature_extraction, duration=duration,
-            step=duration, batch_size=-1)
-    else:
-        generator = VariableDurationSequences(
-            feature_extraction,
-            max_duration=duration, min_duration=min_duration,
-            batch_size=-1)
+    generator = FixedDurationSequences(
+        feature_extraction,
+        duration=duration, min_duration=min_duration, step=step,
+        batch_size=-1)
 
     X, y = zip(*generator(getattr(protocol, subset)()))
     X, y = np.vstack(X), np.hstack(y)
@@ -274,17 +481,22 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
             break
         nb_epoch += 1
 
-    min_duration = None
-    duration = os.path.basename(train_dir)
-    if '-' in duration:
-        min_duration, duration = duration.split('-')
-        min_duration = float(min_duration)
-    duration = float(duration)
+    # -- DURATIONS --
+    duration, min_duration, step = path_to_duration(os.path.basename(train_dir))
 
     config_dir = os.path.dirname(os.path.dirname(os.path.dirname(train_dir)))
     config_yml = config_dir + '/config.yml'
     with open(config_yml, 'r') as fp:
         config = yaml.load(fp)
+
+    # -- PREPROCESSORS --
+    for key, preprocessor in config.get('preprocessors', {}).items():
+        preprocessor_name = preprocessor['name']
+        preprocessor_params = preprocessor.get('params', {})
+        preprocessors = __import__('pyannote.audio.preprocessors',
+                                   fromlist=[preprocessor_name])
+        Preprocessor = getattr(preprocessors, preprocessor_name)
+        protocol.preprocessors[key] = Preprocessor(**preprocessor_params)
 
     # -- FEATURE EXTRACTION --
     feature_extraction_name = config['feature_extraction']['name']
@@ -297,7 +509,7 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
     distance = config['glue'].get('params', {}).get('distance', 'sqeuclidean')
 
     X, y = generate_test(protocol, subset, feature_extraction,
-                         duration, min_duration=min_duration)
+                         duration, min_duration=min_duration, step=step)
 
     alphas = {}
 
@@ -311,12 +523,8 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
 
         fX = sequence_embedding.transform(X, batch_size=batch_size)
 
-        # compute euclidean distance between every pair of sequences
-        if distance == 'angular':
-            cosine_distance = pdist(fX, metric='cosine')
-            y_distance = np.arccos(np.clip(1.0 - cosine_distance, -1.0, 1.0))
-        else:
-            y_distance = pdist(fX, metric=distance)
+        # compute distance between every pair of sequences
+        y_distance = pdist(fX, metric=distance)
 
         # compute same/different groundtruth
         y_true = pdist(y, metric='chebyshev') < 1
@@ -391,17 +599,22 @@ def test(protocol, tune_dir, test_dir, subset, beta=1.0):
 
     train_dir = os.path.dirname(os.path.dirname(tune_dir))
 
-    min_duration = None
-    duration = os.path.basename(train_dir)
-    if '-' in duration:
-        min_duration, duration = duration.split('-')
-        min_duration = float(min_duration)
-    duration = float(duration)
+    # -- DURATIONS --
+    duration, min_duration, step = path_to_duration(os.path.basename(train_dir))
 
     config_dir = os.path.dirname(os.path.dirname(os.path.dirname(train_dir)))
     config_yml = config_dir + '/config.yml'
     with open(config_yml, 'r') as fp:
         config = yaml.load(fp)
+
+    # -- PREPROCESSORS --
+    for key, preprocessor in config.get('preprocessors', {}).items():
+        preprocessor_name = preprocessor['name']
+        preprocessor_params = preprocessor.get('params', {})
+        preprocessors = __import__('pyannote.audio.preprocessors',
+                                   fromlist=[preprocessor_name])
+        Preprocessor = getattr(preprocessors, preprocessor_name)
+        protocol.preprocessors[key] = Preprocessor(**preprocessor_params)
 
     # -- FEATURE EXTRACTION --
     feature_extraction_name = config['feature_extraction']['name']
@@ -426,13 +639,9 @@ def test(protocol, tune_dir, test_dir, subset, beta=1.0):
         architecture_yml, weights_h5)
 
     X, y = generate_test(protocol, subset, feature_extraction,
-                         duration, min_duration=min_duration)
+                         duration, min_duration=min_duration, step=step)
     fX = sequence_embedding.transform(X, batch_size=batch_size)
-    if distance == 'angular':
-        cosine_distance = pdist(fX, metric='cosine')
-        y_distance = np.arccos(np.clip(1.0 - cosine_distance, -1.0, 1.0))
-    else:
-        y_distance = pdist(fX, metric=distance)
+    y_distance = pdist(fX, metric=distance)
     y_true = pdist(y, metric='chebyshev') < 1
 
     fpr, tpr, thresholds = sklearn.metrics.roc_curve(
@@ -488,10 +697,7 @@ def embed(protocol, tune_dir, apply_dir, subset='test',
 
     train_dir = os.path.dirname(os.path.dirname(tune_dir))
 
-    duration = os.path.basename(train_dir)
-    if '-' in duration:
-        _, duration = duration.split('-')
-    duration = float(duration)
+    duration, min_duration, step = path_to_duration(os.path.basename(train_dir))
 
     config_dir = os.path.dirname(os.path.dirname(os.path.dirname(train_dir)))
     config_yml = config_dir + '/config.yml'
@@ -532,8 +738,31 @@ def embed(protocol, tune_dir, apply_dir, subset='test',
         path = EMBED_PKL.format(uri=uri)
         mkdir_p(os.path.dirname(path))
 
-        with open(EMBED_PKL.format(uri=uri), 'w') as fp:
+        with open(path, 'w') as fp:
             pickle.dump(embedding, fp)
+
+# (5, None, None) ==> '5'
+# (5, 1, None) ==> '1-5'
+# (5, None, 2) ==> '5+2'
+# (5, 1, 2) ==> '1-5+2'
+def duration_to_path(duration=5.0, min_duration=None, step=None):
+    PATH = '' if min_duration is None else '{min_duration:g}-'
+    PATH += '{duration:g}'
+    if step is not None:
+        PATH += '+{step:g}'
+    return PATH.format(duration=duration, min_duration=min_duration, step=step)
+
+# (5, None, None) <== '5'
+# (5, 1, None) <== '1-5'
+# (5, None, 2) <== '5+2'
+# (5, 1, 2) <== '1-5+2'
+def path_to_duration(path):
+    tokens = path.split('+')
+    step = float(tokens[1]) if len(tokens) == 2 else None
+    tokens = tokens[0].split('-')
+    min_duration = float(tokens[0]) if len(tokens) == 2 else None
+    duration = float(tokens[0]) if len(tokens) == 1 else float(tokens[1])
+    return duration, min_duration, step
 
 
 if __name__ == '__main__':
@@ -547,8 +776,7 @@ if __name__ == '__main__':
         protocol = arguments['<database.task.protocol>']
         database_name, task_name, protocol_name = protocol.split('.')
         database = get_database(database_name, preprocessors=preprocessors)
-        protocol = database.get_protocol(task_name, protocol_name,
-                                         progress=True)
+        protocol = database.get_protocol(task_name, protocol_name, progress=True)
 
     subset = arguments['--subset']
 
@@ -556,23 +784,46 @@ if __name__ == '__main__':
 
     if arguments['train']:
         experiment_dir = arguments['<experiment_dir>']
+
         if subset is None:
             subset = 'train'
-        duration = float(arguments['--duration'])
-        min_duration = arguments['--min-duration']
-        if min_duration is None:
-            TRAIN_DIR = '{experiment_dir}/train/{protocol}.{subset}/{duration:g}'
-        else:
-            min_duration = float(min_duration)
-            TRAIN_DIR = '{experiment_dir}/train/{protocol}.{subset}/{min_duration:g}-{duration:g}'
-        validation = arguments['--validation']
 
+        duration = float(arguments['--duration'])
+
+        min_duration = arguments['--min-duration']
+        if min_duration is not None:
+            min_duration = float(min_duration)
+
+        step = arguments['--step']
+        if step is not None:
+            step = float(step)
+
+        TRAIN_DIR = '{experiment_dir}/train/{protocol}.{subset}/{path}'
+        # e.g. '1-5+2' or '5'
+        path = duration_to_path(duration=duration,
+                                min_duration=min_duration,
+                                step=step)
         train_dir = TRAIN_DIR.format(
             experiment_dir=experiment_dir,
             protocol=arguments['<database.task.protocol>'],
-            subset=subset, duration=duration, min_duration=min_duration)
+            subset=subset, path=path)
+
+        validation = arguments['--validation']
+
+        cache = arguments['--cache']
+        robust = arguments['--robust']
+        parallel = arguments['--parallel']
+
         train(protocol, duration, experiment_dir, train_dir, subset=subset,
-              min_duration=min_duration, validation=validation)
+              min_duration=min_duration, step=step, validation=validation,
+              cache=cache, robust=robust, parallel=parallel)
+
+    if arguments['validation']:
+        train_dir = arguments['<train_dir>']
+        if subset is None:
+            subset = 'development'
+        validation_dir = train_dir + '/validation/' + arguments['<database.task.protocol>']
+        res = validate(protocol, train_dir, validation_dir, subset=subset)
 
     if arguments['tune']:
         train_dir = arguments['<train_dir>']

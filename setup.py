@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016 CNRS
+# Copyright (c) 2016-2017 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -40,9 +40,9 @@ setup(
         'pyannote.core >= 0.8',
         'pyannote.metrics >= 0.11',
         'pyannote.generators >= 0.6.2',
-        'pyannote.database >= 0.10.1',
+        'pyannote.database >= 0.10.2',
         'pysndfile >= 0.2.11',
-        'keras >= 1.1.0',
+        'keras >= 1.2.0',
         'theano >= 0.8.2',
         'scikit-optimize >= 0.2',
         'pyYAML >= 3.12',
