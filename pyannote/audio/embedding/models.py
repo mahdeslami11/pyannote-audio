@@ -156,7 +156,7 @@ class TristouNet(object):
             x = mlp(x)
 
         normalize = Lambda(lambda x: K.l2_normalize(x, axis=-1),
-                           output_shape=(None, output_dim),
+                           output_shape=(output_dim, ),
                            name='normalize')
         embeddings = normalize(x)
 
