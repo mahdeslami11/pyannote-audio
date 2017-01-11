@@ -169,6 +169,10 @@ from pyannote.metrics.detection import DetectionPrecision
 from pyannote.metrics import f_measure
 
 
+WEIGHTS_H5 = '{train_dir}/weights/{epoch:04d}.h5'
+
+
+
 def train(protocol, experiment_dir, train_dir, subset='train'):
 
     # -- TRAINING --
@@ -231,11 +235,10 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
     os.makedirs(tune_dir)
 
     architecture_yml = train_dir + '/architecture.yml'
-    WEIGHTS_H5 = train_dir + '/weights/{epoch:04d}.h5'
 
     nb_epoch = 0
     while True:
-        weights_h5 = WEIGHTS_H5.format(epoch=nb_epoch)
+        weights_h5 = WEIGHTS_H5.format(train_dir=train_dir, epoch=epoch)
         if not os.path.isfile(weights_h5):
             break
         nb_epoch += 1
@@ -263,7 +266,8 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
 
         epoch, onset, offset = parameters
 
-        weights_h5 = WEIGHTS_H5.format(epoch=epoch)
+        weights_h5 = WEIGHTS_H5.format(train_dir=train_dir, epoch=epoch)
+
         sequence_labeling = SequenceLabeling.from_disk(
             architecture_yml, weights_h5)
 
@@ -388,8 +392,7 @@ def test(protocol, tune_dir, apply_dir, subset='test', beta=1.0):
         tune = yaml.load(fp)
 
     architecture_yml = train_dir + '/architecture.yml'
-    WEIGHTS_H5 = train_dir + '/weights/{epoch:04d}.h5'
-    weights_h5 = WEIGHTS_H5.format(epoch=tune['epoch'])
+    weights_h5 = WEIGHTS_H5.format(train_dir=train_dir, epoch=epoch)
 
     sequence_labeling = SequenceLabeling.from_disk(
         architecture_yml, weights_h5)
