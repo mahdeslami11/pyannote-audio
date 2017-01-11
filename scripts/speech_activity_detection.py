@@ -182,9 +182,9 @@ WEIGHTS_H5 = '{train_dir}/weights/{epoch:04d}.h5'
 def train(protocol, experiment_dir, train_dir, subset='train'):
 
     # -- TRAINING --
-    batch_size = 1024
     nb_epoch = 1000
     optimizer = SSMORMS3()
+    batch_size = 8192
 
     # load configuration file
     config_yml = experiment_dir + '/config.yml'
