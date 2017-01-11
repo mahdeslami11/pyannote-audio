@@ -31,6 +31,7 @@ Speech activity detection
 
 Usage:
   speech_activity_detection train [--database=<db.yml> --subset=<subset>] <experiment_dir> <database.task.protocol>
+  speech_activity_detection validation [--database=<db.yml> --subset=<subset>] <train_dir> <database.task.protocol>
   speech_activity_detection tune  [--database=<db.yml> --subset=<subset> --recall=<beta>] <train_dir> <database.task.protocol>
   speech_activity_detection apply [--database=<db.yml> --subset=<subset> --recall=<beta>] <tune_dir> <database.task.protocol>
   speech_activity_detection -h | --help
@@ -134,6 +135,7 @@ Configuration file:
 import yaml
 import pickle
 import os.path
+import datetime
 import functools
 import numpy as np
 
@@ -156,6 +158,9 @@ from pyannote.database import get_database
 from pyannote.database.util import FileFinder
 from pyannote.database.util import get_unique_identifier
 from pyannote.database.util import get_annotated
+
+from pyannote.database.protocol import SpeakerDiarizationProtocol
+
 from pyannote.audio.util import mkdir_p
 
 from pyannote.audio.optimizers import SSMORMS3
@@ -164,6 +169,7 @@ import skopt
 import skopt.utils
 import skopt.space
 import skopt.plots
+from pyannote.metrics.detection import DetectionErrorRate
 from pyannote.metrics.detection import DetectionRecall
 from pyannote.metrics.detection import DetectionPrecision
 from pyannote.metrics import f_measure
@@ -227,6 +233,134 @@ def train(protocol, experiment_dir, train_dir, subset='train'):
                  generator(getattr(protocol, subset)(), infinite=True),
                  samples_per_epoch, nb_epoch,
                  optimizer=optimizer, log_dir=train_dir)
+
+
+def get_aggregation(epoch, train_dir=None, feature_extraction=None,
+                    duration=None, step=None):
+
+    architecture_yml = train_dir + '/architecture.yml'
+    weights_h5 = WEIGHTS_H5.format(train_dir=train_dir, epoch=epoch)
+
+    sequence_labeling = SequenceLabeling.from_disk(
+        architecture_yml, weights_h5)
+
+    aggregation = SequenceLabelingAggregation(
+        sequence_labeling, feature_extraction,
+        duration=duration, step=step)
+
+    return aggregation
+
+
+def speech_activity_detection_xp(aggregation, protocol, subset='development',
+                                 onset=None, offset=None, collar=0.0):
+
+    detection_error_rate = DetectionErrorRate(collar=collar)
+
+    predictions = {}
+
+    f, n = 0., 0
+    for item in getattr(protocol, subset)():
+
+        reference = item['annotation']
+        uem = get_annotated(item)
+
+        prediction = aggregation.apply(item)
+
+        uri = get_unique_identifier(item)
+        predictions[uri] = prediction
+
+    binarizer = Binarize(onset=onset, offset=offset)
+
+    for item in getattr(protocol, subset)():
+        hypothesis = binarizer.apply(predictions[uri], dimension=1)
+        der = detection_error_rate(reference, hypothesis, uem=uem)
+
+    return abs(der), onset, offset
+
+
+def validate(protocol, train_dir, validation_dir, subset='development'):
+
+    mkdir_p(validation_dir)
+
+    # -- CONFIGURATION --
+    config_dir = os.path.dirname(os.path.dirname(train_dir))
+    config_yml = config_dir + '/config.yml'
+    with open(config_yml, 'r') as fp:
+        config = yaml.load(fp)
+
+    # -- FEATURE EXTRACTION --
+    feature_extraction_name = config['feature_extraction']['name']
+    features = __import__('pyannote.audio.features',
+                          fromlist=[feature_extraction_name])
+    FeatureExtraction = getattr(features, feature_extraction_name)
+    feature_extraction = FeatureExtraction(
+        **config['feature_extraction'].get('params', {}))
+
+    # -- SEQUENCE GENERATOR --
+    duration = config['sequences']['duration']
+    step = config['sequences']['step']
+
+    # detection error rates
+    DER_TEMPLATE = '{epoch:04d} {now} {der:5f}\n'
+    ders = []
+    path = validation_dir + '/{subset}.der.txt'.format(subset=subset)
+
+    with open(path, mode='w') as fp:
+
+        epoch = 0
+        while True:
+
+            # wait until weight file is available
+            weights_h5 = WEIGHTS_H5.format(train_dir=train_dir, epoch=epoch)
+            if not os.path.isfile(weights_h5):
+                time.sleep(60)
+                continue
+
+            now = datetime.datetime.now().isoformat()
+
+            aggregation = get_aggregation(
+                epoch,
+                train_dir=train_dir,
+                feature_extraction=feature_extraction,
+                duration=duration,
+                step=step)
+
+            # do not cache features in memory when they are precomputed on disk
+            # as this does not bring any significant speed-up
+            # but does consume (potentially) a LOT of memory
+            aggregation.cache_preprocessed_ = \
+                'Precomputed' not in feature_extraction_name
+
+            if isinstance(protocol, SpeakerDiarizationProtocol):
+                der, onset, offset = speech_activity_detection_xp(
+                    aggregation, protocol, subset=subset,
+                    onset=0.5, offset=0.5)
+
+            fp.write(DER_TEMPLATE.format(epoch=epoch, der=der, now=now))
+            fp.flush()
+
+            ders.append(der)
+            best_epoch = np.argmin(ders)
+            best_value = np.min(ders)
+            fig = plt.figure()
+            plt.plot(ders, 'b')
+            plt.plot([best_epoch], [best_value], 'bo')
+            plt.plot([0, epoch], [best_value, best_value], 'k--')
+            plt.grid(True)
+            plt.xlabel('epoch')
+            plt.ylabel('DER on {subset}'.format(subset=subset))
+            TITLE = 'DER = {best_value:.5g} on {subset} @ epoch #{best_epoch:d}'
+            title = TITLE.format(best_value=best_value,
+                                 best_epoch=best_epoch,
+                                 subset=subset)
+            plt.title(title)
+            plt.tight_layout()
+            path = validation_dir + '/{subset}.der.png'.format(subset=subset)
+            plt.savefig(path, dpi=150)
+            plt.close(fig)
+
+            # skip to next epoch
+            epoch += 1
 
 
 def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
@@ -484,6 +618,16 @@ if __name__ == '__main__':
 
         protocol.progress = False
         train(protocol, experiment_dir, train_dir, subset=subset)
+
+    if arguments['validation']:
+        train_dir = arguments['<train_dir>']
+        if subset is None:
+            subset = 'development'
+
+        validation_dir = train_dir + '/validation/' + arguments['<database.task.protocol>']
+
+        protocol.progress = False
+        res = validate(protocol, train_dir, validation_dir, subset=subset)
 
     if arguments['tune']:
         train_dir = arguments['<train_dir>']
