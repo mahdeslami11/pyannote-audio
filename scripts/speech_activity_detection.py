@@ -203,6 +203,12 @@ def train(protocol, experiment_dir, train_dir, subset='train'):
         feature_extraction,
         duration=duration, step=step, batch_size=batch_size)
 
+    # do not cache features in memory when they are precomputed on disk
+    # as this does not bring any significant speed-up
+    # but does consume (potentially) a LOT of memory
+    generator.cache_preprocessed_ = \
+        'Precomputed' not in feature_extraction_name
+
     # number of samples per epoch + round it to closest batch
     seconds_per_epoch = protocol.stats(subset)['annotated']
     samples_per_epoch = batch_size * \
