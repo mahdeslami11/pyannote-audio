@@ -779,8 +779,6 @@ if __name__ == '__main__':
 
     subset = arguments['--subset']
 
-    arguments = docopt(__doc__, version='Speaker embedding')
-
     if arguments['train']:
         experiment_dir = arguments['<experiment_dir>']
 
