@@ -200,8 +200,8 @@ def train(protocol, experiment_dir, train_dir, subset='train'):
     duration = config['sequences']['duration']
     step = config['sequences']['step']
     generator = SpeechActivityDetectionBatchGenerator(
-        feature_extraction,
-        duration=duration, step=step, batch_size=batch_size)
+        feature_extraction, duration=duration, step=step,
+        batch_size=batch_size)
 
     # do not cache features in memory when they are precomputed on disk
     # as this does not bring any significant speed-up
