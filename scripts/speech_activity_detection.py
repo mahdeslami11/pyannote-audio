@@ -472,6 +472,7 @@ if __name__ == '__main__':
         if subset is None:
             subset = 'train'
         train_dir = experiment_dir + '/train/' + arguments['<database.task.protocol>'] + '.' + subset
+        protocol.progress = False
         train(protocol, experiment_dir, train_dir, subset=subset)
 
     if arguments['tune']:
