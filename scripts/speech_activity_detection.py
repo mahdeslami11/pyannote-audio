@@ -155,6 +155,7 @@ from pyannote.audio.signal import Binarize
 from pyannote.database import get_database
 from pyannote.database.util import FileFinder
 from pyannote.database.util import get_unique_identifier
+from pyannote.database.util import get_annotated
 from pyannote.audio.util import mkdir_p
 
 from pyannote.audio.optimizers import SSMORMS3
