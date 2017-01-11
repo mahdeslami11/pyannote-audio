@@ -298,22 +298,21 @@ def speaker_recognition_xp(aggregation, protocol, subset='development',
     enroll_fX = l2_normalize(np.vstack([fX[name] for name in keys.index]))
     test_fX = l2_normalize(np.vstack([fX[name] for name in keys]))
 
+    # compare all possible (enroll, test) pairs at once
     D = cdist(enroll_fX, test_fX, metric=distance)
 
     y_true = []
     y_pred = []
-    key_mapping = {0: None, -1: 0, 1: 1}
-    for i, _ in enumerate(keys.index):
-        for j, _ in enumerate(keys):
-            y = key_mapping[keys.iloc[i, j]]
-            if y is None:
-                continue
 
-            y_true.append(y)
-            y_pred.append(D[i, j])
+    positive = D[np.where(keys == 1)]
+    negative = D[np.where(keys == -1)]
+    # untested = D[np.where(keys == 0)]
+    y_pred = np.hstack([positive, negative])
 
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
+    n_positive = positive.shape[0]
+    n_negative = negative.shape[0]
+    # n_untested = untested.shape[0]
+    y_true = np.hstack([np.ones(n_positive,), np.zeros(n_negative)])
 
     return det_curve(y_true, y_pred, distances=True)
 
