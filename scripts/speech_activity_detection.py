@@ -382,7 +382,6 @@ def test(protocol, tune_dir, apply_dir, subset='test', beta=1.0):
     step = config['sequences']['step']
 
     # -- HYPER-PARAMETERS --
-
     tune_yml = tune_dir + '/tune.yml'
     with open(tune_yml, 'r') as fp:
         tune = yaml.load(fp)
@@ -469,9 +468,16 @@ if __name__ == '__main__':
 
     if arguments['train']:
         experiment_dir = arguments['<experiment_dir>']
+
         if subset is None:
             subset = 'train'
-        train_dir = experiment_dir + '/train/' + arguments['<database.task.protocol>'] + '.' + subset
+
+        TRAIN_DIR = '{experiment_dir}/train/{protocol}.{subset}/{path}'
+        train_dir = TRAIN_DIR.format(
+            experiment_dir=experiment_dir,
+            protocol=arguments['<database.task.protocol>'],
+            subset=subset)
+
         protocol.progress = False
         train(protocol, experiment_dir, train_dir, subset=subset)
 
