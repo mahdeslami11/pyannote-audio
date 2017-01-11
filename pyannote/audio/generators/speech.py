@@ -77,7 +77,7 @@ class SpeechActivityDetectionBatchGenerator(PeriodicFeaturesMixin,
         sw = X.sliding_window
         n_samples = X.getNumber()
 
-        y = np.zeros((n_samples + 1, 4), dtype=np.int8)
+        y = np.zeros((n_samples + 4, 2), dtype=np.int8)
         # [0,1] ==> speech / [1, 0] ==> non speech / [0, 0] ==> unknown
 
         annotated = current_file['annotated']
