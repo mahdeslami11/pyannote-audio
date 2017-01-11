@@ -210,7 +210,11 @@ def train(protocol, experiment_dir, train_dir, subset='train'):
         'Precomputed' not in feature_extraction_name
 
     # number of samples per epoch + round it to closest batch
-    seconds_per_epoch = protocol.stats(subset)['annotated']
+    stats = protocol.stats(subset)
+    if 'annotated' in stats:
+        seconds_per_epoch = stats['annotated']
+    else:
+        seconds_per_epoch = stats['annotated_approximate']
     samples_per_epoch = batch_size * \
         int(np.ceil((seconds_per_epoch / step) / batch_size))
 
