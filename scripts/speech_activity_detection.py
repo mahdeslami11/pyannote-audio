@@ -299,7 +299,7 @@ def validate(protocol, train_dir, validation_dir, subset='development'):
     step = config['sequences']['step']
 
     # detection error rates
-    DER_TEMPLATE = '{epoch:04d} {now} {der:5f}\n'
+    DER_TEMPLATE = '{epoch:04d} {now} {der:.6f}\n'
     ders = []
     path = validation_dir + '/{subset}.der.txt'.format(subset=subset)
 
