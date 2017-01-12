@@ -370,7 +370,7 @@ def tune(protocol, train_dir, tune_dir, subset='development'):
 
     nb_epoch = 0
     while True:
-        weights_h5 = WEIGHTS_H5.format(train_dir=train_dir, epoch=epoch)
+        weights_h5 = WEIGHTS_H5.format(train_dir=train_dir, epoch=nb_epoch)
         if not os.path.isfile(weights_h5):
             break
         nb_epoch += 1
