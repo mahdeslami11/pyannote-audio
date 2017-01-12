@@ -261,23 +261,20 @@ def speech_activity_detection_xp(aggregation, protocol, subset='development',
 
     f, n = 0., 0
     for item in getattr(protocol, subset)():
-
-        reference = item['annotation']
-        uem = get_annotated(item)
-
-        prediction = aggregation.apply(item)
-
         uri = get_unique_identifier(item)
+        prediction = aggregation.apply(item)
         predictions[uri] = prediction
 
     binarizer = Binarize(onset=onset, offset=offset)
 
     for item in getattr(protocol, subset)():
+        uri = get_unique_identifier(item)
+        reference = item['annotation']
+        uem = get_annotated(item)
         hypothesis = binarizer.apply(predictions[uri], dimension=1)
         der = detection_error_rate(reference, hypothesis, uem=uem)
 
     return abs(der), onset, offset
-
 
 def validate(protocol, train_dir, validation_dir, subset='development'):
 
