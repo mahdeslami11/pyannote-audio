@@ -32,7 +32,7 @@ Speech activity detection
 Usage:
   speech_activity_detection train [--database=<db.yml> --subset=<subset>] <experiment_dir> <database.task.protocol>
   speech_activity_detection validation [--database=<db.yml> --subset=<subset>] <train_dir> <database.task.protocol>
-  speech_activity_detection tune  [--database=<db.yml> --subset=<subset> --recall=<beta>] <train_dir> <database.task.protocol>
+  speech_activity_detection tune  [--database=<db.yml> --subset=<subset>] <train_dir> <database.task.protocol>
   speech_activity_detection apply [--database=<db.yml> --subset=<subset> --recall=<beta>] <tune_dir> <database.task.protocol>
   speech_activity_detection -h | --help
   speech_activity_detection --version
@@ -361,7 +361,7 @@ def validate(protocol, train_dir, validation_dir, subset='development'):
             epoch += 1
 
 
-def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
+def tune(protocol, train_dir, tune_dir, subset='development'):
 
     np.random.seed(1337)
     os.makedirs(tune_dir)
@@ -394,7 +394,7 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
 
     predictions = {}
 
-    def objective_function(parameters, beta=1.0):
+    def objective_function(parameters):
 
         epoch, onset, offset = parameters
 
@@ -411,16 +411,13 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
             predictions[epoch] = {}
 
         # no need to use collar during tuning
-        precision = DetectionPrecision()
-        recall = DetectionRecall()
+        error = DetectionErrorRate()
 
-        f, n = 0., 0
         for dev_file in getattr(protocol, subset)():
 
             uri = get_unique_identifier(dev_file)
             reference = dev_file['annotation']
-            uem = dev_file['annotated']
-            n += 1
+            uem = get_annotated(dev_file)
 
             if uri in predictions[epoch]:
                 prediction = predictions[epoch][uri]
@@ -431,11 +428,9 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
             binarizer = Binarize(onset=onset, offset=offset)
             hypothesis = binarizer.apply(prediction, dimension=1)
 
-            p = precision(reference, hypothesis, uem=uem)
-            r = recall(reference, hypothesis, uem=uem)
-            f += f_measure(p, r, beta=beta)
+            _ = error(reference, hypothesis, uem=uem)
 
-        return 1 - (f / n)
+        return abs(error)
 
     def callback(res):
 
@@ -443,8 +438,7 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
 
         # save best parameters so far
         epoch, onset, offset = res.x
-        params = {'status': {'nb_epoch': nb_epoch,
-                             'recall': beta},
+        params = {'status': {'nb_epoch': nb_epoch},
                   'epoch': int(epoch),
                   'onset': float(onset),
                   'offset': float(offset)}
@@ -486,7 +480,7 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
     offset = skopt.space.Real(0., 1., prior='uniform')
 
     res = skopt.gp_minimize(
-        functools.partial(objective_function, beta=beta),
+        objective_function,
         [epoch, onset, offset], callback=callback,
         n_calls=1000, n_random_starts=10,
         x0=[nb_epoch - 1, 0.5, 0.5],
@@ -633,7 +627,7 @@ if __name__ == '__main__':
             subset = 'development'
         beta = float(arguments.get('--recall'))
         tune_dir = train_dir + '/tune/' + arguments['<database.task.protocol>'] + '.' + subset
-        res = tune(protocol, train_dir, tune_dir, beta=beta, subset=subset)
+        res = tune(protocol, train_dir, tune_dir, subset=subset)
 
     if arguments['apply']:
         tune_dir = arguments['<tune_dir>']
