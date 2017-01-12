@@ -255,7 +255,7 @@ def get_aggregation(epoch, train_dir=None, feature_extraction=None,
 def speech_activity_detection_xp(aggregation, protocol, subset='development',
                                  onset=None, offset=None, collar=0.0):
 
-    detection_error_rate = DetectionErrorRate(collar=collar)
+    metric = DetectionErrorRate(collar=collar)
 
     predictions = {}
 
@@ -272,9 +272,10 @@ def speech_activity_detection_xp(aggregation, protocol, subset='development',
         reference = item['annotation']
         uem = get_annotated(item)
         hypothesis = binarizer.apply(predictions[uri], dimension=1)
-        der = detection_error_rate(reference, hypothesis, uem=uem)
+        der = metric(reference, hypothesis, uem=uem)
 
-    return abs(der), onset, offset
+    return abs(metric), onset, offset
+
 
 def validate(protocol, train_dir, validation_dir, subset='development'):
 
@@ -330,7 +331,7 @@ def validate(protocol, train_dir, validation_dir, subset='development'):
                 'Precomputed' not in feature_extraction_name
 
             if isinstance(protocol, SpeakerDiarizationProtocol):
-                der, onset, offset = speech_activity_detection_xp(
+                der, _, _ = speech_activity_detection_xp(
                     aggregation, protocol, subset=subset,
                     onset=0.5, offset=0.5)
 
