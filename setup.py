@@ -51,6 +51,10 @@ setup(
         'cachetools >= 2.0.0',
         'librosa >= 0.4.3'
     ],
+    entry_points = {
+        'console_scripts': [
+            'pyannote-speech-detection=pyannote.audio.applications.speech_activity_detection:main']
+    },
     # versioneer
     version=versioneer.get_version(),
     cmdclass=versioneer.get_cmdclass(),
