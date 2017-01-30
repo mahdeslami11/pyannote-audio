@@ -26,8 +26,10 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-
-from .with_yaafe import YaafeCompound, YaafeZCR, YaafeMFCC
+try:
+    from .with_yaafe import YaafeCompound, YaafeZCR, YaafeMFCC
+except ImportError as e:
+    pass
 from .with_librosa import LibrosaMFCC
 from .utils import Precomputed
 from .utils import PrecomputedHTK
