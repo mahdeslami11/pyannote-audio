@@ -252,6 +252,8 @@ class SpeechActivityDetection(Application):
                 plt.savefig(validation_png, dpi=150)
                 plt.close(fig)
 
+                epoch += 1
+
     def tune(self, protocol_name, subset='development'):
 
         tune_dir = self.TUNE_DIR.format(
