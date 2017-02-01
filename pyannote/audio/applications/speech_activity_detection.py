@@ -130,6 +130,7 @@ Configuration file:
 
 """
 
+import io
 import yaml
 import time
 import warnings
@@ -318,7 +319,7 @@ class SpeechActivityDetection(Application):
         TEMPLATE = '{epoch:04d} {onset:.3f} {offset:.3f} {metric:.6f}\n'
         metrics = []
 
-        with open(validation_txt, mode='w') as fp:
+        with io.open(validation_txt, mode='w') as fp:
 
             epoch = 0
             while epoch < 1000:
@@ -397,7 +398,7 @@ class SpeechActivityDetection(Application):
                       'offset': float(best_binarize_params[tuple(res.x)]['offset'])
                       }
 
-            with open(tune_yml, 'w') as fp:
+            with io.open(tune_yml, 'w') as fp:
                 yaml.dump(params, fp, default_flow_style=False)
 
         def objective_function(params):
@@ -436,7 +437,7 @@ class SpeechActivityDetection(Application):
 
         # load tuning results
         tune_yml = self.TUNE_YML.format(tune_dir=self.tune_dir_)
-        with open(tune_yml, 'r') as fp:
+        with io.open(tune_yml, 'r') as fp:
             self.tune_ = yaml.load(fp)
 
         # load model for epoch 'epoch'
@@ -497,7 +498,7 @@ class SpeechActivityDetection(Application):
         writer = MDTMParser()
         path = self.HARD_MDTM.format(apply_dir=apply_dir, protocol=protocol_name,
                                 subset=subset)
-        with open(path, mode='w') as gp:
+        with io.open(path, mode='w') as gp:
             for item in getattr(protocol, subset)():
                 prediction = precomputed(item)
                 segmentation = binarize.apply(prediction, dimension=1)
