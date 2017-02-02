@@ -96,7 +96,7 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     @property
     def sliding_window(self):
         if self.aggregate:
-            return self.feature_extractor.sliding_window
+            return self.feature_extractor.sliding_window()
         else:
             return SlidingWindow(start=0., duration=self.duration, step=self.step)
 
