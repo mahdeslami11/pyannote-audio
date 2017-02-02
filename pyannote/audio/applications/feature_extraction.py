@@ -30,9 +30,9 @@
 Feature extraction
 
 Usage:
-  feature_extraction [--robust --database=<db.yml>] <experiment_dir> <database.task.protocol>
-  feature_extraction -h | --help
-  feature_extraction --version
+  pyannote-speech-feature [--robust --database=<db.yml>] <experiment_dir> <database.task.protocol>
+  pyannote-speech-feature -h | --help
+  pyannote-speech-feature --version
 
 Options:
   <experiment_dir>           Set experiment root directory. This script expects
@@ -179,7 +179,8 @@ def extract(database_name, task_name, protocol_name, preprocessors, experiment_d
         f.create_dataset('features', data=data)
         f.close()
 
-if __name__ == '__main__':
+
+def main():
 
     arguments = docopt(__doc__, version='Feature extraction')
 

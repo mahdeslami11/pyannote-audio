@@ -30,12 +30,12 @@
 Speech activity detection
 
 Usage:
-  speech_activity_detection train [--database=<db.yml> --subset=<subset>] <experiment_dir> <database.task.protocol>
-  speech_activity_detection validate [--database=<db.yml> --subset=<subset>] <train_dir> <database.task.protocol>
-  speech_activity_detection tune  [--database=<db.yml> --subset=<subset>] <train_dir> <database.task.protocol>
-  speech_activity_detection apply [--database=<db.yml> --subset=<subset>] <tune_dir> <database.task.protocol>
-  speech_activity_detection -h | --help
-  speech_activity_detection --version
+  pyannote-speech-detection train [--database=<db.yml> --subset=<subset>] <experiment_dir> <database.task.protocol>
+  pyannote-speech-detection validate [--database=<db.yml> --subset=<subset>] <train_dir> <database.task.protocol>
+  pyannote-speech-detection tune  [--database=<db.yml> --subset=<subset>] <train_dir> <database.task.protocol>
+  pyannote-speech-detection apply [--database=<db.yml> --subset=<subset>] <tune_dir> <database.task.protocol>
+  pyannote-speech-detection -h | --help
+  pyannote-speech-detection --version
 
 Options:
   <experiment_dir>           Set experiment root directory. This script expects
@@ -356,7 +356,7 @@ class SpeechActivityDetection(Application):
                                      best_epoch=best_epoch)
                 plt.title(title)
                 plt.tight_layout()
-                plt.savefig(validation_png, dpi=150)
+                plt.savefig(validation_png, dpi=75)
                 plt.close(fig)
 
                 epoch += 1
@@ -387,7 +387,7 @@ class SpeechActivityDetection(Application):
             import matplotlib.pyplot as plt
             import skopt.plots
             _ = skopt.plots.plot_convergence(res)
-            plt.savefig(tune_png, dpi=150)
+            plt.savefig(tune_png, dpi=75)
             plt.close()
 
             # save state

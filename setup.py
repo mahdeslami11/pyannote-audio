@@ -53,7 +53,8 @@ setup(
     ],
     entry_points = {
         'console_scripts': [
-            'pyannote-speech-detection=pyannote.audio.applications.speech_activity_detection:main']
+            'pyannote-speech-feature=pyannote.audio.applications.feature_extraction:main',
+            'pyannote-speech-detection=pyannote.audio.applications.speech_detection:main']
     },
     # versioneer
     version=versioneer.get_version(),
