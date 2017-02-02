@@ -34,7 +34,7 @@ Usage:
   speaker_embedding validation [--database=<db.yml> --subset=<subset>] <train_dir> <database.task.protocol>
   speaker_embedding tune [--database=<db.yml> --subset=<subset> --false-alarm=<beta>] <train_dir> <database.task.protocol>
   speaker_embedding test [--database=<db.yml> --subset=<subset> --false-alarm=<beta>] <tune_dir> <database.task.protocol>
-  speaker_embedding apply [--database=<db.yml> --subset=<subset> --step=<step> --internal=<index>] <tune_dir> <database.task.protocol>
+  speaker_embedding apply [--database=<db.yml> --subset=<subset> --step=<step> --internal=<index> --aggregate] <tune_dir> <database.task.protocol>
   speaker_embedding -h | --help
   speaker_embedding --version
 
@@ -66,6 +66,9 @@ Options:
   --internal=<index>         Index of layer for which to return the activation.
                              Defaults (-1) to returning the activation of the
                              final layer.
+  --aggregate                In case an internal layer is requested, aggregate
+                             embedding over all overlapping windows. Defaults
+                             to no aggregation.
   -h --help                  Show this screen.
   --version                  Show version.
 
@@ -691,7 +694,8 @@ def test(protocol, tune_dir, test_dir, subset, beta=1.0):
                                  eer=eer))
 
 
-def embed(protocol, tune_dir, apply_dir, subset='test', step=None, internal=None):
+def embed(protocol, tune_dir, apply_dir, subset='test', step=None,
+          internal=None, aggregate=False):
 
     mkdir_p(apply_dir)
 
@@ -727,7 +731,8 @@ def embed(protocol, tune_dir, apply_dir, subset='test', step=None, internal=None
     dimension = sequence_embedding.embedding_.output_shape[-1]
 
     extraction = Extraction(sequence_embedding, feature_extraction,
-                            duration=duration, step=step, internal=internal)
+                            duration=duration, step=step,
+                            internal=internal, aggregate=aggregate)
 
     dimension = extraction.dimension
     sliding_window = extraction.sliding_window
@@ -873,9 +878,13 @@ if __name__ == '__main__':
             internal = int(internal)
             apply_dir += '/internal_{internal:d}'.format(internal=internal)
 
+        aggregate = arguments['--aggregate']
+        if aggregate:
+            apply_dir += '/aggregate'
+
         if subset is None:
             subset = 'test'
 
         embed(protocol, tune_dir, apply_dir,
               subset=subset, step=step,
-              internal=internal)
+              internal=internal, aggregate=aggregate)

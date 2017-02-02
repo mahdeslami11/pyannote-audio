@@ -26,6 +26,7 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
+import warnings
 import numpy as np
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.generators.batch import FileBasedBatchGenerator
@@ -94,18 +95,54 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
         return self.sequence_embedding.transform(
             batch, internal=self.internal)
 
-    def apply(self, current_file):
+    def apply(self, current_file, aggregate=False):
         """Compute embeddings on a sliding window
 
         Parameter
         ---------
         current_file : dict
-
+        aggregate : bool, optional
+            Has no effect when
         Returns
         -------
         embeddings : SlidingWindowFeature
         """
-        window = SlidingWindow(duration=self.duration, step=self.step, start=0.)
-        batches = [batch for batch in self.from_file(current_file,
-                                                     incomplete=True)]
-        return SlidingWindowFeature(np.vstack(batches), window)
+
+        if aggregate and (self.internal is None or self.internal == -1):
+            warnings.warn(
+                '"aggregate" parameter has no effect when '
+                'the output of the final layer is returned.')
+
+        embeddings = np.vstack([batch for batch in self.from_file(
+            current_file, incomplete=True)])
+
+        window = SlidingWindow(duration=self.duration, step=self.step)
+
+        if not aggregate:
+            return SlidingWindowFeature(embeddings, window)
+
+
+        # estimate total number of frames based on number of batches
+        samples_window = self.feature_extractor.sliding_window()
+        n_sequences, _, dimension = embeddings.shape
+        duration = window[n_sequences - 1].end
+        n_samples = samples_window.samples(duration)
+
+        # k[i] contains the number of sequences that overlap with frame #i
+        k = np.zeros((n_samples, 1), dtype=np.int8)
+
+        # fX[i] contains the sum of embeddings for frame #i
+        # over all overlapping samples
+        fX = np.zeros((n_samples, dimension), dtype=np.float32)
+
+        for i, embedding in enumerate(embeddings):
+
+            # indices of frames overlapped by sequence #i
+            indices = samples_window.crop(window[i], mode='center',
+                                          fixed=self.duration)
+
+            fX[indices] += embeddings[i]
+
+        fX = fX / np.maximum(k, 1)
+
+        return SlidingWindowFeature(fX, samples_window)
