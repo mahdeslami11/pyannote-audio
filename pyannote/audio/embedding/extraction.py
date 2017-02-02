@@ -50,6 +50,7 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     internal : int, optional
         Index of layer for which to return the activation.
         Defaults (-1) to returning the activation of the final layer.
+    aggregate : bool, optional
 
     Usage
     -----
@@ -61,7 +62,7 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
 
     """
     def __init__(self, sequence_embedding, feature_extractor,
-                 duration=1.000, step=None, internal=None):
+                 duration=1.000, step=None, internal=None, aggregate=False):
 
         # feature sequence
         self.feature_extractor = feature_extractor
@@ -74,18 +75,30 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
         generator = SlidingSegments(duration=duration, step=step, source='wav')
         self.step = generator.step if step is None else step
 
+        if aggregate and (internal is None or internal == -1):
+            warnings.warn(
+                '"aggregate" parameter has no effect when '
+                'the output of the final layer is returned.')
+
         self.internal = internal
+        self.aggregate = aggregate
 
         super(Extraction, self).__init__(generator, batch_size=32)
 
     @property
     def dimension(self):
         internal = -1 if self.internal is None else self.internal
-        return self.sequence_embedding.embedding_.layers[internal].output_shape[1:]
+        if self.aggregate:
+            return self.sequence_embedding.embedding_.layers[internal].output_shape[-1]
+        else:
+            return self.sequence_embedding.embedding_.layers[internal].output_shape[1:]
 
     @property
     def sliding_window(self):
-        return SlidingWindow(start=0., duration=self.duration, step=self.step)
+        if self.aggregate:
+            return self.feature_extractor.sliding_window
+        else:
+            return SlidingWindow(start=0., duration=self.duration, step=self.step)
 
     def signature(self):
         shape = self.shape
@@ -95,32 +108,24 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
         return self.sequence_embedding.transform(
             batch, internal=self.internal)
 
-    def apply(self, current_file, aggregate=False):
+    def apply(self, current_file):
         """Compute embeddings on a sliding window
 
         Parameter
         ---------
         current_file : dict
-        aggregate : bool, optional
-            Has no effect when
         Returns
         -------
         embeddings : SlidingWindowFeature
         """
-
-        if aggregate and (self.internal is None or self.internal == -1):
-            warnings.warn(
-                '"aggregate" parameter has no effect when '
-                'the output of the final layer is returned.')
 
         embeddings = np.vstack([batch for batch in self.from_file(
             current_file, incomplete=True)])
 
         window = SlidingWindow(duration=self.duration, step=self.step)
 
-        if not aggregate:
+        if not self.aggregate:
             return SlidingWindowFeature(embeddings, window)
-
 
         # estimate total number of frames based on number of batches
         samples_window = self.feature_extractor.sliding_window()
