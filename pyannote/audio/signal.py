@@ -43,7 +43,7 @@ class Peak(object):
     """Peak detection
 
     Peaks are detected on min_duration windows.
-    Only peaks greater than p(5) + alpha * (p(95) - p(5)) are kept
+    Only peaks greater than p(1) + alpha * (p(99) - p(1)) are kept
     where p(x) is xth percentile.
 
     Parameters
@@ -79,8 +79,8 @@ class Peak(object):
         order = int(np.rint(self.min_duration / precision))
         indices = scipy.signal.argrelmax(y, order=order)[0]
 
-        mini = np.nanpercentile(y, 5)
-        maxi = np.nanpercentile(y, 95)
+        mini = np.nanpercentile(y, 1)
+        maxi = np.nanpercentile(y, 99)
         threshold = mini + self.alpha * (maxi - mini)
 
         peak_time = np.array([sw[i].middle for i in indices if y[i] > threshold])
