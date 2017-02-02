@@ -732,7 +732,7 @@ def embed(protocol, tune_dir, apply_dir, subset='test', step=None,
 
     extraction = Extraction(sequence_embedding, feature_extraction,
                             duration=duration, step=step,
-                            internal=internal, aggregate=aggregate)
+                            internal=internal)
 
     dimension = extraction.dimension
     sliding_window = extraction.sliding_window
@@ -752,7 +752,7 @@ def embed(protocol, tune_dir, apply_dir, subset='test', step=None,
         uri = get_unique_identifier(item)
         path = Precomputed.get_path(apply_dir, item)
 
-        extracted = extraction.apply(item)
+        extracted = extraction.apply(item, aggregate=aggregate)
 
         # create parent directory
         mkdir_p(os.path.dirname(path))
