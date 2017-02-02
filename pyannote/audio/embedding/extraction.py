@@ -126,7 +126,7 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
         samples_window = self.feature_extractor.sliding_window()
         n_sequences, _, dimension = embeddings.shape
         duration = window[n_sequences - 1].end
-        n_samples = samples_window.samples(duration)
+        n_samples = samples_window.samples(duration) + 4
 
         # k[i] contains the number of sequences that overlap with frame #i
         k = np.zeros((n_samples, 1), dtype=np.int8)
