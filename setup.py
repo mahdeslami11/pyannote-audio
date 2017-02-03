@@ -42,6 +42,7 @@ setup(
         'pyannote.generators >= 0.9.1',
         'pyannote.database >= 0.11.1',
         'pyannote.parser >= 0.6.2',
+        'pyannote.algorithms >= 0.6.7',
         'pysndfile >= 0.2.11',
         'keras >= 1.2.0',
         'theano >= 0.8.2',
@@ -54,7 +55,8 @@ setup(
     entry_points = {
         'console_scripts': [
             'pyannote-speech-feature=pyannote.audio.applications.feature_extraction:main',
-            'pyannote-speech-detection=pyannote.audio.applications.speech_detection:main']
+            'pyannote-speech-detection=pyannote.audio.applications.speech_detection:main',
+            'pyannote-bic-clustering=pyannote.audio.applications.bic_clustering:main']
     },
     # versioneer
     version=versioneer.get_version(),
