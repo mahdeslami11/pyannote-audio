@@ -152,9 +152,6 @@ def helper_cluster_tune(item_segmentation_features, metric=None,
 
     item, segmentation, features = item_segmentation_features
 
-    with open('/tmp/log.txt', mode='a') as fp:
-        fp.write(covariance_type + penalty_coef + item['uri'] + '\n')
-
     clustering = pyannote.algorithms.clustering.bic.BICClustering(
         covariance_type=covariance_type, penalty_coef=penalty_coef)
 
