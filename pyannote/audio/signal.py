@@ -189,7 +189,7 @@ class Binarize(object):
         -------
         best_parameters : dict
             Best set of parameters.
-        best_metric : float (only when return_metric)
+        best_metric : float
             Best metric
         """
 
