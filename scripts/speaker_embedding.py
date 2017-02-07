@@ -342,7 +342,8 @@ def validate(protocol, train_dir, validation_dir, subset='development'):
     mkdir_p(validation_dir)
 
     # -- DURATIONS --
-    duration, min_duration, step = path_to_duration(os.path.basename(train_dir))
+    duration, min_duration, step, heterogeneous = \
+        path_to_duration(os.path.basename(train_dir))
 
     # -- CONFIGURATION --
     config_dir = os.path.dirname(os.path.dirname(os.path.dirname(train_dir)))
@@ -487,7 +488,8 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
         nb_epoch += 1
 
     # -- DURATIONS --
-    duration, min_duration, step = path_to_duration(os.path.basename(train_dir))
+    duration, min_duration, step, heterogeneous = \
+        path_to_duration(os.path.basename(train_dir))
 
     config_dir = os.path.dirname(os.path.dirname(os.path.dirname(train_dir)))
     config_yml = config_dir + '/config.yml'
@@ -605,7 +607,8 @@ def test(protocol, tune_dir, test_dir, subset, beta=1.0):
     train_dir = os.path.dirname(os.path.dirname(tune_dir))
 
     # -- DURATIONS --
-    duration, min_duration, step = path_to_duration(os.path.basename(train_dir))
+    duration, min_duration, step, heterogeneous = \
+        path_to_duration(os.path.basename(train_dir))
 
     config_dir = os.path.dirname(os.path.dirname(os.path.dirname(train_dir)))
     config_yml = config_dir + '/config.yml'
@@ -703,7 +706,8 @@ def embed(protocol, tune_dir, apply_dir, subset='test', step=None,
 
     train_dir = os.path.dirname(os.path.dirname(tune_dir))
 
-    duration, _, _ = path_to_duration(os.path.basename(train_dir))
+    duration, _, _, heterogeneous = \
+        path_to_duration(os.path.basename(train_dir))
 
     config_dir = os.path.dirname(os.path.dirname(os.path.dirname(train_dir)))
     config_yml = config_dir + '/config.yml'
@@ -765,28 +769,36 @@ def embed(protocol, tune_dir, apply_dir, subset='test', step=None,
         f.create_dataset('features', data=extracted.data)
         f.close()
 
-# (5, None, None) ==> '5'
-# (5, 1, None) ==> '1-5'
-# (5, None, 2) ==> '5+2'
-# (5, 1, 2) ==> '1-5+2'
-def duration_to_path(duration=5.0, min_duration=None, step=None):
+# (5, None, None, False) ==> '5'
+# (5, 1, None, False) ==> '1-5'
+# (5, None, 2, False) ==> '5+2'
+# (5, 1, 2, False) ==> '1-5+2'
+# (5, None, None, True) ==> '5x'
+def duration_to_path(duration=5.0, min_duration=None, step=None,
+                     heterogeneous=False):
     PATH = '' if min_duration is None else '{min_duration:g}-'
     PATH += '{duration:g}'
     if step is not None:
         PATH += '+{step:g}'
+    if heterogeneous:
+        PATH += 'x'
     return PATH.format(duration=duration, min_duration=min_duration, step=step)
 
-# (5, None, None) <== '5'
-# (5, 1, None) <== '1-5'
-# (5, None, 2) <== '5+2'
-# (5, 1, 2) <== '1-5+2'
+# (5, None, None, False) <== '5'
+# (5, 1, None, False) <== '1-5'
+# (5, None, 2, False) <== '5+2'
+# (5, 1, 2, False) <== '1-5+2'
 def path_to_duration(path):
+    heterogeneous = False
+    if path[-1] == 'x':
+        heterogeneous = True
+        path = path[:-1]
     tokens = path.split('+')
     step = float(tokens[1]) if len(tokens) == 2 else None
     tokens = tokens[0].split('-')
     min_duration = float(tokens[0]) if len(tokens) == 2 else None
     duration = float(tokens[0]) if len(tokens) == 1 else float(tokens[1])
-    return duration, min_duration, step
+    return duration, min_duration, step, heterogeneous
 
 
 if __name__ == '__main__':
