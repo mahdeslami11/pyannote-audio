@@ -30,9 +30,9 @@
 Speaker embedding
 
 Usage:
-  speaker_embedding train [--cache=<cache.h5> --robust --parallel --database=<db.yml> --subset=<subset> --duration=<duration> --min-duration=<duration> --step=<step> --validation=<subset>...] <experiment_dir> <database.task.protocol>
   speaker_embedding validation [--database=<db.yml> --subset=<subset>] <train_dir> <database.task.protocol>
   speaker_embedding tune [--database=<db.yml> --subset=<subset> --false-alarm=<beta>] <train_dir> <database.task.protocol>
+  speaker_embedding train [--cache=<cache.h5> --robust --parallel --database=<db.yml> --subset=<subset> --duration=<duration> --min-duration=<duration> --step=<step> --heterogeneous --validation=<subset>...] <experiment_dir> <database.task.protocol>
   speaker_embedding test [--database=<db.yml> --subset=<subset> --false-alarm=<beta>] <tune_dir> <database.task.protocol>
   speaker_embedding apply [--database=<db.yml> --subset=<subset> --step=<step> --internal=<index> --aggregate] <tune_dir> <database.task.protocol>
   speaker_embedding -h | --help
@@ -59,6 +59,7 @@ Options:
                              Defaults to sequences with fixed duration D.
   --step=<step>              Set step between sequences, in seconds.
                              Defaults to half duration.
+  --heterogeneous            Allow heterogeneous sequences.
   --validation=<subset>      Set validation subset (train|development|test).
                              May be repeated.
   --false-alarm=<beta>       Set importance of false alarm with respect to
@@ -223,7 +224,7 @@ from pyannote.metrics import f_measure
 
 
 def train(protocol, duration, experiment_dir, train_dir, subset='train',
-          min_duration=None, step=None, validation=[],
+          min_duration=None, step=None, heterogeneous=False, validation=[],
           cache=False, robust=False, parallel=False):
 
     # -- TRAINING --
@@ -270,6 +271,7 @@ def train(protocol, duration, experiment_dir, train_dir, subset='train',
                 duration=duration,
                 step=step,
                 min_duration=min_duration,
+                heterogeneous=heterogeneous,
                 cache=cache,
                 robust=robust,
                 **config['glue'].get('params', {}))
@@ -818,11 +820,13 @@ if __name__ == '__main__':
         if step is not None:
             step = float(step)
 
+        heterogeneous = arguments['--heterogeneous']
+
         TRAIN_DIR = '{experiment_dir}/train/{protocol}.{subset}/{path}'
         # e.g. '1-5+2' or '5'
         path = duration_to_path(duration=duration,
                                 min_duration=min_duration,
-                                step=step)
+                                step=step, heterogeneous=heterogeneous)
         train_dir = TRAIN_DIR.format(
             experiment_dir=experiment_dir,
             protocol=arguments['<database.task.protocol>'],
@@ -835,8 +839,9 @@ if __name__ == '__main__':
         parallel = arguments['--parallel']
 
         train(protocol, duration, experiment_dir, train_dir, subset=subset,
-              min_duration=min_duration, step=step, validation=validation,
-              cache=cache, robust=robust, parallel=parallel)
+              min_duration=min_duration, step=step,
+              heterogeneous=heterogeneous, validation=validation, cache=cache,
+              robust=robust, parallel=parallel)
 
     if arguments['validation']:
         train_dir = arguments['<train_dir>']

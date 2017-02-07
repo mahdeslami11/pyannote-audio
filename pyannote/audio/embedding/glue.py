@@ -51,12 +51,14 @@ class Glue(object):
 
     def __init__(self, feature_extractor,
                  duration=5.0, step=None, min_duration=None,
+                 heterogeneous=False,
                  distance='sqeuclidean', **kwargs):
         super(Glue, self).__init__()
         self.feature_extractor = feature_extractor
         self.duration = duration
         self.step = step
         self.min_duration = min_duration
+        self.heterogeneous = heterogeneous
         self.distance = distance
 
     def loss(self, y_true, y_pred):
@@ -146,12 +148,12 @@ class BatchGlue(Glue):
     """
     def __init__(self, feature_extractor,
                  duration=5.0, min_duration=None, step=None,
-                 distance='angular', per_label=3, per_fold=20, per_batch=12,
+                 heterogeneous=False, distance='angular', per_label=3, per_fold=20, per_batch=12,
                  n_threads=1, cache=None, robust=False):
 
         super(BatchGlue, self).__init__(
             feature_extractor, duration, min_duration=min_duration,
-            distance=distance, step=step)
+            distance=distance, step=step, heterogeneous=heterogeneous)
 
         if distance == 'angular':
             self.loss_ = unitary_angular_triplet_loss
@@ -190,7 +192,7 @@ class BatchGlue(Glue):
             self.feature_extractor, file_generator,
             self.compute_derivatives, distance=self.distance,
             duration=self.duration, min_duration=self.min_duration,
-            step=self.step,
+            step=self.step, heterogeneous=self.heterogeneous,
             per_label=self.per_label, per_fold=self.per_fold,
             per_batch=self.per_batch, n_threads=self.n_threads,
             cache=self.cache, robust=self.robust)

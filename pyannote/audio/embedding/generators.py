@@ -49,7 +49,7 @@ class SequenceGenerator(object):
 
     def __init__(self, feature_extractor, file_generator,
                  duration=5.0, min_duration=None, step=None,
-                 per_label=3, cache=None, robust=False):
+                 heterogeneous=False, per_label=3, cache=None, robust=False):
 
         super(SequenceGenerator, self).__init__()
 
@@ -58,6 +58,7 @@ class SequenceGenerator(object):
         self.duration = duration
         self.min_duration = min_duration
         self.step = step
+        self.heterogeneous = heterogeneous
         self.per_label = per_label
         self.cache = cache
         self.robust = robust
@@ -66,7 +67,7 @@ class SequenceGenerator(object):
             self.feature_extractor,
             duration=self.duration,
             min_duration=self.min_duration,
-            step=self.step,
+            step=self.step, heterogeneous=self.heterogeneous,
             batch_size=1 if self.cache else -1)
 
         # there is no need to cache preprocessed features
@@ -228,8 +229,8 @@ class DerivativeBatchGenerator(BaseBatchGenerator):
 
     def __init__(self, feature_extractor, file_generator, compute_derivatives,
                  distance='angular', duration=5.0, min_duration=None, step=None,
-                 per_label=3, per_fold=20, per_batch=12, n_threads=1,
-                 cache=None, robust=False):
+                 heterogeneous=False, per_label=3, per_fold=20, per_batch=12,
+                 n_threads=1, cache=None, robust=False):
 
         self.cache = cache
         self.robust = robust
@@ -237,7 +238,8 @@ class DerivativeBatchGenerator(BaseBatchGenerator):
         self.sequence_generator_ = SequenceGenerator(
             feature_extractor, file_generator,
              duration=duration, step=step, min_duration=min_duration,
-             per_label=per_label, cache=self.cache, robust=self.robust)
+             heterogeneous=heterogeneous, per_label=per_label,
+             cache=self.cache, robust=self.robust)
 
         self.n_labels = self.sequence_generator_.n_labels
         self.per_label = per_label
