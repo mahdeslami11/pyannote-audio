@@ -36,9 +36,8 @@ import numpy as np
 class FixedDurationSequences(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     """(X_batch, y_batch) batch generator
 
-    Yields batches made of sequences obtained using a sliding window over the
-    coverage of the reference. Heterogeneous segments (i.e. containing more
-    than one label) are skipped.
+    Yields batches made of homogeneous sequences obtained using a sliding
+    window over the coverage of the reference.
 
     Parameters
     ----------
@@ -51,6 +50,10 @@ class FixedDurationSequences(PeriodicFeaturesMixin, FileBasedBatchGenerator):
         When provided, will do its best to yield segments of length `duration`,
         but shortest segments are also permitted (as long as they are longer
         than `min_duration`).
+    heterogeneous : bool, optional
+        Yield sequences obtained using a sliding window over the 'annotated'
+        part. Heterogeneous sequences are labeled with majority class. In case
+        majority class is None, skip the sequence.
 
     Returns
     -------
@@ -67,19 +70,31 @@ class FixedDurationSequences(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     """
 
     def __init__(self, feature_extractor, duration=5.0, min_duration=None,
-                 step=None, batch_size=32):
+                 step=None, heterogeneous=False, batch_size=32):
 
         self.feature_extractor = feature_extractor
         self.duration = duration
         self.min_duration = min_duration
         self.step = step
+        self.heterogeneous = heterogeneous
 
         self.shape_ = self.shape
 
-        segment_generator = SlidingLabeledSegments(
-            duration=self.duration,
-            min_duration=self.min_duration,
-            step=self.step)
+        if heterogeneous:
+            segment_generator = SlidingLabeledSegments(
+                duration=self.duration,
+                min_duration=self.min_duration,
+                step=self.step,
+                source='annotated',
+                heterogeneous=True, skip_unlabeled=True)
+
+        else:
+            segment_generator = SlidingLabeledSegments(
+                duration=self.duration,
+                min_duration=self.min_duration,
+                step=self.step,
+                source='annotation',
+                heterogeneous=False)
 
         super(FixedDurationSequences, self).__init__(
             segment_generator, batch_size=batch_size)
