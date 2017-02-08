@@ -861,7 +861,7 @@ if __name__ == '__main__':
         train_dir = arguments['<train_dir>']
         if subset is None:
             subset = 'development'
-        validation_dir = train_dir + '/validation/' + arguments['<database.task.protocol>']
+        validation_dir = train_dir + '/validate/' + arguments['<database.task.protocol>']
         res = validate(protocol, train_dir, validation_dir, subset=subset)
 
     if arguments['tune']:
