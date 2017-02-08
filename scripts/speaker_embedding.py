@@ -413,7 +413,8 @@ def validate(protocol, train_dir, validation_dir, subset='development'):
                 if epoch == 0:
                     X, y = generate_test(
                         protocol, subset, feature_extraction,
-                        duration, min_duration=min_duration, step=step)
+                        duration, min_duration=min_duration, step=step,
+                        heterogeneous=heterogeneous)
 
                 _, _, _, eer = speaker_diarization_xp(
                     sequence_embedding, X, y, distance=distance)
@@ -446,14 +447,15 @@ def validate(protocol, train_dir, validation_dir, subset='development'):
 
 
 def generate_test(protocol, subset, feature_extraction,
-                  duration, min_duration=None, step=None):
+                  duration, min_duration=None, step=None,
+                  heterogeneous=False):
 
     np.random.seed(1337)
 
     generator = FixedDurationSequences(
         feature_extraction,
         duration=duration, min_duration=min_duration, step=step,
-        batch_size=-1)
+        heterogeneous=heterogeneous, batch_size=-1)
 
     X, y = zip(*generator(getattr(protocol, subset)()))
     X, y = np.vstack(X), np.hstack(y)
