@@ -33,3 +33,4 @@ except ImportError as e:
 from .with_librosa import LibrosaMFCC
 from .utils import Precomputed
 from .utils import PrecomputedHTK
+from .utils import RawAudio
