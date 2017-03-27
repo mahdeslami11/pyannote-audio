@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016 CNRS
+# Copyright (c) 2016-2017 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -96,7 +96,8 @@ class SequenceLabeling(object):
             self.labeling_.save_weights(weights, overwrite=overwrite)
 
     def fit(self, input_shape, design_labeling, generator,
-            samples_per_epoch, nb_epoch, optimizer='rmsprop', log_dir=None):
+            samples_per_epoch, nb_epoch, loss='categorical_crossentropy',
+            optimizer='rmsprop', log_dir=None):
         """Train the model
 
         Parameters
@@ -132,7 +133,7 @@ class SequenceLabeling(object):
         callbacks = []
 
         if log_dir is not None:
-            log = [('train', 'loss'), ('train', 'categorical_accuracy')]
+            log = [('train', 'loss'), ('train', 'accuracy')]
             callback = LoggingCallback(log_dir, log=log)
             callbacks.append(callback)
 
@@ -144,8 +145,8 @@ class SequenceLabeling(object):
 
         self.labeling_ = design_labeling(input_shape)
         self.labeling_.compile(optimizer=optimizer,
-                               loss='categorical_crossentropy',
-                               metrics=['categorical_accuracy'])
+                               loss=loss,
+                               metrics=['accuracy'])
 
         return self.labeling_.fit_generator(
             generator, samples_per_epoch, nb_epoch,

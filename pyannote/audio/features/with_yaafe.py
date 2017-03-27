@@ -50,15 +50,18 @@ class YaafeFeatureExtractor(object):
         Defaults to 512.
     step_size : int, optional
         Defaults to 256.
+    stack : int, optional
+        Stack `stack` consecutive features. Defaults to 1.
 
     """
 
-    def __init__(self, duration=0.025, step=0.010):
+    def __init__(self, duration=0.025, step=0.010, stack=1):
 
         super(YaafeFeatureExtractor, self).__init__()
 
         self.duration = duration
         self.step = step
+        self.stack = stack
 
         start = -0.5 * self.duration
         self.sliding_window_ = SlidingWindow(start=start,
@@ -117,6 +120,25 @@ class YaafeFeatureExtractor(object):
         features = self.engine_.processAudio(y)
         data = np.hstack([features[name] for name, _ in self.definition()])
 
+        # --- stack features
+        n_samples, n_features = data.shape
+        zero_padding = self.stack // 2
+        if self.stack % 2 == 0:
+            expanded_data = np.concatenate(
+                (np.zeros((zero_padding, n_features)) + data[0],
+                data,
+                np.zeros((zero_padding - 1, n_features)) + data[-1]))
+        else:
+            expanded_data = np.concatenate((
+                np.zeros((zero_padding, n_features)) + data[0],
+                data,
+                np.zeros((zero_padding, n_features)) + data[-1]))
+
+        data = np.lib.stride_tricks.as_strided(
+            expanded_data,
+            shape=(n_samples, n_features * self.stack),
+            strides=data.strides)
+
         self.engine_.reset()
 
         # --- return as SlidingWindowFeature
@@ -130,12 +152,14 @@ class YaafeFeatureExtractor(object):
 
 class YaafeCompound(YaafeFeatureExtractor):
 
-    def __init__(self, extractors, duration=0.025, step=0.010):
+    def __init__(self, extractors, duration=0.025, step=0.010, stack=1):
 
         assert all(e.duration == duration for e in extractors)
         assert all(e.step == step for e in extractors)
+        assert all(e.stack == stack for e in extractors)
 
-        super(YaafeCompound, self).__init__(duration=duration, step=step)
+        super(YaafeCompound, self).__init__(duration=duration, step=step,
+                                            stack=stack)
 
         self.extractors = extractors
 
@@ -153,7 +177,7 @@ class YaafeCompound(YaafeFeatureExtractor):
 class YaafeZCR(YaafeFeatureExtractor):
 
     def dimension(self):
-        return 1
+        return self.stack
 
     def definition(self):
 
@@ -219,7 +243,7 @@ class YaafeMFCC(YaafeFeatureExtractor):
     """
 
     def __init__(
-        self, duration=0.025, step=0.010,
+        self, duration=0.025, step=0.010, stack=1,
         e=True, coefs=11, De=False, DDe=False, D=False, DD=False,
     ):
 
@@ -230,7 +254,7 @@ class YaafeMFCC(YaafeFeatureExtractor):
         self.D = D
         self.DD = DD
 
-        super(YaafeMFCC, self).__init__(duration=duration, step=step)
+        super(YaafeMFCC, self).__init__(duration=duration, step=step, stack=stack)
 
     def dimension(self):
 
@@ -242,7 +266,7 @@ class YaafeMFCC(YaafeFeatureExtractor):
         n_features += self.coefs * self.D
         n_features += self.coefs * self.DD
 
-        return n_features
+        return n_features * self.stack
 
     def definition(self):
 
