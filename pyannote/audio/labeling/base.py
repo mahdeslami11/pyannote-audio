@@ -132,7 +132,7 @@ class SequenceLabeling(object):
         callbacks = []
 
         if log_dir is not None:
-            log = [('train', 'loss'), ('train', 'accuracy')]
+            log = [('train', 'loss'), ('train', 'categorical_accuracy')]
             callback = LoggingCallback(log_dir, log=log)
             callbacks.append(callback)
 
@@ -145,7 +145,7 @@ class SequenceLabeling(object):
         self.labeling_ = design_labeling(input_shape)
         self.labeling_.compile(optimizer=optimizer,
                                loss='categorical_crossentropy',
-                               metrics=['accuracy'])
+                               metrics=['categorical_accuracy'])
 
         return self.labeling_.fit_generator(
             generator, samples_per_epoch, nb_epoch,
