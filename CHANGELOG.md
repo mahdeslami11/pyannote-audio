@@ -1,4 +1,4 @@
-### Version 0.2 (2017-03-27)
+### Version 0.2.1 (2017-03-28)
 
   - feat: add LSTM-based speech activity detection
   - feat: add LSTM-based speaker change detection
