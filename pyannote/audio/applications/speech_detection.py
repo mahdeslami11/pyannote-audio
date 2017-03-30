@@ -268,6 +268,7 @@ class SpeechActivityDetection(Application):
             subset=subset)
 
         # sequence batch generator
+        batch_size = self.config_['sequences'].get('batch_size', 8192)
         duration = self.config_['sequences']['duration']
         step = self.config_['sequences']['step']
         batch_generator = SpeechActivityDetectionBatchGenerator(
