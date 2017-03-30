@@ -92,6 +92,7 @@ Configuration file:
        duration: 3.2                 # this experiments relies
        step: 0.8                     # on sliding windows of 3.2s
                                      # with a step of 0.8s
+       batch_size: 1024
     ...................................................................
 
 "train" mode:
@@ -267,7 +268,6 @@ class SpeechActivityDetection(Application):
             subset=subset)
 
         # sequence batch generator
-        batch_size = 8192
         duration = self.config_['sequences']['duration']
         step = self.config_['sequences']['step']
         batch_generator = SpeechActivityDetectionBatchGenerator(
