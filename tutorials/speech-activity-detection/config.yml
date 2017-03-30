@@ -1,0 +1,47 @@
+# The MIT License (MIT)
+#
+# Copyright (c) 2017 CNRS
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+#
+# AUTHOR
+# Hervé Bredin - http://herve.niderb.fr
+
+feature_extraction:
+   name: YaafeMFCC
+   params:
+      e: False                   # this experiments relies
+      De: True                   # on 11 MFCC coefficients
+      DDe: True                  # with 1st and 2nd derivatives
+      D: True                    # without energy, but with
+      DD: True                   # energy derivatives
+
+architecture:
+   name: StackedLSTM
+   params:                       # this experiments relies
+     n_classes: 2                # on one LSTM layer (16 outputs)
+     lstm: [16]                  # and one dense layer.
+     mlp: [16]                   # LSTM is bidirectional
+     bidirectional: concat
+
+sequences:
+   duration: 3.2                 # this experiments relies
+   step: 0.8                     # on sliding windows of 3.2s
+                                 # with a step of 0.8s
+   batch_size: 1024
