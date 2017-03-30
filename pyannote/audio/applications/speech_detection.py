@@ -85,7 +85,7 @@ Configuration file:
        params:                       # this experiments relies
          n_classes: 2                # on one LSTM layer (16 outputs)
          lstm: [16]                  # and one dense layer.
-         dense: [16]                 # LSTM is bidirectional
+         mlp: [16]                   # LSTM is bidirectional
          bidirectional: True
 
     sequences:
