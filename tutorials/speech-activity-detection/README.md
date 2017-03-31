@@ -20,7 +20,7 @@
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
 >
-> AUTHOR
+> AUTHOR  
 > Hervé Bredin - http://herve.niderb.fr
 
 # Speech activity detection with `pyannote.audio`
