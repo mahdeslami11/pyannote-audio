@@ -4,14 +4,10 @@ Audio processing
 
 ## Installation
 
-**Foreword:** Sorry about the `python=2.7` constraint but [`yaafe`](https://github.com/Yaafe/Yaafe) does not support Python 3 at the time of writing this.  
-Ping me if this is no longer true!
-
-
 ```bash
-$ conda create --name pyannote python=2.7 anaconda
+$ conda create --name pyannote python=3.5 anaconda
 $ source activate pyannote
-$ conda install -c yaafe yaafe=0.65
+$ conda install -c conda-forge yaafe
 $ pip install pyannote.audio
 ```
 
