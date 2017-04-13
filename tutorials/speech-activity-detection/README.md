@@ -30,10 +30,10 @@ In this tutorial, you will learn how to train, tune, and test a speech activity 
 ## Installation
 
 ```bash
-$ conda create --name py27-pyannote-audio python=2.7 anaconda
-$ source activate py27-pyannote-audio
+$ conda create --name py35-pyannote-audio python=3.5 anaconda
+$ source activate py35-pyannote-audio
 $ conda install gcc
-$ conda install -c yaafe yaafe=0.65
+$ conda install -c conda-forge yaafe
 $ pip install "pyannote.audio==0.2.1"
 $ pip install pyannote.db.etape
 ```
@@ -68,7 +68,7 @@ architecture:
    params:                       # this experiments relies
      n_classes: 2                # on one LSTM layer (16 outputs)
      lstm: [16]                  # and one dense layer.
-     mlp: [16]                 # LSTM is bidirectional
+     mlp: [16]                   # LSTM is bidirectional
      bidirectional: concat
 
 sequences:
