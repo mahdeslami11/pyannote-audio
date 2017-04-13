@@ -18,6 +18,21 @@ What did you just install?
   You might also want to checkout [`librosa`](http://librosa.github.io) (easy to install, but much slower) though `pyannote.audio` does not support it yet (pull requests are welcome, though!)
 - [`pyannote.audio`](http://pyannote.github.io) is this library.
 
+## Citation
+
+If you use `pyannote.audio` in your research, please use the following citation (until a regular paper is published):
+
+```bibtex
+@misc{pyannote.audio,
+  author = {Bredin, H.},
+  title = {pyannote.audio},
+  year = {2017},
+  publisher = {GitHub},
+  journal = {GitHub repository},
+  howpublished = {\url{https://github.com/pyannote/pyannote-audio}},
+}
+```
+
 ## Tutorials
 
  * [LSTM-based speech activity detection](tutorials/speech-activity-detection)
