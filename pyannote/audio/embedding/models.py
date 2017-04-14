@@ -28,7 +28,7 @@
 # Grégory GELLY
 
 import keras.backend as K
-from keras.engine import Layer, InputSpec
+from keras.engine.topology import Layer, InputSpec
 from keras.models import Model
 
 from keras.layers import Input
@@ -36,7 +36,7 @@ from keras.layers import Masking
 from keras.layers import LSTM
 from keras.layers import Dense
 from keras.layers import Lambda
-from keras.layers import merge
+from keras.layers.merge import Concatenate
 from keras.layers.wrappers import Bidirectional
 from keras.layers.wrappers import TimeDistributed
 import numpy as np
@@ -55,7 +55,7 @@ class EmbeddingAveragePooling(Layer):
         # thanks to L2 normalization, mask actually has no effect
         return K.l2_normalize(K.sum(x, axis=1), axis=-1)
 
-    def get_output_shape_for(self, input_shape):
+    def compute_output_shape(self, input_shape):
         return (input_shape[0], input_shape[2])
 
     def compute_mask(self, input, input_mask=None):
@@ -160,7 +160,7 @@ class TristouNet(object):
                            name='normalize')
         embeddings = normalize(x)
 
-        return Model(input=inputs, output=embeddings)
+        return Model(inputs=inputs, outputs=embeddings)
 
     @property
     def output_dim(self):
@@ -251,7 +251,7 @@ class TrottiNet(object):
         pooling = EmbeddingAveragePooling(name='pooling')
         embeddings = pooling(x)
 
-        return Model(input=inputs, output=embeddings)
+        return Model(inputs=inputs, outputs=embeddings)
 
     @property
     def output_dim(self):
@@ -309,22 +309,17 @@ class ClopiNet(object):
         for i, output_dim in enumerate(self.lstm):
 
             if i:
-                lstm = LSTM(name='lstm_{i:d}'.format(i=i),
-                            output_dim=output_dim,
+                lstm = LSTM(output_dim,
+                            name='lstm_{i:d}'.format(i=i),
                             return_sequences=True,
-                            activation='tanh',
-                            dropout_W=0.0,
-                            dropout_U=0.0)
-
+                            activation='tanh')
             else:
                 # we need to provide input_shape to first LSTM
-                lstm = LSTM(name='lstm_{i:d}'.format(i=i),
+                lstm = LSTM(output_dim,
                             input_shape=input_shape,
-                            output_dim=output_dim,
+                            name='lstm_{i:d}'.format(i=i),
                             return_sequences=True,
-                            activation='tanh',
-                            dropout_W=0.0,
-                            dropout_U=0.0)
+                            activation='tanh')
 
             # bi-directional LSTM
             if self.bidirectional:
@@ -335,7 +330,9 @@ class ClopiNet(object):
 
             # concatenate output of all levels
             if i:
-                concat_x = merge([concat_x, x], mode='concat', concat_axis=-1)
+                concat_x = Concatenate(axis=-1)([concat_x, x])
+
+
             else:
                 # corner case for 1st level (i=0)
                 # as concat_x does not yet exist
@@ -348,8 +345,8 @@ class ClopiNet(object):
         for i, output_dim in enumerate(self.mlp):
 
             mlp = Dense(output_dim,
-                          activation='tanh',
-                          name='mlp_{i:d}'.format(i=i))
+                        name='mlp_{i:d}'.format(i=i),
+                        activation='tanh')
 
             x = TimeDistributed(mlp)(x)
 
@@ -357,7 +354,7 @@ class ClopiNet(object):
         pooling = EmbeddingAveragePooling(name='pooling')
         embeddings = pooling(x)
 
-        return Model(input=[inputs], output=embeddings)
+        return Model(inputs=[inputs], outputs=embeddings)
 
     @property
     def output_dim(self):

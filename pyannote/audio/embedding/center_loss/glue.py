@@ -122,7 +122,7 @@ class CenterLoss(BatchGlue):
                          output_shape=(output_dim, ),
                          name="centers")(x)
 
-        model = Model(input=trigger, output=centers)
+        model = Model(inputs=trigger, outputs=centers)
         model.compile(optimizer=SSMORMS3(), loss=self.loss)
         return model
 

@@ -281,9 +281,8 @@ class SpeechActivityDetection(Application):
 
         # total train duration
         train_total = protocol.stats(subset)['annotated']
-        # number of samples per epoch + round it to closest batch
-        samples_per_epoch = batch_size * \
-            int(np.ceil((train_total / step) / batch_size))
+        # number of batches per epoch
+        steps_per_epoch = int(np.ceil((train_total / step) / batch_size))
 
         # input shape (n_frames, n_features)
         input_shape = batch_generator.shape
@@ -294,7 +293,7 @@ class SpeechActivityDetection(Application):
 
         labeling = SequenceLabeling()
         labeling.fit(input_shape, self.architecture_,
-                     generator, samples_per_epoch, 1000,
+                     generator, steps_per_epoch, 1000,
                      optimizer=SSMORMS3(), log_dir=train_dir)
 
         return labeling

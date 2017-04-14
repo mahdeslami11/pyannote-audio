@@ -96,7 +96,7 @@ class SequenceLabeling(object):
             self.labeling_.save_weights(weights, overwrite=overwrite)
 
     def fit(self, input_shape, design_labeling, generator,
-            samples_per_epoch, nb_epoch, loss='categorical_crossentropy', 
+            steps_per_epoch, epochs, loss='categorical_crossentropy',
             optimizer='rmsprop', log_dir=None):
         """Train the model
 
@@ -112,11 +112,11 @@ class SequenceLabeling(object):
             The output of the generator must be a tuple (inputs, targets) or a
             tuple (inputs, targets, sample_weights). All arrays should contain
             the same number of samples. The generator is expected to loop over
-            its data indefinitely. An epoch finishes when `samples_per_epoch`
+            its data indefinitely. An epoch finishes when `steps_per_epoch`
             samples have been seen by the model.
-        samples_per_epoch : int
-            Number of samples to process before going to the next epoch.
-        nb_epoch : int
+        steps_per_epoch : int
+            Number of batches to process before going to the next epoch.
+        epochs : int
             Total number of iterations on the data
         optimizer: str, optional
             Keras optimizer. Defaults to 'rmsprop'.
@@ -149,7 +149,7 @@ class SequenceLabeling(object):
                                metrics=['accuracy'])
 
         return self.labeling_.fit_generator(
-            generator, samples_per_epoch, nb_epoch,
+            generator, steps_per_epoch, epochs=epochs,
             verbose=1, callbacks=callbacks)
 
     def predict(self, sequence, batch_size=32, verbose=0):

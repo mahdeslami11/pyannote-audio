@@ -191,10 +191,9 @@ def train(protocol, experiment_dir, train_dir, subset='train'):
             feature_extraction, batch_size=batch_size,
             duration=duration, step=step, balance=balance)
 
-    # number of samples per epoch + round it to closest batch
+    # number of steps per epoch
     seconds_per_epoch = protocol.stats(subset)['annotated']
-    samples_per_epoch = batch_size * \
-            int(np.ceil((seconds_per_epoch / step) / batch_size))
+    steps_per_epoch = int(np.ceil((seconds_per_epoch / step) / batch_size))
 
     # input shape (n_frames, n_features)
     input_shape = generator.shape
@@ -202,7 +201,7 @@ def train(protocol, experiment_dir, train_dir, subset='train'):
     labeling = SequenceLabeling()
     labeling.fit(input_shape, architecture,
                 generator(getattr(protocol, subset)(), infinite=True),
-                samples_per_epoch, nb_epoch, loss='binary_crossentropy',
+                steps_per_epoch, nb_epoch, loss='binary_crossentropy',
                 optimizer=optimizer, log_dir=train_dir)
 
 

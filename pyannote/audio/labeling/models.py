@@ -54,7 +54,7 @@ class StackedLSTM(object):
     n_classes : int, optional
         Number of output classes. Defaults to 2 (binary classification).
     final_activation : {'softmax', 'sigmoid'}, optional
-        Activation for output layer. Defaults to 'softmax'. 
+        Activation for output layer. Defaults to 'softmax'.
     """
     def __init__(self, lstm=[16,], bidirectional='concat',
                  mlp=[16,], n_classes=2, final_activation='softmax'):
@@ -89,16 +89,34 @@ class StackedLSTM(object):
 
             params = {
                 'name': 'lstm_{i:d}'.format(i=i),
-                'output_dim': output_dim,
                 'return_sequences': True,
-                'activation': 'tanh'
+                # 'go_backwards': False,
+                # 'stateful': False,
+                # 'unroll': False,
+                # 'implementation': 0,
+                'activation': 'tanh',
+                # 'recurrent_activation': 'hard_sigmoid',
+                # 'use_bias': True,
+                # 'kernel_initializer': 'glorot_uniform',
+                # 'recurrent_initializer': 'orthogonal',
+                # 'bias_initializer': 'zeros',
+                # 'unit_forget_bias': True,
+                # 'kernel_regularizer': None,
+                # 'recurrent_regularizer': None,
+                # 'bias_regularizer': None,
+                # 'activity_regularizer': None,
+                # 'kernel_constraint': None,
+                # 'recurrent_constraint': None,
+                # 'bias_constraint': None,
+                # 'dropout': 0.0,
+                # 'recurrent_dropout': 0.0,
             }
 
             # first LSTM needs to be given the input shape
             if i == 0:
                 params['input_shape'] = input_shape
 
-            lstm = LSTM(**params)
+            lstm = LSTM(output_dim, **params)
             if self.bidirectional:
                 lstm = Bidirectional(lstm, merge_mode=self.bidirectional)
 
@@ -116,4 +134,4 @@ class StackedLSTM(object):
                                         activation=self.final_activation,
                                         name='labeling_output'))(x)
 
-        return Model(input=inputs, output=outputs)
+        return Model(inputs=inputs, outputs=outputs)

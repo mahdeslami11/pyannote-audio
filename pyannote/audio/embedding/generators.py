@@ -257,7 +257,7 @@ class DerivativeBatchGenerator(BaseBatchGenerator):
     def shape(self):
         return self.sequence_generator_.shape
 
-    def get_samples_per_epoch(self, protocol, subset='train'):
+    def get_steps_per_epoch(self, protocol, subset='train'):
         """
         Parameters
         ----------
@@ -266,11 +266,11 @@ class DerivativeBatchGenerator(BaseBatchGenerator):
 
         Returns
         -------
-        samples_per_epoch : int
-            Number of samples per epoch.
+        steps_per_epoch : int
+            Number of batches per epoch.
         """
         n_folds = self.n_labels / self.per_fold + 1
-        return self.batch_size * n_folds
+        return n_folds
 
     # this callback will make sure the internal embedding is always up to date
     def callbacks(self, extract_embedding=None):

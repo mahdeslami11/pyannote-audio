@@ -111,7 +111,7 @@ class SequenceEmbedding(object):
             embedding.save_weights(weights, overwrite=overwrite)
 
     def fit(self, design_embedding,
-            protocol, nb_epoch, train='train',
+            protocol, epochs, train='train',
             optimizer='rmsprop', batch_size=None,
             log_dir=None, validation=['development'],
             max_q_size=1):
@@ -126,7 +126,7 @@ class SequenceEmbedding(object):
             output.
         protocol : pyannote.database.Protocol
 
-        nb_epoch : int
+        epochs : int
             Total number of iterations on the data
         train : {'train', 'development', 'test'}, optional
             Defaults to 'train'.
@@ -205,11 +205,11 @@ class SequenceEmbedding(object):
             generator.shape, design_embedding, n_labels=n_labels)
         self.model_.compile(optimizer=optimizer, loss=self.glue.loss)
 
-        samples_per_epoch = generator.get_samples_per_epoch(
+        steps_per_epoch = generator.get_steps_per_epoch(
             protocol, subset=train)
 
         return self.model_.fit_generator(
-            generator, samples_per_epoch, nb_epoch,
+            generator, steps_per_epoch, epochs=epochs,
             verbose=1, callbacks=callbacks, max_q_size=max_q_size)
 
     def transform(self, sequences, internal=None, batch_size=32):
