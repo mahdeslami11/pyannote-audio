@@ -29,18 +29,13 @@ If you use `pyannote.audio` in your research, please use the following citation 
 ## Tutorials
 
  * [LSTM-based speech activity detection](tutorials/speech-activity-detection)
-
-* Feature extraction
+ * [LSTM-based speaker change detection](tutorials/change-detection)
+ * Feature extraction
 
     ```bash
     $ pyannote-speech-feature.py --help
     ```
     
- * LSTM-based speaker change detection:
-
-    ```bash
-    $ pyannote-change-detection.py --help
-    ```
 
 ## Documentation
 
