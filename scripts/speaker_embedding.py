@@ -30,9 +30,9 @@
 Speaker embedding
 
 Usage:
-  speaker_embedding validation [--database=<db.yml> --subset=<subset>] <train_dir> <database.task.protocol>
-  speaker_embedding tune [--database=<db.yml> --subset=<subset> --false-alarm=<beta>] <train_dir> <database.task.protocol>
-  speaker_embedding train [--cache=<cache.h5> --robust --parallel --database=<db.yml> --subset=<subset> --duration=<duration> --min-duration=<duration> --step=<step> --heterogeneous --validation=<subset>...] <experiment_dir> <database.task.protocol>
+  speaker_embedding train [--cache=<cache.h5> --robust --parallel --database=<db.yml> --subset=<subset> --duration=<duration> --min-duration=<duration> --step=<step> --heterogeneous] <experiment_dir> <database.task.protocol>
+  speaker_embedding validation [--database=<db.yml> --subset=<subset> --heterogeneous] <train_dir> <database.task.protocol>
+  speaker_embedding tune [--database=<db.yml> --subset=<subset> --false-alarm=<beta> --heterogeneous] <train_dir> <database.task.protocol>
   speaker_embedding test [--database=<db.yml> --subset=<subset> --false-alarm=<beta>] <tune_dir> <database.task.protocol>
   speaker_embedding apply [--database=<db.yml> --subset=<subset> --step=<step> --internal=<index> --aggregate] <tune_dir> <database.task.protocol>
   speaker_embedding -h | --help
@@ -60,8 +60,6 @@ Options:
   --step=<step>              Set step between sequences, in seconds.
                              Defaults to half duration.
   --heterogeneous            Allow heterogeneous sequences.
-  --validation=<subset>      Set validation subset (train|development|test).
-                             May be repeated.
   --false-alarm=<beta>       Set importance of false alarm with respect to
                              false rejection [default: 1.0]
   --internal=<index>         Index of layer for which to return the activation.
@@ -127,11 +125,10 @@ Configuration file:
     This directory is called <train_dir> in the subsequent "tune" mode.
 
 "validation" mode:
-    When "train" mode is launched without --validation (recommended), use the
-    "validation" mode to run validation in parallel. "validation" mode will
-    watch the <train_dir> directory, and run validation experiments every time
-    a new epoch has ended. This will create the following directory that
-    contains validation results:
+    Use the "validation" mode to run validation in parallel to training.
+    "validation" mode will watch the <train_dir> directory, and run validation
+    experiments every time a new epoch has ended. This will create the
+    following directory that contains validation results:
 
         <train_dir>/validation/<database.task.protocol>.<subset>
 
@@ -224,7 +221,7 @@ from pyannote.metrics import f_measure
 
 
 def train(protocol, duration, experiment_dir, train_dir, subset='train',
-          min_duration=None, step=None, heterogeneous=False, validation=[],
+          min_duration=None, step=None, heterogeneous=False,
           cache=False, robust=False, parallel=False):
 
     # -- TRAINING --
@@ -280,8 +277,7 @@ def train(protocol, duration, experiment_dir, train_dir, subset='train',
     embedding = SequenceEmbedding(glue=glue)
     embedding.fit(architecture, protocol, nb_epoch, train=subset,
                   optimizer=optimizer, batch_size=batch_size,
-                  log_dir=train_dir, validation=validation,
-                  max_q_size=1 if parallel else 0)
+                  log_dir=train_dir, max_q_size=1 if parallel else 0)
 
 
 def speaker_recognition_xp(aggregation, protocol, subset='development',
@@ -846,15 +842,13 @@ if __name__ == '__main__':
             protocol=arguments['<database.task.protocol>'],
             subset=subset, path=path)
 
-        validation = arguments['--validation']
-
         cache = arguments['--cache']
         robust = arguments['--robust']
         parallel = arguments['--parallel']
 
         train(protocol, duration, experiment_dir, train_dir, subset=subset,
               min_duration=min_duration, step=step,
-              heterogeneous=heterogeneous, validation=validation, cache=cache,
+              heterogeneous=heterogeneous, cache=cache,
               robust=robust, parallel=parallel)
 
     if arguments['validation']:

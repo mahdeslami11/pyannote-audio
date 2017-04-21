@@ -125,14 +125,10 @@ class SequenceEmbedding(object):
             model that takes a sequence as input, and returns the embedding as
             output.
         protocol : pyannote.database.Protocol
-
         epochs : int
             Total number of iterations on the data
         train : {'train', 'development', 'test'}, optional
             Defaults to 'train'.
-        validation: list, optional
-            List of validation subsets among {'train', 'development', 'test'}.
-            Defaults to ['development'].
         optimizer: str, optional
             Keras optimizer. Defaults to 'rmsprop'.
         batch_size : int, optional
@@ -170,34 +166,6 @@ class SequenceEmbedding(object):
             if hasattr(stuff, 'callbacks'):
                 callbacks.extend(stuff.callbacks(
                     extract_embedding=extract_embedding))
-
-        if validation:
-
-            from pyannote.database.protocol.speaker_diarization import \
-                SpeakerDiarizationProtocol
-            from pyannote.database.protocol.speaker_recognition import \
-                SpeakerRecognitionProtocol
-
-            # speaker diarization
-            if isinstance(protocol, SpeakerDiarizationProtocol):
-                from pyannote.audio.embedding.callbacks import \
-                    SpeakerDiarizationValidation
-                ValidationCallback = SpeakerDiarizationValidation
-
-            # speaker recognition
-            elif isinstance(protocol, SpeakerRecognitionProtocol):
-                from pyannote.audio.embedding.callbacks import \
-                    SpeakerRecognitionValidation
-                ValidationCallback = SpeakerRecognitionValidation
-
-            else:
-                warnings.warn(
-                    'No validation callback available for this protocol.')
-
-            for subset in validation:
-                callback = ValidationCallback(
-                    self.glue, protocol, subset, log_dir)
-                callbacks.append(callback)
 
         # if generator has n_labels attribute, pass it to build_model
         n_labels = getattr(generator, 'n_labels', None)
