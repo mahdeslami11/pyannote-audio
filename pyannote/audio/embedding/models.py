@@ -121,23 +121,36 @@ class TristouNet(object):
         n_lstm = len(self.lstm)
         for i, output_dim in enumerate(self.lstm):
 
-            if i:
-                # all but first LSTM
-                lstm = LSTM(name='lstm_{i:d}'.format(i=i),
-                            output_dim=output_dim,
-                            return_sequences=True,
-                            activation='tanh',
-                            dropout_W=0.0,
-                            dropout_U=0.0)
-            else:
-                # first LSTM needs to be given the input shape
-                lstm = LSTM(name='lstm_{i:d}'.format(i=i),
-                            input_shape=input_shape,
-                            output_dim=output_dim,
-                            return_sequences=True,
-                            activation='tanh',
-                            dropout_W=0.0,
-                            dropout_U=0.0)
+            params = {
+                'name': 'lstm_{i:d}'.format(i=i),
+                'return_sequences': True,
+                # 'go_backwards': False,
+                # 'stateful': False,
+                # 'unroll': False,
+                # 'implementation': 0,
+                'activation': 'tanh',
+                # 'recurrent_activation': 'hard_sigmoid',
+                # 'use_bias': True,
+                # 'kernel_initializer': 'glorot_uniform',
+                # 'recurrent_initializer': 'orthogonal',
+                # 'bias_initializer': 'zeros',
+                # 'unit_forget_bias': True,
+                # 'kernel_regularizer': None,
+                # 'recurrent_regularizer': None,
+                # 'bias_regularizer': None,
+                # 'activity_regularizer': None,
+                # 'kernel_constraint': None,
+                # 'recurrent_constraint': None,
+                # 'bias_constraint': None,
+                # 'dropout': 0.0,
+                # 'recurrent_dropout': 0.0,
+            }
+
+            # first LSTM needs to be given the input shape
+            if i == 0:
+                params['input_shape'] = input_shape
+
+            lstm = LSTM(output_dim, **params)
 
             if self.bidirectional:
                 lstm = Bidirectional(lstm, merge_mode=self.bidirectional)
@@ -216,22 +229,36 @@ class TrottiNet(object):
         # stack (bidirectional) LSTM layers
         for i, output_dim in enumerate(self.lstm):
 
-            if i:
-                lstm = LSTM(name='lstm_{i:d}'.format(i=i),
-                            output_dim=output_dim,
-                            return_sequences=True,
-                            activation='tanh',
-                            dropout_W=0.0,
-                            dropout_U=0.0)
-            else:
-                # we need to provide input_shape to first LSTM
-                lstm = LSTM(name='lstm_{i:d}'.format(i=i),
-                            input_shape=input_shape,
-                            output_dim=output_dim,
-                            return_sequences=True,
-                            activation='tanh',
-                            dropout_W=0.0,
-                            dropout_U=0.0)
+            params = {
+                'name': 'lstm_{i:d}'.format(i=i),
+                'return_sequences': True,
+                # 'go_backwards': False,
+                # 'stateful': False,
+                # 'unroll': False,
+                # 'implementation': 0,
+                'activation': 'tanh',
+                # 'recurrent_activation': 'hard_sigmoid',
+                # 'use_bias': True,
+                # 'kernel_initializer': 'glorot_uniform',
+                # 'recurrent_initializer': 'orthogonal',
+                # 'bias_initializer': 'zeros',
+                # 'unit_forget_bias': True,
+                # 'kernel_regularizer': None,
+                # 'recurrent_regularizer': None,
+                # 'bias_regularizer': None,
+                # 'activity_regularizer': None,
+                # 'kernel_constraint': None,
+                # 'recurrent_constraint': None,
+                # 'bias_constraint': None,
+                # 'dropout': 0.0,
+                # 'recurrent_dropout': 0.0,
+            }
+
+            # first LSTM needs to be given the input shape
+            if i == 0:
+                params['input_shape'] = input_shape
+
+            lstm = LSTM(output_dim, **params)
 
             if self.bidirectional:
                 lstm = Bidirectional(lstm, merge_mode=self.bidirectional)
@@ -308,18 +335,36 @@ class ClopiNet(object):
         # stack (bidirectional) LSTM layers
         for i, output_dim in enumerate(self.lstm):
 
-            if i:
-                lstm = LSTM(output_dim,
-                            name='lstm_{i:d}'.format(i=i),
-                            return_sequences=True,
-                            activation='tanh')
-            else:
-                # we need to provide input_shape to first LSTM
-                lstm = LSTM(output_dim,
-                            input_shape=input_shape,
-                            name='lstm_{i:d}'.format(i=i),
-                            return_sequences=True,
-                            activation='tanh')
+            params = {
+                'name': 'lstm_{i:d}'.format(i=i),
+                'return_sequences': True,
+                # 'go_backwards': False,
+                # 'stateful': False,
+                # 'unroll': False,
+                # 'implementation': 0,
+                'activation': 'tanh',
+                # 'recurrent_activation': 'hard_sigmoid',
+                # 'use_bias': True,
+                # 'kernel_initializer': 'glorot_uniform',
+                # 'recurrent_initializer': 'orthogonal',
+                # 'bias_initializer': 'zeros',
+                # 'unit_forget_bias': True,
+                # 'kernel_regularizer': None,
+                # 'recurrent_regularizer': None,
+                # 'bias_regularizer': None,
+                # 'activity_regularizer': None,
+                # 'kernel_constraint': None,
+                # 'recurrent_constraint': None,
+                # 'bias_constraint': None,
+                # 'dropout': 0.0,
+                # 'recurrent_dropout': 0.0,
+            }
+
+            # first LSTM needs to be given the input shape
+            if i == 0:
+                params['input_shape'] = input_shape
+
+            lstm = LSTM(output_dim, **params)
 
             # bi-directional LSTM
             if self.bidirectional:
@@ -329,9 +374,8 @@ class ClopiNet(object):
             x = lstm(x)
 
             # concatenate output of all levels
-            if i:
+            if i > 0:
                 concat_x = Concatenate(axis=-1)([concat_x, x])
-
 
             else:
                 # corner case for 1st level (i=0)
