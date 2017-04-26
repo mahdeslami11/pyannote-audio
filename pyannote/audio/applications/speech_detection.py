@@ -53,15 +53,13 @@ Options:
                              In "train" mode, default subset is "train".
                              In "tune" mode, default subset is "development".
                              In "apply" mode, default subset is "test".
-                             Use higher values if you want to improve recall.
   -h --help                  Show this screen.
   --version                  Show version.
 
-
-Database configuration file:
+Database configuration file <db.yml>:
     The database configuration provides details as to where actual files are
-    stored. See `pyannote.audio.util.FileFinder` docstring for more information
-    on the expected format.
+    stored. See `pyannote.database.util.FileFinder` docstring for more
+    information on the expected format.
 
 Configuration file:
     The configuration of each experiment is described in a file called

@@ -63,6 +63,12 @@ Options:
     -h --help                       Show this screen.
     --version                       Show version.
 
+
+Database configuration file:
+    The database configuration provides details as to where actual files are
+    stored. See `pyannote.database.util.FileFinder` docstring for more
+    information on the expected format.
+
 Configuration file:
         The configuration of each experiment is described in a file called
         <experiment_dir>/config.yml, that describes the architecture of the neural
