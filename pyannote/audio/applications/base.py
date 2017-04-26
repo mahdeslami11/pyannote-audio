@@ -53,17 +53,18 @@ class Application(object):
             self.config_ = yaml.load(fp)
 
         # feature extraction
-        feature_extraction_name = self.config_['feature_extraction']['name']
-        features = __import__('pyannote.audio.features',
-                              fromlist=[feature_extraction_name])
-        FeatureExtraction = getattr(features, feature_extraction_name)
-        self.feature_extraction_ = FeatureExtraction(
-            **self.config_['feature_extraction'].get('params', {}))
+        if 'feature_extraction' in self.config_:
+            extraction_name = self.config_['feature_extraction']['name']
+            features = __import__('pyannote.audio.features',
+                                  fromlist=[extraction_name])
+            FeatureExtraction = getattr(features, extraction_name)
+            self.feature_extraction_ = FeatureExtraction(
+                **self.config_['feature_extraction'].get('params', {}))
 
         # do not cache features in memory when they are precomputed on disk
         # as this does not bring any significant speed-up
         # but does consume (potentially) a LOT of memory
-        self.cache_preprocessed_ = 'Precomputed' not in feature_extraction_name
+        self.cache_preprocessed_ = 'Precomputed' not in extraction_name
 
     def get_epochs(self, train_dir):
         """Get current number of completed epochs"""
