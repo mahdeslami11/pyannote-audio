@@ -102,19 +102,17 @@ Database configuration file:
     data: <sequences_dir>
 
     architecture:
-       name: StackedLSTM
-       params:                       # this experiments relies
-         n_classes: 2                # on one LSTM layer (16 outputs)
-         lstm: [16]                  # and one dense layer.
-         mlp: [16]                   # LSTM is bidirectional
-         bidirectional: True
+       name: TristouNet
+       params:
+         lstm: [16]
+         mlp: [16, 16]
+         bidirectional: concat
 
     approach:
        name: TripletLoss
        params:
-         per_label: 5
-         per_fold: 20
-
+         per_label: 2
+         per_fold: 10
     ...................................................................
 
     Using "train" mode will create a bunch of files in <train_dir>
@@ -134,6 +132,8 @@ import h5py
 from .base import Application
 
 from pyannote.generators.fragment import SlidingLabeledSegments
+from pyannote.audio.optimizers import SSMORMS3
+
 
 class SpeakerEmbedding(Application):
 
@@ -322,7 +322,23 @@ class SpeakerEmbedding(Application):
 
             X.resize(i-1, axis=0)
             Y.resize(i-1, axis=0)
-            Z.resize(i-1, axis=0)    
+            Z.resize(i-1, axis=0)
+
+    def train(self):
+
+        data_dir = self.config_['data']
+        data_h5 = self.DATA_H5.format(data_dir=data_dir)
+        batch_generator, batches_per_epoch = \
+            self.approach_.get_batch_generator(data_h5)
+
+        train_dir = self.TRAIN_DIR.format(train_dir=self.train_dir_)
+
+        optimizer = SSMORMS3()
+        self.approach_.fit(self.architecture_, batch_generator,
+                           batches_per_epoch=batches_per_epoch,
+                           epochs=1000, log_dir=train_dir, optimizer=optimizer)
+
+
 
 def main():
 
@@ -339,3 +355,8 @@ def main():
             subset = 'train'
         application = SpeakerEmbedding.from_data_dir(data_dir, db_yml=db_yml)
         application.data(protocol_name, subset=subset)
+
+    if arguments['train']:
+        train_dir = arguments['<train_dir>']
+        application = SpeakerEmbedding.from_train_dir(train_dir)
+        application.train()

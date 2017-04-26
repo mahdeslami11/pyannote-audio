@@ -46,6 +46,7 @@ setup(
         'pysndfile >= 0.2.11',
         'keras >= 2.0.3',
         'theano >= 0.8.2',
+        'autograd >= 1.1.10',
         'scikit-optimize >= 0.2',
         'pyYAML >= 3.12',
         'h5py >= 2.6.0',
