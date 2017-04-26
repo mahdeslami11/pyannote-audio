@@ -61,10 +61,10 @@ class Application(object):
             self.feature_extraction_ = FeatureExtraction(
                 **self.config_['feature_extraction'].get('params', {}))
 
-        # do not cache features in memory when they are precomputed on disk
-        # as this does not bring any significant speed-up
-        # but does consume (potentially) a LOT of memory
-        self.cache_preprocessed_ = 'Precomputed' not in extraction_name
+            # do not cache features in memory when they are precomputed on disk
+            # as this does not bring any significant speed-up
+            # but does consume (potentially) a LOT of memory
+            self.cache_preprocessed_ = 'Precomputed' not in extraction_name
 
     def get_epochs(self, train_dir):
         """Get current number of completed epochs"""
