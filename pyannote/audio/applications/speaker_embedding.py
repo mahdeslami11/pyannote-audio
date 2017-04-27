@@ -30,27 +30,33 @@
 Speaker embedding
 
 Usage:
- pyannote-speaker-embedding data [--database=<db.yml> --subset=<subset>] <data_dir> <database.task.protocol>
- pyannote-speaker-embedding train <train_dir>
- pyannote-speaker-embedding -h | --help
- pyannote-speaker-embedding --version
+  pyannote-speaker-embedding data [--database=<db.yml> --duration=<duration> --step=<step> --heterogeneous] <root_dir> <database.task.protocol>
+  pyannote-speaker-embedding train [--subset=<subset>] <experiment_dir> <database.task.protocol>
+  pyannote-speaker-embedding -h | --help
+  pyannote-speaker-embedding --version
 
 Options:
-  <data_dir>                 Set data root directory. This script expects a
+  <root_dir>                 Set root directory. This script expects a
                              configuration file called "config.yml" to live in
                              this directory. See '"data" mode' section below
                              for more details.
-  <train_dir>                Set experiment root directory. This script expects
-                             a configuration file called "config.yml" to live
-                             in this directory. See '"train" mode' section
-                             for more details.
-  <database.task.protocol>   Set evaluation protocol (e.g.
-                             "Etape.SpeakerDiarization.TV")
+  <database.task.protocol>   Set evaluation protocol (e.g. "Etape.SpeakerDiarization.TV")
   --database=<db.yml>        Path to database configuration file.
                              [default: ~/.pyannote/db.yml]
+  --duration=<duration>      Set duration of embedded sequences [default: 3.2]
+  --step=<step>              Set step between sequences, in seconds.
+                             Defaults to 0.5 x <duration>.
+  --heterogeneous            Allow heterogeneous sequences. In this case, the
+                             label given to heterogeneous sequences is the most
+                             overlapping one.
+  <experiment_dir>           Set experiment directory. This script expects a
+                             configuration file called "config.yml" to live
+                             in this directory. See '"train" mode' section
+                             for more details.
   --subset=<subset>          Set subset (train|developement|test).
-                             In "data" mode, default subset is "train".
-                             In "validate" mode, default subset is "development".
+                             In "train" mode, defaults subset is "train".
+                             In "validate" mode, defaults to "development".
+  <train_dir>                Blah blah
   -h --help                  Show this screen.
   --version                  Show version.
 
@@ -62,11 +68,10 @@ Database configuration file:
 
 "data" mode:
 
-    A file called <data_dir>/config.yml should exist, that describes the
-    feature extraction process (e.g. MFCCs) and the sequence generator used for
-    generating training sequences.
+    A file called <root_dir>/config.yml should exist, that describes the
+    feature extraction process (e.g. MFCCs):
 
-    ................... <data_dir>/config.yml ...................
+    ................... <root_dir>/config.yml .........................
     feature_extraction:
        name: YaafeMFCC
        params:
@@ -75,32 +80,25 @@ Database configuration file:
           DDe: True                  # with 1st and 2nd derivatives
           D: True                    # without energy, but with
           DD: True                   # energy derivatives
-
-    generator:
-       duration: 3.2                 # sliding windows of 3.2s
-       step: 1.6                     # with a step of 1.6s
-       heterogeneous: True           # allow heterogeneous sequences
     ...................................................................
 
     Using "data" mode will create the following directory that contains
-    the pre-computed training sequences:
+    the pre-computed sequences for train, development, and test subsets:
 
-        <data_dir>/<database.task.protocol>.<subset>/<duration>+<step><heterogeneous>
+        <root_dir>/<duration>+<step>/sequences/<database.task.protocol>.{train|development|test}.h5
 
-    This means that the sequences were generated on the <subset> subset of the
-    <database.task.protocol> protocol. By default, <subset> is "train".
-    This directory is called <sequences_dir> in the subsequent modes.
+    This means that <duration>-long sequences were generated with a step of
+    <step> seconds, from the <database.task.protocol> protocol. This directory
+    is called <data_dir> in the subsequent modes.
 
 "train" mode:
 
     The configuration of each experiment is described in a file called
-    <train_dir>/config.yml, that describes which precomputed sequences to
-    use, the architecture of the neural network, and the approach (e.g. triplet
-    loss) used for sequence embedding
+    <data_dir>/<xp_id>/config.yml, that describes the architecture of the
+    neural network, and the approach (e.g. triplet loss) used for training the
+    network:
 
     ................... <train_dir>/config.yml ...................
-    data: <sequences_dir>
-
     architecture:
        name: TristouNet
        params:
@@ -115,8 +113,16 @@ Database configuration file:
          per_fold: 10
     ...................................................................
 
-    Using "train" mode will create a bunch of files in <train_dir>
-    including the pre-trained neural network weights after each epoch.
+    Using "train" mode will create the following directory that contains a
+    bunch of files including the pre-trained neural network weights after each
+    epoch:
+
+        <data_dir>/<xp_id>/train/<database.task.protocol>.<subset>
+
+    This means that the network was trained using the <subset> subset of the
+    <database.task.protocol> protocol, using the configuration described in
+    <data_dir>/<xp_id>/config.yml. This directory  is called <train_dir> in the
+    subsequent modes.
 
 """
 
@@ -137,30 +143,30 @@ from pyannote.audio.optimizers import SSMORMS3
 
 class SpeakerEmbedding(Application):
 
-    DATA_DIR = '{data_dir}/{protocol}.{subset}/{params}'
-    DATA_H5 = '{data_dir}/sequences.h5'
-    TRAIN_DIR = '{train_dir}'
+    # created by "data" mode
+    DATA_DIR = '{root_dir}/{params}'
+    DATA_H5 = '{data_dir}/sequences/{protocol}.{subset}.h5'
+
+    # created by "train" mode
+    TRAIN_DIR = '{experiment_dir}/train/{protocol}.{subset}'
+
+    # created by "valide" mode
+    VALIDATE_DIR = '{train_dir}/validate/{protocol}.{subset}'
+
+    # created by "tune" mode
+    TUNE_DIR = '{train_dir}/tune/{protocol}.{subset}'
 
     @classmethod
-    def from_data_dir(cls, data_dir, db_yml=None):
-        speaker_embedding = cls(data_dir, db_yml=db_yml)
-        speaker_embedding.data_dir_ = data_dir
+    def from_root_dir(cls, root_dir, db_yml=None):
+        speaker_embedding = cls(root_dir, db_yml=db_yml)
+        speaker_embedding.root_dir_ = root_dir
         return speaker_embedding
 
     @classmethod
-    def from_train_dir(cls, train_dir, db_yml=None):
-        """Initialize application from <train_dir>"""
-        speaker_embedding = cls(train_dir, db_yml=db_yml)
-        speaker_embedding.train_dir_ = train_dir
-        return speaker_embedding
-
-    @classmethod
-    def from_tune_dir(cls, tune_dir, db_yml=None):
-        """Initialize application from <tune_dir>"""
-        train_dir = dirname(dirname(tune_dir))
-        speaker_embedding = cls.from_train_dir(train_dir,
-                                               db_yml=db_yml)
-        speaker_embedding.tune_dir_ = tune_dir
+    def from_experiment_dir(cls, experiment_dir, db_yml=None):
+        """Initialize application from <experiment_dir>"""
+        speaker_embedding = cls(experiment_dir, db_yml=db_yml)
+        speaker_embedding.experiment_dir_ = experiment_dir
         return speaker_embedding
 
     def __init__(self, train_dir, db_yml=None):
@@ -225,138 +231,169 @@ class SpeakerEmbedding(Application):
         duration = float(tokens[0]) if len(tokens) == 1 else float(tokens[1])
         return duration, min_duration, step, heterogeneous
 
-    def data(self, protocol_name, subset='train'):
+    def data(self, protocol_name, duration=3.2, min_duration=None, step=None,
+             heterogeneous=False):
 
         # labeled segment generator
-        generator = SlidingLabeledSegments(source='annotated',
-                                           **self.config_['generator'])
-        duration = generator.duration
+        generator = SlidingLabeledSegments(duration=duration,
+                                           min_duration=min_duration,
+                                           step=step,
+                                           heterogeneous=heterogeneous,
+                                           source='annotated')
+
+        data_dir = self.DATA_DIR.format(
+            root_dir=self.root_dir_,
+            params=self.params_to_directory(duration=duration,
+                                            min_duration=min_duration,
+                                            step=step,
+                                            heterogeneous=heterogeneous))
 
         # file generator
         protocol = get_protocol(protocol_name, progress=True,
                                 preprocessors=self.preprocessors_)
-        file_generator = getattr(protocol, subset)()
 
-        data_dir = self.DATA_DIR.format(
-            data_dir=self.data_dir_,
-            protocol=protocol_name,
-            subset=subset,
-            params=self.params_to_directory(**self.config_['generator']))
-        mkdir_p(data_dir)
+        for subset in {'train', 'development', 'test'}:
 
-        data_h5 = self.DATA_H5.format(data_dir=data_dir)
-        with h5py.File(data_h5, mode='w') as fp:
+            file_generator = getattr(protocol, subset)()
 
-            # initialize with a fixed number of sequences
-            n_sequences = 1000
+            data_h5 = self.DATA_H5.format(data_dir=data_dir,
+                                          protocol=protocol_name,
+                                          subset=subset)
+            mkdir_p(dirname(data_h5))
 
-            # dataset meant to store the speaker identifier
-            Y = fp.create_dataset(
-                'y', shape=(n_sequences, ),
-                dtype=h5py.special_dtype(vlen=bytes),
-                maxshape=(None, ))
+            with h5py.File(data_h5, mode='w') as fp:
 
-            # dataset meant to store the speech turn unique ID
-            Z = fp.create_dataset(
-                'z', shape=(n_sequences, ),
-                dtype=np.int64,
-                maxshape=(None, ))
+                # initialize with a fixed number of sequences
+                n_sequences = 1000
 
-            i = 0  # number of sequences
-            z = 0  # speech turn identifier
+                # dataset meant to store the speaker identifier
+                Y = fp.create_dataset(
+                    'y', shape=(n_sequences, ),
+                    dtype=h5py.special_dtype(vlen=bytes),
+                    maxshape=(None, ))
 
-            for item in file_generator:
+                # dataset meant to store the speech turn unique ID
+                Z = fp.create_dataset(
+                    'z', shape=(n_sequences, ),
+                    dtype=np.int64,
+                    maxshape=(None, ))
 
-                # feature extraction
-                features = self.feature_extraction_(item)
+                i = 0  # number of sequences
+                z = 0  # speech turn identifier
 
-                for segment, y in generator.from_file(item):
+                for item in file_generator:
 
-                    # extract feature sequence
-                    x = features.crop(segment,
-                                      mode='center',
-                                      fixed=duration)
+                    # feature extraction
+                    features = self.feature_extraction_(item)
 
-                    # create X dataset to store feature sequences
-                    # this cannot be done before because we need
-                    # the number of samples per sequence and the
-                    # dimension of feature vectors.
-                    if i == 0:
-                        # get number of samples and feature dimension
-                        # from the first sequence...
-                        n_samples, n_features = x.shape
+                    for segment, y in generator.from_file(item):
 
-                        # create X dataset accordingly
-                        X = fp.create_dataset(
-                            'X', dtype=x.dtype, compression='gzip',
-                            shape=(n_sequences, n_samples, n_features),
-                            chunks=(1, n_samples, n_features),
-                            maxshape=(None, n_samples, n_features))
+                        # extract feature sequence
+                        x = features.crop(segment,
+                                          mode='center',
+                                          fixed=duration)
 
-                        # make sure the speech turn identifier
-                        # will not be erroneously incremented
-                        prev_y = y
+                        # create X dataset to store feature sequences
+                        # this cannot be done before because we need
+                        # the number of samples per sequence and the
+                        # dimension of feature vectors.
+                        if i == 0:
+                            # get number of samples and feature dimension
+                            # from the first sequence...
+                            n_samples, n_features = x.shape
 
-                    # increase the size of the datasets when full
-                    if i == n_sequences:
-                        n_sequences = int(n_sequences * 1.1)
-                        X.resize(n_sequences, axis=0)
-                        Y.resize(n_sequences, axis=0)
-                        Z.resize(n_sequences, axis=0)
+                            # create X dataset accordingly
+                            X = fp.create_dataset(
+                                'X', dtype=x.dtype, compression='gzip',
+                                shape=(n_sequences, n_samples, n_features),
+                                chunks=(1, n_samples, n_features),
+                                maxshape=(None, n_samples, n_features))
 
-                    # save current feature sequence and its label
-                    X[i] = x
-                    Y[i] = y
+                            # make sure the speech turn identifier
+                            # will not be erroneously incremented
+                            prev_y = y
 
-                    # a change of label indicates that a new speech turn has began.
-                    # increment speech turn identifier (z) accordingly
-                    if y != prev_y:
-                        prev_y = y
-                        z += 1
+                        # increase the size of the datasets when full
+                        if i == n_sequences:
+                            n_sequences = int(n_sequences * 1.1)
+                            X.resize(n_sequences, axis=0)
+                            Y.resize(n_sequences, axis=0)
+                            Z.resize(n_sequences, axis=0)
 
-                    # save speech turn identifier
-                    Z[i] = z
+                        # save current feature sequence and its label
+                        X[i] = x
+                        Y[i] = y
 
-                    # increment number of sequences
-                    i += 1
+                        # a change of label indicates that a new speech turn has began.
+                        # increment speech turn identifier (z) accordingly
+                        if y != prev_y:
+                            prev_y = y
+                            z += 1
 
-            X.resize(i-1, axis=0)
-            Y.resize(i-1, axis=0)
-            Z.resize(i-1, axis=0)
+                        # save speech turn identifier
+                        Z[i] = z
 
-    def train(self):
+                        # increment number of sequences
+                        i += 1
 
-        data_dir = self.config_['data']
-        data_h5 = self.DATA_H5.format(data_dir=data_dir)
+                X.resize(i-1, axis=0)
+                Y.resize(i-1, axis=0)
+                Z.resize(i-1, axis=0)
+
+    def train(self, protocol_name, subset='train'):
+
+        data_dir = dirname(self.experiment_dir_)
+        data_h5 = self.DATA_H5.format(data_dir=data_dir,
+                                      protocol=protocol_name,
+                                      subset=subset)
+
         batch_generator, batches_per_epoch = \
             self.approach_.get_batch_generator(data_h5)
 
-        train_dir = self.TRAIN_DIR.format(train_dir=self.train_dir_)
+        train_dir = self.TRAIN_DIR.format(experiment_dir=self.experiment_dir_,
+                                          protocol=protocol_name,
+                                          subset=subset)
 
         optimizer = SSMORMS3()
         self.approach_.fit(self.architecture_, batch_generator,
                            batches_per_epoch=batches_per_epoch,
                            epochs=1000, log_dir=train_dir, optimizer=optimizer)
 
-
-
 def main():
 
     arguments = docopt(__doc__, version='Speaker embedding')
 
-    if not arguments['train']:
-        db_yml = expanduser(arguments['--database'])
-        protocol_name = arguments['<database.task.protocol>']
-        subset = arguments['--subset']
+    db_yml = expanduser(arguments['--database'])
+    protocol_name = arguments['<database.task.protocol>']
+    subset = arguments['--subset']
 
     if arguments['data']:
-        data_dir = arguments['<data_dir>']
+
+        duration = float(arguments['--duration'])
+
+        # min_duration = arguments['--min-duration']
+        # if min_duration is not None:
+        #     min_duration = float(min_duration)
+
+        step = arguments['--step']
+        if step is not None:
+            step = float(step)
+
+        heterogeneous = arguments['--heterogeneous']
+
+        root_dir = arguments['<root_dir>']
         if subset is None:
             subset = 'train'
-        application = SpeakerEmbedding.from_data_dir(data_dir, db_yml=db_yml)
-        application.data(protocol_name, subset=subset)
+
+        application = SpeakerEmbedding.from_root_dir(root_dir, db_yml=db_yml)
+        application.data(protocol_name, duration=duration, step=step,
+                         heterogeneous=heterogeneous)
 
     if arguments['train']:
-        train_dir = arguments['<train_dir>']
-        application = SpeakerEmbedding.from_train_dir(train_dir)
-        application.train()
+        experiment_dir = arguments['<experiment_dir>']
+
+        if subset is None:
+            subset = 'train'
+
+        application = SpeakerEmbedding.from_experiment_dir(experiment_dir)
+        application.train(protocol_name, subset=subset)
