@@ -43,7 +43,7 @@ class TripletLoss(SequenceEmbeddingAutograd):
     loss = d(anchor, positive) - d(anchor, negative) + margin
 
     * 'positive' clamping >= 0: loss = max(0, loss)
-    * 'sigmoid' clamping [0, 1]: loss = sigma(loss)
+    * 'sigmoid' clamping [0, 1]: loss = sigmoid(loss)
 
     Parameters
     ----------
@@ -156,6 +156,7 @@ class TripletLoss(SequenceEmbeddingAutograd):
         """
 
         loss = 0.
+        n_comparisons = 0
 
         # consider every embedding as anchor
         for anchor, y_anchor in enumerate(y):
@@ -177,5 +178,6 @@ class TripletLoss(SequenceEmbeddingAutograd):
                     loss = loss + self.triplet_loss_(fX[anchor, :],
                                                      fX[positive, :],
                                                      fX[negative, :])
+                    n_comparisons = n_comparisons + 1
 
-        return loss
+        return loss / n_comparisons
