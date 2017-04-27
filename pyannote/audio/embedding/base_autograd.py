@@ -129,7 +129,7 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, object):
 
     def __init__(self, metric='cosine'):
         super(SequenceEmbeddingAutograd, self).__init__()
-
+        self.metric = metric
         self.metric_ = getattr(self, metric)
         self.metric_max_ = self.get_metric_max(metric)
         self.loss_value_and_grad_ = value_and_grad(self.loss, argnum=0)
