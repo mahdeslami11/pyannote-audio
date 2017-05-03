@@ -90,7 +90,7 @@ class TripletLoss(SequenceEmbeddingAutograd):
 
         # keep track of number of labels and rename labels to integers
         unique, y = np.unique(h5_y, return_inverse=True)
-        n_labels = len(unique)
+        n_classes = len(unique)
 
         index_generator = random_label_index(
             y, per_label=self.per_label, return_label=False)
@@ -106,11 +106,11 @@ class TripletLoss(SequenceEmbeddingAutograd):
                                    signature,
                                    batch_size=self.per_label * self.per_fold)
 
-        batches_per_epoch = n_labels // self.per_fold + 1
+        batches_per_epoch = n_classes // self.per_fold + 1
 
         return {'batch_generator': batch_generator,
                 'batches_per_epoch': batches_per_epoch,
-                'n_classes': n_labels}
+                'n_classes': n_classes}
 
     def loss(self, fX, y):
         """Differentiable loss
