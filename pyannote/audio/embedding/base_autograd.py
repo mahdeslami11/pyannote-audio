@@ -162,7 +162,7 @@ class MixinDistanceAutograd:
 
         return ag_np.arccos(ag_np.clip(ag_np.stack(
             ag_np.sum(embedding[i] * other_embedding, axis=1)
-            for i in range(n_samples)), -1. + EPSILON, 1. - EPSILSON))
+            for i in range(n_samples)), -1. + EPSILON, 1. - EPSILON))
 
 
 class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
