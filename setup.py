@@ -51,7 +51,8 @@ setup(
         'pyYAML >= 3.12',
         'h5py >= 2.6.0',
         'cachetools >= 2.0.0',
-        'librosa >= 0.4.3'
+        'librosa >= 0.4.3',
+        'tqdm >= 4.11.2',
     ],
     entry_points = {
         'console_scripts': [

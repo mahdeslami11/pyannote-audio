@@ -32,6 +32,7 @@ Speaker embedding
 Usage:
   pyannote-speaker-embedding data [--database=<db.yml> --duration=<duration> --step=<step> --heterogeneous] <root_dir> <database.task.protocol>
   pyannote-speaker-embedding train [--subset=<subset>] <experiment_dir> <database.task.protocol>
+  pyannote-speaker-embedding validate [--subset=<subset>] <train_dir> <database.task.protocol>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
 
@@ -56,7 +57,7 @@ Options:
   --subset=<subset>          Set subset (train|developement|test).
                              In "train" mode, defaults subset is "train".
                              In "validate" mode, defaults to "development".
-  <train_dir>                Blah blah
+  <train_dir>                Path to directory created by "train" mode.
   -h --help                  Show this screen.
   --version                  Show version.
 
@@ -124,12 +125,28 @@ Database configuration file:
     <data_dir>/<xp_id>/config.yml. This directory  is called <train_dir> in the
     subsequent modes.
 
+"validate" mode:
+    Use the "validate" mode to run validation in parallel to training.
+    "validate" mode will watch the <train_dir> directory, and run validation
+    experiments every time a new epoch has ended. This will create the
+    following directory that contains validation results:
+
+        <train_dir>/validate/<database.task.protocol>
+
+    You can run multiple "validate" in parallel (e.g. for every subset,
+    protocol, task, or database).
 """
 
 from os.path import dirname, isfile, expanduser
 import numpy as np
+import time
+from tqdm import tqdm
 
 from docopt import docopt
+
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 from pyannote.database import get_protocol
 from pyannote.audio.util import mkdir_p
@@ -140,6 +157,11 @@ from .base import Application
 from pyannote.generators.fragment import SlidingLabeledSegments
 from pyannote.audio.optimizers import SSMORMS3
 
+from keras.models import model_from_yaml
+from pyannote.audio.keras_utils import CUSTOM_OBJECTS
+from pyannote.audio.embedding.utils import pdist, cdist
+from pyannote.metrics.binary_classification import det_curve
+
 
 class SpeakerEmbedding(Application):
 
@@ -149,12 +171,16 @@ class SpeakerEmbedding(Application):
 
     # created by "train" mode
     TRAIN_DIR = '{experiment_dir}/train/{protocol}.{subset}'
+    ARCHITECTURE_YML = '{train_dir}/architecture.yml'
+    WEIGHTS_H5 = '{train_dir}/weights/{epoch:04d}.h5'
 
-    # created by "valide" mode
-    VALIDATE_DIR = '{train_dir}/validate/{protocol}.{subset}'
+    # created by "validate" mode
+    VALIDATE_DIR = '{train_dir}/validate/{protocol}'
+    VALIDATE_TXT = '{validate_dir}/{subset}.eer.txt'
+    VALIDATE_TXT_TEMPLATE = '{epoch:04d} {eer:5f}\n'
 
-    # created by "tune" mode
-    TUNE_DIR = '{train_dir}/tune/{protocol}.{subset}'
+    VALIDATE_PNG = '{validate_dir}/{subset}.eer.png'
+    VALIDATE_EPS = '{validate_dir}/{subset}.eer.eps'
 
     @classmethod
     def from_root_dir(cls, root_dir, db_yml=None):
@@ -163,16 +189,17 @@ class SpeakerEmbedding(Application):
         return speaker_embedding
 
     @classmethod
-    def from_experiment_dir(cls, experiment_dir, db_yml=None):
-        """Initialize application from <experiment_dir>"""
+    def from_train_dir(cls, train_dir, db_yml=None):
+        """Initialize application from <train_dir>"""
+        experiment_dir = dirname(dirname(train_dir))
         speaker_embedding = cls(experiment_dir, db_yml=db_yml)
-        speaker_embedding.experiment_dir_ = experiment_dir
+        speaker_embedding.train_dir_ = train_dir
         return speaker_embedding
 
-    def __init__(self, train_dir, db_yml=None):
+    def __init__(self, experiment_dir, db_yml=None):
 
         super(SpeakerEmbedding, self).__init__(
-            train_dir, db_yml=db_yml)
+            experiment_dir, db_yml=db_yml)
 
         # architecture
         if 'architecture' in self.config_:
@@ -198,7 +225,7 @@ class SpeakerEmbedding(Application):
     # (5, 1, 2, False) ==> '1-5+2'
     # (5, None, None, True) ==> '5x'
     @staticmethod
-    def params_to_directory(duration=5.0, min_duration=None, step=None,
+    def _params_to_directory(duration=5.0, min_duration=None, step=None,
                             heterogeneous=False, skip_unlabeled=True,
                             **kwargs):
         if not skip_unlabeled:
@@ -219,7 +246,7 @@ class SpeakerEmbedding(Application):
     # (5, None, 2, False) <== '5+2'
     # (5, 1, 2, False) <== '1-5+2'
     @staticmethod
-    def directory_to_params(directory):
+    def _directory_to_params(directory):
         heterogeneous = False
         if directory[-1] == 'x':
             heterogeneous = True
@@ -243,7 +270,7 @@ class SpeakerEmbedding(Application):
 
         data_dir = self.DATA_DIR.format(
             root_dir=self.root_dir_,
-            params=self.params_to_directory(duration=duration,
+            params=self._params_to_directory(duration=duration,
                                             min_duration=min_duration,
                                             step=step,
                                             heterogeneous=heterogeneous))
@@ -342,7 +369,7 @@ class SpeakerEmbedding(Application):
 
     def train(self, protocol_name, subset='train'):
 
-        data_dir = dirname(self.experiment_dir_)
+        data_dir = dirname(self.experiment_dir)
         data_h5 = self.DATA_H5.format(data_dir=data_dir,
                                       protocol=protocol_name,
                                       subset=subset)
@@ -350,7 +377,7 @@ class SpeakerEmbedding(Application):
         batch_generator, batches_per_epoch = \
             self.approach_.get_batch_generator(data_h5)
 
-        train_dir = self.TRAIN_DIR.format(experiment_dir=self.experiment_dir_,
+        train_dir = self.TRAIN_DIR.format(experiment_dir=self.experiment_dir,
                                           protocol=protocol_name,
                                           subset=subset)
 
@@ -358,6 +385,135 @@ class SpeakerEmbedding(Application):
         self.approach_.fit(self.architecture_, batch_generator,
                            batches_per_epoch=batches_per_epoch,
                            epochs=1000, log_dir=train_dir, optimizer=optimizer)
+
+    def _validation_set(self, protocol_name, subset='development'):
+
+        # reproducibility
+        np.random.seed(1337)
+
+        data_dir = dirname(dirname(dirname(self.train_dir_)))
+        data_h5 = self.DATA_H5.format(data_dir=data_dir,
+                                      protocol=protocol_name,
+                                      subset=subset)
+
+        with h5py.File(data_h5, mode='r') as fp:
+
+            X = fp['X']
+            y = fp['y']
+
+            # randomly select (at most) 100 sequences from each speaker to ensure
+            # all speakers have the same importance in the evaluation
+            unique, y, counts = np.unique(y, return_inverse=True,
+                                          return_counts=True)
+            n_speakers = len(unique)
+            indices = []
+            for speaker in range(n_speakers):
+                i = np.random.choice(np.where(y == speaker)[0],
+                                     size=min(100, counts[speaker]),
+                                     replace=False)
+                indices.append(i)
+            # indices have to be sorted because of h5py indexing limitations
+            indices = sorted(np.hstack(indices))
+
+            X = np.array(X[indices])
+            y = np.array(y[indices, np.newaxis])
+
+        return X, y
+
+    def validate(self, protocol_name, subset='development'):
+
+        # prepare paths
+        validate_dir = self.VALIDATE_DIR.format(train_dir=self.train_dir_,
+                                                protocol=protocol_name)
+        validate_txt = self.VALIDATE_TXT.format(validate_dir=validate_dir,
+                                                subset=subset)
+        validate_png = self.VALIDATE_PNG.format(validate_dir=validate_dir,
+                                                subset=subset)
+        validate_eps = self.VALIDATE_EPS.format(validate_dir=validate_dir,
+                                                subset=subset)
+
+        # create validation directory
+        mkdir_p(validate_dir)
+
+        # Build validation set
+        X, y = self._validation_set(protocol_name, subset=subset)
+
+
+        # initialize embedding architecture
+        architecture_yml = self.ARCHITECTURE_YML.format(
+            train_dir=self.train_dir_)
+        with open(architecture_yml, mode='r') as ep:
+            yaml_string = ep.read()
+        embedding = model_from_yaml(yaml_string,
+                                    custom_objects=CUSTOM_OBJECTS)
+
+        # list of equal error rates, and current epoch
+        eers, epoch = [], 0
+
+        desc_format = ('EER = {eer:.2f}% @ epoch #{epoch:d} ::'
+                      ' Best EER = {best_eer:.2f}% @ epoch #{best_epoch:d} :')
+        progress_bar = tqdm(unit='epoch', total=1000)
+
+        with open(validate_txt, mode='w') as fp:
+
+            # watch and evaluate forever
+            while True:
+
+                weights_h5 = self.WEIGHTS_H5.format(train_dir=self.train_dir_,
+                                                    epoch=epoch)
+
+                # wait for next epoch to complete
+                if not isfile(weights_h5):
+                    time.sleep(10)
+                    continue
+
+                embedding.load_weights(weights_h5)
+
+                # embed all validation sequences
+                fX = embedding.predict(X)
+                # compute pairwise distances
+                y_pred = pdist(fX, metric=self.approach_.metric)
+                # compute pairwise groundtruth
+                y_true = pdist(y, metric='chebyshev') < 1
+                # estimate equal error rate
+                _, _, _, eer = det_curve(y_true, y_pred, distances=True)
+                eers.append(eer)
+
+                # save equal error rate to file
+                fp.write(self.VALIDATE_TXT_TEMPLATE.format(epoch=epoch, eer=eer))
+                fp.flush()
+
+                # keep track of best epoch so far
+                best_epoch, best_eer = np.argmin(eers), np.min(eers)
+
+                progress_bar.set_description(
+                    desc_format.format(epoch=epoch, eer=100*eer,
+                                       best_epoch=best_epoch,
+                                       best_eer=100*best_eer))
+                progress_bar.update(1)
+
+                # plot
+                fig = plt.figure()
+                plt.plot(eers, 'b')
+                plt.plot([best_epoch], [best_eer], 'bo')
+                plt.plot([0, epoch], [best_eer, best_eer], 'k--')
+                plt.grid(True)
+                plt.xlabel('epoch')
+                plt.ylabel('EER on {subset}'.format(subset=subset))
+                TITLE = '{best_eer:.5g} @ epoch #{best_epoch:d}'
+                title = TITLE.format(best_eer=best_eer,
+                                     best_epoch=best_epoch,
+                                     subset=subset)
+                plt.title(title)
+                plt.tight_layout()
+                plt.savefig(validate_png, dpi=150)
+                plt.savefig(validate_eps)
+                plt.close(fig)
+
+                # validate next epoch
+                epoch += 1
+
+        progress_bar.close()
 
 def main():
 
@@ -370,10 +526,6 @@ def main():
     if arguments['data']:
 
         duration = float(arguments['--duration'])
-
-        # min_duration = arguments['--min-duration']
-        # if min_duration is not None:
-        #     min_duration = float(min_duration)
 
         step = arguments['--step']
         if step is not None:
@@ -395,5 +547,14 @@ def main():
         if subset is None:
             subset = 'train'
 
-        application = SpeakerEmbedding.from_experiment_dir(experiment_dir)
+        application = SpeakerEmbedding(experiment_dir)
         application.train(protocol_name, subset=subset)
+
+    if arguments['validate']:
+        train_dir = arguments['<train_dir>']
+
+        if subset is None:
+            subset = 'development'
+
+        application = SpeakerEmbedding.from_train_dir(train_dir)
+        application.validate(protocol_name, subset=subset)
