@@ -377,7 +377,7 @@ class SpeakerEmbedding(Application):
         got = self.approach_.get_batch_generator(data_h5)
         batch_generator = got['batch_generator']
         batches_per_epoch = got['batches_per_epoch']
-
+        n_classes = got.get('n_classes', None)
         train_dir = self.TRAIN_DIR.format(experiment_dir=self.experiment_dir,
                                           protocol=protocol_name,
                                           subset=subset)
@@ -385,6 +385,7 @@ class SpeakerEmbedding(Application):
         optimizer = SSMORMS3()
         self.approach_.fit(self.architecture_, batch_generator,
                            batches_per_epoch=batches_per_epoch,
+                           n_classes=n_classes,
                            epochs=1000, log_dir=train_dir, optimizer=optimizer)
 
     def _validation_set(self, protocol_name, subset='development'):
