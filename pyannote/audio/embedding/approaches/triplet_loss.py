@@ -108,37 +108,6 @@ class TripletLoss(SequenceEmbeddingAutograd):
         batches_per_epoch = n_labels // self.per_fold + 1
         return batch_generator, batches_per_epoch
 
-    def triplet_loss_(self, anchor, positive, negative):
-        """Differentiable triplet loss
-
-        loss = d(anchor, positive) - d(anchor, negative) + margin
-
-        * 'positive' clamping: loss = max(0, loss)
-        * 'sigmoid' clamping: loss = sigmoid(loss)
-
-        Parameters
-        ----------
-        anchor, positive, negative : (n_dimensions, ) numpy array
-            Embeddings of anchor, positive, and negative sequences
-
-        Returns
-        -------
-        loss : float
-            (Differentiable) loss value.
-
-        """
-
-        loss_ = self.metric_(anchor, positive) - \
-                self.metric_(anchor, negative) + \
-                self.margin * self.metric_max_
-
-        if self.clamp == 'positive':
-            loss_ = ag_np.maximum(loss_, 0.)
-        elif self.clamp == 'sigmoid':
-            loss_ = 1. / (1. + ag_np.exp(-loss_))
-
-        return loss_
-
     def loss(self, fX, y):
         """Differentiable loss
 
@@ -158,6 +127,8 @@ class TripletLoss(SequenceEmbeddingAutograd):
         loss = 0.
         n_comparisons = 0
 
+        distance = self.metric_(fX)
+
         # consider every embedding as anchor
         for anchor, y_anchor in enumerate(y):
 
@@ -174,10 +145,19 @@ class TripletLoss(SequenceEmbeddingAutograd):
                     if y_negative == y_positive:
                         continue
 
+                    loss_ = distance[anchor, positive] - \
+                            distance[anchor, negative] + \
+                            self.margin * self.metric_max_
+
+                    if self.clamp == 'positive':
+                        loss_ = ag_np.maximum(loss_, 0.)
+
+                    elif self.clamp == 'sigmoid':
+                        loss_ = 1. / (1. + ag_np.exp(-loss_))
+
                     # do not use += because autograd does not support it
-                    loss = loss + self.triplet_loss_(fX[anchor, :],
-                                                     fX[positive, :],
-                                                     fX[negative, :])
+                    loss = loss + loss_
+
                     n_comparisons = n_comparisons + 1
 
         return loss / n_comparisons
