@@ -137,13 +137,13 @@ class CenterLoss(SequenceEmbeddingAutograd):
         self.centers_.compile(optimizer=SSMORMS3(),
                               loss=self._gradient_loss)
         self.trigger_ = np.eye(n_classes)
-        self.fC_ = self.centers_.predict(self.trigger_)  # .astype('float64')
+        self.fC_ = self.centers_.predict(self.trigger_)
 
     def on_batch_end(self, batch_index, logs=None):
         self.centers_.train_on_batch(self.trigger_,
                                      logs['fC_grad'])
 
-        self.fC_ = self.centers_.predict(self.trigger_)  # .astype('float64')
+        self.fC_ = self.centers_.predict(self.trigger_)
 
     def loss(self, fX, fC, y):
         """Differentiable loss
@@ -152,6 +152,8 @@ class CenterLoss(SequenceEmbeddingAutograd):
         ----------
         fX : (batch_size, n_dimensions) numpy array
             Embeddings.
+        fC : (n_classes, n_dimensions) numpy array
+            Centers.
         y : (batch_size, ) numpy array
             Labels.
 
