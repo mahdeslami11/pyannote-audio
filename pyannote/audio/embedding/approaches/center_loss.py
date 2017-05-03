@@ -65,14 +65,18 @@ class CenterLoss(SequenceEmbeddingAutograd):
         Number of speakers per batch. Defaults to 30.
     per_label : int, optional
         Number of sequences per speaker. Defaults to 3.
+    update_centers : {'batch', 'all'}
+        Whether to only update centers in current 'batch' (default), or to
+        update 'all' centers (even though they are not part of current batch).
     """
 
     def __init__(self, margin=0.1, clamp=None, metric='cosine',
-                 per_label=3, per_fold=30):
+                 per_label=3, per_fold=30, update_centers='batch'):
         self.margin = margin
         self.clamp = clamp
         self.per_label = per_label
         self.per_fold = per_fold
+        self.update_centers = update_centers
         super(CenterLoss, self).__init__(metric=metric)
 
     def get_batch_generator(self, data_h5):
@@ -169,13 +173,21 @@ class CenterLoss(SequenceEmbeddingAutograd):
         # compute distances between embeddings and centers
         distance = self.metric_(fX, other_embedding=self.fC_)
 
+        # compare to every center...
+        if self.update_centers == 'all':
+            centers = list(range(self.fC_.shape[0]))
+
+        # or just to the ones in current batch
+        elif self.update_centers == 'batch':
+            centers = list(np.unique(y))
+
         # consider every embedding as anchor
         for anchor, y_anchor in enumerate(y):
 
             # anchor is the index of current embedding
             # y_anchor is the index of corresponding center
 
-            for y_center in range(self.fC_.shape[0]):
+            for y_center in centers:
 
                 if y_center == y_anchor:
                     continue
