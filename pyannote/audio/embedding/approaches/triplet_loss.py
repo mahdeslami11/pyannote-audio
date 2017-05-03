@@ -106,7 +106,10 @@ class TripletLoss(SequenceEmbeddingAutograd):
                                    batch_size=self.per_label * self.per_fold)
 
         batches_per_epoch = n_labels // self.per_fold + 1
-        return batch_generator, batches_per_epoch
+
+        return {'batch_generator': batch_generator,
+                'batches_per_epoch': batches_per_epoch,
+                'n_classes': n_labels}
 
     def loss(self, fX, y):
         """Differentiable loss

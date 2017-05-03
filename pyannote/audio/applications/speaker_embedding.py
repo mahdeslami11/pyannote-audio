@@ -374,8 +374,9 @@ class SpeakerEmbedding(Application):
                                       protocol=protocol_name,
                                       subset=subset)
 
-        batch_generator, batches_per_epoch = \
-            self.approach_.get_batch_generator(data_h5)
+        got = self.approach_.get_batch_generator(data_h5)
+        batch_generator = got['batch_generator']
+        batches_per_epoch = got['batches_per_epoch']
 
         train_dir = self.TRAIN_DIR.format(experiment_dir=self.experiment_dir,
                                           protocol=protocol_name,
