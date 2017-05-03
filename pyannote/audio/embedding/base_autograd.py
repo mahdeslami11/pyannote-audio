@@ -164,7 +164,8 @@ class MixinDistanceAutograd:
             ag_np.sum(embedding[i] * other_embedding, axis=1)
             for i in range(n_samples)), -1. + EPSILON, 1. - EPSILSON))
 
-class SequenceEmbeddingAutograd(MixinDistanceAutograd, object):
+
+class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
 
     def __init__(self, metric='cosine'):
         super(SequenceEmbeddingAutograd, self).__init__()
@@ -228,7 +229,7 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, object):
 
         embed = functools.partial(self.embed, embedding)
 
-        callbacks = []
+        callbacks = [self]
         callbacks.append(cbks.BaseLogger())
         callbacks.append(cbks.ProgbarLogger(count_mode='steps'))
         if log_dir is not None:
