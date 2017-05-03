@@ -51,7 +51,7 @@ class CenterLoss(SequenceEmbeddingAutograd):
     loss = d(anchor, center) - d(anchor, other_center) + margin
 
     * 'positive' clamping >= 0: loss = max(0, loss)
-    * 'sigmoid' clamping [0, 1]: loss = sigmoid(loss)
+    * 'sigmoid' clamping [0, 1]: loss = sigmoid(10 * loss)
 
     Parameters
     ----------
@@ -59,7 +59,7 @@ class CenterLoss(SequenceEmbeddingAutograd):
         Defaults to 0.1
     clamp: {None, 'positive', 'sigmoid'}, optional
         If 'positive', loss = max(0, loss)
-        If 'sigmoid', loss = sigmoid(loss)
+        If 'sigmoid', loss = sigmoid(10 * loss)
     metric : {'sqeuclidean', 'euclidean', 'cosine', 'angular'}, optional
     per_fold : int, optional
         Number of speakers per batch. Defaults to 30.
@@ -190,7 +190,7 @@ class CenterLoss(SequenceEmbeddingAutograd):
                     loss_ = ag_np.maximum(loss_, 0.)
 
                 elif self.clamp == 'sigmoid':
-                    loss_ = 1. / (1. + ag_np.exp(-loss_))
+                    loss_ = 1. / (1. + ag_np.exp(-10. * loss_))
 
                 # do not use += because autograd does not support it
                 loss = loss + loss_
