@@ -259,19 +259,16 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, object):
                 batch_size, _, _ = batch['X'].shape
                 batch_logs = {'batch': batch_index,
                               'size': batch_size}
-                # batch_logs['data'] = batch
+
                 callbacks.on_batch_begin(batch_index, logs=batch_logs)
 
                 # compute loss and its gradient
-                got = self.loss_and_grad(batch, embed=embed)
-                loss = got['loss']
-                gradient = got['gradient']
+                logs = self.loss_and_grad(batch, embed=embed)
+                batch_logs.update(logs)
 
                 # backprop
-                embedding.train_on_batch(batch['X'], gradient)
+                embedding.train_on_batch(batch['X'], batch_logs['gradient'])
 
-                batch_logs['loss'] = loss
-                # batch_logs['gradient'] = gradient
                 callbacks.on_batch_end(batch_index, logs=batch_logs)
 
                 # next batch
