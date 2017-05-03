@@ -66,22 +66,22 @@ class MixinDistanceAutograd:
 
         Parameters
         ----------
-        embedding : (n_samples, n_dimension) or (n_dimension, ) numpy array
-        other_embedding : (n_dimension, ) numpy array, optional
+        embedding : (n_samples, n_dimension) numpy array
+        other_embedding : (n_other_samples, n_dimension, ) numpy array, optional
 
         Returns
         -------
-        distance : (n_samples, n_samples) numpy array or float
+        distance : (n_samples, n_other_samples) numpy array or float
             Squared euclidean distance
         """
 
+        n_samples, n_dimensions = embedding.shape
         if other_embedding is None:
-            n_samples, _ = embedding.shape
-            return ag_np.stack(
-                ag_np.sum((embedding[i] - embedding) ** 2, axis=1)
-                for i in range(n_samples))
+            other_embedding = embedding
 
-        return ag_np.sum((embedding - other_embedding) ** 2)
+        return ag_np.stack(
+            ag_np.sum((embedding[i] - other_embedding) ** 2, axis=1)
+            for i in range(n_samples))
 
     @staticmethod
     def euclidean(embedding, other_embedding=None):
@@ -89,12 +89,12 @@ class MixinDistanceAutograd:
 
         Parameters
         ----------
-        embedding : (n_samples, n_dimension) or (n_dimension, ) numpy array
-        other_embedding : (n_dimension, ) numpy array, optional
+        embedding : (n_samples, n_dimension) numpy array
+        other_embedding : (n_other_samples, n_dimension, ) numpy array, optional
 
         Returns
         -------
-        distance : (n_samples, n_samples) numpy array or float
+        distance : (n_samples, n_other_samples) numpy array or float
             Euclidean distance
         """
         return ag_np.sqrt(self.sqeuclidean(
@@ -106,23 +106,23 @@ class MixinDistanceAutograd:
 
         Parameters
         ----------
-        embedding : (n_samples, n_dimension) or (n_dimension, ) numpy array
-        other_embedding : (n_dimension, ) numpy array, optional
+        embedding : (n_samples, n_dimension) numpy array
+        other_embedding : (n_other_samples, n_dimension, ) numpy array, optional
             L2-normalized embeddings
 
         Returns
         -------
-        distance : (n_samples, n_samples) numpy array or float
+        distance : (n_samples, n_other_samples) numpy array or float
             Cosine distance
         """
 
+        n_samples, n_dimensions = embedding.shape
         if other_embedding is None:
-            n_samples, _ = embedding.shape
-            return 1. - ag_np.stack(
-                ag_np.sum(embedding[i] * embedding, axis=1)
-                for i in range(n_samples))
+            other_embedding = embedding
 
-        return 1. - ag_np.sum(embedding * other_embedding)
+        return 1. - ag_np.stack(
+            ag_np.sum(embedding[i] * other_embedding, axis=1)
+            for i in range(n_samples))
 
     @staticmethod
     def angular(embedding, other_embedding=None):
@@ -130,26 +130,24 @@ class MixinDistanceAutograd:
 
         Parameters
         ----------
-        embedding : (n_samples, n_dimension) or (n_dimension, ) numpy array
-        other_embedding : (n_dimension, ) numpy array, optional
+        embedding : (n_samples, n_dimension) numpy array
+        other_embedding : (n_other_samples, n_dimension, ) numpy array, optional
             L2-normalized embeddings
 
         Returns
         -------
-        distance : (n_samples, n_samples) numpy array or float
+        distance : (n_samples, n_other_samples) numpy array or float
             Angular distance
         """
 
+        n_samples, _ = embedding.shape
+
         if other_embedding is None:
-            n_samples, _ = embedding.shape
-            return ag_np.arccos(ag_np.clip(ag_np.stack(
-                ag_np.sum(embedding[i] * embedding, axis=1)
-                for i in range(n_samples)), -1. + EPSILON, 1. - EPSILSON))
+            other_embedding = embedding
 
-        return ag_np.arccos(ag_np.clip(
-            ag_np.sum(embedding * other_embedding),
-            -1. + EPSILON, 1. - EPSILON))
-
+        return ag_np.arccos(ag_np.clip(ag_np.stack(
+            ag_np.sum(embedding[i] * other_embedding, axis=1)
+            for i in range(n_samples)), -1. + EPSILON, 1. - EPSILSON))
 
 class SequenceEmbeddingAutograd(MixinDistanceAutograd, object):
 
