@@ -48,7 +48,7 @@ from pyannote.audio.optimizers import SSMORMS3
 class CenterLoss(SequenceEmbeddingAutograd):
     """
 
-    loss = d(anchor, positive) - d(anchor, negative) + margin
+    loss = d(anchor, center) - d(anchor, other_center) + margin
 
     * 'positive' clamping >= 0: loss = max(0, loss)
     * 'sigmoid' clamping [0, 1]: loss = sigmoid(loss)
