@@ -37,6 +37,21 @@ import functools
 
 EPSILON = 1e-6
 
+
+def value_and_multigrad(fun, argnums=[0]):
+    """Takes gradients wrt multiple arguments simultaneously."""
+    def combined_arg_fun(multi_arg, *args, **kwargs):
+        extra_args_list = list(args)
+        for argnum_ix, arg_ix in enumerate(argnums):
+            extra_args_list[arg_ix] = multi_arg[argnum_ix]
+        return fun(*extra_args_list, **kwargs)
+    gradfun = value_and_grad(combined_arg_fun, argnum=0)
+    def gradfun_rearranged(*args, **kwargs):
+        multi_arg = tuple([args[i] for i in argnums])
+        return gradfun(multi_arg, *args, **kwargs)
+    return gradfun_rearranged
+
+
 class MixinDistanceAutograd:
     """Differentiable distances between pairs of embeddings"""
 
