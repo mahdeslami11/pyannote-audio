@@ -29,6 +29,7 @@
 
 from ..base_autograd import SequenceEmbeddingAutograd
 from autograd import numpy as ag_np
+from autograd import value_and_grad
 
 import numpy as np
 import h5py
@@ -164,3 +165,14 @@ class TripletLoss(SequenceEmbeddingAutograd):
                     n_comparisons = n_comparisons + 1
 
         return loss / n_comparisons
+
+    def loss_and_grad(self, batch, embed):
+
+        X = batch['X']
+        y = batch['y']
+
+        fX = embed(X)
+
+        loss, fX_grad = value_and_grad(self.loss, argnum=0)(fX, y)
+
+        return {'loss': loss, 'gradient': fX_grad}

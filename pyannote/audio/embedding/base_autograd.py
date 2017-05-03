@@ -171,32 +171,6 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, object):
         self.metric = metric
         self.metric_ = getattr(self, metric)
         self.metric_max_ = self.get_metric_max(metric)
-        self.loss_value_and_grad_ = value_and_grad(self.loss, argnum=0)
-
-    def _loss_and_grad(self, batch, embed):
-        """
-        Parameters
-        ----------
-        batch : {'X': X, 'y': y} batch
-            X : (batch_size, n_samples, n_features) numpy array
-                Batch of sequences.
-            y : (batch_size, ) numpy array
-                Batch of labels.
-        embed : func
-            Function that returns the embedding of its input sequence.
-
-        Returns
-        -------
-        loss : float
-            Overall loss.
-        grad : (batch_size, n_dimensions) numpy array
-            Gradients.
-        """
-
-        X = batch['X']
-        y = batch['y']
-        fX = embed(X)
-        return self.loss_value_and_grad_(fX, y)
 
     @staticmethod
     def _gradient_loss(y_true, y_pred):
@@ -288,7 +262,9 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, object):
                 callbacks.on_batch_begin(batch_index, logs=batch_logs)
 
                 # compute loss and its gradient
-                loss, gradient = self._loss_and_grad(batch, embed=embed)
+                got = self.loss_and_grad(batch, embed=embed)
+                loss = got['loss']
+                gradient = got['gradient']
 
                 # backprop
                 embedding.train_on_batch(batch['X'], gradient)
