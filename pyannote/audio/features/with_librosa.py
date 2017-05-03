@@ -35,7 +35,11 @@ import matplotlib
 matplotlib.use('Agg')
 import librosa
 
-import pysndfile.sndio
+try:
+    import pysndfile.sndio
+except ImportError as e:
+    pass
+
 from pyannote.core.segment import SlidingWindow
 from pyannote.core.feature import SlidingWindowFeature
 from pyannote.audio.features.utils import PyannoteFeatureExtractionError
