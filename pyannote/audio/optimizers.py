@@ -45,14 +45,14 @@ class SMORMS3(Optimizer):
         self.iterations = K.variable(0)
         self.lr = K.variable(lr)
         self.decay = K.variable(decay)
-        self.inital_decay = decay
+        self.initial_decay = decay
 
     def get_updates(self, params, constraints, loss):
         grads = self.get_gradients(loss, params)
         self.updates = [K.update_add(self.iterations, 1)]
 
         lr = self.lr
-        if self.inital_decay > 0:
+        if self.initial_decay > 0:
             lr *= (1. / (1. + self.decay * self.iterations))
 
         shapes = [K.get_variable_shape(p) for p in params]
