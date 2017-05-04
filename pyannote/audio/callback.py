@@ -122,14 +122,6 @@ class LoggingCallback(Callback):
         with open(architecture, 'w') as fp:
             fp.write(yaml_string)
 
-        # save initial model
-        current_weights = self.log_dir + '/weights/init.h5'
-        try:
-            model = self.extract_embedding(self.model)
-            model.save_weights(current_weights, overwrite=True)
-        except Exception as e:
-            pass
-
     def on_epoch_end(self, epoch, logs={}):
         """Save weights (and various curves) after each epoch"""
 
