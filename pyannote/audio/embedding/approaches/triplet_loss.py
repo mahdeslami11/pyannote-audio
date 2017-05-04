@@ -41,27 +41,29 @@ from pyannote.generators.batch import batchify
 class TripletLoss(SequenceEmbeddingAutograd):
     """
 
-    loss = d(anchor, positive) - d(anchor, negative) + margin
+    loss = d(anchor, positive) - d(anchor, negative)
 
-    * 'positive' clamping >= 0: loss = max(0, loss)
-    * 'sigmoid' clamping [0, 1]: loss = sigmoid(loss)
+    * 'positive' clamping >= 0: loss = max(0, loss + margin)
+    * 'sigmoid' clamping [0, 1]: loss = sigmoid(10 * (loss - margin))
 
     Parameters
     ----------
     margin: float, optional
-        Defaults to 0.1
+        Defaults to 0.1.
     clamp: {None, 'positive', 'sigmoid'}, optional
-        If 'positive', loss = max(0, loss)
+        If 'positive' (default), loss = max(0, loss)
         If 'sigmoid', loss = sigmoid(loss)
     metric : {'sqeuclidean', 'euclidean', 'cosine', 'angular'}, optional
+        Defaults to 'sqeuclidean'.
     per_fold : int, optional
-        Number of speakers per batch. Defaults to 30.
+        Number of speakers per batch. Defaults to 20.
     per_label : int, optional
         Number of sequences per speaker. Defaults to 3.
     """
 
-    def __init__(self, margin=0.1, clamp=None, metric='cosine',
-                 per_label=3, per_fold=30):
+    def __init__(self, metric='sqeuclidean',
+                 margin=0.1, clamp='positive', 
+                 per_label=3, per_fold=20):
         self.margin = margin
         self.clamp = clamp
         self.per_label = per_label
@@ -150,14 +152,16 @@ class TripletLoss(SequenceEmbeddingAutograd):
                         continue
 
                     loss_ = distance[anchor, positive] - \
-                            distance[anchor, negative] + \
-                            self.margin * self.metric_max_
+                            distance[anchor, negative]
 
                     if self.clamp == 'positive':
+                        loss_ = loss_ + self.margin * self.metric_max_
                         loss_ = ag_np.maximum(loss_, 0.)
 
                     elif self.clamp == 'sigmoid':
-                        loss_ = 1. / (1. + ag_np.exp(-loss_))
+                        loss_ = loss_ - self.margin * self.metric_max_
+                        loss_ = 1. / (1. + ag_np.exp(-10. * loss_))
+
 
                     # do not use += because autograd does not support it
                     loss = loss + loss_

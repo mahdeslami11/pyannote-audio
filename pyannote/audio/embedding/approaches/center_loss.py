@@ -48,21 +48,21 @@ from pyannote.audio.optimizers import SSMORMS3
 class CenterLoss(SequenceEmbeddingAutograd):
     """
 
-    loss = d(anchor, center) - d(anchor, other_center) + margin
+    loss = d(anchor, center) - d(anchor, other_center)
 
-    * 'positive' clamping >= 0: loss = max(0, loss)
-    * 'sigmoid' clamping [0, 1]: loss = sigmoid(10 * loss)
+    * 'positive' clamping >= 0: loss = max(0, loss + margin)
+    * 'sigmoid' clamping [0, 1]: loss = sigmoid(10 * (loss - margin))
 
     Parameters
     ----------
     margin: float, optional
-        Defaults to 0.1
+        Defaults to 0.0
     clamp: {None, 'positive', 'sigmoid'}, optional
-        If 'positive', loss = max(0, loss)
-        If 'sigmoid', loss = sigmoid(10 * loss)
+        If 'positive', loss = max(0, loss + margin).
+        If 'sigmoid' (default), loss = sigmoid(10 * (loss - margin)).
     metric : {'sqeuclidean', 'euclidean', 'cosine', 'angular'}, optional
     per_fold : int, optional
-        Number of speakers per batch. Defaults to 30.
+        Number of speakers per batch. Defaults to 20.
     per_label : int, optional
         Number of sequences per speaker. Defaults to 3.
     update_centers : {'batch', 'all'}
@@ -70,8 +70,11 @@ class CenterLoss(SequenceEmbeddingAutograd):
         update 'all' centers (even though they are not part of current batch).
     """
 
-    def __init__(self, margin=0.1, clamp=None, metric='cosine',
-                 per_label=3, per_fold=30, update_centers='batch'):
+    def __init__(self, metric='angular',
+                 margin=0.0, clamp='sigmoid',
+                 per_label=3, per_fold=20,
+                 update_centers='batch'):
+
         self.margin = margin
         self.clamp = clamp
         self.per_label = per_label
@@ -195,13 +198,14 @@ class CenterLoss(SequenceEmbeddingAutograd):
                 # y_center is the index of another center
 
                 loss_ = distance[anchor, y_anchor] - \
-                        distance[anchor, y_center] + \
-                        self.margin * self.metric_max_
+                        distance[anchor, y_center]
 
                 if self.clamp == 'positive':
+                    loss_ = loss_ + self.margin * self.metric_max_
                     loss_ = ag_np.maximum(loss_, 0.)
 
                 elif self.clamp == 'sigmoid':
+                    loss_ = loss_ - self.margin * self.metric_max_
                     loss_ = 1. / (1. + ag_np.exp(-10. * loss_))
 
                 # do not use += because autograd does not support it
@@ -209,7 +213,7 @@ class CenterLoss(SequenceEmbeddingAutograd):
 
                 n_comparisons = n_comparisons + 1
 
-        return loss / n_comparisons
+        return loss
 
     def loss_and_grad(self, batch, embed):
 
