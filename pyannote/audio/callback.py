@@ -176,20 +176,6 @@ class LoggingCallback(Callback):
                 best_epoch = np.argmax(values)
                 best_value = np.max(values)
 
-            if best_epoch == epoch:
-                LINK_NAME = self.log_dir + '/best.{name}.{subset}.h5'
-                link_name = LINK_NAME.format(subset=subset, name=name)
-
-                try:
-                    os.remove(link_name)
-                except Exception as e:
-                    pass
-
-                try:
-                    os.symlink(current_weights, link_name)
-                except Exception as e:
-                    pass
-
             # plot values to file and mark best value so far
             plt.plot(values, 'b')
             plt.plot([best_epoch], [best_value], 'bo')
