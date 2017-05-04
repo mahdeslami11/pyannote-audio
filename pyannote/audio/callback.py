@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016 CNRS
+# Copyright (c) 2016-2017 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -35,10 +35,13 @@ with warnings.catch_warnings():
 import matplotlib.pyplot as plt
 
 import os
+import pickle
 import os.path
 import datetime
 import numpy as np
 from keras.callbacks import Callback
+import keras.optimizers
+from pyannote.audio.util import mkdir_p
 
 
 class LoggingCallback(Callback):
@@ -58,6 +61,8 @@ class LoggingCallback(Callback):
     ARCHITECTURE_YML = '{log_dir}/architecture.yml'
     WEIGHTS_DIR = '{log_dir}/weights'
     WEIGHTS_H5 = '{log_dir}/weights/{epoch:04d}.h5'
+    OPTIMIZER_DIR = '{log_dir}/optimizer'
+    OPTIMIZER_PKL = '{log_dir}/optimizer/{epoch:04d}.pkl'
     LOG_TXT = '{log_dir}/{name}.{subset}.txt'
     LOG_PNG = '{log_dir}/{name}.{subset}.png'
     LOG_EPS = '{log_dir}/{name}.{subset}.eps'
@@ -88,6 +93,8 @@ class LoggingCallback(Callback):
         weights_dir = self.WEIGHTS_DIR.format(log_dir=self.log_dir)
         os.makedirs(weights_dir)
 
+        optimizer_dir = self.OPTIMIZER_DIR.format(log_dir=self.log_dir)
+        mkdir_p(optimizer_dir)
 
         if log is None:
             log = [('train', 'loss')]
@@ -146,6 +153,17 @@ class LoggingCallback(Callback):
             model.save_weights(weights_h5, overwrite=True)
         except Exception as e:
             pass
+
+        # save optimizer state every 10 epochs
+        if epoch % 10 == 0:
+            optimizer = self.model.optimizer
+            state = {'optimizer_config': keras.optimizers.serialize(optimizer),
+                     'weights': optimizer.get_weights()}
+
+            optimizer_pkl = self.OPTIMIZER_PKL.format(
+                log_dir=self.log_dir, epoch=epoch)
+            with open(optimizer_pkl, mode='wb') as fp:
+                pickle.dump(state, fp)
 
         for subset, name in self.log:
 
