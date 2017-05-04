@@ -55,6 +55,13 @@ class LoggingCallback(Callback):
         Defaults to identity function.
     """
 
+    ARCHITECTURE_YML = '{log_dir}/architecture.yml'
+    WEIGHTS_DIR = '{log_dir}/weights'
+    WEIGHTS_H5 = '{log_dir}/weights/{epoch:04d}.h5'
+    LOG_TXT = '{log_dir}/{name}.{subset}.txt'
+    LOG_PNG = '{log_dir}/{name}.{subset}.png'
+    LOG_EPS = '{log_dir}/{name}.{subset}.eps'
+
     def __init__(self, log_dir, log=None, extract_embedding=None):
         super(LoggingCallback, self).__init__()
 
@@ -78,7 +85,9 @@ class LoggingCallback(Callback):
         # and this is OK  because 'weights' directory
         # usually contains the output of very long computations
         # and you do not want to erase them by mistake :/
-        os.makedirs(self.log_dir + '/weights')
+        weights_dir = self.WEIGHTS_DIR.format(log_dir=self.log_dir)
+        os.makedirs(weights_dir)
+
 
         if log is None:
             log = [('train', 'loss')]
@@ -116,10 +125,10 @@ class LoggingCallback(Callback):
         if epoch > 0:
             return
 
-        architecture = self.log_dir + '/architecture.yml'
+        architecture_yml = self.ARCHITECTURE_YML.format(log_dir=self.log_dir)
         model = self.extract_embedding(self.model)
         yaml_string = model.to_yaml()
-        with open(architecture, 'w') as fp:
+        with open(architecture_yml, 'w') as fp:
             fp.write(yaml_string)
 
     def on_epoch_end(self, epoch, logs={}):
@@ -129,13 +138,12 @@ class LoggingCallback(Callback):
         now = datetime.datetime.now().isoformat()
 
         # save model after this epoch
-        PATH = self.log_dir + '/weights/{epoch:04d}.h5'
-        current_weights = PATH.format(epoch=epoch)
+        weights_h5 = self.WEIGHTS_H5.format(log_dir=self.log_dir, epoch=epoch)
 
         # save current weights
         try:
             model = self.extract_embedding(self.model)
-            model.save_weights(current_weights, overwrite=True)
+            model.save_weights(weights_h5, overwrite=True)
         except Exception as e:
             pass
 
@@ -148,13 +156,13 @@ class LoggingCallback(Callback):
             values = self.values[subset][name]
 
             # write value to file
-            PATH = self.log_dir + '/{name}.{subset}.txt'
-            path = PATH.format(subset=subset, name=name)
+            log_txt = self.LOG_TXT.format(
+                log_dir=self.log_dir, name=name, subset=subset)
             TXT_TEMPLATE = '{epoch:d} ' + now + ' {value:.3f}\n'
 
             mode = 'a' if epoch > 0 else 'w'
             try:
-                with open(path, mode) as fp:
+                with open(log_txt, mode) as fp:
                     fp.write(TXT_TEMPLATE.format(epoch=epoch, value=value))
                     fp.flush()
             except Exception as e:
@@ -185,18 +193,18 @@ class LoggingCallback(Callback):
             plt.tight_layout()
 
             # save plot as PNG
-            PATH = self.log_dir + '/{name}.{subset}.png'
-            path = PATH.format(subset=subset, name=name)
+            log_png = self.LOG_PNG.format(
+                log_dir=self.log_dir, name=name, subset=subset)
             try:
-                plt.savefig(path, dpi=150)
+                plt.savefig(log_png, dpi=150)
             except Exception as e:
                 pass
 
             # save plot as EPS
-            PATH = self.log_dir + '/{name}.{subset}.eps'
-            path = PATH.format(subset=subset, name=name)
+            log_eps = self.LOG_EPS.format(
+                log_dir=self.log_dir, name=name, subset=subset)
             try:
-                plt.savefig(path)
+                plt.savefig(log_eps)
             except Exception as e:
                 pass
 
