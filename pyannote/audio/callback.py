@@ -56,6 +56,8 @@ class LoggingCallback(Callback):
         Function that takes Keras model as input and returns the actual model.
         This is useful for embedding that are not directly optimized by Keras.
         Defaults to identity function.
+    restart : boolean, optional
+        Indicates that this training is a restart, not a cold start (default).
     """
 
     ARCHITECTURE_YML = '{log_dir}/architecture.yml'
@@ -67,7 +69,8 @@ class LoggingCallback(Callback):
     LOG_PNG = '{log_dir}/{name}.{subset}.png'
     LOG_EPS = '{log_dir}/{name}.{subset}.eps'
 
-    def __init__(self, log_dir, log=None, extract_embedding=None):
+    def __init__(self, log_dir, log=None, extract_embedding=None,
+                 restart=False):
         super(LoggingCallback, self).__init__()
 
         # make sure path is absolute
@@ -90,8 +93,9 @@ class LoggingCallback(Callback):
         # and this is OK  because 'weights' directory
         # usually contains the output of very long computations
         # and you do not want to erase them by mistake :/
-        weights_dir = self.WEIGHTS_DIR.format(log_dir=self.log_dir)
-        os.makedirs(weights_dir)
+        if not restart:
+            weights_dir = self.WEIGHTS_DIR.format(log_dir=self.log_dir)
+            os.makedirs(weights_dir)
 
         optimizer_dir = self.OPTIMIZER_DIR.format(log_dir=self.log_dir)
         mkdir_p(optimizer_dir)
