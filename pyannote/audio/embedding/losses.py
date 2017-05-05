@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016 CNRS
+# Copyright (c) 2016-2017 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -28,6 +28,15 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 import numpy as np
+import keras.backend as K
+
+from pyannote.audio.keras_utils import register_custom_object
+
+def precomputed_gradient_loss(y_true, y_pred):
+    return K.sum((y_pred * y_true), axis=-1)
+
+register_custom_object('precomputed_gradient_loss',
+                       precomputed_gradient_loss)
 
 
 def unitary_angular_triplet_loss(anchor, positive, negative):

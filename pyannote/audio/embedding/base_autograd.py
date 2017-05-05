@@ -43,7 +43,7 @@ from pyannote.audio.callback import LoggingCallback
 # populate CUSTOM_OBJECTS with user-defined optimizers and layers
 import pyannote.audio.optimizers
 import pyannote.audio.embedding.models
-
+from pyannote.audio.embedding.losses import precomputed_gradient_loss
 from pyannote.audio.keras_utils import CUSTOM_OBJECTS
 
 EPSILON = 1e-6
@@ -184,10 +184,6 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
         self.metric_ = getattr(self, metric)
         self.metric_max_ = self.get_metric_max(metric)
 
-    @staticmethod
-    def _gradient_loss(y_true, y_pred):
-        return K.sum((y_pred * y_true), axis=-1)
-
     @classmethod
     def restart(cls, log_dir, epoch):
 
@@ -277,7 +273,7 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
             input_shape = (n_samples, n_features)
             embedding = init_embedding(input_shape)
             embedding.compile(optimizer=optimizer,
-                              loss=self._gradient_loss)
+                              loss=precomputed_gradient_loss)
 
             init_epoch = 0
             restart = False

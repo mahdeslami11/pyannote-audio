@@ -43,6 +43,7 @@ from keras.layers import Input
 from keras.layers import Dense
 from keras.layers import Lambda
 from pyannote.audio.optimizers import SSMORMS3
+from pyannote.audio.embedding.losses import precomputed_gradient_loss
 
 
 class CenterLoss(SequenceEmbeddingAutograd):
@@ -142,7 +143,7 @@ class CenterLoss(SequenceEmbeddingAutograd):
 
         self.centers_ = Model(inputs=trigger, outputs=centers)
         self.centers_.compile(optimizer=SSMORMS3(),
-                              loss=self._gradient_loss)
+                              loss=precomputed_gradient_loss)
         self.trigger_ = np.eye(n_classes)
         self.fC_ = self.centers_.predict(self.trigger_)
 
