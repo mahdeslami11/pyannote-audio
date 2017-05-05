@@ -247,7 +247,8 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
 
         if isinstance(init_embedding, keras.models.Model):
             embedding = init_embedding
-            init_epoch = getattr(embedding, 'epoch', -1) + 1
+
+            init_epoch = embedding.epoch
             restart = True
 
         else:
@@ -261,7 +262,7 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
             embedding.compile(optimizer=optimizer,
                               loss=precomputed_gradient_loss)
 
-            init_epoch = 0
+            init_epoch = -1
             restart = False
 
         embed = functools.partial(self.embed, embedding)
@@ -285,11 +286,14 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
             'metrics': ['loss'],
         })
 
-        callbacks.on_train_begin(logs={'n_classes': n_classes})
+        callbacks.on_train_begin(logs={'n_classes': n_classes,
+                                       'log_dir': log_dir,
+                                       'restart': restart,
+                                       'epoch': init_epoch})
 
-        for epoch in range(init_epoch, epochs):
+        for epoch in range(init_epoch + 1, epochs):
 
-            epoch_logs = {}
+            epoch_logs = {'log_dir': log_dir, 'restart': restart}
             callbacks.on_epoch_begin(epoch, logs=epoch_logs)
 
             for batch_index in range(batches_per_epoch):

@@ -42,8 +42,11 @@ from keras.models import Model
 from keras.layers import Input
 from keras.layers import Dense
 from keras.layers import Lambda
+import keras.models
 from pyannote.audio.optimizers import SSMORMS3
 from pyannote.audio.embedding.losses import precomputed_gradient_loss
+from pyannote.audio.callback import LoggingCallback
+from pyannote.audio.keras_utils import CUSTOM_OBJECTS
 
 
 class CenterLoss(SequenceEmbeddingAutograd):
@@ -70,6 +73,8 @@ class CenterLoss(SequenceEmbeddingAutograd):
         Whether to only update centers in current 'batch' (default), or to
         update 'all' centers (even though they are not part of current batch).
     """
+
+    WEIGHTS_H5 = LoggingCallback.WEIGHTS_H5[:-3] + '.centers.h5'
 
     def __init__(self, metric='angular',
                  margin=0.0, clamp='sigmoid',
@@ -129,21 +134,38 @@ class CenterLoss(SequenceEmbeddingAutograd):
 
     def on_train_begin(self, logs=None):
 
-        # dimension of embedding space
-        output_dim = self.model.output_shape[-1]
         # number of classes
         n_classes = logs['n_classes']
 
-        # centers model
-        trigger = Input(shape=(n_classes, ), name="trigger")
-        x = Dense(output_dim, activation='linear', name='dense')(trigger)
-        centers = Lambda(lambda x: K.l2_normalize(x, axis=-1),
-                         output_shape=(output_dim, ),
-                         name="centers")(x)
+        if logs['restart']:
 
-        self.centers_ = Model(inputs=trigger, outputs=centers)
-        self.centers_.compile(optimizer=SSMORMS3(),
-                              loss=precomputed_gradient_loss)
+            weights_h5 = self.WEIGHTS_H5.format(log_dir=logs['log_dir'],
+                                                epoch=logs['epoch'])
+
+            # TODO update this code once keras > 2.0.4 is released
+            try:
+                self.centers_ = keras.models.load_model(
+                    weights_h5, custom_objects=CUSTOM_OBJECTS,
+                    compile=True)
+            except TypeError as e:
+                self.centers_ = keras.models.load_model(
+                    weights_h5, custom_objects=CUSTOM_OBJECTS)
+
+        else:
+            # dimension of embedding space
+            output_dim = self.model.output_shape[-1]
+
+            # centers model
+            trigger = Input(shape=(n_classes, ), name="trigger")
+            x = Dense(output_dim, activation='linear', name='dense')(trigger)
+            centers = Lambda(lambda x: K.l2_normalize(x, axis=-1),
+                             output_shape=(output_dim, ),
+                             name="centers")(x)
+
+            self.centers_ = Model(inputs=trigger, outputs=centers)
+            self.centers_.compile(optimizer=SSMORMS3(),
+                                  loss=precomputed_gradient_loss)
+
         self.trigger_ = np.eye(n_classes)
         self.fC_ = self.centers_.predict(self.trigger_)
 
@@ -152,6 +174,17 @@ class CenterLoss(SequenceEmbeddingAutograd):
                                      logs['fC_grad'])
 
         self.fC_ = self.centers_.predict(self.trigger_)
+
+    def on_epoch_end(self, epoch, logs=None):
+        """Save center weights after each epoch"""
+
+        weights_h5 = self.WEIGHTS_H5.format(log_dir=logs['log_dir'],
+                                            epoch=epoch)
+        keras.models.save_model(self.centers_, weights_h5,
+                                overwrite=logs['restart'],
+                                include_optimizer=(epoch % 10 == 0))
+
+        # TODO | plot distribution of distances between centers
 
     def loss(self, fX, fC, y):
         """Differentiable loss
