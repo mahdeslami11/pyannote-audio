@@ -28,6 +28,8 @@
 
 from keras.optimizers import Optimizer
 import keras.backend as K
+from pyannote.audio.keras_utils import register_custom_object
+
 
 class SMORMS3(Optimizer):
     '''SMORMS3 optimizer.
@@ -89,6 +91,10 @@ class SMORMS3(Optimizer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
+# register user-defined Keras optimizer
+register_custom_object('SMORMS3', SMORMS3)
+
+
 class SSMORMS3(Optimizer):
     '''SSMORMS3 optimizer for Stabilized SMORMS3.
     Slight modification of SMORMS3 that stabilizes its behavior
@@ -139,3 +145,6 @@ class SSMORMS3(Optimizer):
         config = {'epsilon': self.epsilon}
         base_config = super(SSMORMS3, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
+
+# register user-defined Keras optimizer
+register_custom_object('SSMORMS3', SSMORMS3)
