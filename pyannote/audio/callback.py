@@ -42,6 +42,7 @@ import numpy as np
 from keras.callbacks import Callback
 import keras.optimizers
 from pyannote.audio.util import mkdir_p
+from keras.models import save_model
 
 
 class LoggingCallback(Callback):
@@ -80,7 +81,7 @@ class LoggingCallback(Callback):
             extract_embedding = lambda model: model
         self.extract_embedding = extract_embedding
 
-        # create log_dir directory (and subdirectory)
+        # create log_dir directory
         try:
             os.makedirs(self.log_dir)
         except OSError as e:
@@ -93,12 +94,13 @@ class LoggingCallback(Callback):
         # and this is OK  because 'weights' directory
         # usually contains the output of very long computations
         # and you do not want to erase them by mistake :/
-        if not restart:
+        self.restart = restart
+        if not self.restart:
             weights_dir = self.WEIGHTS_DIR.format(log_dir=self.log_dir)
             os.makedirs(weights_dir)
 
-        optimizer_dir = self.OPTIMIZER_DIR.format(log_dir=self.log_dir)
-        mkdir_p(optimizer_dir)
+        # optimizer_dir = self.OPTIMIZER_DIR.format(log_dir=self.log_dir)
+        # mkdir_p(optimizer_dir)
 
         if log is None:
             log = [('train', 'loss')]
@@ -130,18 +132,6 @@ class LoggingCallback(Callback):
         value, minimize = get_value(epoch, subset, logs=logs)
         return value, minimize
 
-    def on_epoch_begin(self, epoch, logs={}):
-        """Save architecture before first epoch"""
-
-        if epoch > 0:
-            return
-
-        architecture_yml = self.ARCHITECTURE_YML.format(log_dir=self.log_dir)
-        model = self.extract_embedding(self.model)
-        yaml_string = model.to_yaml()
-        with open(architecture_yml, 'w') as fp:
-            fp.write(yaml_string)
-
     def on_epoch_end(self, epoch, logs={}):
         """Save weights (and various curves) after each epoch"""
 
@@ -151,23 +141,11 @@ class LoggingCallback(Callback):
         # save model after this epoch
         weights_h5 = self.WEIGHTS_H5.format(log_dir=self.log_dir, epoch=epoch)
 
-        # save current weights
-        try:
-            model = self.extract_embedding(self.model)
-            model.save_weights(weights_h5, overwrite=True)
-        except Exception as e:
-            pass
-
-        # save optimizer state every 10 epochs
-        if epoch % 10 == 0:
-            optimizer = self.model.optimizer
-            state = {'optimizer_config': keras.optimizers.serialize(optimizer),
-                     'weights': optimizer.get_weights()}
-
-            optimizer_pkl = self.OPTIMIZER_PKL.format(
-                log_dir=self.log_dir, epoch=epoch)
-            with open(optimizer_pkl, mode='wb') as fp:
-                pickle.dump(state, fp)
+        # . overwrite only in case of a restart
+        # . include optimizer only every 10 epochs
+        keras.models.save_model(self.model, weights_h5,
+                                overwrite=self.restart,
+                                include_optimizer=(epoch % 10 == 0))
 
         for subset, name in self.log:
 

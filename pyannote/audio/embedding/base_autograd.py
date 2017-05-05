@@ -187,31 +187,17 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
     @classmethod
     def restart(cls, log_dir, epoch):
 
-        _ = LoggingCallback
+        weights_h5 = LoggingCallback.WEIGHTS_H5.format(log_dir=log_dir,
+                                                       epoch=epoch)
 
-        # model (architecture)
-        architecture_yml = _.ARCHITECTURE_YML.format(log_dir=log_dir)
-        with open(architecture_yml, mode='rb') as fp:
-            embedding = keras.models.model_from_yaml(
-                fp, custom_objects=CUSTOM_OBJECTS)
-
-        # model (weights)
-        weights_h5 = _.WEIGHTS_H5.format(log_dir=log_dir, epoch=epoch)
-        embedding.load_weights(weights_h5)
-
-        # optimizer (configuration)
-        optimizer_pkl = _.OPTIMIZER_PKL.format(log_dir=log_dir, epoch=epoch)
-        with open(optimizer_pkl, mode='rb') as fp:
-            state = pickle.load(fp)
-        optimizer = keras.optimizers.deserialize(
-            state['optimizer_config'],
-            custom_objects=CUSTOM_OBJECTS)
-
-        # optimizer (weights)
-        embedding.compile(optimizer=optimizer,
-                          loss=cls._gradient_loss)
-        embedding._make_train_function()
-        embedding.optimizer.set_weights(state['weights'])
+        # TODO update this code once keras > 2.0.4 is released
+        try:
+            embedding = keras.models.load_model(
+                weights_h5, custom_objects=CUSTOM_OBJECTS,
+                compile=True)
+        except TypeError as e:
+            embedding = keras.models.load_model(
+                weights_h5, custom_objects=CUSTOM_OBJECTS)
 
         embedding.epoch = epoch
 

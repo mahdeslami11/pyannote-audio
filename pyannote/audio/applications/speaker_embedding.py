@@ -158,11 +158,12 @@ from .base import Application
 from pyannote.generators.fragment import SlidingLabeledSegments
 from pyannote.audio.optimizers import SSMORMS3
 
-from keras.models import model_from_yaml
+import keras.models
 from pyannote.audio.keras_utils import CUSTOM_OBJECTS
 from pyannote.audio.embedding.utils import pdist, cdist
 from pyannote.metrics.binary_classification import det_curve
 
+from pyannote.audio.callback import LoggingCallback
 
 class SpeakerEmbedding(Application):
 
@@ -172,8 +173,6 @@ class SpeakerEmbedding(Application):
 
     # created by "train" mode
     TRAIN_DIR = '{experiment_dir}/train/{protocol}.{subset}'
-    ARCHITECTURE_YML = '{train_dir}/architecture.yml'
-    WEIGHTS_H5 = '{train_dir}/weights/{epoch:04d}.h5'
 
     # created by "validate" mode
     VALIDATE_DIR = '{train_dir}/validate/{protocol}'
@@ -447,15 +446,6 @@ class SpeakerEmbedding(Application):
         # Build validation set
         X, y = self._validation_set(protocol_name, subset=subset)
 
-
-        # initialize embedding architecture
-        architecture_yml = self.ARCHITECTURE_YML.format(
-            train_dir=self.train_dir_)
-        with open(architecture_yml, mode='r') as ep:
-            yaml_string = ep.read()
-        embedding = model_from_yaml(yaml_string,
-                                    custom_objects=CUSTOM_OBJECTS)
-
         # list of equal error rates, and current epoch
         eers, epoch = [], 0
 
@@ -468,15 +458,22 @@ class SpeakerEmbedding(Application):
             # watch and evaluate forever
             while True:
 
-                weights_h5 = self.WEIGHTS_H5.format(train_dir=self.train_dir_,
-                                                    epoch=epoch)
+                weights_h5 = LoggingCallback.WEIGHTS_H5.format(
+                    log_dir=self.train_dir_, epoch=epoch)
 
                 # wait for next epoch to complete
                 if not isfile(weights_h5):
                     time.sleep(10)
                     continue
 
-                embedding.load_weights(weights_h5)
+                # TODO update this code once keras > 2.0.4 is released
+                try:
+                    embedding = keras.models.load_model(
+                        weights_h5, custom_objects=CUSTOM_OBJECTS,
+                        compile=False)
+                except TypeError as e:
+                    embedding = keras.models.load_model(
+                        weights_h5, custom_objects=CUSTOM_OBJECTS)
 
                 # embed all validation sequences
                 fX = embedding.predict(X)
