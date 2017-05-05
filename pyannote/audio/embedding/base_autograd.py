@@ -28,12 +28,23 @@
 
 from autograd import numpy as ag_np
 from autograd import value_and_grad
+
 import numpy as np
+import functools
+import pickle
+import h5py
+
 import keras.backend as K
 import keras.callbacks as cbks
-import h5py
+import keras.models
+
 from pyannote.audio.callback import LoggingCallback
-import functools
+
+# populate CUSTOM_OBJECTS with user-defined optimizers and layers
+import pyannote.audio.optimizers
+import pyannote.audio.embedding.models
+
+from pyannote.audio.keras_utils import CUSTOM_OBJECTS
 
 EPSILON = 1e-6
 
@@ -177,6 +188,39 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
     def _gradient_loss(y_true, y_pred):
         return K.sum((y_pred * y_true), axis=-1)
 
+    @classmethod
+    def restart(cls, log_dir, epoch):
+
+        _ = LoggingCallback
+
+        # model (architecture)
+        architecture_yml = _.ARCHITECTURE_YML.format(log_dir=log_dir)
+        with open(architecture_yml, mode='rb') as fp:
+            embedding = keras.models.model_from_yaml(
+                fp, custom_objects=CUSTOM_OBJECTS)
+
+        # model (weights)
+        weights_h5 = _.WEIGHTS_H5.format(log_dir=log_dir, epoch=epoch)
+        embedding.load_weights(weights_h5)
+
+        # optimizer (configuration)
+        optimizer_pkl = _.OPTIMIZER_PKL.format(log_dir=log_dir, epoch=epoch)
+        with open(optimizer_pkl, mode='rb') as fp:
+            state = pickle.load(fp)
+        optimizer = keras.optimizers.deserialize(
+            state['optimizer_config'],
+            custom_objects=CUSTOM_OBJECTS)
+
+        # optimizer (weights)
+        embedding.compile(optimizer=optimizer,
+                          loss=cls._gradient_loss)
+        embedding._make_train_function()
+        embedding.optimizer.set_weights(state['weights'])
+
+        embedding.epoch = epoch
+
+        return embedding
+
     def embed(self, embedding, X):
         """Apply embedding on sequences
 
@@ -201,9 +245,10 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
 
         Parameters
         ----------
-        init_embedding : function or callable
-            Takes 'input_shape' as input and returns a Keras model that takes
-            a sequence as input, and returns the embedding as output.
+        init_embedding : callable or keras.Model
+            If callable, takes 'input_shape' as input and returns a Keras model
+            that takes a sequence as input, and returns the embedding as output.
+            If keras.Model, it must already be compiled.
         batch_generator : (infinite) iterable
             Generates (dict) batches such as batch['X'] is a numpy array of
             shape (batch_size, n_samples, n_features).
@@ -213,19 +258,29 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
         log_dir : str
         optimizer: str, optional
             Keras optimizer. Defaults to 'rmsprop'.
-
         """
 
         # consume batch generator once
         batch = next(batch_generator)
-        # infer batch size and input shape
-        batch_size, n_samples, n_features = batch['X'].shape
 
-        # initialize embedding
-        input_shape = (n_samples, n_features)
-        embedding = init_embedding(input_shape)
-        embedding.compile(optimizer=optimizer,
-                          loss=self._gradient_loss)
+        if isinstance(init_embedding, keras.models.Model):
+            embedding = init_embedding
+            init_epoch = getattr(embedding, 'epoch', -1) + 1
+            restart = True
+
+        else:
+
+            # infer batch size and input shape
+            batch_size, n_samples, n_features = batch['X'].shape
+
+            # initialize embedding
+            input_shape = (n_samples, n_features)
+            embedding = init_embedding(input_shape)
+            embedding.compile(optimizer=optimizer,
+                              loss=self._gradient_loss)
+
+            init_epoch = 0
+            restart = False
 
         embed = functools.partial(self.embed, embedding)
 
@@ -233,7 +288,7 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
         callbacks.append(cbks.BaseLogger())
         callbacks.append(cbks.ProgbarLogger(count_mode='steps'))
         if log_dir is not None:
-            callbacks.append(LoggingCallback(log_dir))
+            callbacks.append(LoggingCallback(log_dir, restart=restart))
         self.history = cbks.History()
         callbacks.append(self.history)
 
@@ -250,7 +305,7 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
 
         callbacks.on_train_begin(logs={'n_classes': n_classes})
 
-        for epoch in range(epochs):
+        for epoch in range(init_epoch, epochs):
 
             epoch_logs = {}
             callbacks.on_epoch_begin(epoch, logs=epoch_logs)

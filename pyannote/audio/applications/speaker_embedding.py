@@ -31,7 +31,7 @@ Speaker embedding
 
 Usage:
   pyannote-speaker-embedding data [--database=<db.yml> --duration=<duration> --step=<step> --heterogeneous] <root_dir> <database.task.protocol>
-  pyannote-speaker-embedding train [--subset=<subset>] <experiment_dir> <database.task.protocol>
+  pyannote-speaker-embedding train [--subset=<subset> --restart=<epoch>] <experiment_dir> <database.task.protocol>
   pyannote-speaker-embedding validate [--subset=<subset>] <train_dir> <database.task.protocol>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
@@ -50,6 +50,7 @@ Options:
   --heterogeneous            Allow heterogeneous sequences. In this case, the
                              label given to heterogeneous sequences is the most
                              overlapping one.
+  --restart=<epoch>          Restart training after that many epochs.
   <experiment_dir>           Set experiment directory. This script expects a
                              configuration file called "config.yml" to live
                              in this directory. See '"train" mode' section
@@ -367,7 +368,7 @@ class SpeakerEmbedding(Application):
                 Y.resize(i-1, axis=0)
                 Z.resize(i-1, axis=0)
 
-    def train(self, protocol_name, subset='train'):
+    def train(self, protocol_name, subset='train', restart=None):
 
         data_dir = dirname(self.experiment_dir)
         data_h5 = self.DATA_H5.format(data_dir=data_dir,
@@ -382,11 +383,17 @@ class SpeakerEmbedding(Application):
                                           protocol=protocol_name,
                                           subset=subset)
 
-        optimizer = SSMORMS3()
-        self.approach_.fit(self.architecture_, batch_generator,
+        if restart is None:
+            init_embedding = self.architecture_
+        else:
+            init_embedding = self.approach_.restart(train_dir, restart)
+
+        self.approach_.fit(init_embedding, batch_generator,
                            batches_per_epoch=batches_per_epoch,
                            n_classes=n_classes,
-                           epochs=1000, log_dir=train_dir, optimizer=optimizer)
+                           epochs=1000, log_dir=train_dir,
+                           optimizer=SSMORMS3())
+
 
     def _validation_set(self, protocol_name, subset='development'):
 
@@ -549,8 +556,12 @@ def main():
         if subset is None:
             subset = 'train'
 
+        restart = arguments['--restart']
+        if restart is not None:
+            restart = int(restart)
+
         application = SpeakerEmbedding(experiment_dir)
-        application.train(protocol_name, subset=subset)
+        application.train(protocol_name, subset=subset, restart=restart)
 
     if arguments['validate']:
         train_dir = arguments['<train_dir>']
