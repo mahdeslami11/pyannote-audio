@@ -36,7 +36,6 @@ from pyannote.database.util import FileFinder
 class Application(object):
 
     CONFIG_YML = '{experiment_dir}/config.yml'
-    ARCHITECTURE_YML = '{train_dir}/architecture.yml'
     WEIGHTS_H5 = '{train_dir}/weights/{epoch:04d}.h5'
 
     def __init__(self, experiment_dir, db_yml=None):
