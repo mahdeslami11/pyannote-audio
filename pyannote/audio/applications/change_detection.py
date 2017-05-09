@@ -149,6 +149,8 @@ from pyannote.audio.signal import Peak
 from pyannote.database import get_database
 from pyannote.audio.optimizers import SSMORMS3
 
+from pyannote.audio.callback import LoggingCallback
+
 from pyannote.metrics.segmentation import SegmentationPurity
 from pyannote.metrics.segmentation import SegmentationCoverage
 from pyannote.metrics import f_measure
@@ -215,12 +217,12 @@ def evaluate(protocol, train_dir, store_dir, subset='development',
     epoch=None, min_duration=1.0):
 
     mkdir_p(store_dir)
+
     # -- LOAD MODEL --
-    architecture_yml = train_dir + '/architecture.yml'
-    WEIGHTS_H5 = train_dir + '/weights/{epoch:04d}.h5'
     nb_epoch = 0
     while True:
-        weights_h5 = WEIGHTS_H5.format(epoch=nb_epoch)
+        weights_h5 = LoggingCallback.WEIGHTS_H5.format(log_dir=train_dir,
+                                                       epoch=nb_epoch)
         if not os.path.isfile(weights_h5):
             break
         nb_epoch += 1
@@ -252,9 +254,8 @@ def evaluate(protocol, train_dir, store_dir, subset='development',
     if epoch is None:
         epoch = nb_epoch - 1
 
-    weights_h5 = WEIGHTS_H5.format(epoch=epoch)
     sequence_labeling = SequenceLabeling.from_disk(
-            architecture_yml, weights_h5)
+            train_dir, epoch)
 
     aggregation = SequenceLabelingAggregation(
             sequence_labeling, feature_extraction,
@@ -295,11 +296,10 @@ def apply(protocol, train_dir, store_dir, threshold, subset='development',
     epoch=None, min_duration=1.0):
 
     # -- LOAD MODEL --
-    architecture_yml = train_dir + '/architecture.yml'
-    WEIGHTS_H5 = train_dir + '/weights/{epoch:04d}.h5'
     nb_epoch = 0
     while True:
-        weights_h5 = WEIGHTS_H5.format(epoch=nb_epoch)
+        weights_h5 = LoggingCallback.WEIGHTS_H5.format(log_dir=train_dir,
+                                                       epoch=nb_epoch)
         if not os.path.isfile(weights_h5):
             break
         nb_epoch += 1
@@ -335,9 +335,8 @@ def apply(protocol, train_dir, store_dir, threshold, subset='development',
         raise ValueError('Epoch should be less than ' + str(nb_epoch))
     if epoch is None:
         epoch = nb_epoch - 1
-    weights_h5 = WEIGHTS_H5.format(epoch=epoch)
     sequence_labeling = SequenceLabeling.from_disk(
-            architecture_yml, weights_h5)
+            train_dir, epoch)
     aggregation = SequenceLabelingAggregation(
             sequence_labeling, feature_extraction,
             duration=duration, step=step)

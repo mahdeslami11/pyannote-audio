@@ -143,6 +143,8 @@ from pyannote.audio.generators.speech import \
     SpeechActivityDetectionBatchGenerator
 from pyannote.audio.optimizers import SSMORMS3
 
+from pyannote.audio.callback import LoggingCallback
+
 from pyannote.audio.labeling.aggregation import SequenceLabelingAggregation
 from pyannote.audio.signal import Binarize
 from pyannote.database.util import get_unique_identifier
@@ -190,12 +192,8 @@ def tune_binarizer(app, epoch, protocol_name, subset='development'):
                             preprocessors=app.preprocessors_)
 
     # load model for epoch 'epoch'
-    architecture_yml = app.ARCHITECTURE_YML.format(
-        train_dir=app.train_dir_)
-    weights_h5 = app.WEIGHTS_H5.format(
-        train_dir=app.train_dir_, epoch=epoch)
     sequence_labeling = SequenceLabeling.from_disk(
-        architecture_yml, weights_h5)
+        app.train_dir_, epoch)
 
     # initialize sequence labeling
     duration = app.config_['sequences']['duration']
@@ -323,9 +321,9 @@ class SpeechActivityDetection(Application):
             while epoch < 1000:
 
                 # wait until weight file is available
-                weights_h5 = self.WEIGHTS_H5.format(
-                    train_dir=self.train_dir_,
-                    epoch=epoch)
+                weights_h5 = LoggingCallback.WEIGHTS_H5.format(
+                    log_dir=self.train_dir_, epoch=epoch)
+
                 if not isfile(weights_h5):
                     time.sleep(60)
                     continue
@@ -440,12 +438,8 @@ class SpeechActivityDetection(Application):
 
         # load model for epoch 'epoch'
         epoch = self.tune_['epoch']
-        architecture_yml = self.ARCHITECTURE_YML.format(
-            train_dir=self.train_dir_)
-        weights_h5 = self.WEIGHTS_H5.format(
-            train_dir=self.train_dir_, epoch=epoch)
         sequence_labeling = SequenceLabeling.from_disk(
-            architecture_yml, weights_h5)
+            self.train_dir_, epoch)
 
         # initialize sequence labeling
         duration = self.config_['sequences']['duration']

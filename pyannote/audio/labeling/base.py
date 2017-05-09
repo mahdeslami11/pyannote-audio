@@ -41,59 +41,37 @@ class SequenceLabeling(object):
         super(SequenceLabeling, self).__init__()
 
     @classmethod
-    def from_disk(cls, architecture, weights):
+    def from_disk(cls, log_dir, epoch):
         """Load pre-trained sequence labeling from disk
 
         Parameters
         ----------
-        architecture : str
-            Path to architecture file (e.g. created by `to_disk` method)
-        weights : str
-            Path to pre-trained weight file (e.g. created by `to_disk` method)
+        log_dir : str
+        epoch : int
 
         Returns
         -------
         sequence_labeling : SequenceLabeling
             Pre-trained sequence labeling model.
         """
+
         self = SequenceLabeling()
 
-        with open(architecture, 'r') as fp:
-            yaml_string = fp.read()
-        self.labeling_ = model_from_yaml(
-            yaml_string, custom_objects=CUSTOM_OBJECTS)
-        self.labeling_.load_weights(weights)
+        weights_h5 = LoggingCallback.WEIGHTS_H5.format(log_dir=log_dir,
+                                                       epoch=epoch)
+
+        # TODO update this code once keras > 2.0.4 is released
+        try:
+            self.labeling_ = keras.models.load_model(
+                weights_h5, custom_objects=CUSTOM_OBJECTS,
+                compile=True)
+        except TypeError as e:
+            self.labeling_ = keras.models.load_model(
+                weights_h5, custom_objects=CUSTOM_OBJECTS)
+
+        self.labeling_.epoch = epoch
+
         return self
-
-    def to_disk(self, architecture=None, weights=None, overwrite=False):
-        """Save trained sequence labeling to disk
-
-        Parameters
-        ----------
-        architecture : str, optional
-            When provided, path where to save architecture.
-        weights : str, optional
-            When provided, path where to save weights
-        overwrite : boolean, optional
-            Overwrite (architecture or weights) file in case they exist.
-        """
-
-        if not hasattr(self, 'model_'):
-            raise AttributeError('Model must be trained first.')
-
-        if architecture and os.path.isfile(architecture) and not overwrite:
-            raise ValueError("File '{architecture}' already exists.".format(architecture=architecture))
-
-        if weights and os.path.isfile(weights) and not overwrite:
-            raise ValueError("File '{weights}' already exists.".format(weights=weights))
-
-        if architecture:
-            yaml_string = self.labeling_.to_yaml()
-            with open(architecture, 'w') as fp:
-                fp.write(yaml_string)
-
-        if weights:
-            self.labeling_.save_weights(weights, overwrite=overwrite)
 
     def fit(self, input_shape, design_labeling, generator,
             steps_per_epoch, epochs, loss='categorical_crossentropy',
