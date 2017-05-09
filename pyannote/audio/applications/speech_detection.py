@@ -161,6 +161,8 @@ import h5py
 
 from .base import Application
 
+from tqdm import tqdm
+
 import skopt
 import skopt.space
 from pyannote.metrics.detection import DetectionErrorRate
@@ -300,7 +302,7 @@ class SpeechActivityDetection(Application):
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
 
-        validation_txt = self.VALIDATE_TXT.format(
+        validate_txt = self.VALIDATE_TXT.format(
             train_dir=self.train_dir_,
             protocol=protocol_name,
             subset=subset)
@@ -310,15 +312,18 @@ class SpeechActivityDetection(Application):
             protocol=protocol_name,
             subset=subset)
 
-        mkdir_p(dirname(validation_txt))
+        mkdir_p(dirname(validate_txt))
 
-        TEMPLATE = '{epoch:04d} {onset:.3f} {offset:.3f} {metric:.6f}\n'
-        metrics = []
+        TEMPLATE = '{epoch:04d} {onset:.3f} {offset:.3f} {der:.6f}\n'
+        ders, epoch = [], 0
 
-        with io.open(validation_txt, mode='w') as fp:
+        desc_format = ('DER = {der:.2f}% @ epoch #{epoch:d} ::'
+                      ' Best DER = {best_der:.2f}% @ epoch #{best_epoch:d} :')
+        progress_bar = tqdm(unit='epoch', total=1000)
 
-            epoch = 0
-            while epoch < 1000:
+        with open(validate_txt, mode='w') as fp:
+
+            while True:
 
                 # wait until weight file is available
                 weights_h5 = LoggingCallback.WEIGHTS_H5.format(
@@ -328,27 +333,35 @@ class SpeechActivityDetection(Application):
                     time.sleep(60)
                     continue
 
-                params, metric = tune_binarizer(
+                params, der = tune_binarizer(
                     self, epoch, protocol_name, subset=subset)
 
-                fp.write(TEMPLATE.format(epoch=epoch, metric=metric, **params))
+                fp.write(TEMPLATE.format(epoch=epoch, der=der, **params))
                 fp.flush()
 
-                metrics.append(metric)
+                ders.append(der)
 
-                # upldate plot metric = f(epoch)
-                best_epoch = np.argmin(metrics)
-                best_metric = np.min(metrics)
+                best_epoch = np.argmin(ders)
+                best_der = np.min(ders)
+
+                progress_bar.set_description(
+                    desc_format.format(epoch=epoch, der=100*der,
+                                       best_epoch=best_epoch,
+                                       best_der=100*best_der))
+                progress_bar.update(1)
+
+                # update plot metric = f(epoch)
+
                 fig = plt.figure()
-                plt.plot(metrics, 'b')
-                plt.plot([best_epoch], [best_metric], 'bo')
-                plt.plot([0, epoch], [best_metric, best_metric], 'k--')
+                plt.plot(ders, 'b')
+                plt.plot([best_epoch], [best_der], 'bo')
+                plt.plot([0, epoch], [best_der, best_der], 'k--')
                 plt.grid(True)
                 plt.xlabel('epoch')
-                TITLE = '{protocol}.{subset} | DER = {best_metric:.5g} @ #{best_epoch:d}'
+                TITLE = '{protocol}.{subset} | DER = {best_der:.5g} @ #{best_epoch:d}'
                 title = TITLE.format(protocol=protocol_name,
                                      subset=subset,
-                                     best_metric=best_metric,
+                                     best_der=best_der,
                                      best_epoch=best_epoch)
                 plt.title(title)
                 plt.tight_layout()
