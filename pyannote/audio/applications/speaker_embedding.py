@@ -486,7 +486,8 @@ class SpeakerEmbedding(Application):
                 eers.append(eer)
 
                 # save equal error rate to file
-                fp.write(self.VALIDATE_TXT_TEMPLATE.format(epoch=epoch, eer=eer))
+                fp.write(self.VALIDATE_TXT_TEMPLATE.format(
+                    epoch=epoch, eer=eer))
                 fp.flush()
 
                 # keep track of best epoch so far
