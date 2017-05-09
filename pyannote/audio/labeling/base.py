@@ -29,7 +29,7 @@
 import os.path
 
 from pyannote.audio.callback import LoggingCallback
-from keras.models import model_from_yaml
+import keras.models
 
 from pyannote.audio.keras_utils import CUSTOM_OBJECTS
 
