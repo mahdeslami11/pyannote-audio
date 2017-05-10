@@ -27,7 +27,7 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 
-from ..base_autograd import SequenceEmbeddingAutograd
+from .triplet_loss import TripletLoss
 from ..base_autograd import value_and_multigrad
 from autograd import numpy as ag_np
 
@@ -49,7 +49,7 @@ from pyannote.audio.callback import LoggingCallback
 from pyannote.audio.keras_utils import CUSTOM_OBJECTS
 
 
-class CenterLoss(SequenceEmbeddingAutograd):
+class CenterLoss(TripletLoss):
     """
 
     loss = d(anchor, center) - d(anchor, other_center)
@@ -81,56 +81,10 @@ class CenterLoss(SequenceEmbeddingAutograd):
                  per_label=3, per_fold=20,
                  update_centers='batch'):
 
-        self.margin = margin
-        self.clamp = clamp
-        self.per_label = per_label
-        self.per_fold = per_fold
+        super(CenterLoss, self).__init__(
+            metric=metric, margin=margin, clamp=clamp,
+            per_label=per_label, per_fold=per_fold)
         self.update_centers = update_centers
-        super(CenterLoss, self).__init__(metric=metric)
-
-    def get_batch_generator(self, data_h5):
-        """Get batch generator
-
-        Parameters
-        ----------
-        data_h5 : str
-            Path to HDF5 file containing precomputed sequences.
-            It must have to aligned datasets 'X' and 'y'.
-
-        Returns
-        -------
-        batch_generator : iterable
-        batches_per_epoch : int
-
-        """
-
-        fp = h5py.File(data_h5, mode='r')
-        h5_X = fp['X']
-        h5_y = fp['y']
-
-        # keep track of number of labels and rename labels to integers
-        unique, y = np.unique(h5_y, return_inverse=True)
-        n_classes = len(unique)
-
-        index_generator = random_label_index(
-            y, per_label=self.per_label, return_label=False)
-
-        def generator():
-            while True:
-                i = next(index_generator)
-                yield {'X': h5_X[i], 'y': y[i]}
-
-        signature = {'X': {'type': 'sequence'},
-                     'y': {'type': 'sequence'}}
-        batch_generator = batchify(generator(),
-                                   signature,
-                                   batch_size=self.per_label * self.per_fold)
-
-        batches_per_epoch = n_classes // self.per_fold + 1
-
-        return {'batch_generator': batch_generator,
-                'batches_per_epoch': batches_per_epoch,
-                'n_classes': n_classes}
 
     def on_train_begin(self, logs=None):
 
