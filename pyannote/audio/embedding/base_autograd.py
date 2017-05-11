@@ -69,9 +69,8 @@ class MixinDistanceAutograd:
 
     @staticmethod
     def l2_normalize(embedding):
-        norm = ag_np.sqrt(ag_np.sum(embedding ** 2, axis=1))
-        return ag_np.T(ag_np.T(embedding) / norm)
-
+        norm = ag_np.sqrt(ag_np.sum(embedding ** 2, axis=-1))
+        return (embedding.T / norm).T
 
     @staticmethod
     def get_metric_max(metric):
