@@ -140,6 +140,7 @@ Database configuration file:
 
 from os.path import dirname, isfile, expanduser
 import numpy as np
+import pandas as pd
 import time
 from tqdm import tqdm
 
@@ -393,8 +394,48 @@ class SpeakerEmbedding(Application):
                            epochs=1000, log_dir=train_dir,
                            optimizer=SSMORMS3())
 
+    def _validation_set_z(self, protocol_name, subset='development'):
 
-    def _validation_set(self, protocol_name, subset='development'):
+        # reproducibility
+        np.random.seed(1337)
+
+        data_dir = dirname(dirname(dirname(self.train_dir_)))
+        data_h5 = self.DATA_H5.format(data_dir=data_dir,
+                                      protocol=protocol_name,
+                                      subset=subset)
+
+        with h5py.File(data_h5, mode='r') as fp:
+
+            h5_X = fp['X']
+            h5_y = fp['y']
+            h5_z = fp['z']
+
+            # group sequences by z
+            df = pd.DataFrame({'y': h5_y, 'z': h5_z})
+            z_groups = df.groupby('z')
+
+            # label of each group
+            y_groups = [group.y.iloc[0] for _, group in z_groups]
+
+            # randomly select (at most) 10 groups from each speaker to ensure
+            # all speakers have the same importance in the evaluation
+            unique, y, counts = np.unique(y_groups, return_inverse=True,
+                                          return_counts=True)
+            n_speakers = len(unique)
+            X, N, Y = [], [], []
+            for speaker in range(n_speakers):
+                I = np.random.choice(np.where(y == speaker)[0],
+                                     size=min(10, counts[speaker]),
+                                     replace=False)
+                for i in I:
+                    selector = z_groups.get_group(i).index
+                    x = h5_X[selector]
+                    X.append(x)
+                    N.append(x.shape[0])
+                    Y.append(y[i])
+
+        return np.vstack(X), np.array(N), np.array(Y)
+
     def _validation_set_y(self, protocol_name, subset='development'):
 
         # reproducibility
