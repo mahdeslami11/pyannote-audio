@@ -168,7 +168,7 @@ class TripletLoss(SequenceEmbeddingAutograd):
 
                     n_comparisons = n_comparisons + 1
 
-        return loss / n_comparisons
+        return loss
 
 
     def loss_and_grad(self, batch, embedding):
