@@ -39,6 +39,7 @@ import keras.callbacks as cbks
 import keras.models
 
 from pyannote.audio.callback import LoggingCallback
+from pyannote.audio.callback import BaseLogger
 
 # populate CUSTOM_OBJECTS with user-defined optimizers and layers
 import pyannote.audio.optimizers
@@ -281,7 +282,7 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
             restart = False
 
         callbacks = [self]
-        callbacks.append(cbks.BaseLogger())
+        callbacks.append(BaseLogger())
         callbacks.append(cbks.ProgbarLogger(count_mode='steps'))
         if log_dir is not None:
             callbacks.append(LoggingCallback(log_dir, restart=restart))
