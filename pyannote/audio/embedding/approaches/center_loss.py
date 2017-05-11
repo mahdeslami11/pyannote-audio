@@ -47,6 +47,7 @@ from pyannote.audio.optimizers import SSMORMS3
 from pyannote.audio.embedding.losses import precomputed_gradient_loss
 from pyannote.audio.callback import LoggingCallback
 from pyannote.audio.keras_utils import CUSTOM_OBJECTS
+from pyannote.core.util import pairwise
 
 
 class CenterLoss(TripletLoss):
@@ -72,6 +73,7 @@ class CenterLoss(TripletLoss):
     update_centers : {'batch', 'all'}
         Whether to only update centers in current 'batch' (default), or to
         update 'all' centers (even though they are not part of current batch).
+    learn_to_aggregate : boolean, optional
     """
 
     WEIGHTS_H5 = LoggingCallback.WEIGHTS_H5[:-3] + '.centers.h5'
@@ -79,11 +81,13 @@ class CenterLoss(TripletLoss):
     def __init__(self, metric='angular',
                  margin=0.0, clamp='sigmoid',
                  per_label=3, per_fold=20,
-                 update_centers='batch'):
+                 update_centers='batch',
+                 learn_to_aggregate=False):
 
         super(CenterLoss, self).__init__(
             metric=metric, margin=margin, clamp=clamp,
-            per_label=per_label, per_fold=per_fold)
+            per_label=per_label, per_fold=per_fold,
+            learn_to_aggregate=learn_to_aggregate)
         self.update_centers = update_centers
 
     def on_train_begin(self, logs=None):
@@ -125,7 +129,7 @@ class CenterLoss(TripletLoss):
 
     def on_batch_end(self, batch_index, logs=None):
         self.centers_.train_on_batch(self.trigger_,
-                                     logs['fC_grad'])
+                                     logs['center_gradient'])
 
         self.fC_ = self.centers_.predict(self.trigger_)
 
@@ -140,7 +144,7 @@ class CenterLoss(TripletLoss):
 
         # TODO | plot distribution of distances between centers
 
-    def loss(self, fX, fC, y):
+    def loss_y(self, fX, fC, y):
         """Differentiable loss
 
         Parameters
@@ -203,17 +207,45 @@ class CenterLoss(TripletLoss):
 
         return loss
 
-    def loss_and_grad(self, batch, embed):
+    def loss_z(self, fX, fC, y, n):
+        """Differentiable loss
 
-        X = batch['X']
-        y = batch['y']
+        Parameters
+        ----------
+        fX : np.array (n_sequences, n_samples, n_dimensions)
+            Stacked groups of internal embeddings.
+        fC : (n_classes, n_dimensions) numpy array
+            Centers.
+        y : (batch_size, ) numpy array
+            Label of each group.
+        n :  (batch_size, ) numpy array
+            Number of sequences per group (np.sum(n) == n_sequences)
 
-        fX = embed(X)
+        Returns
+        -------
+        loss : float
+            Loss.
+        """
 
-        func = value_and_multigrad(self.loss, argnums=[0, 1])
+        indices = np.hstack([[0], np.cumsum(n)])
+        fX_sum = ag_np.stack([ag_np.sum(ag_np.sum(fX[i:j], axis=0), axis=0)
+                              for i, j in pairwise(indices)])
+        return self.loss_y(self.l2_normalize(fX_sum), fC, y)
 
-        loss, (fX_grad, fC_grad) = func(fX, self.fC_, y)
+    def loss_and_grad(self, batch, embedding):
+
+        if self.learn_to_aggregate:
+            fX = self.embed(embedding, batch['X'], internal=True)
+            func = value_and_multigrad(self.loss_z, argnums=[0, 1])
+            loss, (fX_grad, fC_grad) = func(fX, self.fC_, batch['y'],
+                                            batch['n'])
+            fX_grad = fX_grad[:, 0, :]
+
+        else:
+            fX = self.embed(embedding, batch['X'], internal=False)
+            func = value_and_multigrad(self.loss_y, argnums=[0, 1])
+            loss, (fX_grad, fC_grad) = func(fX, self.fC_, batch['y'])
 
         return {'loss': loss,
                 'gradient': fX_grad,
-                'fC_grad': fC_grad}
+                'center_gradient': fC_grad}

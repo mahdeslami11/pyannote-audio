@@ -32,10 +32,13 @@ from autograd import numpy as ag_np
 from autograd import value_and_grad
 
 import numpy as np
+import pandas as pd
 import h5py
 
 from pyannote.generators.indices import random_label_index
 from pyannote.generators.batch import batchify
+
+from pyannote.core.util import pairwise
 
 
 class TripletLoss(SequenceEmbeddingAutograd):
@@ -59,18 +62,28 @@ class TripletLoss(SequenceEmbeddingAutograd):
         Number of speakers per batch. Defaults to 20.
     per_label : int, optional
         Number of sequences per speaker. Defaults to 3.
+    learn_to_aggregate : boolean, optional
+
     """
 
     def __init__(self, metric='sqeuclidean',
-                 margin=0.1, clamp='positive', 
-                 per_label=3, per_fold=20):
+                 margin=0.1, clamp='positive',
+                 per_label=3, per_fold=20,
+                 learn_to_aggregate=False):
         self.margin = margin
         self.clamp = clamp
         self.per_label = per_label
         self.per_fold = per_fold
+        self.learn_to_aggregate = learn_to_aggregate
         super(TripletLoss, self).__init__(metric=metric)
 
     def get_batch_generator(self, data_h5):
+        if self.learn_to_aggregate:
+            return self._get_batch_generator_z(data_h5)
+        else:
+            return self._get_batch_generator_y(data_h5)
+
+    def _get_batch_generator_y(self, data_h5):
         """Get batch generator
 
         Parameters
@@ -83,7 +96,7 @@ class TripletLoss(SequenceEmbeddingAutograd):
         -------
         batch_generator : iterable
         batches_per_epoch : int
-
+        n_classes : int
         """
 
         fp = h5py.File(data_h5, mode='r')
@@ -114,7 +127,67 @@ class TripletLoss(SequenceEmbeddingAutograd):
                 'batches_per_epoch': batches_per_epoch,
                 'n_classes': n_classes}
 
-    def loss(self, fX, y):
+    def _get_batch_generator_z(self, data_h5):
+        """"""
+
+        fp = h5py.File(data_h5, mode='r')
+        h5_X = fp['X']
+        h5_y = fp['y']
+        h5_z = fp['z']
+
+        df = pd.DataFrame({'y': h5_y, 'z': h5_z})
+        z_groups = df.groupby('z')
+
+        y_groups = [group.y.iloc[0] for _, group in z_groups]
+
+        # keep track of number of labels and rename labels to integers
+        unique, y = np.unique(y_groups, return_inverse=True)
+        n_classes = len(unique)
+
+        index_generator = random_label_index(
+            y, per_label=self.per_label,
+            return_label=True, repeat=False)
+
+        def generator():
+            while True:
+                i, label = next(index_generator)
+                selector = z_groups.get_group(i).index
+                X = np.array(h5_X[selector])
+                n = X.shape[0]
+                yield {'X': X,
+                       'y': label,
+                       'n': n}
+
+        signature = {'X': {'type': 'ndarray'},
+                     'y': {'type': 'scalar'},
+                     'n': {'type': 'complex'}}
+
+        batch_generator = batchify(
+            generator(), signature,
+            batch_size=self.per_label * self.per_fold)
+
+        batches_per_epoch = n_classes // self.per_fold + 1
+
+        return {'batch_generator': batch_generator,
+                'batches_per_epoch': batches_per_epoch,
+                'n_classes': n_classes}
+
+    def loss_and_grad(self, batch, embedding):
+
+        if self.learn_to_aggregate:
+            fX = self.embed(embedding, batch['X'], internal=True)
+            loss, fX_grad = value_and_grad(
+                self.loss_z, argnum=0)(fX, batch['y'], batch['n'])
+            fX_grad = fX_grad[:, 0, :]
+
+        else:
+            fX = self.embed(embedding, batch['X'], internal=False)
+            loss, fX_grad = value_and_grad(
+                self.loss_y, argnum=0)(fX, batch['y'])
+
+        return {'loss': loss, 'gradient': fX_grad}
+
+    def loss_y(self, fX, y):
         """Differentiable loss
 
         Parameters
@@ -162,7 +235,6 @@ class TripletLoss(SequenceEmbeddingAutograd):
                         loss_ = loss_ - self.margin * self.metric_max_
                         loss_ = 1. / (1. + ag_np.exp(-10. * loss_))
 
-
                     # do not use += because autograd does not support it
                     loss = loss + loss_
 
@@ -170,12 +242,25 @@ class TripletLoss(SequenceEmbeddingAutograd):
 
         return loss
 
+    def loss_z(self, fX, y, n):
+        """Differentiable loss
 
-    def loss_and_grad(self, batch, embedding):
-        fX = self.embed(embedding, batch['X'])
-        y = batch['y']
-        loss, fX_grad = value_and_grad(self.loss_y, argnum=0)(fX, y)
-        return {'loss': loss, 'gradient': fX_grad}
+        Parameters
+        ----------
+        fX : np.array (n_sequences, n_samples, n_dimensions)
+            Stacked groups of internal embeddings.
+        y : (batch_size, ) numpy array
+            Label of each group.
+        n :  (batch_size, ) numpy array
+            Number of sequences per group (np.sum(n) == n_sequences)
 
+        Returns
+        -------
+        loss : float
+            Loss.
+        """
 
-
+        indices = np.hstack([[0], np.cumsum(n)])
+        fX_sum = ag_np.stack([ag_np.sum(ag_np.sum(fX[i:j], axis=0), axis=0)
+                              for i, j in pairwise(indices)])
+        return self.loss_y(self.l2_normalize(fX_sum), y)

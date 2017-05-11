@@ -395,6 +395,7 @@ class SpeakerEmbedding(Application):
 
 
     def _validation_set(self, protocol_name, subset='development'):
+    def _validation_set_y(self, protocol_name, subset='development'):
 
         # reproducibility
         np.random.seed(1337)
@@ -444,7 +445,7 @@ class SpeakerEmbedding(Application):
         mkdir_p(validate_dir)
 
         # Build validation set
-        X, y = self._validation_set(protocol_name, subset=subset)
+        X, y = self._validation_set_y(protocol_name, subset=subset)
 
         # list of equal error rates, and current epoch
         eers, epoch = [], 0
