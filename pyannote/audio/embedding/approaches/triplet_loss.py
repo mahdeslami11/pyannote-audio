@@ -170,13 +170,12 @@ class TripletLoss(SequenceEmbeddingAutograd):
 
         return loss / n_comparisons
 
-    def loss_and_grad(self, batch, embed):
 
-        X = batch['X']
+    def loss_and_grad(self, batch, embedding):
+        fX = self.embed(embedding, batch['X'])
         y = batch['y']
-
-        fX = embed(X)
-
-        loss, fX_grad = value_and_grad(self.loss, argnum=0)(fX, y)
-
+        loss, fX_grad = value_and_grad(self.loss_y, argnum=0)(fX, y)
         return {'loss': loss, 'gradient': fX_grad}
+
+
+

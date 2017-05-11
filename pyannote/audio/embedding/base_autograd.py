@@ -231,7 +231,6 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
         return embedding.predict(X)
 
 
-
     def fit(self, init_embedding, batch_generator, batches_per_epoch,
             n_classes=None, epochs=1000, log_dir=None, optimizer='rmsprop'):
         """
@@ -276,8 +275,6 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
             init_epoch = -1
             restart = False
 
-        embed = functools.partial(self.embed, embedding)
-
         callbacks = [self]
         callbacks.append(cbks.BaseLogger())
         callbacks.append(cbks.ProgbarLogger(count_mode='steps'))
@@ -316,7 +313,7 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
                 callbacks.on_batch_begin(batch_index, logs=batch_logs)
 
                 # compute loss and its gradient
-                logs = self.loss_and_grad(batch, embed=embed)
+                logs = self.loss_and_grad(batch, embedding)
                 batch_logs.update(logs)
 
                 # backprop
