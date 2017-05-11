@@ -113,7 +113,7 @@ class TristouNet(object):
         """
 
         inputs = Input(shape=input_shape,
-                       name="input_sequence")
+                       name="input")
 
         masking = Masking(mask_value=0.)
         x = masking(inputs)
@@ -222,7 +222,7 @@ class TrottiNet(object):
         """
 
         inputs = Input(shape=input_shape,
-                       name="input_sequence")
+                       name="input")
 
         masking = Masking(mask_value=0.)
         x = masking(inputs)
@@ -339,7 +339,7 @@ class ClopiNet(object):
         """
 
         inputs = Input(shape=input_shape,
-                       name="input_sequence")
+                       name="input")
 
         masking = Masking(mask_value=0.)
         x = masking(inputs)
