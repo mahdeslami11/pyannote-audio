@@ -203,7 +203,7 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
 
         return embedding
 
-    def embed(self, embedding, X):
+    def embed(self, embedding, X, internal=False):
         """Apply embedding on sequences
 
         Parameters
@@ -212,6 +212,8 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
             Current state of embedding network
         X : (n_sequences, n_samples, n_features) numpy array
             Batch of input sequences
+        internal : bool, optional
+            Set to True to return internal representation
 
         Returns
         -------
@@ -219,7 +221,16 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
             Batch of embeddings.
 
         """
+
+        if internal:
+            embed = K.function(
+                [embedding.get_layer(name='input').input, K.learning_phase()],
+                [embedding.get_layer(name='internal').output])
+            return embed([X, 0])[0]
+
         return embedding.predict(X)
+
+
 
     def fit(self, init_embedding, batch_generator, batches_per_epoch,
             n_classes=None, epochs=1000, log_dir=None, optimizer='rmsprop'):
