@@ -67,6 +67,12 @@ class MixinDistanceAutograd:
     """Differentiable distances between pairs of embeddings"""
 
     @staticmethod
+    def l2_normalize(embedding):
+        norm = ag_np.sqrt(ag_np.sum(embedding ** 2, axis=1))
+        return ag_np.T(ag_np.T(embedding) / norm)
+
+
+    @staticmethod
     def get_metric_max(metric):
         """Maximum distance between two (L2-normalized) embeddings
 
@@ -174,7 +180,6 @@ class MixinDistanceAutograd:
         return ag_np.arccos(ag_np.clip(ag_np.stack(
             ag_np.sum(embedding[i] * other_embedding, axis=1)
             for i in range(n_samples)), -1. + EPSILON, 1. - EPSILON))
-
 
 class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
 
