@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016 CNRS
+# Copyright (c) 2016-2017 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -60,6 +60,7 @@ class EmbeddingAveragePooling(Layer):
 
     def compute_mask(self, input, input_mask=None):
         return None
+
 
 # register user-defined Keras layer
 register_custom_object('EmbeddingAveragePooling', EmbeddingAveragePooling)
@@ -181,7 +182,7 @@ class TristouNet(object):
 
 
 class TrottiNet(object):
-    """TrottiNet sequence embeddin
+    """TrottiNet sequence embedding
 
     LSTM ( » ... » LSTM ) » ( MLP » ... » ) MLP » pooling › normalize
 
@@ -229,6 +230,8 @@ class TrottiNet(object):
         # stack (bidirectional) LSTM layers
         for i, output_dim in enumerate(self.lstm):
 
+            last_internal_layer = not self.mlp and i + 1 == len(self.lstm)
+
             params = {
                 'name': 'lstm_{i:d}'.format(i=i),
                 'return_sequences': True,
@@ -258,21 +261,30 @@ class TrottiNet(object):
             if i == 0:
                 params['input_shape'] = input_shape
 
+            if last_internal_layer and not self.bidirectional:
+                params['name'] = 'internal'
+
             lstm = LSTM(output_dim, **params)
 
             if self.bidirectional:
-                lstm = Bidirectional(lstm, merge_mode=self.bidirectional)
+                name = 'internal' if last_internal_layer else None
+                lstm = Bidirectional(lstm,
+                                     merge_mode=self.bidirectional,
+                                     name=name)
 
             x = lstm(x)
 
         # stack dense MLP layers
         for i, output_dim in enumerate(self.mlp):
 
+            last_internal_layer = i + 1 == len(self.mlp)
+
             mlp = Dense(output_dim,
                         activation='tanh',
                         name='mlp_{i:d}'.format(i=i))
 
-            x = TimeDistributed(mlp)(x)
+            name = 'internal' if last_internal_layer else None
+            x = TimeDistributed(mlp, name=name)(x)
 
         # average pooling and L2 normalization
         pooling = EmbeddingAveragePooling(name='pooling')
@@ -335,6 +347,9 @@ class ClopiNet(object):
         # stack (bidirectional) LSTM layers
         for i, output_dim in enumerate(self.lstm):
 
+            sole_layer = not self.mlp and len(self.lstm) == 1
+            last_internal_layer = not self.mlp and i + 1 == len(self.lstm)
+
             params = {
                 'name': 'lstm_{i:d}'.format(i=i),
                 'return_sequences': True,
@@ -364,19 +379,24 @@ class ClopiNet(object):
             if i == 0:
                 params['input_shape'] = input_shape
 
+            if sole_layer and not self.bidirectional:
+                params['name'] = 'internal'
+
             lstm = LSTM(output_dim, **params)
 
             # bi-directional LSTM
             if self.bidirectional:
-                lstm = Bidirectional(lstm, merge_mode=self.bidirectional)
+                lstm = Bidirectional(lstm,
+                                     merge_mode=self.bidirectional,
+                                     name='internal' if sole_layer else None)
 
             # (actually) stack LSTM
             x = lstm(x)
 
             # concatenate output of all levels
             if i > 0:
-                concat_x = Concatenate(axis=-1)([concat_x, x])
-
+                name = 'internal' if last_internal_layer else None
+                concat_x = Concatenate(axis=-1, name=name)([concat_x, x])
             else:
                 # corner case for 1st level (i=0)
                 # as concat_x does not yet exist
@@ -388,11 +408,14 @@ class ClopiNet(object):
         # (optionally) stack dense MLP layers
         for i, output_dim in enumerate(self.mlp):
 
+            last_internal_layer = i + 1 == len(self.mlp)
+
             mlp = Dense(output_dim,
                         name='mlp_{i:d}'.format(i=i),
                         activation='tanh')
 
-            x = TimeDistributed(mlp)(x)
+            name = 'internal' if last_internal_layer else None
+            x = TimeDistributed(mlp, name=name)(x)
 
         # average pooling and L2 normalization
         pooling = EmbeddingAveragePooling(name='pooling')
