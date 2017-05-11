@@ -84,7 +84,7 @@ class SequenceLabelingAggregation(PeriodicFeaturesMixin, FileBasedBatchGenerator
     def signature(self):
         """See `FileBasedBatchGenerator` base class for details"""
         shape = self.shape
-        return {'type': 'sequence', 'shape': shape}
+        return {'type': 'ndarray', 'shape': shape}
 
     def postprocess_sequence(self, mono_batch):
         """

@@ -79,9 +79,9 @@ class GaussianDivergenceSegmentation(PeriodicFeaturesMixin,
     def signature(self):
         shape = self.shape
         return (
-            {'type': 'timestamp'},
-            {'type': 'sequence', 'shape': shape},
-            {'type': 'sequence', 'shape': shape}
+            {'type': 'scalar'},
+            {'type': 'ndarray', 'shape': shape},
+            {'type': 'ndarray', 'shape': shape}
         )
 
     def apply(self, current_file):
@@ -160,9 +160,9 @@ class BICSegmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     def signature(self):
         shape = self.shape
         return (
-            {'type': 'timestamp'},
-            {'type': 'sequence', 'shape': shape},
-            {'type': 'sequence', 'shape': shape}
+            {'type': 'scalar'},
+            {'type': 'ndarray', 'shape': shape},
+            {'type': 'ndarray', 'shape': shape}
         )
 
     def apply(self, current_file):

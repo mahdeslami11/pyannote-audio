@@ -66,8 +66,8 @@ class ChangeDetectionBatchGenerator(PeriodicFeaturesMixin,
         shape = self.shape
 
         return [
-            {'type': 'sequence', 'shape': shape},
-            {'type': 'sequence', 'shape': (shape[0], 2)}
+            {'type': 'ndarray', 'shape': shape},
+            {'type': 'ndarray', 'shape': (shape[0], 2)}
         ]
 
     def preprocess(self, current_file, identifier=None):

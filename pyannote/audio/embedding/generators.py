@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016 CNRS
+# Copyright (c) 2016-2017 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -184,7 +184,7 @@ class SequenceGenerator(object):
     def signature(self):
         shape = self.shape
         return (
-            {'type': 'sequence', 'shape': shape},
+            {'type': 'ndarray', 'shape': shape},
             {'type': 'label'}
         )
 

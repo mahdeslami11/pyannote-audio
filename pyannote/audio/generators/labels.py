@@ -101,7 +101,7 @@ class FixedDurationSequences(PeriodicFeaturesMixin, FileBasedBatchGenerator):
 
     def signature(self):
         return (
-            {'type': 'sequence', 'shape': self.shape},
+            {'type': 'ndarray', 'shape': self.shape},
             {'type': 'label'}
         )
 
@@ -157,7 +157,7 @@ class VariableDurationSequences(PeriodicFeaturesMixin,
 
     def signature(self):
         return (
-            {'type': 'sequence', 'shape': self.shape},
+            {'type': 'ndarray', 'shape': self.shape},
             {'type': 'label'}
         )
 

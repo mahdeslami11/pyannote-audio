@@ -253,11 +253,11 @@ class TripletGenerator(object):
         shape = self.shape
         return (
             [
-                {'type': 'sequence', 'shape': shape},
-                {'type': 'sequence', 'shape': shape},
-                {'type': 'sequence', 'shape': shape}
+                {'type': 'ndarray', 'shape': shape},
+                {'type': 'ndarray', 'shape': shape},
+                {'type': 'ndarray', 'shape': shape}
             ],
-            {'type': 'boolean'}
+            {'type': 'scalar'}
         )
 
     def callbacks(self, extract_embedding=None):

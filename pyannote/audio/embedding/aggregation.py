@@ -94,7 +94,7 @@ class SequenceEmbeddingAggregation(PeriodicFeaturesMixin,
     def signature(self):
         shape = self.shape
         return ({'type': 'segment'},
-                {'type': 'sequence', 'shape': shape})
+                {'type': 'ndarray', 'shape': shape})
 
     def process_segment(self, segment, signature=None, identifier=None):
         # replace segment by (segment, features)
@@ -116,7 +116,7 @@ class SequenceEmbeddingAggregation(PeriodicFeaturesMixin,
             zeros[:n_samples, :] = sequence[:n_samples]
             zero_padded.append(zeros)
 
-            # mask 
+            # mask
             mask = np.zeros((self.shape_[0], 1), dtype=np.int8)
             mask[:n_samples] = 1
             masks.append(mask)

@@ -102,7 +102,7 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
 
     def signature(self):
         shape = self.shape
-        return {'type': 'sequence', 'shape': shape}
+        return {'type': 'ndarray', 'shape': shape}
 
     def postprocess_sequence(self, batch):
         return self.sequence_embedding.transform(

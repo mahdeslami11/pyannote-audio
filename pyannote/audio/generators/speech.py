@@ -56,8 +56,8 @@ class SpeechActivityDetectionBatchGenerator(PeriodicFeaturesMixin,
         dimension = 2
 
         return [
-            {'type': 'sequence', 'shape': shape},
-            {'type': 'sequence', 'shape': (shape[0], dimension)}
+            {'type': 'ndarray', 'shape': shape},
+            {'type': 'ndarray', 'shape': (shape[0], dimension)}
         ]
 
     def preprocess(self, current_file, identifier=None):
@@ -138,8 +138,8 @@ class OverlappingSpeechDetectionBatchGenerator(PeriodicFeaturesMixin,
         dimension = 2
 
         return [
-            {'type': 'sequence', 'shape': shape},
-            {'type': 'sequence', 'shape': (shape[0], dimension)}
+            {'type': 'ndarray', 'shape': shape},
+            {'type': 'ndarray', 'shape': (shape[0], dimension)}
         ]
 
     def preprocess(self, current_file, identifier=None):

@@ -102,8 +102,8 @@ class TripletLoss(SequenceEmbeddingAutograd):
                 i = next(index_generator)
                 yield {'X': h5_X[i], 'y': y[i]}
 
-        signature = {'X': {'type': 'sequence'},
-                     'y': {'type': 'sequence'}}
+        signature = {'X': {'type': 'ndarray'},
+                     'y': {'type': 'ndarray'}}
         batch_generator = batchify(generator(),
                                    signature,
                                    batch_size=self.per_label * self.per_fold)
