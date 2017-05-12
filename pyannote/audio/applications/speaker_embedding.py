@@ -32,7 +32,7 @@ Speaker embedding
 Usage:
   pyannote-speaker-embedding data [--database=<db.yml> --duration=<duration> --step=<step> --heterogeneous] <root_dir> <database.task.protocol>
   pyannote-speaker-embedding train [--subset=<subset> --restart=<epoch>] <experiment_dir> <database.task.protocol>
-  pyannote-speaker-embedding validate [--subset=<subset>] <train_dir> <database.task.protocol>
+  pyannote-speaker-embedding validate [--subset=<subset> --aggregate] <train_dir> <database.task.protocol>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
 
@@ -58,6 +58,7 @@ Options:
   --subset=<subset>          Set subset (train|developement|test).
                              In "train" mode, defaults subset is "train".
                              In "validate" mode, defaults to "development".
+  --aggregate                Aggregate
   <train_dir>                Path to directory created by "train" mode.
   -h --help                  Show this screen.
   --version                  Show version.
@@ -161,10 +162,14 @@ from pyannote.audio.optimizers import SSMORMS3
 
 import keras.models
 from pyannote.audio.keras_utils import CUSTOM_OBJECTS
-from pyannote.audio.embedding.utils import pdist, cdist
+from pyannote.audio.embedding.utils import pdist, cdist, l2_normalize
 from pyannote.metrics.binary_classification import det_curve
 
 from pyannote.audio.callback import LoggingCallback
+
+from pyannote.core.util import pairwise
+import keras.backend as K
+
 
 class SpeakerEmbedding(Application):
 
@@ -177,11 +182,11 @@ class SpeakerEmbedding(Application):
 
     # created by "validate" mode
     VALIDATE_DIR = '{train_dir}/validate/{protocol}'
-    VALIDATE_TXT = '{validate_dir}/{subset}.eer.txt'
+    VALIDATE_TXT = '{validate_dir}/{subset}.{aggregate}eer.txt'
     VALIDATE_TXT_TEMPLATE = '{epoch:04d} {eer:5f}\n'
 
-    VALIDATE_PNG = '{validate_dir}/{subset}.eer.png'
-    VALIDATE_EPS = '{validate_dir}/{subset}.eer.eps'
+    VALIDATE_PNG = '{validate_dir}/{subset}.{aggregate}eer.png'
+    VALIDATE_EPS = '{validate_dir}/{subset}.{aggregate}eer.eps'
 
     @classmethod
     def from_root_dir(cls, root_dir, db_yml=None):
@@ -434,7 +439,7 @@ class SpeakerEmbedding(Application):
                     N.append(x.shape[0])
                     Y.append(y[i])
 
-        return np.vstack(X), np.array(N), np.array(Y)
+        return np.vstack(X), np.array(N),  np.array(Y)[:, np.newaxis]
 
     def _validation_set_y(self, protocol_name, subset='development'):
 
@@ -470,23 +475,29 @@ class SpeakerEmbedding(Application):
 
         return X, y
 
-    def validate(self, protocol_name, subset='development'):
+    def validate(self, protocol_name, subset='development', aggregate=False):
 
         # prepare paths
         validate_dir = self.VALIDATE_DIR.format(train_dir=self.train_dir_,
                                                 protocol=protocol_name)
-        validate_txt = self.VALIDATE_TXT.format(validate_dir=validate_dir,
-                                                subset=subset)
-        validate_png = self.VALIDATE_PNG.format(validate_dir=validate_dir,
-                                                subset=subset)
-        validate_eps = self.VALIDATE_EPS.format(validate_dir=validate_dir,
-                                                subset=subset)
+        validate_txt = self.VALIDATE_TXT.format(
+            validate_dir=validate_dir, subset=subset,
+            aggregate='aggregate.' if aggregate else '')
+        validate_png = self.VALIDATE_PNG.format(
+            validate_dir=validate_dir, subset=subset,
+            aggregate='aggregate.' if aggregate else '')
+        validate_eps = self.VALIDATE_EPS.format(
+            validate_dir=validate_dir, subset=subset,
+            aggregate='aggregate.' if aggregate else '')
 
         # create validation directory
         mkdir_p(validate_dir)
 
         # Build validation set
-        X, y = self._validation_set_y(protocol_name, subset=subset)
+        if aggregate:
+            X, n, y = self._validation_set_z(protocol_name, subset=subset)
+        else:
+            X, y = self._validation_set_y(protocol_name, subset=subset)
 
         # list of equal error rates, and current epoch
         eers, epoch = [], 0
@@ -517,8 +528,24 @@ class SpeakerEmbedding(Application):
                     embedding = keras.models.load_model(
                         weights_h5, custom_objects=CUSTOM_OBJECTS)
 
+                if aggregate:
+                    def embed(X):
+                        func = K.function(
+                            [embedding.get_layer(name='input').input, K.learning_phase()],
+                            [embedding.get_layer(name='internal').output])
+                        return func([X, 0])[0]
+                else:
+                    embed = embedding.predict
+
                 # embed all validation sequences
-                fX = embedding.predict(X)
+                fX = embed(X)
+
+                if aggregate:
+                    indices = np.hstack([[0], np.cumsum(n)])
+                    fX = np.stack([np.sum(np.sum(fX[i:j], axis=0), axis=0)
+                                   for i, j in pairwise(indices)])
+                    fX = l2_normalize(fX)
+
                 # compute pairwise distances
                 y_pred = pdist(fX, metric=self.approach_.metric)
                 # compute pairwise groundtruth
@@ -609,5 +636,7 @@ def main():
         if subset is None:
             subset = 'development'
 
+        aggregate = arguments['--aggregate']
+
         application = SpeakerEmbedding.from_train_dir(train_dir)
-        application.validate(protocol_name, subset=subset)
+        application.validate(protocol_name, subset=subset, aggregate=aggregate)
