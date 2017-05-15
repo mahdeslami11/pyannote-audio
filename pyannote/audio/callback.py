@@ -240,3 +240,41 @@ class BaseLogger(Callback):
                 if k in self.totals:
                     # Make value available to next callbacks.
                     logs[k] = self.totals[k] / self.seen
+
+class Debugging(Callback):
+
+    GRADIENT_PNG = '{log_dir}/gradient.png'
+
+    def __init__(self):
+        super(Debugging, self).__init__()
+        self.min_gradient = []
+        self.max_gradient = []
+        self.avg_gradient = []
+        self.pct_gradient = []
+
+    def on_batch_end(self, batch, logs=None):
+
+        min_gradient = np.min(np.abs(logs['gradient']))
+        max_gradient = np.max(np.abs(logs['gradient']))
+        avg_gradient = np.average(np.abs(logs['gradient']))
+
+        self.min_gradient.append(min_gradient)
+        self.max_gradient.append(max_gradient)
+        self.avg_gradient.append(avg_gradient)
+
+        # plot values to file and mark best value so far
+        plt.plot(self.min_gradient, 'b', label='min')
+        plt.plot(self.max_gradient, 'r', label='max')
+        plt.plot(self.avg_gradient, 'g', label='avg')
+        plt.legend()
+        plt.title('Gradients')
+        plt.tight_layout()
+
+        # save plot as PNG
+        gradient_png = self.GRADIENT_PNG.format(log_dir=logs['log_dir'])
+        try:
+            plt.savefig(gradient_png, dpi=150)
+        except Exception as e:
+            pass
+
+        plt.close()
