@@ -30,6 +30,7 @@
 (Speaker) change detection
 
 Usage:
+  change_detection validation [--database=<db.yml> --subset=<subset> --purity=<beta>] <train_dir> <database.task.protocol>
   change_detection tune  [--database=<db.yml> --subset=<subset> --purity=<beta>] <train_dir> <database.task.protocol>
   change_detection apply [--database=<db.yml> --subset=<subset> --purity=<beta>] <tune_dir> <database.task.protocol>
   change_detection -h | --help
@@ -66,7 +67,7 @@ Database configuration file:
 
     This means that hyper-parameters were tuned on the <subset> subset of the
     <database.task.protocol> protocol. By default, <subset> is "development".
-    This directory is called <tune_dir> in the subsequence "apply" mode.
+    This directory is called <tune_dir> in the subsequent "apply" mode.
 
 "apply" mode
     Finally, one can apply (speaker) change detection using "apply" mode.
@@ -85,8 +86,10 @@ Database configuration file:
 import yaml
 import pickle
 import os.path
+import datetime
 import functools
 import numpy as np
+np.random.seed(1337)
 
 from docopt import docopt
 
@@ -105,8 +108,12 @@ from pyannote.audio.embedding.segmentation import Segmentation
 from pyannote.audio.signal import Peak
 
 from pyannote.database import get_database
+from pyannote.database.util import FileFinder
 from pyannote.database.util import get_unique_identifier
-from pyannote.database.util import FileFileFinder
+from pyannote.database.util import get_annotated
+
+from pyannote.database.protocol import SpeakerDiarizationProtocol
+
 from pyannote.audio.optimizers import SSMORMS3
 
 import skopt
@@ -120,6 +127,157 @@ from pyannote.metrics import f_measure
 # needed for register_custom_object to be called
 import pyannote.audio.embedding.models
 
+# (5, None, None) <== '5'
+# (5, 1, None) <== '1-5'
+# (5, None, 2) <== '5+2'
+# (5, 1, 2) <== '1-5+2'
+def path_to_duration(path):
+    tokens = path.split('+')
+    step = float(tokens[1]) if len(tokens) == 2 else None
+    tokens = tokens[0].split('-')
+    min_duration = float(tokens[0]) if len(tokens) == 2 else None
+    duration = float(tokens[0]) if len(tokens) == 1 else float(tokens[1])
+    return duration, min_duration, step
+
+
+def validate(protocol, train_dir, validation_dir, beta=1., subset='development'):
+
+    mkdir_p(validation_dir)
+
+    # -- DURATIONS --
+    duration, min_duration, step = path_to_duration(os.path.basename(train_dir))
+
+    # -- CONFIGURATION --
+    config_dir = os.path.dirname(os.path.dirname(os.path.dirname(train_dir)))
+    config_yml = config_dir + '/config.yml'
+    with open(config_yml, 'r') as fp:
+        config = yaml.load(fp)
+
+    # -- DISTANCE --
+    distance = config['glue'].get('params', {}).get('distance', 'sqeuclidean')
+
+    # -- PREPROCESSORS --
+    for key, preprocessor in config.get('preprocessors', {}).items():
+        preprocessor_name = preprocessor['name']
+        preprocessor_params = preprocessor.get('params', {})
+        preprocessors = __import__('pyannote.audio.preprocessors',
+                                   fromlist=[preprocessor_name])
+        Preprocessor = getattr(preprocessors, preprocessor_name)
+        protocol.preprocessors[key] = Preprocessor(**preprocessor_params)
+
+    # -- FEATURE EXTRACTION --
+    feature_extraction_name = config['feature_extraction']['name']
+    features = __import__('pyannote.audio.features',
+                          fromlist=[feature_extraction_name])
+    FeatureExtraction = getattr(features, feature_extraction_name)
+    feature_extraction = FeatureExtraction(
+        **config['feature_extraction'].get('params', {}))
+
+    architecture_yml = train_dir + '/architecture.yml'
+    WEIGHTS_H5 = train_dir + '/weights/{epoch:04d}.h5'
+
+    FSCORE_TEMPLATE = '{epoch:04d} {now} {fscore:5f}\n'
+    fscores = []
+
+    path = validation_dir + '/{subset}.fscore.txt'.format(subset=subset)
+    with open(path, mode='w') as fp:
+
+        epoch = 0
+        while True:
+
+            # wait until weight file is available
+            weights_h5 = WEIGHTS_H5.format(epoch=epoch)
+            if not os.path.isfile(weights_h5):
+                time.sleep(60)
+                continue
+
+            now = datetime.datetime.now().isoformat()
+
+            # load current model
+            sequence_embedding = SequenceEmbedding.from_disk(
+                architecture_yml, weights_h5)
+
+            segmentation = Segmentation(
+                sequence_embedding, feature_extraction,
+                duration=duration, step=1.0)
+
+            purity = SegmentationPurity()
+            coverage = SegmentationCoverage()
+
+            # only works for speaker diarization protocols
+            if not isinstance(protocol, SpeakerDiarizationProtocol):
+                raise NotImplementedError('')
+
+            predictions = {}
+            for item in getattr(protocol, subset)():
+                uri = get_unique_identifier(item)
+                predictions[uri] = segmentation.apply(item)
+
+            alphas = np.linspace(0, 1, 5)
+            purities, coverages, fmeasures = [], [], []
+            for alpha in np.linspace(0, 1, 5):
+
+                peak = Peak(alpha=alpha, min_duration=1.0)
+
+                f = 0.0
+                for item in getattr(protocol, subset)():
+
+                    uri = get_unique_identifier(item)
+                    reference = item['annotation']
+                    uem = get_annotated(item)
+
+                    hypothesis = peak.apply(predictions[uri])
+                    p = purity(reference, hypothesis)
+                    c = coverage(reference, hypothesis)
+                    f += f_measure(c, p, beta=beta)
+
+                f /= len(predictions)
+                purities.append(abs(purity))
+                coverages.append(abs(coverage))
+                fmeasures.append(f )
+
+            # one purity = f(coverage) curve per epoch
+            fig = plt.figure()
+            plt.plot(coverages, purities, 'b')
+            plt.grid(True)
+            plt.xlabel('Coverage')
+            plt.ylabel('Purity')
+            TITLE = 'on {subset} @ epoch #{epoch:d}'
+            title = TITLE.format(epoch=epoch, subset=subset)
+            plt.title(title)
+            plt.tight_layout()
+            path = validation_dir + '/{subset}.{epoch:04d}.png'.format(
+                subset=subset, epoch=epoch)
+            plt.savefig(path, dpi=75)
+            plt.close(fig)
+
+            #
+            fscore = max(fmeasures)
+            fp.write(FSCORE_TEMPLATE.format(epoch=epoch, fscore=fscore,
+                                            now=now))
+
+            fscores.append(fscore)
+            best_epoch = np.argmax(fscores)
+            best_value = np.max(fscores)
+            fig = plt.figure()
+            plt.plot(fscores, 'b')
+            plt.plot([best_epoch], [best_value], 'bo')
+            plt.plot([0, epoch], [best_value, best_value], 'k--')
+            plt.grid(True)
+            plt.xlabel('epoch')
+            plt.ylabel('fscore on {subset}'.format(subset=subset))
+            TITLE = 'fscore = {best_value:.5g} on {subset} @ epoch #{best_epoch:d}'
+            title = TITLE.format(best_value=best_value,
+                                 best_epoch=best_epoch,
+                                 subset=subset)
+            plt.title(title)
+            plt.tight_layout()
+            path = validation_dir + '/{subset}.fscore.png'.format(subset=subset)
+            plt.savefig(path, dpi=150)
+            plt.close(fig)
+
+            # go to next epoch
+            epoch += 1
 
 def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
 
@@ -354,6 +512,14 @@ if __name__ == '__main__':
                                          progress=True)
 
     subset = arguments['--subset']
+
+    if arguments['validation']:
+        train_dir = arguments['<train_dir>']
+        if subset is None:
+            subset = 'development'
+        beta = float(arguments.get('--purity'))
+        validation_dir = train_dir + '/validation/' + arguments['<database.task.protocol>']
+        res = validate(protocol, train_dir, validation_dir, beta=beta, subset=subset)
 
     if arguments['tune']:
         train_dir = arguments['<train_dir>']
