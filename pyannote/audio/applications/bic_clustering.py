@@ -126,15 +126,23 @@ import skopt
 import skopt.space
 
 
-def helper_cluster_tune(item_hypothesis, metric=None):
-    """Evaluate clustering result
+def helper_cluster_tune(item_segmentation_features, metric=None,
+                        covariance_type='full', penalty_coef=3.5, **kwargs):
+    """Apply clustering on prediction and evaluate the result
 
     Parameters
     ----------
     item : dict
         Protocol item.
-    hypothesis :
+    segmentation : Annotation
+        Initial segmentation
+    features : SlidingWindowFeature
+        Precomputed features
     metric : BaseMetric, optional
+    covariance_type : {'diag', 'full'}, optional
+    penalty_coef : float, optional
+    **kwargs : dict
+        Passed to clustering.apply()
 
     Returns
     -------
@@ -142,9 +150,14 @@ def helper_cluster_tune(item_hypothesis, metric=None):
         Metric value
     """
 
-    item, hypothesis = item_hypothesis
+    item, segmentation, features = item_segmentation_features
+
+    clustering = pyannote.algorithms.clustering.bic.BICClustering(
+        covariance_type=covariance_type, penalty_coef=penalty_coef)
+
     uem = get_annotated(item)
     reference = item['annotation']
+    hypothesis = clustering(segmentation, features=features)
     result = metric(reference, hypothesis, uem=uem)
 
     return result
@@ -197,11 +210,15 @@ class BICClustering(Application):
             segmentation_dir=self.segmentation_dir_,
             protocol=protocol_name, subset=subset)
         parser = MDTMParser().read(segmentation_mdtm)
-        segmentations = [parser(item['uri']).crop(get_annotated(item), mode='intersection')
-                         for item in items]
+        segmentations = [parser(item['uri']) for item in items]
+
+        # features
+        features = [self.feature_extraction_(item) for item in items]
 
         n_jobs = min(cpu_count(), len(items))
         pool = Pool(n_jobs)
+
+        print(n_jobs, 'jobs')
 
         def callback(res):
 
@@ -224,37 +241,28 @@ class BICClustering(Application):
 
         def objective_function(params):
 
+            metric = GreedyDiarizationErrorRate()
 
             covariance_type, penalty_coef, = params
-
-            # do not parallelize clustering as it seems (TODO: check) to be
-            # parallelized already...
-
-            clustering = pyannote.algorithms.clustering.bic.BICClustering(
+            process_one_file = functools.partial(
+                helper_cluster_tune, metric=metric,
                 covariance_type=covariance_type, penalty_coef=penalty_coef)
 
-            hypotheses = [
-                clustering(segmentations[i],
-                           features=self.feature_extraction_(item))
-                for i, item in enumerate(items)]
-
-            metric = GreedyDiarizationErrorRate()
-            eval_one_file = functools.partial(helper_cluster_tune,
-                                              metric=metric)
-
             if n_jobs > 1:
-                results = list(pool.map(eval_one_file, zip(items, hypotheses)))
+                results = list(pool.map(process_one_file,
+                                        zip(items, segmentations, features)))
             else:
-                results = [eval_one_file(isf) for isf in zip(items, hypotheses)]
+                results = [process_one_file(isf)
+                           for isf in zip(items, segmentations, features)]
 
             return abs(metric)
 
-        space = [skopt.space.Categorical(['diag', 'full']),
+        space = [skopt.space.Categorical(['full', 'diag']),
                  skopt.space.Real(0., 5., prior='uniform')]
 
         res = skopt.gp_minimize(
             objective_function, space, random_state=1337,
-            n_calls=100, n_random_starts=10,
+            n_calls=20, n_random_starts=10,
             verbose=True, callback=callback)
 
         return {'covariance_type': str(res.x[0])}, res.fun

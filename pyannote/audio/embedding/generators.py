@@ -42,30 +42,13 @@ class SequenceGenerator(object):
 
     Parameters
     ----------
-    feature_extractor:
-    file_generator: iterable
-    duration: float, optional
-    step: float, optional
-        Duration and step of sliding window (in seconds).
-        Default to 3.2 and half step.
-    heterogeneous : bool, optional
-        Defaults to False (only homogeneous segments).
-    skip_unlabeled : bool, optional
-        When True, do not yield unlabeled sequences (e.g. non-speech regions).
-        Defaults to also yield unlabeled sequences.
-    min_duration: float, optional
-        When provided, will do its best to yield segments of length `duration`,
-        but shortest segments are also permitted (as long as they are longer
-        than `min_duration`). This parameter has no effect when "heterogeneous"
-        is set to True.
-
     robust: bool, optional
         When True, skip files for which feature extraction fails.
 
     """
 
     def __init__(self, feature_extractor, file_generator,
-                 duration=3.2, min_duration=None, step=None,
+                 duration=5.0, min_duration=None, step=None,
                  heterogeneous=False, per_label=3, cache=None, robust=False):
 
         super(SequenceGenerator, self).__init__()
@@ -83,9 +66,8 @@ class SequenceGenerator(object):
         self.generator_ = FixedDurationSequences(
             self.feature_extractor,
             duration=self.duration,
-            step=self.step,
             min_duration=self.min_duration,
-            heterogeneous=self.heterogeneous,
+            step=self.step, heterogeneous=self.heterogeneous,
             batch_size=1 if self.cache else -1)
 
         # there is no need to cache preprocessed features

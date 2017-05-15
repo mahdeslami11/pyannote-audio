@@ -205,7 +205,7 @@ class CenterLoss(TripletLoss):
 
                 n_comparisons = n_comparisons + 1
 
-        return loss / n_comparisons
+        return loss
 
     def loss_z(self, fX, fC, y, n):
         """Differentiable loss

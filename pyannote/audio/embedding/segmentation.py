@@ -26,14 +26,12 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-import warnings
 import numpy as np
 
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.generators.batch import FileBasedBatchGenerator
 from pyannote.generators.fragment import TwinSlidingSegments
 from pyannote.audio.generators.periodic import PeriodicFeaturesMixin
-from pyannote.audio.embedding.utils import cdist
 
 
 class Segmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
@@ -68,7 +66,7 @@ class Segmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
 
     """
     def __init__(self, sequence_embedding, feature_extractor,
-                 duration=1.000, step=0.100, distance='angular'):
+                 duration=1.000, step=0.100):
 
         # feature sequence
         self.feature_extractor = feature_extractor
@@ -81,9 +79,7 @@ class Segmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
         self.step = step
         generator = TwinSlidingSegments(duration=duration, step=step)
 
-        self.distance = distance
-
-        super(Segmentation, self).__init__(generator, batch_size=32)
+        super(Segmentation, self).__init__(generator, batch_size=-1)
 
     def signature(self):
         shape = self.shape
@@ -93,55 +89,8 @@ class Segmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
             {'type': 'ndarray', 'shape': shape}
         )
 
-    def postprocess_sequence(self, batch):
-        return self.sequence_embedding.transform(batch)
-
-    @classmethod
-    def apply_precomputed(cls, embedding, window=None, metric='angular'):
-        """
-
-        Parameters
-        ----------
-        embedding : SlidingWindowFeature
-        window : SlidingWindow, optional
-            When provided, aggregate embedding over this window
-        metric : str, optional
-
-        """
-
-        # if window is provided, aggregate embeddings using this very window
-        if window is not None:
-            window = SlidingWindow(start=window.start,
-                                   duration=window.duration,
-                                   step=window.step,
-                                   end=embedding.getExtent().end)
-            fX = np.vstack([np.mean(embedding.crop(segment), axis=0)
-                            for segment in window])
-            embedding = SlidingWindowFeature(fX, window)
-
-        # if not, assume that embeddings are already aggregated
-        else:
-            window = embedding.sliding_window
-
-        # make sure window duration is a multiple of window step
-        n = window.duration / window.step
-        if n != int(round(n)):
-            warnings.warn('duration / step is not integer. rounding.')
-        n = int(round(n))
-
-        # number of windows
-        N = embedding.data.shape[0]
-
-        # pairwise distances
-        y = np.array([
-            cdist(embedding[i, np.newaxis], embedding[i + n, np.newaxis],
-                  metric=metric)[0, 0] for i in range(N - n)])
-
-        window = SlidingWindow(duration=2 * window.duration,
-                               step=window.step,
-                               start=window.start)
-
-        return SlidingWindowFeature(y, window)
+    def postprocess_sequence(self, mono_batch):
+        return self.sequence_embedding.transform(mono_batch)
 
     def apply(self, current_file):
         """Computes distance between sliding windows embeddings
@@ -155,16 +104,9 @@ class Segmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
         predictions : SlidingWindowFeature
         """
 
-        warnings.warn('Segmentation.apply is probably broken')
-
         # apply sequence labeling to the whole file
-        y = []
-        for t_batch, left_batch, right_batch in self.from_file(current_file):
-            y_batch = np.diag(
-                cdist(left_batch, right_batch, metric=self.distance))
-            y.append(y_batch)
-
-        y = np.hstack(y)
+        t, left, right = next(self.from_file(current_file))
+        y = np.sqrt(np.sum((left - right) ** 2, axis=-1))
 
         window = SlidingWindow(duration=2 * self.duration,
                                step=self.step, start=0.)

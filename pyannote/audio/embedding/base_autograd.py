@@ -49,7 +49,7 @@ from pyannote.audio.embedding.losses import precomputed_gradient_loss
 from pyannote.audio.keras_utils import CUSTOM_OBJECTS
 
 EPSILON = 1e-6
-ag_np.arccos.defvjp(lambda g, ans, vs, gvs, x :-g / ag_np.sqrt(np.maximum(1. - x**2, EPSILON)))
+
 
 def value_and_multigrad(fun, argnums=[0]):
     """Takes gradients wrt multiple arguments simultaneously."""
@@ -329,7 +329,7 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
                 embedding.train_on_batch(
                     batch['X'].astype('float32'),
                     batch_logs['gradient'].astype('float32'))
-
+                
                 callbacks.on_batch_end(batch_index, logs=batch_logs)
 
                 # next batch

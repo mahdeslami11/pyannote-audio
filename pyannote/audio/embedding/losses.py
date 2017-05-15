@@ -46,14 +46,21 @@ def unitary_angular_triplet_loss(anchor, positive, negative):
     dotProdNegAnc = np.clip(np.sum(negative*anchor), -1.0, 1.0)
 
     localCost = (np.arccos(dotProdPosAnc)-np.arccos(dotProdNegAnc)-np.pi/60.0)
-    localCost = 1.0/(1.0 + np.exp(-10*localCost))
+    coeffSlope = 1.0
+    coeffSlopeNegative = 1.0
+    if (localCost < 0.0):
+        coeffSlope = coeffSlopeNegative
+    coeffSlopeInternal = 10.0
+    localCost *= coeffSlopeInternal
+    localCost = 1.0/(1.0 + np.exp(-localCost))
 
     dotProdPosAnc = 1-dotProdPosAnc*dotProdPosAnc
     dotProdNegAnc = 1-dotProdNegAnc*dotProdNegAnc
     if (dotProdPosAnc < epsilon): dotProdPosAnc = epsilon
     if (dotProdNegAnc < epsilon): dotProdNegAnc = epsilon
 
-    derivCoeff = localCost*(1.0-localCost)*10.
+    derivCoeff = localCost*(1.0-localCost)*coeffSlope*coeffSlopeInternal
+    localCost = coeffSlope*localCost+(coeffSlopeNegative-coeffSlope)*0.5
 
     derivativeAnchor = (-positive/np.sqrt(dotProdPosAnc)+negative/np.sqrt(dotProdNegAnc))*derivCoeff
     derivativePositive = -anchor/np.sqrt(dotProdPosAnc)*derivCoeff
