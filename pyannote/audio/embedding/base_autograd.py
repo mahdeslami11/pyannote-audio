@@ -313,7 +313,9 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
 
                 batch_size, _, _ = batch['X'].shape
                 batch_logs = {'batch': batch_index,
-                              'size': batch_size}
+                              'size': batch_size,
+                              'epoch': epoch,
+                              'log_dir': log_dir}
 
                 callbacks.on_batch_begin(batch_index, logs=batch_logs)
 
