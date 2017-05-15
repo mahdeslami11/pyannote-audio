@@ -232,9 +232,9 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
             embed = K.function(
                 [embedding.get_layer(name='input').input, K.learning_phase()],
                 [embedding.get_layer(name='internal').output])
-            return embed([X, 0])[0]
+            return embed([X, 0])[0].astype('float64')
 
-        return embedding.predict(X)
+        return embedding.predict(X).astype('float64')
 
 
     def fit(self, init_embedding, batch_generator, batches_per_epoch,
@@ -326,8 +326,10 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
                 batch_logs.update(logs)
 
                 # backprop
-                embedding.train_on_batch(batch['X'], batch_logs['gradient'])
-
+                embedding.train_on_batch(
+                    batch['X'].astype('float32'),
+                    batch_logs['gradient'].astype('float32'))
+                
                 callbacks.on_batch_end(batch_index, logs=batch_logs)
 
                 # next batch
