@@ -28,6 +28,7 @@
 
 from autograd import numpy as ag_np
 from autograd import value_and_grad
+from autograd.core import primitive
 
 import numpy as np
 import functools
@@ -49,6 +50,15 @@ from pyannote.audio.embedding.losses import precomputed_gradient_loss
 from pyannote.audio.keras_utils import CUSTOM_OBJECTS
 
 EPSILON = 1e-6
+
+@primitive
+def arccos(x):
+    return np.arccos(np.clip(x, -1., 1))
+def arccos_vjp(g, ans, vs, gvs, x):
+    return -g / np.sqrt(np.maximum(1. - x**2, EPSILON))
+arccos.defvjp(arccos_vjp)
+
+
 
 
 def value_and_multigrad(fun, argnums=[0]):
@@ -178,7 +188,7 @@ class MixinDistanceAutograd:
         if other_embedding is None:
             other_embedding = embedding
 
-        return ag_np.arccos(ag_np.clip(ag_np.stack(
+        return arccos(ag_np.clip(ag_np.stack(
             ag_np.sum(embedding[i] * other_embedding, axis=1)
             for i in range(n_samples)), -1. + EPSILON, 1. - EPSILON))
 
@@ -329,7 +339,7 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
                 embedding.train_on_batch(
                     batch['X'].astype('float32'),
                     batch_logs['gradient'].astype('float32'))
-                
+
                 callbacks.on_batch_end(batch_index, logs=batch_logs)
 
                 # next batch
