@@ -32,7 +32,7 @@ Speaker embedding
 Usage:
   pyannote-speaker-embedding data [--database=<db.yml> --duration=<duration> --step=<step> --heterogeneous] <root_dir> <database.task.protocol>
   pyannote-speaker-embedding train [--subset=<subset> --restart=<epoch>] <experiment_dir> <database.task.protocol>
-  pyannote-speaker-embedding validate [--subset=<subset> --aggregate --every=<epoch>] <train_dir> <database.task.protocol>
+  pyannote-speaker-embedding validate [--subset=<subset> --aggregate --every=<epoch> --from=<epoch>] <train_dir> <database.task.protocol>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
 
@@ -60,6 +60,7 @@ Options:
                              In "validate" mode, defaults to "development".
   --aggregate                Aggregate
   --every=<epoch>            Defaults to every epoch [default: 1].
+  --from=<epoch>             Start at this epoch [default: 0].
   <train_dir>                Path to directory created by "train" mode.
   -h --help                  Show this screen.
   --version                  Show version.
@@ -483,7 +484,7 @@ class SpeakerEmbedding(Application):
         return X, y
 
     def validate(self, protocol_name, subset='development',
-                 aggregate=False, every=1):
+                 aggregate=False, every=1, start=0):
 
         # prepare paths
         validate_dir = self.VALIDATE_DIR.format(train_dir=self.train_dir_,
@@ -508,7 +509,7 @@ class SpeakerEmbedding(Application):
             X, y = self._validation_set_y(protocol_name, subset=subset)
 
         # list of equal error rates, and current epoch
-        eers, epoch, epochs = [], 0, []
+        eers, epoch, epochs = [], start, []
 
         desc_format = ('EER = {eer:.2f}% @ epoch #{epoch:d} ::'
                       ' Best EER = {best_eer:.2f}% @ epoch #{best_epoch:d} :')
@@ -649,7 +650,9 @@ def main():
 
         aggregate = arguments['--aggregate']
         every = int(arguments['--every'])
+        start = int(arguments['--from'])
 
         application = SpeakerEmbedding.from_train_dir(train_dir)
         application.validate(protocol_name, subset=subset,
-                             aggregate=aggregate, every=every)
+                             aggregate=aggregate, every=every,
+                             start=start)
