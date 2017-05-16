@@ -32,7 +32,7 @@ Speaker embedding
 Usage:
   pyannote-speaker-embedding data [--database=<db.yml> --duration=<duration> --step=<step> --heterogeneous] <root_dir> <database.task.protocol>
   pyannote-speaker-embedding train [--subset=<subset> --restart=<epoch>] <experiment_dir> <database.task.protocol>
-  pyannote-speaker-embedding validate [--subset=<subset> --aggregate] <train_dir> <database.task.protocol>
+  pyannote-speaker-embedding validate [--subset=<subset> --aggregate --every=<epoch>] <train_dir> <database.task.protocol>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
 
@@ -59,6 +59,7 @@ Options:
                              In "train" mode, defaults subset is "train".
                              In "validate" mode, defaults to "development".
   --aggregate                Aggregate
+  --every=<epoch>            Defaults to every epoch [default: 1].
   <train_dir>                Path to directory created by "train" mode.
   -h --help                  Show this screen.
   --version                  Show version.
@@ -475,7 +476,8 @@ class SpeakerEmbedding(Application):
 
         return X, y
 
-    def validate(self, protocol_name, subset='development', aggregate=False):
+    def validate(self, protocol_name, subset='development',
+                 aggregate=False, every=1):
 
         # prepare paths
         validate_dir = self.VALIDATE_DIR.format(train_dir=self.train_dir_,
@@ -500,7 +502,7 @@ class SpeakerEmbedding(Application):
             X, y = self._validation_set_y(protocol_name, subset=subset)
 
         # list of equal error rates, and current epoch
-        eers, epoch = [], 0
+        eers, epoch, epochs = [], 0, []
 
         desc_format = ('EER = {eer:.2f}% @ epoch #{epoch:d} ::'
                       ' Best EER = {best_eer:.2f}% @ epoch #{best_epoch:d} :')
@@ -554,6 +556,8 @@ class SpeakerEmbedding(Application):
                 _, _, _, eer = det_curve(y_true, y_pred, distances=True)
                 eers.append(eer)
 
+                epochs.append(epoch)
+
                 # save equal error rate to file
                 fp.write(self.VALIDATE_TXT_TEMPLATE.format(
                     epoch=epoch, eer=eer))
@@ -570,7 +574,7 @@ class SpeakerEmbedding(Application):
 
                 # plot
                 fig = plt.figure()
-                plt.plot(eers, 'b')
+                plt.plot(epochs, eers, 'b')
                 plt.plot([best_epoch], [best_eer], 'bo')
                 plt.plot([0, epoch], [best_eer, best_eer], 'k--')
                 plt.grid(True)
@@ -587,7 +591,7 @@ class SpeakerEmbedding(Application):
                 plt.close(fig)
 
                 # validate next epoch
-                epoch += 1
+                epoch += every
 
         progress_bar.close()
 
@@ -637,6 +641,8 @@ def main():
             subset = 'development'
 
         aggregate = arguments['--aggregate']
+        every = int(arguments['--every'])
 
         application = SpeakerEmbedding.from_train_dir(train_dir)
-        application.validate(protocol_name, subset=subset, aggregate=aggregate)
+        application.validate(protocol_name, subset=subset,
+                             aggregate=aggregate, every=every)
