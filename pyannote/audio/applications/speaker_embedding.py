@@ -286,7 +286,13 @@ class SpeakerEmbedding(Application):
         protocol = get_protocol(protocol_name, progress=True,
                                 preprocessors=self.preprocessors_)
 
-        for subset in {'train', 'development', 'test'}:
+        for subset in ['train', 'development', 'test']:
+
+            try:
+                file_generator = getattr(protocol, subset)()
+                first_item = next(file_generator)
+            except NotImplementedError as e:
+                continue
 
             file_generator = getattr(protocol, subset)()
 
