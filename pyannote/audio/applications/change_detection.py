@@ -320,10 +320,10 @@ def apply(protocol, train_dir, store_dir, threshold, subset='development',
     duration = config['sequences']['duration']
     step = config['sequences']['step']
 
-    def saveSeg(filepath,filename,chn,segmentation):
+    def saveSeg(filepath,filename, segmentation):
         f = open(filepath,'w')
         for idx, val in enumerate(segmentation):
-            line = filename+' '+str(idx)+' '+str(chn)+' '+str(int(val[0]*100))+' '+str(int(val[1]*100-val[0]*100))+'\n'
+            line = filename + ' ' + str(idx) + ' 1 ' + str(int(val[0]*100))+' '+str(int(val[1]*100-val[0]*100))+'\n'
             f.write(line)
         f.close()
 
@@ -354,8 +354,7 @@ def apply(protocol, train_dir, store_dir, threshold, subset='development',
         uri = dev_file['uri']
         hypothesis = peak.apply(predictions[uri])
         filepath = store_dir+'/'+str(threshold) +'/'+uri+'.0.seg'
-        chn = 1
-        saveSeg(filepath,uri,chn,hypothesis)
+        saveSeg(filepath, uri, hypothesis)
 
 
 def main():
