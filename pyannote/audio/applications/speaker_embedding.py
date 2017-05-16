@@ -565,6 +565,7 @@ class SpeakerEmbedding(Application):
 
                 # keep track of best epoch so far
                 best_epoch, best_eer = np.argmin(eers), np.min(eers)
+                best_epoch = epochs[best_epoch]
 
                 progress_bar.set_description(
                     desc_format.format(epoch=epoch, eer=100*eer,
