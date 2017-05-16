@@ -570,7 +570,7 @@ class SpeakerEmbedding(Application):
                     desc_format.format(epoch=epoch, eer=100*eer,
                                        best_epoch=best_epoch,
                                        best_eer=100*best_eer))
-                progress_bar.update(1)
+                progress_bar.update(every)
 
                 # plot
                 fig = plt.figure()
