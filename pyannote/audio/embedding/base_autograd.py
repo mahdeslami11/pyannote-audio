@@ -188,9 +188,9 @@ class MixinDistanceAutograd:
         if other_embedding is None:
             other_embedding = embedding
 
-        return arccos(ag_np.clip(ag_np.stack(
+        return arccos(ag_np.stack(
             ag_np.sum(embedding[i] * other_embedding, axis=1)
-            for i in range(n_samples)), -1. + EPSILON, 1. - EPSILON))
+            for i in range(n_samples)))
 
 class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
 
