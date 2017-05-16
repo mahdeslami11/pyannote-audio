@@ -102,7 +102,7 @@ class SequenceEmbeddingAggregation(PeriodicFeaturesMixin,
                 super(SequenceEmbeddingAggregation, self).process_segment(
                     segment, signature=signature, identifier=identifier))
 
-    def pack_sequence(self, sequences):
+    def pack_ndarray(self, sequences):
         #
         zero_padded = []
         masks = []
@@ -123,7 +123,7 @@ class SequenceEmbeddingAggregation(PeriodicFeaturesMixin,
 
         return np.stack(zero_padded), np.stack(masks)
 
-    def postprocess_sequence(self, mono_batch):
+    def postprocess_ndarray(self, mono_batch):
         sequences, masks = mono_batch
         embeddings = self.sequence_embedding.transform(
             sequences,

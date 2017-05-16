@@ -89,7 +89,7 @@ class Segmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
             {'type': 'ndarray', 'shape': shape}
         )
 
-    def postprocess_sequence(self, mono_batch):
+    def postprocess_ndarray(self, mono_batch):
         return self.sequence_embedding.transform(mono_batch)
 
     def apply(self, current_file):

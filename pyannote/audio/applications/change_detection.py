@@ -278,7 +278,7 @@ def evaluate(protocol, train_dir, store_dir, subset='development',
         peak = Peak(alpha=alpha, min_duration=min_duration)
         for uri, reference in groundtruth.items():
             # apply peak detection
-            hypothesis = peak.apply(predictions[uri], dimension=1)
+            hypothesis = peak.apply(predictions[uri])
             # compute purity and coverage
             purity[i](reference, hypothesis)
             coverage[i](reference, hypothesis)
@@ -352,8 +352,7 @@ def apply(protocol, train_dir, store_dir, threshold, subset='development',
 
     for dev_file in getattr(protocol, subset)():
         uri = dev_file['uri']
-        prediction = predictions[uri]
-        hypothesis = peak.apply(prediction, dimension=1)
+        hypothesis = peak.apply(predictions[uri])
         filepath = store_dir+'/'+str(threshold) +'/'+uri+'.0.seg'
         chn = 1
         saveSeg(filepath,uri,chn,hypothesis)

@@ -104,7 +104,7 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
         shape = self.shape
         return {'type': 'ndarray', 'shape': shape}
 
-    def postprocess_sequence(self, batch):
+    def postprocess_ndarray(self, batch):
         return self.sequence_embedding.transform(
             batch, internal=self.internal)
 
