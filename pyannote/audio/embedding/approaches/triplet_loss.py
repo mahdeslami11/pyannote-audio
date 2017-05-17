@@ -31,6 +31,7 @@ from ..base_autograd import SequenceEmbeddingAutograd
 from autograd import numpy as ag_np
 from autograd import value_and_grad
 
+import itertools
 import numpy as np
 import pandas as pd
 import h5py
@@ -58,20 +59,24 @@ class TripletLoss(SequenceEmbeddingAutograd):
         If 'sigmoid', loss = sigmoid(loss)
     metric : {'sqeuclidean', 'euclidean', 'cosine', 'angular'}, optional
         Defaults to 'sqeuclidean'.
+    per_batch : int, optional
+        Number of folds per batch. Defaults to 1.
     per_fold : int, optional
-        Number of speakers per batch. Defaults to 20.
+        Number of speakers per fold. Defaults to 20.
     per_label : int, optional
         Number of sequences per speaker. Defaults to 3.
+
     learn_to_aggregate : boolean, optional
 
     """
 
     def __init__(self, metric='sqeuclidean',
                  margin=0.1, clamp='positive',
-                 per_label=3, per_fold=20,
+                 per_batch=1, per_label=3, per_fold=20,
                  learn_to_aggregate=False):
         self.margin = margin
         self.clamp = clamp
+        self.per_batch = per_batch
         self.per_label = per_label
         self.per_fold = per_fold
         self.learn_to_aggregate = learn_to_aggregate
@@ -117,11 +122,11 @@ class TripletLoss(SequenceEmbeddingAutograd):
 
         signature = {'X': {'type': 'ndarray'},
                      'y': {'type': 'ndarray'}}
-        batch_generator = batchify(generator(),
-                                   signature,
-                                   batch_size=self.per_label * self.per_fold)
+        batch_size = self.per_batch * self.per_fold * self.per_label
+        batch_generator = batchify(generator(), signature,
+                                   batch_size=batch_size)
 
-        batches_per_epoch = n_classes // self.per_fold + 1
+        batches_per_epoch = n_classes // (self.per_batch * self.per_fold) + 1
 
         return {'batch_generator': batch_generator,
                 'batches_per_epoch': batches_per_epoch,
@@ -162,11 +167,11 @@ class TripletLoss(SequenceEmbeddingAutograd):
                      'y': {'type': 'scalar'},
                      'n': {'type': 'complex'}}
 
-        batch_generator = batchify(
-            generator(), signature,
-            batch_size=self.per_label * self.per_fold)
+        batch_size = self.per_batch * self.per_fold * self.per_label
+        batch_generator = batchify(generator(), signature,
+                                   batch_size=batch_size)
 
-        batches_per_epoch = n_classes // self.per_fold + 1
+        batches_per_epoch = n_classes // (self.per_batch * self.per_fold) + 1
 
         return {'batch_generator': batch_generator,
                 'batches_per_epoch': batches_per_epoch,
@@ -187,7 +192,30 @@ class TripletLoss(SequenceEmbeddingAutograd):
 
         return {'loss': loss, 'gradient': fX_grad}
 
-    def loss_y(self, fX, y):
+    def loss_y(self, fX, y, *args):
+
+        loss = 0.
+        n_comparisons = 0
+        groups = itertools.groupby(enumerate(y), lambda iv: iv[1])
+
+        for i_fold in range(self.per_batch):
+
+            # gather start/end (min, MAX) index of current fold
+            m, M = len(y), 0
+            for i_label in range(self.per_fold):
+                current_label, indices = next(groups)
+                indices = list(zip(*indices))[0]
+                m = min(m, min(indices))
+                M = max(M, max(indices))
+
+            loss_fold, n_comparisons_fold = \
+                self.loss_y_fold(fX[m: M+1], y[m: M+1], *args)
+            loss = loss + loss_fold
+            n_comparisons += n_comparisons_fold
+
+        return loss / n_comparisons
+
+    def loss_y_fold(self, fX, y):
         """Differentiable loss
 
         Parameters
@@ -240,9 +268,9 @@ class TripletLoss(SequenceEmbeddingAutograd):
 
                     n_comparisons = n_comparisons + 1
 
-        return loss
+        return loss, n_comparisons
 
-    def loss_z(self, fX, y, n):
+    def loss_z(self, fX, y, n, *args):
         """Differentiable loss
 
         Parameters
@@ -263,4 +291,4 @@ class TripletLoss(SequenceEmbeddingAutograd):
         indices = np.hstack([[0], np.cumsum(n)])
         fX_sum = ag_np.stack([ag_np.sum(ag_np.sum(fX[i:j], axis=0), axis=0)
                               for i, j in pairwise(indices)])
-        return self.loss_y(self.l2_normalize(fX_sum), y)
+        return self.loss_y(self.l2_normalize(fX_sum), y, *args)

@@ -66,8 +66,10 @@ class CenterLoss(TripletLoss):
         If 'positive', loss = max(0, loss + margin).
         If 'sigmoid' (default), loss = sigmoid(10 * (loss - margin)).
     metric : {'sqeuclidean', 'euclidean', 'cosine', 'angular'}, optional
+    per_batch : int, optional
+        Number of folds per batch. Defaults to 1.
     per_fold : int, optional
-        Number of speakers per batch. Defaults to 20.
+        Number of speakers per fold. Defaults to 20.
     per_label : int, optional
         Number of sequences per speaker. Defaults to 3.
     update_centers : {'batch', 'all'}
@@ -80,13 +82,13 @@ class CenterLoss(TripletLoss):
 
     def __init__(self, metric='angular',
                  margin=0.0, clamp='sigmoid',
-                 per_label=3, per_fold=20,
+                 per_batch=1, per_fold=20, per_label=3,
                  update_centers='batch',
                  learn_to_aggregate=False):
 
         super(CenterLoss, self).__init__(
             metric=metric, margin=margin, clamp=clamp,
-            per_label=per_label, per_fold=per_fold,
+            per_label=per_label, per_fold=per_fold, per_batch=per_batch,
             learn_to_aggregate=learn_to_aggregate)
         self.update_centers = update_centers
 
@@ -144,22 +146,23 @@ class CenterLoss(TripletLoss):
 
         # TODO | plot distribution of distances between centers
 
-    def loss_y(self, fX, fC, y):
+    def loss_y_fold(self, fX, y, fC):
         """Differentiable loss
 
         Parameters
         ----------
         fX : (batch_size, n_dimensions) numpy array
             Embeddings.
-        fC : (n_classes, n_dimensions) numpy array
-            Centers.
         y : (batch_size, ) numpy array
             Labels.
+        fC : (n_classes, n_dimensions) numpy array
+            Centers.
 
         Returns
         -------
         loss : float
             Loss.
+        n_comparisons : int
         """
 
         loss = 0.
@@ -205,46 +208,21 @@ class CenterLoss(TripletLoss):
 
                 n_comparisons = n_comparisons + 1
 
-        return loss
-
-    def loss_z(self, fX, fC, y, n):
-        """Differentiable loss
-
-        Parameters
-        ----------
-        fX : np.array (n_sequences, n_samples, n_dimensions)
-            Stacked groups of internal embeddings.
-        fC : (n_classes, n_dimensions) numpy array
-            Centers.
-        y : (batch_size, ) numpy array
-            Label of each group.
-        n :  (batch_size, ) numpy array
-            Number of sequences per group (np.sum(n) == n_sequences)
-
-        Returns
-        -------
-        loss : float
-            Loss.
-        """
-
-        indices = np.hstack([[0], np.cumsum(n)])
-        fX_sum = ag_np.stack([ag_np.sum(ag_np.sum(fX[i:j], axis=0), axis=0)
-                              for i, j in pairwise(indices)])
-        return self.loss_y(self.l2_normalize(fX_sum), fC, y)
+        return loss, n_comparisons
 
     def loss_and_grad(self, batch, embedding):
 
         if self.learn_to_aggregate:
             fX = self.embed(embedding, batch['X'], internal=True)
-            func = value_and_multigrad(self.loss_z, argnums=[0, 1])
-            loss, (fX_grad, fC_grad) = func(fX, self.fC_, batch['y'],
-                                            batch['n'])
+            func = value_and_multigrad(self.loss_z, argnums=[0, 3])
+            loss, (fX_grad, fC_grad) = func(fX, batch['y'],
+                                            batch['n'], self.fC_)
             fX_grad = fX_grad[:, 0, :]
 
         else:
             fX = self.embed(embedding, batch['X'], internal=False)
-            func = value_and_multigrad(self.loss_y, argnums=[0, 1])
-            loss, (fX_grad, fC_grad) = func(fX, self.fC_, batch['y'])
+            func = value_and_multigrad(self.loss_y, argnums=[0, 2])
+            loss, (fX_grad, fC_grad) = func(fX, batch['y'], self.fC_)
 
         return {'loss': loss,
                 'gradient': fX_grad,
