@@ -169,11 +169,11 @@ class CenterLoss(TripletLoss):
         n_comparisons = 0
 
         # compute distances between embeddings and centers
-        distance = self.metric_(fX, other_embedding=self.fC_)
+        distance = self.metric_(fX, other_embedding=fC)
 
         # compare to every center...
         if self.update_centers == 'all':
-            centers = list(range(self.fC_.shape[0]))
+            centers = list(range(fC.shape[0]))
 
         # or just to the ones in current batch
         elif self.update_centers == 'batch':
