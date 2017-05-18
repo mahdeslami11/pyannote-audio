@@ -84,15 +84,15 @@ class SpeechActivityDetectionBatchGenerator(PeriodicFeaturesMixin,
         annotated = get_annotated(current_file)
         annotation = current_file['annotation']
 
-        coverage = annotation.get_timeline().coverage()
+        support = annotation.get_timeline().support()
 
         # iterate over non-speech regions
-        for non_speech in coverage.gaps(annotated):
+        for non_speech in support.gaps(annotated):
             indices = sw.crop(non_speech, mode='loose')
             y[indices, 0] = 1
 
         # iterate over speech regions
-        for speech in coverage:
+        for speech in support:
             indices = sw.crop(speech, mode='loose')
             y[indices, 1] = 1
 
