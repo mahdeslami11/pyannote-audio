@@ -528,6 +528,9 @@ class SpeakerEmbedding(Application):
                     time.sleep(10)
                     continue
 
+                # sleep 5 seconds to let the checkpoint callback finish
+                time.sleep(5)
+
                 # TODO update this code once keras > 2.0.4 is released
                 try:
                     embedding = keras.models.load_model(
