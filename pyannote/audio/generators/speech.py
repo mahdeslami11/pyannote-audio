@@ -31,6 +31,7 @@ from pyannote.core import SlidingWindowFeature
 from pyannote.generators.fragment import SlidingSegments
 from pyannote.generators.batch import FileBasedBatchGenerator
 from scipy.stats import zscore
+from pyannote.databse.util import get_annotated
 import numpy as np
 
 
@@ -80,7 +81,7 @@ class SpeechActivityDetectionBatchGenerator(PeriodicFeaturesMixin,
         y = np.zeros((n_samples + 4, 2), dtype=np.int8)
         # [0,1] ==> speech / [1, 0] ==> non speech / [0, 0] ==> unknown
 
-        annotated = current_file.get('annotated', X.getExtent())
+        annotated = get_annotated(current_file)
         annotation = current_file['annotation']
 
         coverage = annotation.get_timeline().coverage()
