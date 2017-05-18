@@ -172,6 +172,8 @@ from pyannote.audio.callback import LoggingCallback
 from pyannote.core.util import pairwise
 import keras.backend as K
 
+from sortedcontainers import SortedDict
+
 
 class SpeakerEmbedding(Application):
 
@@ -508,11 +510,12 @@ class SpeakerEmbedding(Application):
         else:
             X, y = self._validation_set_y(protocol_name, subset=subset)
 
-        # list of equal error rates, and current epoch
-        eers, epoch, epochs = [], start, []
+        # list of equal error rates, and epoch to process
+        eers, epoch = SortedDict(), start
 
-        desc_format = ('EER = {eer:.2f}% @ epoch #{epoch:d} ::'
-                      ' Best EER = {best_eer:.2f}% @ epoch #{best_epoch:d} :')
+        desc_format = ('Best EER = {best_eer:.2f}% @ epoch #{best_epoch:d} ::'
+                       ' EER = {eer:.2f}% @ epoch #{epoch:d} :')
+
         progress_bar = tqdm(unit='epoch', total=1000)
 
         with open(validate_txt, mode='w') as fp:
@@ -520,16 +523,23 @@ class SpeakerEmbedding(Application):
             # watch and evaluate forever
             while True:
 
-                weights_h5 = LoggingCallback.WEIGHTS_H5.format(
-                    log_dir=self.train_dir_, epoch=epoch)
+                # last completed epochs
+                completed_epochs = self.get_epochs(self.train_dir_) - 1
 
-                # wait for next epoch to complete
-                if not isfile(weights_h5):
-                    time.sleep(10)
+                if completed_epochs < epoch:
+                    time.sleep(60)
                     continue
 
                 # sleep 5 seconds to let the checkpoint callback finish
                 time.sleep(5)
+
+                # if last completed epoch has already been processed
+                # go back to first epoch that hasn't been processed yet
+                process_epoch = epoch if completed_epochs in eers \
+                                      else completed_epochs
+
+                weights_h5 = LoggingCallback.WEIGHTS_H5.format(
+                    log_dir=self.train_dir_, epoch=process_epoch)
 
                 # TODO update this code once keras > 2.0.4 is released
                 try:
@@ -564,30 +574,27 @@ class SpeakerEmbedding(Application):
                 y_true = pdist(y, metric='chebyshev') < 1
                 # estimate equal error rate
                 _, _, _, eer = det_curve(y_true, y_pred, distances=True)
-                eers.append(eer)
-
-                epochs.append(epoch)
+                eers[process_epoch] = eer
 
                 # save equal error rate to file
                 fp.write(self.VALIDATE_TXT_TEMPLATE.format(
-                    epoch=epoch, eer=eer))
+                    epoch=process_epoch, eer=eer))
                 fp.flush()
 
                 # keep track of best epoch so far
-                best_epoch, best_eer = np.argmin(eers), np.min(eers)
-                best_epoch = epochs[best_epoch]
+                best_epoch = eers.iloc[np.argmin(eers.values())]
+                best_eer = eers[best_epoch]
 
                 progress_bar.set_description(
-                    desc_format.format(epoch=epoch, eer=100*eer,
+                    desc_format.format(epoch=process_epoch, eer=100*eer,
                                        best_epoch=best_epoch,
                                        best_eer=100*best_eer))
-                progress_bar.update(every)
 
                 # plot
                 fig = plt.figure()
-                plt.plot(epochs, eers, 'b')
+                plt.plot(eers.keys(), eers.values(), 'b')
                 plt.plot([best_epoch], [best_eer], 'bo')
-                plt.plot([0, epoch], [best_eer, best_eer], 'k--')
+                plt.plot([0, eers.iloc[-1]], [best_eer, best_eer], 'k--')
                 plt.grid(True)
                 plt.xlabel('epoch')
                 plt.ylabel('EER on {subset}'.format(subset=subset))
@@ -601,8 +608,12 @@ class SpeakerEmbedding(Application):
                 plt.savefig(validate_eps)
                 plt.close(fig)
 
-                # validate next epoch
-                epoch += every
+                # go to next epoch
+                if epoch == process_epoch:
+                    epoch += every
+                    progress_bar.update(every)
+                else:
+                    progress_bar.update(0)
 
         progress_bar.close()
 

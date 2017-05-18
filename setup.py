@@ -53,6 +53,7 @@ setup(
         'cachetools >= 2.0.0',
         'librosa >= 0.4.3',
         'tqdm >= 4.11.2',
+        'sortedcontainers >= 1.5.7',
     ],
     entry_points = {
         'console_scripts': [
