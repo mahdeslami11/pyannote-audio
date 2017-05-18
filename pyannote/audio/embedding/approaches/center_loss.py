@@ -131,13 +131,14 @@ class CenterLoss(TripletLoss):
                                   loss=precomputed_gradient_loss)
 
         self.trigger_ = np.eye(n_classes)
-        self.fC_ = self.centers_.predict(self.trigger_)
+        self.fC_ = self.centers_.predict(self.trigger_).astype(self.float_autograd_)
 
     def on_batch_end(self, batch_index, logs=None):
-        self.centers_.train_on_batch(self.trigger_,
-                                     logs['center_gradient'])
+        self.centers_.train_on_batch(
+            self.trigger_,
+            logs['center_gradient'].astype(self.float_backend_))
 
-        self.fC_ = self.centers_.predict(self.trigger_)
+        self.fC_ = self.centers_.predict(self.trigger_).astype(self.float_autograd_)
 
     def on_epoch_end(self, epoch, logs=None):
         """Save center weights after each epoch"""
