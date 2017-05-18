@@ -59,8 +59,6 @@ def arccos_vjp(g, ans, vs, gvs, x):
 arccos.defvjp(arccos_vjp)
 
 
-
-
 def value_and_multigrad(fun, argnums=[0]):
     """Takes gradients wrt multiple arguments simultaneously."""
     def combined_arg_fun(multi_arg, *args, **kwargs):
@@ -193,12 +191,28 @@ class MixinDistanceAutograd:
             for i in range(n_samples)))
 
 class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
+    """Base class for sequence embedding
 
-    def __init__(self, metric='cosine'):
+    Parameters
+    ----------
+    metric : {'sqeuclidean', 'euclidean', 'cosine', 'angular'}, optional
+        Defaults to 'sqeuclidean'.
+    gradient_factor : float, optional
+        Multiply gradient by this number. Defaults to 1.
+
+
+    """
+
+    def __init__(self, metric='cosine', gradient_factor=1.):
         super(SequenceEmbeddingAutograd, self).__init__()
         self.metric = metric
+        self.gradient_factor = gradient_factor
+
         self.metric_ = getattr(self, metric)
         self.metric_max_ = self.get_metric_max(metric)
+
+        self.float_autograd_ = ag_np.array(0.).dtype.name
+        self.float_backend_ = K.floatx()
 
     @classmethod
     def restart(cls, log_dir, epoch):
@@ -242,9 +256,9 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
             embed = K.function(
                 [embedding.get_layer(name='input').input, K.learning_phase()],
                 [embedding.get_layer(name='internal').output])
-            return embed([X, 0])[0].astype('float64')
+            return embed([X, 0])[0].astype(self.float_autograd_)
 
-        return embedding.predict(X).astype('float64')
+        return embedding.predict(X).astype(self.float_autograd_)
 
 
     def fit(self, init_embedding, batch_generator, batches_per_epoch,
@@ -335,10 +349,14 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
                 logs = self.loss_and_grad(batch, embedding)
                 batch_logs.update(logs)
 
+                # can anyone tell me why this usually works better
+                # when gradient_factor is large?
+                gradient = self.gradient_factor * batch_logs['gradient']
+
                 # backprop
                 embedding.train_on_batch(
-                    batch['X'].astype('float32'),
-                    batch_logs['gradient'].astype('float32'))
+                    batch['X'].astype(self.float_backend_),
+                    gradient.astype(self.float_backend_))
 
                 callbacks.on_batch_end(batch_index, logs=batch_logs)
 

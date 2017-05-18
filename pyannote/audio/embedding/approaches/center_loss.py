@@ -60,12 +60,15 @@ class CenterLoss(TripletLoss):
 
     Parameters
     ----------
+    metric : {'sqeuclidean', 'euclidean', 'cosine', 'angular'}, optional
+        Defaults to 'sqeuclidean'.
+    gradient_factor : float, optional
+        Multiply gradient by this number. Defaults to 1.
     margin: float, optional
         Defaults to 0.0
     clamp: {None, 'positive', 'sigmoid'}, optional
         If 'positive', loss = max(0, loss + margin).
         If 'sigmoid' (default), loss = sigmoid(10 * (loss - margin)).
-    metric : {'sqeuclidean', 'euclidean', 'cosine', 'angular'}, optional
     per_batch : int, optional
         Number of folds per batch. Defaults to 1.
     per_fold : int, optional
@@ -87,7 +90,8 @@ class CenterLoss(TripletLoss):
                  learn_to_aggregate=False):
 
         super(CenterLoss, self).__init__(
-            metric=metric, margin=margin, clamp=clamp,
+            metric=metric, gradient_factor=gradient_factor,
+            margin=margin, clamp=clamp,
             per_label=per_label, per_fold=per_fold, per_batch=per_batch,
             learn_to_aggregate=learn_to_aggregate)
         self.update_centers = update_centers

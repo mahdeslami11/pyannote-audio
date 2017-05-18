@@ -52,13 +52,15 @@ class TripletLoss(SequenceEmbeddingAutograd):
 
     Parameters
     ----------
+    metric : {'sqeuclidean', 'euclidean', 'cosine', 'angular'}, optional
+        Defaults to 'sqeuclidean'.
+    gradient_factor : float, optional
+        Multiply gradient by this number. Defaults to 1.
     margin: float, optional
         Defaults to 0.1.
     clamp: {None, 'positive', 'sigmoid'}, optional
         If 'positive' (default), loss = max(0, loss)
         If 'sigmoid', loss = sigmoid(loss)
-    metric : {'sqeuclidean', 'euclidean', 'cosine', 'angular'}, optional
-        Defaults to 'sqeuclidean'.
     per_batch : int, optional
         Number of folds per batch. Defaults to 1.
     per_fold : int, optional
@@ -70,7 +72,7 @@ class TripletLoss(SequenceEmbeddingAutograd):
 
     """
 
-    def __init__(self, metric='sqeuclidean',
+    def __init__(self, metric='sqeuclidean', gradient_factor=1.0,
                  margin=0.1, clamp='positive',
                  per_batch=1, per_label=3, per_fold=20,
                  learn_to_aggregate=False):
@@ -80,7 +82,8 @@ class TripletLoss(SequenceEmbeddingAutograd):
         self.per_label = per_label
         self.per_fold = per_fold
         self.learn_to_aggregate = learn_to_aggregate
-        super(TripletLoss, self).__init__(metric=metric)
+        super(TripletLoss, self).__init__(metric=metric,
+                                          gradient_factor=gradient_factor)
 
     def get_batch_generator(self, data_h5):
         if self.learn_to_aggregate:
