@@ -30,7 +30,6 @@ from pyannote.audio.generators.periodic import PeriodicFeaturesMixin
 from pyannote.core import SlidingWindowFeature
 from pyannote.generators.fragment import SlidingSegments
 from pyannote.generators.batch import FileBasedBatchGenerator
-from scipy.stats import zscore
 from pyannote.databse.util import get_annotated
 import numpy as np
 
@@ -54,11 +53,10 @@ class SpeechActivityDetectionBatchGenerator(PeriodicFeaturesMixin,
     def signature(self):
 
         shape = self.shape
-        dimension = 2
 
         return [
             {'type': 'ndarray', 'shape': shape},
-            {'type': 'ndarray', 'shape': (shape[0], dimension)}
+            {'type': 'ndarray', 'shape': (shape[0], 2)}
         ]
 
     def preprocess(self, current_file, identifier=None):
