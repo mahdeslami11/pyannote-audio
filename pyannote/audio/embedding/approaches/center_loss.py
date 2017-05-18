@@ -83,7 +83,7 @@ class CenterLoss(TripletLoss):
 
     WEIGHTS_H5 = LoggingCallback.WEIGHTS_H5[:-3] + '.centers.h5'
 
-    def __init__(self, metric='angular',
+    def __init__(self, metric='angular', gradient_factor=1.,
                  margin=0.0, clamp='sigmoid',
                  per_batch=1, per_fold=20, per_label=3,
                  update_centers='batch',
