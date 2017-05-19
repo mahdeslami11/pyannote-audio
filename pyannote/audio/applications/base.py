@@ -29,6 +29,7 @@
 
 import yaml
 import os.path
+from glob import glob
 
 from pyannote.database.util import FileFinder
 
@@ -66,14 +67,13 @@ class Application(object):
             self.cache_preprocessed_ = 'Precomputed' not in extraction_name
 
     def get_epochs(self, train_dir):
-        """Get current number of completed epochs"""
+        """Get last completed epoch"""
 
-        epoch = 0
+        directory = self.WEIGHTS_H5.format(train_dir=train_dir, epoch=0)[:-7]
+        print(directory)
+        weights_h5 = glob(directory + '*[0-9][0-9][0-9][0-9].h5')
 
-        while True:
-            weights_h5 = self.WEIGHTS_H5.format(train_dir=train_dir, epoch=epoch)
-            if not os.path.isfile(weights_h5):
-                break
-            epoch += 1
+        if not weights_h5:
+            return 0
 
-        return epoch
+        return int(os.path.basename(weights_h5[-1])[:-3]) + 1
