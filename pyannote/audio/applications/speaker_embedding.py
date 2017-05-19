@@ -531,9 +531,6 @@ class SpeakerEmbedding(Application):
                     time.sleep(60)
                     continue
 
-                # sleep 5 seconds to let the checkpoint callback finish
-                time.sleep(5)
-
                 # if last completed epoch has already been processed
                 # go back to first epoch that hasn't been processed yet
                 process_epoch = epoch if completed_epochs in eers \
@@ -541,6 +538,15 @@ class SpeakerEmbedding(Application):
 
                 weights_h5 = LoggingCallback.WEIGHTS_H5.format(
                     log_dir=self.train_dir_, epoch=process_epoch)
+
+                # this is needed for corner case when training is started from
+                # an epoch > 0
+                if not isfile(weights_h5):
+                    time.sleep(60)
+                    continue
+
+                # sleep 5 seconds to let the checkpoint callback finish
+                time.sleep(5)
 
                 # TODO update this code once keras > 2.0.4 is released
                 try:
