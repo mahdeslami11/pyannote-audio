@@ -70,7 +70,6 @@ class Application(object):
         """Get last completed epoch"""
 
         directory = self.WEIGHTS_H5.format(train_dir=train_dir, epoch=0)[:-7]
-        print(directory)
         weights_h5 = glob(directory + '*[0-9][0-9][0-9][0-9].h5')
 
         if not weights_h5:
