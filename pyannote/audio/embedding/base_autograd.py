@@ -267,7 +267,7 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
                 batch_generator = batchify(iter(X), {'type': 'ndarray'},
                                            batch_size=self.batch_size,
                                            incomplete=True)
-                fX = np.stack(embed([x, 0])[0] for x in batch_generator)
+                fX = np.vstack(embed([x, 0])[0] for x in batch_generator)
             else:
                 fX = embed([X, 0])[0]
 
