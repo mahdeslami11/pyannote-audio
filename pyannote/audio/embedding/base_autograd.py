@@ -49,6 +49,8 @@ import pyannote.audio.embedding.models
 from pyannote.audio.embedding.losses import precomputed_gradient_loss
 from pyannote.audio.keras_utils import CUSTOM_OBJECTS
 
+from pyannote.generators.batch import batchify
+
 EPSILON = 1e-6
 
 @primitive
@@ -199,20 +201,22 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
         Defaults to 'sqeuclidean'.
     gradient_factor : float, optional
         Multiply gradient by this number. Defaults to 1.
-
-
+    batch_size : int, optional
+        Internal batch size. Defaults to 32.
     """
 
-    def __init__(self, metric='cosine', gradient_factor=1.):
+    def __init__(self, metric='cosine', gradient_factor=1., batch_size=32):
         super(SequenceEmbeddingAutograd, self).__init__()
         self.metric = metric
         self.gradient_factor = gradient_factor
+        self.batch_size = batch_size
 
         self.metric_ = getattr(self, metric)
         self.metric_max_ = self.get_metric_max(metric)
 
         self.float_autograd_ = ag_np.array(0.).dtype.name
         self.float_backend_ = K.floatx()
+
 
     @classmethod
     def restart(cls, log_dir, epoch):
@@ -253,12 +257,24 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
         """
 
         if internal:
+
             embed = K.function(
                 [embedding.get_layer(name='input').input, K.learning_phase()],
                 [embedding.get_layer(name='internal').output])
-            return embed([X, 0])[0].astype(self.float_autograd_)
 
-        return embedding.predict(X).astype(self.float_autograd_)
+            # split large batch in smaller batches if needed
+            if len(X) > self.batch_size:
+                batch_generator = batchify(X, {'type': 'ndarray'},
+                                           batch_size=self.batch_size,
+                                           incomplete=True)
+                fX = np.stack(embed([x, 0])[0] for x in batch_generator)
+            else:
+                fX = embed([X, 0])[0]
+
+        else:
+            fX = embedding.predict(X, batch_size=self.batch_size)
+
+        return fX.astype(self.float_autograd_)
 
 
     def fit(self, init_embedding, batch_generator, batches_per_epoch,
@@ -273,7 +289,7 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
             If keras.Model, it must already be compiled.
         batch_generator : (infinite) iterable
             Generates (dict) batches such as batch['X'] is a numpy array of
-            shape (batch_size, n_samples, n_features).
+            shape (variable_batch_size, n_samples, n_features).
         batches_per_epoch : int
             Number of batches per epoch.
         n_classes : int
@@ -318,10 +334,8 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
         callbacks.set_model(embedding)
         callbacks.set_params({
             'epochs': epochs,
-            # 'samples': batch_size,
             'steps': batches_per_epoch,
             'verbose': True,
-            # 'do_validation': False,
             'metrics': ['loss'],
         })
 
@@ -353,10 +367,21 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
                 # when gradient_factor is large?
                 gradient = self.gradient_factor * batch_logs['gradient']
 
+                X = batch['X'].astype(self.float_backend_)
+                y = gradient.astype(self.float_backend_)
+
+                # split large batch in smaller batches if needed
+                if len(X) > self.batch_size:
+                    signature = ({'type': 'ndarray'}, {'type': 'ndarray'})
+                    sub_batch_generator = batchify(zip(X, y), signature,
+                                                   batch_size=self.batch_size,
+                                                   incomplete=True)
+                else:
+                    sub_batch_generator = [(X, y)]
+
                 # backprop
-                embedding.train_on_batch(
-                    batch['X'].astype(self.float_backend_),
-                    gradient.astype(self.float_backend_))
+                for X, y in sub_batch_generator:
+                    embedding.train_on_batch(X, y)
 
                 callbacks.on_batch_end(batch_index, logs=batch_logs)
 

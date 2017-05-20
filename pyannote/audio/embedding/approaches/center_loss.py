@@ -62,8 +62,6 @@ class CenterLoss(TripletLoss):
     ----------
     metric : {'sqeuclidean', 'euclidean', 'cosine', 'angular'}, optional
         Defaults to 'sqeuclidean'.
-    gradient_factor : float, optional
-        Multiply gradient by this number. Defaults to 1.
     margin: float, optional
         Defaults to 0.0
     clamp: {None, 'positive', 'sigmoid'}, optional
@@ -79,21 +77,23 @@ class CenterLoss(TripletLoss):
         Whether to only update centers in current 'batch' (default), or to
         update 'all' centers (even though they are not part of current batch).
     learn_to_aggregate : boolean, optional
+    gradient_factor : float, optional
+        Multiply gradient by this number. Defaults to 1.
+    batch_size : int, optional
+        Batch size. Defaults to 32.
     """
 
     WEIGHTS_H5 = LoggingCallback.WEIGHTS_H5[:-3] + '.centers.h5'
 
-    def __init__(self, metric='angular', gradient_factor=1.,
-                 margin=0.0, clamp='sigmoid',
+    def __init__(self, metric='angular', margin=0.0, clamp='sigmoid',
                  per_batch=1, per_fold=20, per_label=3,
-                 update_centers='batch',
-                 learn_to_aggregate=False):
+                 update_centers='batch', learn_to_aggregate=False, **kwargs):
 
         super(CenterLoss, self).__init__(
-            metric=metric, gradient_factor=gradient_factor,
-            margin=margin, clamp=clamp,
+            metric=metric, margin=margin, clamp=clamp,
             per_label=per_label, per_fold=per_fold, per_batch=per_batch,
-            learn_to_aggregate=learn_to_aggregate)
+            learn_to_aggregate=learn_to_aggregate, **kwargs)
+
         self.update_centers = update_centers
 
     def on_train_begin(self, logs=None):

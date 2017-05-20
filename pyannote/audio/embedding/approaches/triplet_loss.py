@@ -54,8 +54,6 @@ class TripletLoss(SequenceEmbeddingAutograd):
     ----------
     metric : {'sqeuclidean', 'euclidean', 'cosine', 'angular'}, optional
         Defaults to 'sqeuclidean'.
-    gradient_factor : float, optional
-        Multiply gradient by this number. Defaults to 1.
     margin: float, optional
         Defaults to 0.1.
     clamp: {None, 'positive', 'sigmoid'}, optional
@@ -67,23 +65,25 @@ class TripletLoss(SequenceEmbeddingAutograd):
         Number of speakers per fold. Defaults to 20.
     per_label : int, optional
         Number of sequences per speaker. Defaults to 3.
-
     learn_to_aggregate : boolean, optional
+    gradient_factor : float, optional
+        Multiply gradient by this number. Defaults to 1.
+    batch_size : int, optional
+        Batch size. Defaults to 32.
 
     """
 
-    def __init__(self, metric='sqeuclidean', gradient_factor=1.0,
-                 margin=0.1, clamp='positive',
+    def __init__(self, metric='sqeuclidean', margin=0.1, clamp='positive',
                  per_batch=1, per_label=3, per_fold=20,
-                 learn_to_aggregate=False):
+                 learn_to_aggregate=False, **kwargs):
+
         self.margin = margin
         self.clamp = clamp
         self.per_batch = per_batch
         self.per_label = per_label
         self.per_fold = per_fold
         self.learn_to_aggregate = learn_to_aggregate
-        super(TripletLoss, self).__init__(metric=metric,
-                                          gradient_factor=gradient_factor)
+        super(TripletLoss, self).__init__(**kwargs)
 
     def get_batch_generator(self, data_h5):
         if self.learn_to_aggregate:
