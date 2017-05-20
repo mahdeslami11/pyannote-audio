@@ -264,7 +264,7 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
 
             # split large batch in smaller batches if needed
             if len(X) > self.batch_size:
-                batch_generator = batchify(X, {'type': 'ndarray'},
+                batch_generator = batchify(iter(X), {'type': 'ndarray'},
                                            batch_size=self.batch_size,
                                            incomplete=True)
                 fX = np.stack(embed([x, 0])[0] for x in batch_generator)
