@@ -601,7 +601,7 @@ class SpeakerEmbedding(Application):
                 fig = plt.figure()
                 plt.plot(eers.keys(), eers.values(), 'b')
                 plt.plot([best_epoch], [best_eer], 'bo')
-                plt.plot([0, eers.iloc[-1]], [best_eer, best_eer], 'k--')
+                plt.plot([eers.iloc[0], eers.iloc[-1]], [best_eer, best_eer], 'k--')
                 plt.grid(True)
                 plt.xlabel('epoch')
                 plt.ylabel('EER on {subset}'.format(subset=subset))
