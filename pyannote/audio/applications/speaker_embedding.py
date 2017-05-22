@@ -402,7 +402,7 @@ class SpeakerEmbedding(Application):
         if start is None:
             init_embedding = self.architecture_
         else:
-            init_embedding = self.approach_.restart(train_dir, start)
+            init_embedding = self.approach_.load(train_dir, start)
 
         self.approach_.fit(init_embedding, batch_generator,
                            batches_per_epoch=batches_per_epoch,

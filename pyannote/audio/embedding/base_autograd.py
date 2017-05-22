@@ -219,7 +219,7 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
 
 
     @classmethod
-    def restart(cls, log_dir, epoch):
+    def load(cls, log_dir, epoch):
 
         weights_h5 = LoggingCallback.WEIGHTS_H5.format(log_dir=log_dir,
                                                        epoch=epoch)
