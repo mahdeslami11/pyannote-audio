@@ -33,6 +33,7 @@ Usage:
   pyannote-speaker-embedding data [--database=<db.yml> --duration=<duration> --step=<step> --heterogeneous] <root_dir> <database.task.protocol>
   pyannote-speaker-embedding train [--subset=<subset> --start=<epoch> --end=<epoch>] <experiment_dir> <database.task.protocol>
   pyannote-speaker-embedding validate [--subset=<subset> --aggregate --every=<epoch> --from=<epoch>] <train_dir> <database.task.protocol>
+  pyannote-speaker-embedding apply [--database=<db.yml> --step<step>] <validate.txt> <database.task.protocol>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
 
@@ -142,7 +143,7 @@ Database configuration file:
     protocol, task, or database).
 """
 
-from os.path import dirname, isfile, expanduser
+from os.path import dirname, basename, isfile, expanduser
 import numpy as np
 import pandas as pd
 import time
@@ -174,6 +175,7 @@ from pyannote.core.util import pairwise
 import keras.backend as K
 
 from sortedcontainers import SortedDict
+from pyannote.audio.features import Precomputed
 
 
 class SpeakerEmbedding(Application):
@@ -205,6 +207,13 @@ class SpeakerEmbedding(Application):
         experiment_dir = dirname(dirname(train_dir))
         speaker_embedding = cls(experiment_dir, db_yml=db_yml)
         speaker_embedding.train_dir_ = train_dir
+        return speaker_embedding
+
+    @classmethod
+    def from_validate_txt(cls, validate_txt, db_yml=None):
+        train_dir = dirname(dirname(dirname(validate_txt)))
+        speaker_embedding = cls.from_train_dir(train_dir, db_yml=db_yml)
+        speaker_embedding.validate_txt_ = validate_txt
         return speaker_embedding
 
     def __init__(self, experiment_dir, db_yml=None):
@@ -517,7 +526,7 @@ class SpeakerEmbedding(Application):
         desc_format = ('Best EER = {best_eer:.2f}% @ epoch #{best_epoch:d} ::'
                        ' EER = {eer:.2f}% @ epoch #{epoch:d} :')
 
-        progress_bar = tqdm(unit='epoch', total=1000)
+        progress_bar = tqdm(unit='epoch')
 
         with open(validate_txt, mode='w') as fp:
 
@@ -624,6 +633,68 @@ class SpeakerEmbedding(Application):
 
         progress_bar.close()
 
+    def apply(self, protocol_name, output_dir, step=None):
+
+        # load best performing model
+        with open(self.validate_txt_, 'r') as fp:
+            eers = SortedDict(np.loadtxt(fp))
+        best_epoch = int(eers.iloc[np.argmin(eers.values())])
+        embedding = SequenceEmbeddingAutograd.load(
+            self.train_dir_, best_epoch)
+
+        # guess sequence duration from path (.../3.2+0.8/...)
+        directory = basename(dirname(self.experiment_dir))))
+        duration, _, _, _ = self._directory_to_params(directory)
+        if step is None:
+            step = 0.5 * duration
+
+        # initialize embedding extraction
+        batch_size = self.approach_.batch_size
+        extraction = Extraction(embedding, self.feature_extraction_, duration,
+                                step=step, batch_size=batch_size)
+        sliding_window = extraction.sliding_window
+        dimension = extraction.dimension
+
+        # create metadata file at root that contains
+        # sliding window and dimension information
+        path = Precomputed.get_config_path(output_dir)
+        mkdir_p(dirname(path))
+        f = h5py.File(path)
+        f.attrs['start'] = sliding_window.start
+        f.attrs['duration'] = sliding_window.duration
+        f.attrs['step'] = sliding_window.step
+        f.attrs['dimension'] = dimension
+        f.close()
+
+        # file generator
+        protocol = get_protocol(protocol_name, progress=True,
+                                preprocessors=self.preprocessors_)
+
+        for subset in ['development', 'test', 'train']:
+
+            try:
+                file_generator = getattr(protocol, subset)()
+                first_item = next(file_generator)
+            except NotImplementedError as e:
+                continue
+
+            file_generator = getattr(protocol, subset)()
+
+            for current_file in file_generator:
+
+                fX = extraction.apply(current_file)
+
+                path = Precomputed.get_path(output_dir, current_file)
+                mkdir_p(dirname(path))
+
+                f = h5py.File(path)
+                f.attrs['start'] = sliding_window.start
+                f.attrs['duration'] = sliding_window.duration
+                f.attrs['step'] = sliding_window.step
+                f.attrs['dimension'] = dimension
+                f.create_dataset('features', data=fX.data)
+                f.close()
+
 def main():
 
     arguments = docopt(__doc__, version='Speaker embedding')
@@ -679,3 +750,16 @@ def main():
         application.validate(protocol_name, subset=subset,
                              aggregate=aggregate, every=every,
                              start=start)
+
+    if arguments['apply']:
+        validate_txt = arguments['<validate_txt>']
+        output_dir = arguments['<output_dir>']
+        if subset is None:
+            subset = 'test'
+
+        step = arguments['--step']
+        if step is not None:
+            step = float(step)
+
+        application = SpeakerEmbedding.from_validate_txt(validate_txt)
+        application.apply(protocol_name, output_dir, step=step)

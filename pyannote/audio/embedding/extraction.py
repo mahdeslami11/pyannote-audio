@@ -39,74 +39,72 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
 
     Parameters
     ----------
-    sequence_embedding : SequenceEmbedding
-        Pre-trained sequence embedding.
-    feature_extractor : YaafeFeatureExtractor
-        Yaafe feature extractor
-    duration : float, optional
+    embedding : keras.Model
+        Pre-trained embedding.
+    feature_extraction : callable
+        Feature extractor
+    duration : float
+        Subsequence duration, in seconds.
     step : float, optional
-        Sliding window duration and step (in seconds).
-        Defaults to 5s window with 50% step.
-    internal : int, optional
-        Index of layer for which to return the activation.
-        Defaults (-1) to returning the activation of the final layer.
-    aggregate : bool, optional
+        Subsequence step, in seconds. Defaults to 25% of `duration`.
 
     Usage
     -----
-    >>> sequence_embedding = SequenceEmbedding.from_disk('architecture_yml',
-    ...                                                  'weights.h5')
-    >>> feature_extraction = YaafeFeatureExtractor(...)
-    >>> extraction = Extraction(sequence_embedding, feature_extraction)
-    >>> embedding = extraction.apply(current_file)
+    >>> epoch = 1000
+    >>> embedding = SequenceEmbeddingAutograd.load(train_dir, epoch)
+    >>> feature_extraction = YaafeMFCC(...)
+    >>> duration = 3.2
+    >>> extraction = Extraction(embedding, feature_extraction, duration)
 
     """
-    def __init__(self, sequence_embedding, feature_extractor,
-                 duration=1.000, step=None, internal=None, aggregate=False):
+    def __init__(self, embedding, feature_extraction, duration,
+                 step=None, batch_size=32):
 
-        # feature sequence
-        self.feature_extractor = feature_extractor
-
-        # sequence embedding
-        self.sequence_embedding = sequence_embedding
-
-        # sliding window
+        self.embedding = embedding
+        self.feature_extraction = feature_extraction
         self.duration = duration
+
         generator = SlidingSegments(duration=duration, step=step, source='wav')
         self.step = generator.step if step is None else step
 
-        if aggregate and (internal is None or internal == -1):
-            warnings.warn(
-                '"aggregate" parameter has no effect when '
-                'the output of the final layer is returned.')
+        # build function that takes batch of sequences as input
+        # and returns their internal embedding
+        K_func = K.function(
+            [self.embedding.get_layer(name='input').input, K.learning_phase()],
+            [self.embedding.get_layer(name='internal').output])
+        def embed(batch):
+            return K_func([batch, 0])[0]
+        self.embed_ = embed
 
-        self.internal = internal
-        self.aggregate = aggregate
-
-        super(Extraction, self).__init__(generator, batch_size=32)
+        super(Extraction, self).__init__(generator, batch_size=self.batch_size)
 
     @property
     def dimension(self):
-        internal = -1 if self.internal is None else self.internal
-        if self.aggregate:
-            return self.sequence_embedding.embedding_.layers[internal].output_shape[-1]
-        else:
-            return self.sequence_embedding.embedding_.layers[internal].output_shape[1:]
+        return self.embedding.output_shape[-1]
 
     @property
     def sliding_window(self):
-        if self.aggregate:
-            return self.feature_extractor.sliding_window()
-        else:
-            return SlidingWindow(start=0., duration=self.duration, step=self.step)
+        return self.feature_extraction.sliding_window()
 
     def signature(self):
         shape = self.shape
         return {'type': 'ndarray', 'shape': shape}
 
-    def postprocess_ndarray(self, batch):
-        return self.sequence_embedding.transform(
-            batch, internal=self.internal)
+    def postprocess_ndarray(self, X):
+        """Embed sequences
+
+        Parameters
+        ----------
+        X : (batch_size, n_samples, n_features) numpy array
+            Batch of input sequences
+
+        Returns
+        -------
+        fX : (batch_size, n_samples, n_dimensions) numpy array
+            Batch of sequence embeddings.
+
+        """
+        return self.embed_(X)
 
     def apply(self, current_file):
         """Compute embeddings on a sliding window
@@ -114,40 +112,46 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
         Parameter
         ---------
         current_file : dict
+
         Returns
         -------
-        embeddings : SlidingWindowFeature
+        embedding : SlidingWindowFeature
         """
 
-        embeddings = np.vstack([batch for batch in self.from_file(
-            current_file, incomplete=True)])
+        # compute embedding on sliding window
+        # over the whole duration of the file
+        fX = np.vstack(
+            [batch for batch in self.from_file(current_file,
+                                               incomplete=True)])
 
-        window = SlidingWindow(duration=self.duration, step=self.step)
+        # get total number of frames
+        identifier = get_unique_identifier(current_file)
+        n_frames = self.preprocessed_['X'][identifier].shape[0]
 
-        if not self.aggregate:
-            return SlidingWindowFeature(embeddings, window)
+        # data[i] is the sum of all embeddings for frame #i
+        data = np.zeros((n_frames, self.dimension), dtype=np.float32)
 
-        # estimate total number of frames based on number of batches
-        samples_window = self.feature_extractor.sliding_window()
-        n_sequences, _, dimension = embeddings.shape
-        duration = window[n_sequences - 1].end
-        n_samples = samples_window.samples(duration) + 4
+        # k[i] is the number of sequences that overlap with frame #i
+        k = np.zeros((n_frames, 1), dtype=np.int8)
 
-        # k[i] contains the number of sequences that overlap with frame #i
-        k = np.zeros((n_samples, 1), dtype=np.int8)
+        # frame and sub-sequence sliding windows
+        frames = self.feature_extraction.sliding_window()
+        subsequences = SlidingWindow(duration=self.duration, step=self.step)
 
-        # fX[i] contains the sum of embeddings for frame #i
-        # over all overlapping samples
-        fX = np.zeros((n_samples, dimension), dtype=np.float32)
+        for subsequence, fX_ in zip(subsequences, fX):
 
-        for i, embedding in enumerate(embeddings):
+            # indices of frames overlapped by subsequence
+            indices = frames.crop(subsequence,
+                                  mode='center',
+                                  fixed=self.duration)
 
-            # indices of frames overlapped by sequence #i
-            indices = samples_window.crop(window[i], mode='center',
-                                          fixed=self.duration)
+            # accumulate their embedding
+            data[indices] += fX_
 
-            fX[indices] += embeddings[i]
+            # keep track of the number of overlapping sequence
+            k[indices] += 1
 
-        fX = fX / np.maximum(k, 1)
+        # compute average embedding of each frame
+        data = data / np.maximum(k, 1)
 
-        return SlidingWindowFeature(fX, samples_window)
+        return SlidingWindowFeature(data, frames)
