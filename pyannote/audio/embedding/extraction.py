@@ -28,10 +28,12 @@
 
 import warnings
 import numpy as np
+import keras.backend as K
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.generators.batch import FileBasedBatchGenerator
 from pyannote.generators.fragment import SlidingSegments
 from pyannote.audio.generators.periodic import PeriodicFeaturesMixin
+from pyannote.database.util import get_unique_identifier
 
 
 class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
@@ -61,8 +63,9 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
                  step=None, batch_size=32):
 
         self.embedding = embedding
-        self.feature_extraction = feature_extraction
+        self.feature_extractor = feature_extraction
         self.duration = duration
+        self.batch_size = batch_size
 
         generator = SlidingSegments(duration=duration, step=step, source='wav')
         self.step = generator.step if step is None else step
@@ -84,7 +87,7 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
 
     @property
     def sliding_window(self):
-        return self.feature_extraction.sliding_window()
+        return self.feature_extractor.sliding_window()
 
     def signature(self):
         shape = self.shape
@@ -126,7 +129,7 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
 
         # get total number of frames
         identifier = get_unique_identifier(current_file)
-        n_frames = self.preprocessed_['X'][identifier].shape[0]
+        n_frames = self.preprocessed_['X'][identifier].data.shape[0]
 
         # data[i] is the sum of all embeddings for frame #i
         data = np.zeros((n_frames, self.dimension), dtype=np.float32)
@@ -135,7 +138,7 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
         k = np.zeros((n_frames, 1), dtype=np.int8)
 
         # frame and sub-sequence sliding windows
-        frames = self.feature_extraction.sliding_window()
+        frames = self.feature_extractor.sliding_window()
         subsequences = SlidingWindow(duration=self.duration, step=self.step)
 
         for subsequence, fX_ in zip(subsequences, fX):

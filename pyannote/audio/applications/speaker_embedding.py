@@ -33,7 +33,7 @@ Usage:
   pyannote-speaker-embedding data [--database=<db.yml> --duration=<duration> --step=<step> --heterogeneous] <root_dir> <database.task.protocol>
   pyannote-speaker-embedding train [--subset=<subset> --start=<epoch> --end=<epoch>] <experiment_dir> <database.task.protocol>
   pyannote-speaker-embedding validate [--subset=<subset> --aggregate --every=<epoch> --from=<epoch>] <train_dir> <database.task.protocol>
-  pyannote-speaker-embedding apply [--database=<db.yml> --step<step>] <validate.txt> <database.task.protocol>
+  pyannote-speaker-embedding apply [--database=<db.yml> --step=<step>] <validate.txt> <database.task.protocol> <output_dir>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
 
@@ -147,6 +147,7 @@ from os.path import dirname, basename, isfile, expanduser
 import numpy as np
 import pandas as pd
 import time
+import yaml
 from tqdm import tqdm
 
 from docopt import docopt
@@ -176,7 +177,8 @@ import keras.backend as K
 
 from sortedcontainers import SortedDict
 from pyannote.audio.features import Precomputed
-
+from pyannote.audio.embedding.base_autograd import SequenceEmbeddingAutograd
+from pyannote.audio.embedding.extraction import Extraction
 
 class SpeakerEmbedding(Application):
 
@@ -214,6 +216,22 @@ class SpeakerEmbedding(Application):
         train_dir = dirname(dirname(dirname(validate_txt)))
         speaker_embedding = cls.from_train_dir(train_dir, db_yml=db_yml)
         speaker_embedding.validate_txt_ = validate_txt
+
+        root_dir = dirname(dirname(dirname(dirname(train_dir))))
+        with open(root_dir + '/config.yml', 'r') as fp:
+            config = yaml.load(fp)
+            extraction_name = config['feature_extraction']['name']
+            features = __import__('pyannote.audio.features',
+                                  fromlist=[extraction_name])
+            FeatureExtraction = getattr(features, extraction_name)
+            speaker_embedding.feature_extraction_ = FeatureExtraction(
+                **config['feature_extraction'].get('params', {}))
+
+            # do not cache features in memory when they are precomputed on disk
+            # as this does not bring any significant speed-up
+            # but does consume (potentially) a LOT of memory
+            speaker_embedding.cache_preprocessed_ = 'Precomputed' not in extraction_name
+        
         return speaker_embedding
 
     def __init__(self, experiment_dir, db_yml=None):
@@ -643,7 +661,7 @@ class SpeakerEmbedding(Application):
             self.train_dir_, best_epoch)
 
         # guess sequence duration from path (.../3.2+0.8/...)
-        directory = basename(dirname(self.experiment_dir))))
+        directory = basename(dirname(self.experiment_dir))
         duration, _, _, _ = self._directory_to_params(directory)
         if step is None:
             step = 0.5 * duration
@@ -752,7 +770,7 @@ def main():
                              start=start)
 
     if arguments['apply']:
-        validate_txt = arguments['<validate_txt>']
+        validate_txt = arguments['<validate.txt>']
         output_dir = arguments['<output_dir>']
         if subset is None:
             subset = 'test'
