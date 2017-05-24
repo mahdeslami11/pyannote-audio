@@ -158,9 +158,16 @@ class TripletLoss(SequenceEmbeddingAutograd):
 
         def generator():
             while True:
+                # get next group
                 i, label = next(index_generator)
+
+                # select at most 10 sequences of current group
                 selector = z_groups.get_group(i).index
-                X = np.array(h5_X[selector])
+                selector = np.random.choice(selector,
+                                            size=min(10, len(selector)),
+                                            replace=False)
+
+                X = np.array(h5_X[sorted(selector)])
                 n = X.shape[0]
                 yield {'X': X,
                        'y': label,
