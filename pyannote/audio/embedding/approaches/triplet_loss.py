@@ -162,7 +162,7 @@ class TripletLoss(SequenceEmbeddingAutograd):
                 i, label = next(index_generator)
 
                 # select at most 10 sequences of current group
-                selector = z_groups.get_group(i).index
+                selector = list(z_groups.get_group(i).index)
                 selector = np.random.choice(selector,
                                             size=min(10, len(selector)),
                                             replace=False)
