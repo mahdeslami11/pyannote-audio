@@ -370,18 +370,8 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
                 X = batch['X'].astype(self.float_backend_)
                 y = gradient.astype(self.float_backend_)
 
-                # split large batch in smaller batches if needed
-                if len(X) > self.batch_size:
-                    signature = ({'type': 'ndarray'}, {'type': 'ndarray'})
-                    sub_batch_generator = batchify(zip(X, y), signature,
-                                                   batch_size=self.batch_size,
-                                                   incomplete=True)
-                else:
-                    sub_batch_generator = [(X, y)]
-
                 # backprop
-                for X, y in sub_batch_generator:
-                    embedding.train_on_batch(X, y)
+                embedding.train_on_batch(X, y)
 
                 callbacks.on_batch_end(batch_index, logs=batch_logs)
 
