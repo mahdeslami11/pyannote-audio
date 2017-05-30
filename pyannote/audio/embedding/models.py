@@ -317,13 +317,18 @@ class ClopiNet(object):
     mlp: list, optional
         Number of units in additionnal stacked dense MLP layers.
         Defaults to [] (i.e. do not stack any dense MLP layer)
+    linear: bool, optional
+        Make final dense layer use linear activation. Has no effect
+        when `mlp` is empty.
     """
 
-    def __init__(self, lstm=[16, 8, 8], bidirectional='ave', mlp=[]):
+    def __init__(self, lstm=[16, 8, 8], bidirectional='ave',
+                 mlp=[], linear=False):
         super(ClopiNet, self).__init__()
         self.lstm = lstm
         self.bidirectional = bidirectional
         self.mlp = mlp
+        self.linear = linear
 
     def __call__(self, input_shape):
         """Design embedding
@@ -410,9 +415,13 @@ class ClopiNet(object):
 
             last_internal_layer = i + 1 == len(self.mlp)
 
+            activation = 'tanh'
+            if last_internal_layer and self.linear:
+                activation = 'linear'
+
             mlp = Dense(output_dim,
                         name='mlp_{i:d}'.format(i=i),
-                        activation='tanh')
+                        activation=activation)
 
             name = 'internal' if last_internal_layer else None
             x = TimeDistributed(mlp, name=name)(x)
