@@ -133,7 +133,8 @@ class TripletLoss(SequenceEmbeddingAutograd):
 
         return {'batch_generator': batch_generator,
                 'batches_per_epoch': batches_per_epoch,
-                'n_classes': n_classes}
+                'n_classes': n_classes,
+                'classes': unique}
 
     def _get_batch_generator_z(self, data_h5):
         """"""
@@ -185,7 +186,8 @@ class TripletLoss(SequenceEmbeddingAutograd):
 
         return {'batch_generator': batch_generator,
                 'batches_per_epoch': batches_per_epoch,
-                'n_classes': n_classes}
+                'n_classes': n_classes,
+                'classes': unique}
 
     def loss_and_grad(self, batch, embedding):
 
