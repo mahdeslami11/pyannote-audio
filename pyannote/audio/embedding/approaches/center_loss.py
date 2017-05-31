@@ -48,6 +48,7 @@ from pyannote.audio.embedding.losses import precomputed_gradient_loss
 from pyannote.audio.callback import LoggingCallback
 from pyannote.audio.keras_utils import CUSTOM_OBJECTS
 from pyannote.core.util import pairwise
+from pyannote.audio.embedding.utils import cdist
 
 
 class CenterLoss(TripletLoss):
@@ -241,3 +242,98 @@ class CenterLoss(TripletLoss):
         return {'loss': loss,
                 'gradient': fX_grad,
                 'center_gradient': fC_grad}
+
+
+class NearestCenterLoss(CenterLoss):
+    """Same as center loss except the generator is a bit smarter:
+    it iterates through each center in (random) order, and selects samples
+    from closest other centers
+    """
+
+    def _get_batch_generator_y(self, data_h5):
+        """Get batch generator
+
+        Parameters
+        ----------
+        data_h5 : str
+            Path to HDF5 file containing precomputed sequences.
+            It must have to aligned datasets 'X' and 'y'.
+
+        Returns
+        -------
+        batch_generator : iterable
+        batches_per_epoch : int
+        n_classes : int
+        """
+
+        fp = h5py.File(data_h5, mode='r')
+        h5_X = fp['X']
+        h5_y = fp['y']
+
+        # keep track of number of labels and rename labels to integers
+        unique, y = np.unique(h5_y, return_inverse=True)
+        n_classes = len(unique)
+
+        # iterates over sequences of class jC
+        # in random order, and forever
+        def class_generator(jC):
+            indices = np.where(y == jC)[0]
+            while True:
+                np.random.shuffle(indices)
+                for i in indices:
+                    yield i
+
+        def generator():
+
+            centers = np.arange(n_classes)
+            class_generators = [class_generator(jC) for jC in centers]
+
+            previous_label = None
+
+            while True:
+
+                # loop over each centers in random order
+                np.random.shuffle(centers)
+                for iC in centers:
+
+                    try:
+                        # get "per_fold" closest centers to current centers
+                        distances = cdist(self.fC_[iC, np.newaxis], self.fC_,
+                                          metric=self.metric)[0]
+                    except AttributeError as e:
+                        # when on_train_begin hasn't been called yet,
+                        # attribute fC_ doesn't exist --> fake it
+                        distances = np.random.rand(len(centers))
+                        distances[iC] = 0.
+
+                    closest_centers = np.argpartition(
+                        distances, self.per_fold)[:self.per_fold]
+
+                    # corner case where last center of previous loop
+                    # is the same as first center of current loop
+                    if closest_centers[0] == previous_label:
+                        closest_centers[:-1] = closest_centers[1:]
+                        closest_centers[-1] = previous_label
+
+                    for jC in closest_centers:
+                        for _ in range(self.per_label):
+                            i = next(class_generators[jC])
+                            yield {'X': h5_X[i], 'y': y[i]}
+                        previous_label = jC
+
+        signature = {'X': {'type': 'ndarray'},
+                     'y': {'type': 'ndarray'}}
+        batch_size = self.per_batch * self.per_fold * self.per_label
+        batch_generator = batchify(generator(), signature,
+                                   batch_size=batch_size)
+
+        # each fold contains one center and its `per_fold` closest centers
+        # therefore, the only way to be sure that we've seen every class in
+        # one epoch is to go through n_classes fold,
+        # i.e. n_classes / per_batch batches
+        batches_per_epoch = n_classes // self.per_batch
+
+        return {'batch_generator': batch_generator,
+                'batches_per_epoch': batches_per_epoch,
+                'n_classes': n_classes,
+                'classes': unique}
