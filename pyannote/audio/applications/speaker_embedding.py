@@ -231,7 +231,7 @@ class SpeakerEmbedding(Application):
             # as this does not bring any significant speed-up
             # but does consume (potentially) a LOT of memory
             speaker_embedding.cache_preprocessed_ = 'Precomputed' not in extraction_name
-        
+
         return speaker_embedding
 
     def __init__(self, experiment_dir, db_yml=None):
@@ -422,6 +422,8 @@ class SpeakerEmbedding(Application):
         batch_generator = got['batch_generator']
         batches_per_epoch = got['batches_per_epoch']
         n_classes = got.get('n_classes', None)
+        classes = got.get('classes', None)
+
         train_dir = self.TRAIN_DIR.format(experiment_dir=self.experiment_dir,
                                           protocol=protocol_name,
                                           subset=subset)
@@ -433,7 +435,7 @@ class SpeakerEmbedding(Application):
 
         self.approach_.fit(init_embedding, batch_generator,
                            batches_per_epoch=batches_per_epoch,
-                           n_classes=n_classes,
+                           n_classes=n_classes, classes=classes,
                            epochs=end, log_dir=train_dir,
                            optimizer=SSMORMS3())
 

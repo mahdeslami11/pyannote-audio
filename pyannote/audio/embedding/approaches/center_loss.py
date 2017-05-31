@@ -84,6 +84,7 @@ class CenterLoss(TripletLoss):
     """
 
     WEIGHTS_H5 = LoggingCallback.WEIGHTS_H5[:-3] + '.centers.h5'
+    CENTERS_TXT = '{log_dir}/centers.txt'
 
     def __init__(self, metric='angular', margin=0.0, clamp='sigmoid',
                  per_batch=1, per_fold=20, per_label=3,
@@ -116,6 +117,7 @@ class CenterLoss(TripletLoss):
                     weights_h5, custom_objects=CUSTOM_OBJECTS)
 
         else:
+
             # dimension of embedding space
             output_dim = self.model.output_shape[-1]
 
@@ -130,8 +132,15 @@ class CenterLoss(TripletLoss):
             self.centers_.compile(optimizer=SSMORMS3(),
                                   loss=precomputed_gradient_loss)
 
+            # save list of classes
+            centers_txt = self.CENTERS_TXT.format(**logs)
+            with open(centers_txt, mode='w') as fp:
+                for label in logs['classes']:
+                    fp.write('{label}\n'.format(label=label.decode('utf8')))
+
         self.trigger_ = np.eye(n_classes)
         self.fC_ = self.centers_.predict(self.trigger_).astype(self.float_autograd_)
+
 
     def on_batch_end(self, batch_index, logs=None):
         self.centers_.train_on_batch(

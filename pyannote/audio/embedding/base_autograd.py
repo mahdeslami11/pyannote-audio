@@ -278,7 +278,8 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
 
 
     def fit(self, init_embedding, batch_generator, batches_per_epoch,
-            n_classes=None, epochs=1000, log_dir=None, optimizer='rmsprop'):
+            n_classes=None, classes=None, epochs=1000, log_dir=None,
+            optimizer='rmsprop'):
         """
 
         Parameters
@@ -292,7 +293,8 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
             shape (variable_batch_size, n_samples, n_features).
         batches_per_epoch : int
             Number of batches per epoch.
-        n_classes : int
+        n_classes : int, optional
+        classes : list, optional
         log_dir : str
         optimizer: str, optional
             Keras optimizer. Defaults to 'rmsprop'.
@@ -340,6 +342,7 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
         })
 
         callbacks.on_train_begin(logs={'n_classes': n_classes,
+                                       'classes': classes,
                                        'log_dir': log_dir,
                                        'restart': restart,
                                        'epoch': init_epoch})
