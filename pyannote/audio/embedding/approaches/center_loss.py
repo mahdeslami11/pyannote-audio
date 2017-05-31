@@ -329,7 +329,7 @@ class NearestCenterLoss(CenterLoss):
 
         # each fold contains one center and its `per_fold` closest centers
         # therefore, the only way to be sure that we've seen every class in
-        # one epoch is to go through n_classes fold,
+        # one epoch is to go through `n_classes` folds,
         # i.e. n_classes / per_batch batches
         batches_per_epoch = n_classes // self.per_batch
 
