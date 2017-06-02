@@ -33,7 +33,6 @@ from keras.models import Model
 
 from keras.layers import Input
 from keras.layers import Masking
-from keras.layers import LSTM
 from keras.layers import Dense
 from keras.layers import Lambda
 from keras.layers.merge import Concatenate
@@ -69,7 +68,7 @@ register_custom_object('EmbeddingAveragePooling', EmbeddingAveragePooling)
 class TristouNet(object):
     """TristouNet sequence embedding
 
-    LSTM ( » ... » LSTM ) » pooling › ( MLP › ... › ) MLP › normalize
+    RNN ( » ... » RNN ) » pooling › ( MLP › ... › ) MLP › normalize
 
     Reference
     ---------
@@ -79,25 +78,32 @@ class TristouNet(object):
 
     Parameters
     ----------
-    lstm: list, optional
-        List of output dimension of stacked LSTMs.
-        Defaults to [16, ] (i.e. one LSTM with output dimension 16)
+    rnn : {'LSTM', 'GRU'}, optional
+        Defaults to 'LSTM'.
+    recurrent: list, optional
+        List of output dimension of stacked RNNs.
+        Defaults to [16, ] (i.e. one RNN with output dimension 16)
     bidirectional: {False, 'ave', 'concat'}, optional
-        Defines how the output of forward and backward LSTMs are merged.
+        Defines how the output of forward and backward RNNs are merged.
         'ave' stands for 'average', 'concat' (default) for concatenation.
         See keras.layers.wrappers.Bidirectional for more information.
-        Use False to only use forward LSTMs.
+        Use False to only use forward RNNs.
     mlp: list, optional
         Number of units in additionnal stacked dense MLP layers.
         Defaults to [16, 16] (i.e. two dense MLP layers with 16 units)
     """
 
-    def __init__(self, lstm=[16,], bidirectional='concat', mlp=[16, 16]):
+    def __init__(self, rnn='LSTM', recurrent=[16,], bidirectional='concat', mlp=[16, 16]):
 
         super(TristouNet, self).__init__()
-        self.lstm = lstm
+        self.rnn = rnn
+        self.recurrent = recurrent
         self.bidirectional = bidirectional
         self.mlp = mlp
+
+        rnns = __import__('keras.layers.recurrent', fromlist=[self.rnn])
+        self.RNN_ = getattr(rnns, self.rnn)
+
 
     def __call__(self, input_shape):
         """Design embedding
@@ -118,12 +124,11 @@ class TristouNet(object):
         masking = Masking(mask_value=0.)
         x = masking(inputs)
 
-        # stack LSTM layers
-        n_lstm = len(self.lstm)
-        for i, output_dim in enumerate(self.lstm):
+        # stack RNN layers
+        for i, output_dim in enumerate(self.recurrent):
 
             params = {
-                'name': 'lstm_{i:d}'.format(i=i),
+                'name': 'rnn_{i:d}'.format(i=i),
                 'return_sequences': True,
                 # 'go_backwards': False,
                 # 'stateful': False,
@@ -147,16 +152,16 @@ class TristouNet(object):
                 # 'recurrent_dropout': 0.0,
             }
 
-            # first LSTM needs to be given the input shape
+            # first RNN needs to be given the input shape
             if i == 0:
                 params['input_shape'] = input_shape
 
-            lstm = LSTM(output_dim, **params)
+            recurrent = self.RNN_(output_dim, **params)
 
             if self.bidirectional:
-                lstm = Bidirectional(lstm, merge_mode=self.bidirectional)
+                recurrent = Bidirectional(recurrent, merge_mode=self.bidirectional)
 
-            x = lstm(x)
+            x = recurrent(x)
 
         pooling = EmbeddingAveragePooling(name='pooling')
         x = pooling(x)
@@ -184,29 +189,35 @@ class TristouNet(object):
 class TrottiNet(object):
     """TrottiNet sequence embedding
 
-    LSTM ( » ... » LSTM ) » ( MLP » ... » ) MLP » pooling › normalize
+    RNN ( » ... » RNN ) » ( MLP » ... » ) MLP » pooling › normalize
 
     Parameters
     ----------
-    lstm: list, optional
-        List of output dimension of stacked LSTMs.
-        Defaults to [16, ] (i.e. one LSTM with output dimension 16)
+    rnn : {'LSTM', 'GRU'}, optional
+        Defaults to 'LSTM'.
+    recurrent: list, optional
+        List of output dimension of stacked RNNs.
+        Defaults to [16, ] (i.e. one RNN with output dimension 16)
     bidirectional: {False, 'ave', 'concat'}, optional
-        Defines how the output of forward and backward LSTMs are merged.
+        Defines how the output of forward and backward RNNs are merged.
         'ave' (default) stands for 'average', 'concat' for concatenation.
         See keras.layers.wrappers.Bidirectional for more information.
-        Use False to only use forward LSTMs.
+        Use False to only use forward RNNs.
     mlp: list, optional
         Number of units of additionnal stacked dense MLP layers.
         Defaults to [16, 16] (i.e. add one dense MLP layer with 16 units)
     """
 
-    def __init__(self, lstm=[16,], bidirectional='ave', mlp=[16, 16]):
+    def __init__(self, rnn='LSTM', recurrent=[16,], bidirectional='ave', mlp=[16, 16]):
 
         super(TrottiNet, self).__init__()
-        self.lstm = lstm
+        self.rnn = rnn
+        self.recurrent = recurrent
         self.bidirectional = bidirectional
         self.mlp = mlp
+
+        rnns = __import__('keras.layers.recurrent', fromlist=[self.rnn])
+        self.RNN_ = getattr(rnns, self.rnn)
 
     def __call__(self, input_shape):
         """Design embedding
@@ -227,13 +238,13 @@ class TrottiNet(object):
         masking = Masking(mask_value=0.)
         x = masking(inputs)
 
-        # stack (bidirectional) LSTM layers
-        for i, output_dim in enumerate(self.lstm):
+        # stack (bidirectional) RNN layers
+        for i, output_dim in enumerate(self.recurrent):
 
-            last_internal_layer = not self.mlp and i + 1 == len(self.lstm)
+            last_internal_layer = not self.mlp and i + 1 == len(self.recurrent)
 
             params = {
-                'name': 'lstm_{i:d}'.format(i=i),
+                'name': 'rnn_{i:d}'.format(i=i),
                 'return_sequences': True,
                 # 'go_backwards': False,
                 # 'stateful': False,
@@ -257,22 +268,22 @@ class TrottiNet(object):
                 # 'recurrent_dropout': 0.0,
             }
 
-            # first LSTM needs to be given the input shape
+            # first RNN needs to be given the input shape
             if i == 0:
                 params['input_shape'] = input_shape
 
             if last_internal_layer and not self.bidirectional:
                 params['name'] = 'internal'
 
-            lstm = LSTM(output_dim, **params)
+            recurrent = self.RNN_(output_dim, **params)
 
             if self.bidirectional:
                 name = 'internal' if last_internal_layer else None
-                lstm = Bidirectional(lstm,
+                recurrent = Bidirectional(recurrent,
                                      merge_mode=self.bidirectional,
                                      name=name)
 
-            x = lstm(x)
+            x = recurrent(x)
 
         # stack dense MLP layers
         for i, output_dim in enumerate(self.mlp):
@@ -300,20 +311,22 @@ class TrottiNet(object):
 class ClopiNet(object):
     """ClopiNet sequence embedding
 
-    LSTM          ⎤
-      » LSTM      ⎥ ( » MLP » ... » MLP ) » pooling › normalize
-           » LSTM ⎦
+    RNN          ⎤
+      » RNN      ⎥ ( » MLP » ... » MLP ) » pooling › normalize
+           » RNN ⎦
 
     Parameters
     ----------
-    lstm: list, optional
-        List of output dimension of stacked LSTMs.
-        Defaults to [16, ] (i.e. one LSTM with output dimension 16)
+    rnn: {'LSTM', 'GRU'}, optional
+        Defaults to 'LSTM'.
+    recurrent: list, optional
+        List of output dimension of stacked RNNs.
+        Defaults to [16, ] (i.e. one RNN with output dimension 16)
     bidirectional: {False, 'ave', 'concat'}, optional
-        Defines how the output of forward and backward LSTMs are merged.
+        Defines how the output of forward and backward RNNs are merged.
         'ave' (default) stands for 'average', 'concat' for concatenation.
         See keras.layers.wrappers.Bidirectional for more information.
-        Use False to only use forward LSTMs.
+        Use False to only use forward RNNs.
     mlp: list, optional
         Number of units in additionnal stacked dense MLP layers.
         Defaults to [] (i.e. do not stack any dense MLP layer)
@@ -322,13 +335,17 @@ class ClopiNet(object):
         when `mlp` is empty.
     """
 
-    def __init__(self, lstm=[16, 8, 8], bidirectional='ave',
+    def __init__(self, rnn='LSTM', recurrent=[16, 8, 8], bidirectional='ave',
                  mlp=[], linear=False):
         super(ClopiNet, self).__init__()
-        self.lstm = lstm
+        self.rnn = rnn
+        self.recurrent = recurrent
         self.bidirectional = bidirectional
         self.mlp = mlp
         self.linear = linear
+
+        rnns = __import__('keras.layers.recurrent', fromlist=[self.rnn])
+        self.RNN_ = getattr(rnns, self.rnn)
 
     def __call__(self, input_shape):
         """Design embedding
@@ -349,14 +366,14 @@ class ClopiNet(object):
         masking = Masking(mask_value=0.)
         x = masking(inputs)
 
-        # stack (bidirectional) LSTM layers
-        for i, output_dim in enumerate(self.lstm):
+        # stack (bidirectional) recurrent layers
+        for i, output_dim in enumerate(self.recurrent):
 
-            sole_layer = not self.mlp and len(self.lstm) == 1
-            last_internal_layer = not self.mlp and i + 1 == len(self.lstm)
+            sole_layer = not self.mlp and len(self.recurrent) == 1
+            last_internal_layer = not self.mlp and i + 1 == len(self.recurrent)
 
             params = {
-                'name': 'lstm_{i:d}'.format(i=i),
+                'name': 'rnn_{i:d}'.format(i=i),
                 'return_sequences': True,
                 # 'go_backwards': False,
                 # 'stateful': False,
@@ -380,23 +397,23 @@ class ClopiNet(object):
                 # 'recurrent_dropout': 0.0,
             }
 
-            # first LSTM needs to be given the input shape
+            # first RNN needs to be given the input shape
             if i == 0:
                 params['input_shape'] = input_shape
 
             if sole_layer and not self.bidirectional:
                 params['name'] = 'internal'
 
-            lstm = LSTM(output_dim, **params)
+            recurrent = self.RNN_(output_dim, **params)
 
-            # bi-directional LSTM
+            # bi-directional RNN
             if self.bidirectional:
-                lstm = Bidirectional(lstm,
+                recurrent = Bidirectional(recurrent,
                                      merge_mode=self.bidirectional,
                                      name='internal' if sole_layer else None)
 
-            # (actually) stack LSTM
-            x = lstm(x)
+            # (actually) stack RNN
+            x = recurrent(x)
 
             # concatenate output of all levels
             if i > 0:
@@ -436,4 +453,4 @@ class ClopiNet(object):
     def output_dim(self):
         if self.mlp:
             return self.mlp[-1]
-        return np.sum(self.lstm)
+        return np.sum(self.recurrent)
