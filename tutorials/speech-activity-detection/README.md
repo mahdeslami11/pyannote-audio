@@ -27,6 +27,26 @@
 
 In this tutorial, you will learn how to train, tune, and test a speech activity detector based on MFCCs and LSTMs, using `pyannote-speech-detection` command line tool.
 
+## Citation
+
+## Citation
+
+If you use `pyannote-audio` for speech activity detection, please cite the following paper:
+
+```bibtex
+@inproceedings{Yin2017,
+  Author = {Ruiqing Yin and Herv\'e Bredin and Claude Barras},
+  Title = {{Speaker Change Detection in Broadcast TV using Bidirectional Long Short-Term Memory Networks}},
+  Booktitle = {{Interspeech 2017, 18th Annual Conference of the International Speech Communication Association}},
+  Year = {2017},
+  Month = {August},
+  Address = {Stockholm, Sweden},
+  Url = {https://github.com/yinruiqing/change_detection}
+}
+```
+
+
+
 ## Installation
 
 ```bash

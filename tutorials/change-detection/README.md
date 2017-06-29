@@ -27,6 +27,23 @@
 
 In this tutorial, you will learn how to train and test a speaker change detection model based on MFCCs and LSTMs, using `pyannote-change-detection` command line tool.
 
+## Citation
+
+If you use `pyannote-audio` for speaker (or audio) change detection, please cite the following paper:
+
+```bibtex
+@inproceedings{Yin2017,
+  Author = {Ruiqing Yin and Herv\'e Bredin and Claude Barras},
+  Title = {{Speaker Change Detection in Broadcast TV using Bidirectional Long Short-Term Memory Networks}},
+  Booktitle = {{Interspeech 2017, 18th Annual Conference of the International Speech Communication Association}},
+  Year = {2017},
+  Month = {August},
+  Address = {Stockholm, Sweden},
+  Url = {https://github.com/yinruiqing/change_detection}
+}
+```
+
+
 ## Installation
 
 ```bash
@@ -112,7 +129,7 @@ $ export TRAIN_DIR=${EXPERIMENT_DIR}/train/Etape.SpeakerDiarization.TV.train
 $ pyannote-change-detection evaluate \
          --epoch=49 \
          ${TRAIN_DIR} \               # <train_dir>
-         Etape.SpeakerDiarization.TV  # <database.task.protocol> 
+         Etape.SpeakerDiarization.TV  # <database.task.protocol>
 ```
 
 This is the expected output:
