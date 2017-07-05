@@ -566,6 +566,12 @@ class SpeakerEmbedding(Application):
                 process_epoch = epoch if completed_epochs in eers \
                                       else completed_epochs
 
+                # do not validate this epoch if it has been done before...
+                if process_epoch == epoch and epoch in eers:
+                    epoch += every
+                    progress_bar.update(every)
+                    continue
+
                 weights_h5 = LoggingCallback.WEIGHTS_H5.format(
                     log_dir=self.train_dir_, epoch=process_epoch)
 
