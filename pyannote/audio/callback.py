@@ -179,6 +179,8 @@ class LoggingCallback(Callback):
             # plot values to file and mark best value so far
             plt.plot(values, 'b')
             plt.plot([best_epoch], [best_value], 'bo')
+            plt.plot([0, epoch], [best_value, best_value], 'k--')
+            plt.grid(True)
 
             plt.xlabel('epoch')
 
