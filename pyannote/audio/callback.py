@@ -196,7 +196,7 @@ class LoggingCallback(Callback):
             log_png = self.LOG_PNG.format(
                 log_dir=self.log_dir, name=name, subset=subset)
             try:
-                plt.savefig(log_png, dpi=150)
+                plt.savefig(log_png, dpi=75)
             except Exception as e:
                 pass
 
@@ -273,7 +273,7 @@ class Debugging(Callback):
         # save plot as PNG
         gradient_png = self.GRADIENT_PNG.format(log_dir=logs['log_dir'])
         try:
-            plt.savefig(gradient_png, dpi=150)
+            plt.savefig(gradient_png, dpi=75)
         except Exception as e:
             pass
 

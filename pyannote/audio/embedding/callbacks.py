@@ -145,12 +145,12 @@ class SpeakerDiarizationValidation(Callback):
         xlim = get_range(metric=self.distance)
         if (epoch < 10) or (epoch % 20 == 0):
             plot_distributions(self.y_, distance, prefix,
-                               xlim=xlim, ymax=3, nbins=100, dpi=150)
+                               xlim=xlim, ymax=3, nbins=100, dpi=75)
 
         # plot DET curve once every 20 epochs (and 10 first epochs)
         if (epoch < 10) or (epoch % 20 == 0):
             eer = plot_det_curve(self.y_, distance, prefix,
-                                 distances=True, dpi=150)
+                                 distances=True, dpi=75)
         else:
             _, _, _, eer = det_curve(self.y_, distance, distances=True)
 
@@ -179,7 +179,7 @@ class SpeakerDiarizationValidation(Callback):
         plt.title(title)
         plt.tight_layout()
         path = self.log_dir + '/{subset}.eer.png'.format(subset=self.subset)
-        plt.savefig(path, dpi=150)
+        plt.savefig(path, dpi=75)
         plt.close(fig)
 
 
@@ -262,7 +262,7 @@ class SpeakerRecognitionValidation(Callback):
         # plot DET curve once every 20 epochs (and 10 first epochs)
         if (epoch < 10) or (epoch % 20 == 0):
             eer = plot_det_curve(y_true, y_pred, prefix,
-                                 distances=True, dpi=150)
+                                 distances=True, dpi=75)
         else:
             _, _, _, eer = det_curve(y_true, y_pred, distances=True)
 
@@ -291,5 +291,5 @@ class SpeakerRecognitionValidation(Callback):
         plt.title(title)
         plt.tight_layout()
         path = self.log_dir + '/{subset}.eer.png'.format(subset=self.subset)
-        plt.savefig(path, dpi=150)
+        plt.savefig(path, dpi=75)
         plt.close(fig)

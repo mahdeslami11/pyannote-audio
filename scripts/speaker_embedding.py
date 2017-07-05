@@ -435,7 +435,7 @@ def validate(protocol, train_dir, validation_dir, subset='development'):
             plt.title(title)
             plt.tight_layout()
             path = validation_dir + '/{subset}.eer.png'.format(subset=subset)
-            plt.savefig(path, dpi=150)
+            plt.savefig(path, dpi=75)
             plt.close(fig)
 
             # skip to next epoch
@@ -566,7 +566,7 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
 
         # plot convergence
         _ = skopt.plots.plot_convergence(res)
-        plt.savefig(tune_dir + '/convergence.png', dpi=150)
+        plt.savefig(tune_dir + '/convergence.png', dpi=75)
         plt.close()
 
         if n_trials % 10 > 0:

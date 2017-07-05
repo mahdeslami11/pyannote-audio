@@ -209,7 +209,7 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
 
         # plot convergence
         _ = skopt.plots.plot_convergence(res)
-        plt.savefig(tune_dir + '/convergence.png', dpi=150)
+        plt.savefig(tune_dir + '/convergence.png', dpi=75)
         plt.close()
 
         if n_trials % 10 > 0:
@@ -217,13 +217,13 @@ def tune(protocol, train_dir, tune_dir, beta=1.0, subset='development'):
 
         # plot evaluations
         _ = skopt.plots.plot_evaluations(res)
-        plt.savefig(tune_dir + '/evaluation.png', dpi=150)
+        plt.savefig(tune_dir + '/evaluation.png', dpi=75)
         plt.close()
 
         try:
             # plot objective function
             _ = skopt.plots.plot_objective(res)
-            plt.savefig(tune_dir + '/objective.png', dpi=150)
+            plt.savefig(tune_dir + '/objective.png', dpi=75)
             plt.close()
         except Exception as e:
             pass

@@ -425,7 +425,7 @@ class SpeechActivityDetection(Application):
                                      subset=subset)
                 plt.title(title)
                 plt.tight_layout()
-                plt.savefig(validate_png, dpi=150)
+                plt.savefig(validate_png, dpi=75)
                 plt.savefig(validate_eps)
                 plt.close(fig)
 
