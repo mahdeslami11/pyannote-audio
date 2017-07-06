@@ -1,3 +1,15 @@
+### Version 0.3 (2017-07-06)
+
+  - feat: add python 3 support
+  - chore: rewrite neural speaker embedding using autograd
+  - feat: add new embedding architectures
+  - feat: add new embedding losses
+  - chore: switch to Keras 2
+  - doc: add tutorial for (MFCC) feature extraction
+  - doc: add tutorial for (LSTM-based) speech activity detection
+  - doc: add tutorial for (LSTM-based) speaker change detection
+  - doc: add tutorial for (TristouNet) neural speaker embedding
+
 ### Version 0.2.1 (2017-03-28)
 
   - feat: add LSTM-based speech activity detection
