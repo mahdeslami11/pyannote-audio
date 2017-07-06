@@ -323,6 +323,8 @@ $ ipython
 
 A _TristouNet_ model (trained and validated on ETAPE database) is available for you to test directly in `tutorials/speaker-embedding/2+0.5/TristouNet`.
 
+Note that it was trained using `theano` backend and `floatx` set to `float32`.
+
 ## Going further...
 ([↑up to table of contents](#table-of-contents))
 
