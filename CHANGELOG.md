@@ -1,4 +1,4 @@
-### Version 0.3 (2017-07-06)
+### Version 0.3.1 (2017-07-06)
 
   - feat: add python 3 support
   - chore: rewrite neural speaker embedding using autograd

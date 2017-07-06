@@ -8,6 +8,7 @@ Audio processing
 $ conda create --name pyannote python=3.5 anaconda
 $ source activate pyannote
 $ conda install -c conda-forge yaafe
+$ pip install -U pip setuptools
 $ pip install pyannote.audio
 ```
 
