@@ -31,6 +31,8 @@ If you use `pyannote.audio` in your research, please use the following citation 
  * [Feature extraction](tutorials/feature-extraction)
  * [LSTM-based speech activity detection](tutorials/speech-activity-detection)
  * [LSTM-based speaker change detection](tutorials/change-detection)
+ * [_TristouNet_ neural speech turn embedding](tutorials/speaker-embedding)
+
 
 ## Documentation
 
