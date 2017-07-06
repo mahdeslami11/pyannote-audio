@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016 CNRS
+# Copyright (c) 2016-2017 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -184,7 +184,7 @@ class SequenceGenerator(object):
     def signature(self):
         shape = self.shape
         return (
-            {'type': 'sequence', 'shape': shape},
+            {'type': 'ndarray', 'shape': shape},
             {'type': 'label'}
         )
 
@@ -257,7 +257,7 @@ class DerivativeBatchGenerator(BaseBatchGenerator):
     def shape(self):
         return self.sequence_generator_.shape
 
-    def get_samples_per_epoch(self, protocol, subset='train'):
+    def get_steps_per_epoch(self, protocol, subset='train'):
         """
         Parameters
         ----------
@@ -266,11 +266,11 @@ class DerivativeBatchGenerator(BaseBatchGenerator):
 
         Returns
         -------
-        samples_per_epoch : int
-            Number of samples per epoch.
+        steps_per_epoch : int
+            Number of batches per epoch.
         """
         n_folds = self.n_labels / self.per_fold + 1
-        return self.batch_size * n_folds
+        return n_folds
 
     # this callback will make sure the internal embedding is always up to date
     def callbacks(self, extract_embedding=None):

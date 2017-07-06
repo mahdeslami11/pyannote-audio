@@ -70,9 +70,9 @@ class Glue(object):
         * `batch_generator` must define a `shape` property that returns the
           shape of generated sequences as a (n_samples, n_features) tuple.
 
-        * `batch_generator` must define a method called `get_samples_per_epoch`
-          with the signature `def get_samples_per_epoch(self, protocol, subset)`
-          that returns the number of samples to generate before ending an epoch.
+        * `batch_generator` must define a method called `get_steps_per_epoch`
+          with the signature `def get_steps_per_epoch(self, protocol, subset)`
+          that returns the number of batches to generate before ending an epoch.
 
         * `batch_generator` may optionally define a method called `callbacks`
           with the signature `def callbacks(self, extract_embedding=None)` that

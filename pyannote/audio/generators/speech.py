@@ -30,7 +30,7 @@ from pyannote.audio.generators.periodic import PeriodicFeaturesMixin
 from pyannote.core import SlidingWindowFeature
 from pyannote.generators.fragment import SlidingSegments
 from pyannote.generators.batch import FileBasedBatchGenerator
-from scipy.stats import zscore
+from pyannote.databse.util import get_annotated
 import numpy as np
 
 
@@ -53,11 +53,10 @@ class SpeechActivityDetectionBatchGenerator(PeriodicFeaturesMixin,
     def signature(self):
 
         shape = self.shape
-        dimension = 2
 
         return [
-            {'type': 'sequence', 'shape': shape},
-            {'type': 'sequence', 'shape': (shape[0], dimension)}
+            {'type': 'ndarray', 'shape': shape},
+            {'type': 'ndarray', 'shape': (shape[0], 2)}
         ]
 
     def preprocess(self, current_file, identifier=None):
@@ -80,18 +79,18 @@ class SpeechActivityDetectionBatchGenerator(PeriodicFeaturesMixin,
         y = np.zeros((n_samples + 4, 2), dtype=np.int8)
         # [0,1] ==> speech / [1, 0] ==> non speech / [0, 0] ==> unknown
 
-        annotated = current_file.get('annotated', X.getExtent())
+        annotated = get_annotated(current_file)
         annotation = current_file['annotation']
 
-        coverage = annotation.get_timeline().coverage()
+        support = annotation.get_timeline().support()
 
         # iterate over non-speech regions
-        for non_speech in coverage.gaps(annotated):
+        for non_speech in support.gaps(annotated):
             indices = sw.crop(non_speech, mode='loose')
             y[indices, 0] = 1
 
         # iterate over speech regions
-        for speech in coverage:
+        for speech in support:
             indices = sw.crop(speech, mode='loose')
             y[indices, 1] = 1
 
@@ -138,8 +137,8 @@ class OverlappingSpeechDetectionBatchGenerator(PeriodicFeaturesMixin,
         dimension = 2
 
         return [
-            {'type': 'sequence', 'shape': shape},
-            {'type': 'sequence', 'shape': (shape[0], dimension)}
+            {'type': 'ndarray', 'shape': shape},
+            {'type': 'ndarray', 'shape': (shape[0], dimension)}
         ]
 
     def preprocess(self, current_file, identifier=None):

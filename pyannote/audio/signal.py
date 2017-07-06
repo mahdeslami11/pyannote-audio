@@ -59,7 +59,7 @@ class Peak(object):
         self.alpha = alpha
         self.min_duration = min_duration
 
-    def apply(self, predictions):
+    def apply(self, predictions, dimension=0):
         """Peak detection
 
         Parameter
@@ -72,7 +72,14 @@ class Peak(object):
         segmentation : Timeline
             Partition.
         """
-        y = predictions.data
+
+        if len(predictions.data.shape) == 1:
+            y = predictions.data
+        elif predictions.data.shape[1] == 1:
+            y = predictions.data[:, 0]
+        else:
+            y = predictions.data[:, dimension]
+
         sw = predictions.sliding_window
 
         precision = sw.step

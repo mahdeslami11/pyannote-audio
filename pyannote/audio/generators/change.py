@@ -1,14 +1,44 @@
+#!/usr/bin/env python
+# encoding: utf-8
+
+# The MIT License (MIT)
+
+# Copyright (c) 2017 CNRS
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# AUTHORS
+# Ruiqing YIN
+# Hervé BREDIN - http://herve.niderb.fr
+
+
 from pyannote.audio.generators.periodic import PeriodicFeaturesMixin
 from pyannote.core import SlidingWindowFeature
-from pyannote.core import Segment
-from pyannote.core import Timeline
+from pyannote.core import Segment, Timeline
 from pyannote.generators.fragment import SlidingSegments
 from pyannote.generators.batch import FileBasedBatchGenerator
 from pyannote.database.util import get_annotated
 import numpy as np
 
+
 class ChangeDetectionBatchGenerator(PeriodicFeaturesMixin,
-                                 FileBasedBatchGenerator):
+                                    FileBasedBatchGenerator):
 
     """(X_batch, y_batch) batch generator
 
@@ -25,9 +55,9 @@ class ChangeDetectionBatchGenerator(PeriodicFeaturesMixin,
         step of sliding window (in seconds).
         Defaults to 0.8s.
     balance: float, optional
-        Artificially increase the number of positive labels by 
-        labeling as positive every frame in the direct neighborhood 
-        (less than balance seconds apart) of each change point. 
+        Artificially increase the number of positive labels by
+        labeling as positive every frame in the direct neighborhood
+        (less than balance seconds apart) of each change point.
         Defaults to 0.01s (10 ms).
     batch_size: int, optional
         Size of batch
@@ -66,8 +96,8 @@ class ChangeDetectionBatchGenerator(PeriodicFeaturesMixin,
         shape = self.shape
 
         return [
-            {'type': 'sequence', 'shape': shape},
-            {'type': 'sequence', 'shape': (shape[0], 2)}
+            {'type': 'ndarray', 'shape': shape},
+            {'type': 'ndarray', 'shape': (shape[0], 2)}
         ]
 
     def preprocess(self, current_file, identifier=None):

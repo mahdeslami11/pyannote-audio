@@ -37,26 +37,30 @@ setup(
     namespace_packages=['pyannote'],
     packages=find_packages(),
     install_requires=[
-        'pyannote.core >= 0.13.1',
-        'pyannote.metrics >= 0.14.3',
-        'pyannote.generators >= 0.10',
+        'pyannote.core >= 1.0.1',
+        'pyannote.metrics >= 1.0',
+        'pyannote.generators >= 0.13',
         'pyannote.database >= 0.11.2',
         'pyannote.parser >= 0.6.5',
         'pyannote.algorithms >= 0.7.3',
         'pysndfile >= 0.2.11',
-        'keras >= 1.2.0, < 2.0.0',
+        'keras >= 2.0.5',
         'theano >= 0.8.2',
+        'autograd >= 1.1.10',
         'scikit-optimize >= 0.2',
         'pyYAML >= 3.12',
         'h5py >= 2.6.0',
         'cachetools >= 2.0.0',
-        'librosa >= 0.4.3'
+        'librosa >= 0.4.3',
+        'tqdm >= 4.11.2',
+        'sortedcontainers >= 1.5.7',
     ],
     entry_points = {
         'console_scripts': [
             'pyannote-speech-feature=pyannote.audio.applications.feature_extraction:main',
             'pyannote-speech-detection=pyannote.audio.applications.speech_detection:main',
             'pyannote-change-detection=pyannote.audio.applications.change_detection:main',
+            'pyannote-speaker-embedding=pyannote.audio.applications.speaker_embedding:main',
             'pyannote-bic-clustering=pyannote.audio.applications.bic_clustering:main']
     },
     # versioneer
@@ -76,8 +80,8 @@ setup(
         "Programming Language :: Python :: 2",
         "Programming Language :: Python :: 2.7",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.4",
         "Programming Language :: Python :: 3.5",
+        "Programming Language :: Python :: 3.6",
         "Topic :: Scientific/Engineering"
     ],
 )

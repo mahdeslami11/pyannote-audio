@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016 CNRS
+# Copyright (c) 2016-2017 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -35,10 +35,14 @@ with warnings.catch_warnings():
 import matplotlib.pyplot as plt
 
 import os
+import pickle
 import os.path
 import datetime
 import numpy as np
 from keras.callbacks import Callback
+import keras.optimizers
+from pyannote.audio.util import mkdir_p
+from keras.models import save_model
 
 
 class LoggingCallback(Callback):
@@ -53,9 +57,21 @@ class LoggingCallback(Callback):
         Function that takes Keras model as input and returns the actual model.
         This is useful for embedding that are not directly optimized by Keras.
         Defaults to identity function.
+    restart : boolean, optional
+        Indicates that this training is a restart, not a cold start (default).
     """
 
-    def __init__(self, log_dir, log=None, extract_embedding=None):
+    ARCHITECTURE_YML = '{log_dir}/architecture.yml'
+    WEIGHTS_DIR = '{log_dir}/weights'
+    WEIGHTS_H5 = '{log_dir}/weights/{epoch:04d}.h5'
+    OPTIMIZER_DIR = '{log_dir}/optimizer'
+    OPTIMIZER_PKL = '{log_dir}/optimizer/{epoch:04d}.pkl'
+    LOG_TXT = '{log_dir}/{name}.{subset}.txt'
+    LOG_PNG = '{log_dir}/{name}.{subset}.png'
+    LOG_EPS = '{log_dir}/{name}.{subset}.eps'
+
+    def __init__(self, log_dir, log=None, extract_embedding=None,
+                 restart=False):
         super(LoggingCallback, self).__init__()
 
         # make sure path is absolute
@@ -65,7 +81,7 @@ class LoggingCallback(Callback):
             extract_embedding = lambda model: model
         self.extract_embedding = extract_embedding
 
-        # create log_dir directory (and subdirectory)
+        # create log_dir directory
         try:
             os.makedirs(self.log_dir)
         except OSError as e:
@@ -78,7 +94,13 @@ class LoggingCallback(Callback):
         # and this is OK  because 'weights' directory
         # usually contains the output of very long computations
         # and you do not want to erase them by mistake :/
-        os.makedirs(self.log_dir + '/weights')
+        self.restart = restart
+        if not self.restart:
+            weights_dir = self.WEIGHTS_DIR.format(log_dir=self.log_dir)
+            os.makedirs(weights_dir)
+
+        # optimizer_dir = self.OPTIMIZER_DIR.format(log_dir=self.log_dir)
+        # mkdir_p(optimizer_dir)
 
         if log is None:
             log = [('train', 'loss')]
@@ -110,26 +132,6 @@ class LoggingCallback(Callback):
         value, minimize = get_value(epoch, subset, logs=logs)
         return value, minimize
 
-    def on_epoch_begin(self, epoch, logs={}):
-        """Save architecture before first epoch"""
-
-        if epoch > 0:
-            return
-
-        architecture = self.log_dir + '/architecture.yml'
-        model = self.extract_embedding(self.model)
-        yaml_string = model.to_yaml()
-        with open(architecture, 'w') as fp:
-            fp.write(yaml_string)
-
-        # save initial model
-        current_weights = self.log_dir + '/weights/init.h5'
-        try:
-            model = self.extract_embedding(self.model)
-            model.save_weights(current_weights, overwrite=True)
-        except Exception as e:
-            pass
-
     def on_epoch_end(self, epoch, logs={}):
         """Save weights (and various curves) after each epoch"""
 
@@ -137,15 +139,13 @@ class LoggingCallback(Callback):
         now = datetime.datetime.now().isoformat()
 
         # save model after this epoch
-        PATH = self.log_dir + '/weights/{epoch:04d}.h5'
-        current_weights = PATH.format(epoch=epoch)
+        weights_h5 = self.WEIGHTS_H5.format(log_dir=self.log_dir, epoch=epoch)
 
-        # save current weights
-        try:
-            model = self.extract_embedding(self.model)
-            model.save_weights(current_weights, overwrite=True)
-        except Exception as e:
-            pass
+        # . overwrite only in case of a restart
+        # . include optimizer only every 10 epochs
+        keras.models.save_model(self.model, weights_h5,
+                                overwrite=self.restart,
+                                include_optimizer=(epoch % 10 == 0))
 
         for subset, name in self.log:
 
@@ -156,13 +156,13 @@ class LoggingCallback(Callback):
             values = self.values[subset][name]
 
             # write value to file
-            PATH = self.log_dir + '/{name}.{subset}.txt'
-            path = PATH.format(subset=subset, name=name)
+            log_txt = self.LOG_TXT.format(
+                log_dir=self.log_dir, name=name, subset=subset)
             TXT_TEMPLATE = '{epoch:d} ' + now + ' {value:.3f}\n'
 
             mode = 'a' if epoch > 0 else 'w'
             try:
-                with open(path, mode) as fp:
+                with open(log_txt, mode) as fp:
                     fp.write(TXT_TEMPLATE.format(epoch=epoch, value=value))
                     fp.flush()
             except Exception as e:
@@ -176,23 +176,11 @@ class LoggingCallback(Callback):
                 best_epoch = np.argmax(values)
                 best_value = np.max(values)
 
-            if best_epoch == epoch:
-                LINK_NAME = self.log_dir + '/best.{name}.{subset}.h5'
-                link_name = LINK_NAME.format(subset=subset, name=name)
-
-                try:
-                    os.remove(link_name)
-                except Exception as e:
-                    pass
-
-                try:
-                    os.symlink(current_weights, link_name)
-                except Exception as e:
-                    pass
-
             # plot values to file and mark best value so far
             plt.plot(values, 'b')
             plt.plot([best_epoch], [best_value], 'bo')
+            plt.plot([0, epoch], [best_value, best_value], 'k--')
+            plt.grid(True)
 
             plt.xlabel('epoch')
 
@@ -207,19 +195,88 @@ class LoggingCallback(Callback):
             plt.tight_layout()
 
             # save plot as PNG
-            PATH = self.log_dir + '/{name}.{subset}.png'
-            path = PATH.format(subset=subset, name=name)
+            log_png = self.LOG_PNG.format(
+                log_dir=self.log_dir, name=name, subset=subset)
             try:
-                plt.savefig(path, dpi=150)
+                plt.savefig(log_png, dpi=75)
             except Exception as e:
                 pass
 
             # save plot as EPS
-            PATH = self.log_dir + '/{name}.{subset}.eps'
-            path = PATH.format(subset=subset, name=name)
+            log_eps = self.LOG_EPS.format(
+                log_dir=self.log_dir, name=name, subset=subset)
             try:
-                plt.savefig(path)
+                plt.savefig(log_eps)
             except Exception as e:
                 pass
 
             plt.close()
+
+
+class BaseLogger(Callback):
+    """Callback that accumulates epoch averages of metrics.
+    This callback is automatically applied to every Keras model.
+    """
+
+    def on_epoch_begin(self, epoch, logs=None):
+        self.seen = 0
+        self.totals = {}
+
+    def on_batch_end(self, batch, logs=None):
+        logs = logs or {}
+        batch_size = logs.get('size', 0)
+        self.seen += batch_size
+
+        for k, v in logs.items():
+            if k in self.totals:
+                try:
+                    self.totals[k] += v * batch_size
+                except ValueError as e:
+                    pass
+            else:
+                self.totals[k] = v * batch_size
+
+    def on_epoch_end(self, epoch, logs=None):
+        if logs is not None:
+            for k in self.params['metrics']:
+                if k in self.totals:
+                    # Make value available to next callbacks.
+                    logs[k] = self.totals[k] / self.seen
+
+class Debugging(Callback):
+
+    GRADIENT_PNG = '{log_dir}/gradient.png'
+
+    def __init__(self):
+        super(Debugging, self).__init__()
+        self.min_gradient = []
+        self.max_gradient = []
+        self.avg_gradient = []
+        self.pct_gradient = []
+
+    def on_batch_end(self, batch, logs=None):
+
+        min_gradient = np.min(np.abs(logs['gradient']))
+        max_gradient = np.max(np.abs(logs['gradient']))
+        avg_gradient = np.average(np.abs(logs['gradient']))
+
+        self.min_gradient.append(min_gradient)
+        self.max_gradient.append(max_gradient)
+        self.avg_gradient.append(avg_gradient)
+
+        # plot values to file and mark best value so far
+        plt.plot(self.min_gradient, 'b', label='min')
+        plt.plot(self.max_gradient, 'r', label='max')
+        plt.plot(self.avg_gradient, 'g', label='avg')
+        plt.legend()
+        plt.title('Gradients')
+        plt.tight_layout()
+
+        # save plot as PNG
+        gradient_png = self.GRADIENT_PNG.format(log_dir=logs['log_dir'])
+        try:
+            plt.savefig(gradient_png, dpi=75)
+        except Exception as e:
+            pass
+
+        plt.close()

@@ -34,7 +34,10 @@ import os.path
 from glob import glob
 import numpy as np
 from struct import unpack
-import pysndfile.sndio
+try:
+    import pysndfile.sndio
+except ImportError as e:
+    pass
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.database.util import get_unique_identifier
 

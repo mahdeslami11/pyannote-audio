@@ -143,7 +143,7 @@ class LegacyTripletLoss(Glue):
             [embedded_anchor, embedded_positive, embedded_negative],
             mode=mode, output_shape=self._output_shape)
 
-        model = Model(input=[anchor, positive, negative], output=distance)
+        model = Model(inputs=[anchor, positive, negative], outputs=distance)
         return model
 
     def loss(self, y_true, y_pred):

@@ -26,12 +26,8 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-try:
-    from .with_yaafe import YaafeCompound, YaafeZCR, YaafeMFCC
-except ImportError as e:
-    pass
-from .with_librosa import LibrosaMFCC
-from .with_librosa import LibrosaRMSE
+from .with_yaafe import YaafeCompound, YaafeZCR, YaafeMFCC
+from .with_librosa import LibrosaMFCC, LibrosaRMSE
 from .utils import Precomputed
 from .utils import PrecomputedHTK
 from .utils import RawAudio

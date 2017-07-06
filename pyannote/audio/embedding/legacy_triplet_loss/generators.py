@@ -253,11 +253,11 @@ class TripletGenerator(object):
         shape = self.shape
         return (
             [
-                {'type': 'sequence', 'shape': shape},
-                {'type': 'sequence', 'shape': shape},
-                {'type': 'sequence', 'shape': shape}
+                {'type': 'ndarray', 'shape': shape},
+                {'type': 'ndarray', 'shape': shape},
+                {'type': 'ndarray', 'shape': shape}
             ],
-            {'type': 'boolean'}
+            {'type': 'scalar'}
         )
 
     def callbacks(self, extract_embedding=None):
@@ -326,7 +326,7 @@ class TripletBatchGenerator(BaseBatchGenerator):
     def shape(self):
         return self.triplet_generator_.shape
 
-    def get_samples_per_epoch(self, protocol, subset='train'):
+    def get_steps_per_epoch(self, protocol, subset='train'):
         """
         Parameters
         ----------
@@ -335,13 +335,13 @@ class TripletBatchGenerator(BaseBatchGenerator):
 
         Returns
         -------
-        samples_per_epoch : int
-            Number of samples per epoch.
+        steps_per_epoch : int
+            Number of batches per epoch.
         """
         n_labels = len(protocol.stats(subset)['labels'])
         per_label = self.triplet_generator_.per_label
         samples_per_epoch = per_label * (per_label - 1) * n_labels
-        return samples_per_epoch - (samples_per_epoch % self.batch_size)
+        return samples_per_epoch // self.batch_size
 
     def callbacks(self, extract_embedding=None):
         return self.triplet_generator_.callbacks(

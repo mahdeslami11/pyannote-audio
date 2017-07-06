@@ -29,6 +29,7 @@
 
 import yaml
 import os.path
+from glob import glob
 
 from pyannote.database.util import FileFinder
 
@@ -36,7 +37,6 @@ from pyannote.database.util import FileFinder
 class Application(object):
 
     CONFIG_YML = '{experiment_dir}/config.yml'
-    ARCHITECTURE_YML = '{train_dir}/architecture.yml'
     WEIGHTS_H5 = '{train_dir}/weights/{epoch:04d}.h5'
 
     def __init__(self, experiment_dir, db_yml=None):
@@ -53,27 +53,26 @@ class Application(object):
             self.config_ = yaml.load(fp)
 
         # feature extraction
-        feature_extraction_name = self.config_['feature_extraction']['name']
-        features = __import__('pyannote.audio.features',
-                              fromlist=[feature_extraction_name])
-        FeatureExtraction = getattr(features, feature_extraction_name)
-        self.feature_extraction_ = FeatureExtraction(
-            **self.config_['feature_extraction'].get('params', {}))
+        if 'feature_extraction' in self.config_:
+            extraction_name = self.config_['feature_extraction']['name']
+            features = __import__('pyannote.audio.features',
+                                  fromlist=[extraction_name])
+            FeatureExtraction = getattr(features, extraction_name)
+            self.feature_extraction_ = FeatureExtraction(
+                **self.config_['feature_extraction'].get('params', {}))
 
-        # do not cache features in memory when they are precomputed on disk
-        # as this does not bring any significant speed-up
-        # but does consume (potentially) a LOT of memory
-        self.cache_preprocessed_ = 'Precomputed' not in feature_extraction_name
+            # do not cache features in memory when they are precomputed on disk
+            # as this does not bring any significant speed-up
+            # but does consume (potentially) a LOT of memory
+            self.cache_preprocessed_ = 'Precomputed' not in extraction_name
 
     def get_epochs(self, train_dir):
-        """Get current number of completed epochs"""
+        """Get last completed epoch"""
 
-        epoch = 0
+        directory = self.WEIGHTS_H5.format(train_dir=train_dir, epoch=0)[:-7]
+        weights_h5 = glob(directory + '*[0-9][0-9][0-9][0-9].h5')
 
-        while True:
-            weights_h5 = self.WEIGHTS_H5.format(train_dir=train_dir, epoch=epoch)
-            if not os.path.isfile(weights_h5):
-                break
-            epoch += 1
+        if not weights_h5:
+            return 0
 
-        return epoch
+        return int(os.path.basename(weights_h5[-1])[:-3]) + 1

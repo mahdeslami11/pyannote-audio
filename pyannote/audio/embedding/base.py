@@ -111,7 +111,7 @@ class SequenceEmbedding(object):
             embedding.save_weights(weights, overwrite=overwrite)
 
     def fit(self, design_embedding,
-            protocol, nb_epoch, train='train',
+            protocol, epochs, train='train',
             optimizer='rmsprop', batch_size=None,
             log_dir=None, validation=['development'],
             max_q_size=1):
@@ -125,14 +125,10 @@ class SequenceEmbedding(object):
             model that takes a sequence as input, and returns the embedding as
             output.
         protocol : pyannote.database.Protocol
-
-        nb_epoch : int
+        epochs : int
             Total number of iterations on the data
         train : {'train', 'development', 'test'}, optional
             Defaults to 'train'.
-        validation: list, optional
-            List of validation subsets among {'train', 'development', 'test'}.
-            Defaults to ['development'].
         optimizer: str, optional
             Keras optimizer. Defaults to 'rmsprop'.
         batch_size : int, optional
@@ -171,45 +167,17 @@ class SequenceEmbedding(object):
                 callbacks.extend(stuff.callbacks(
                     extract_embedding=extract_embedding))
 
-        if validation:
-
-            from pyannote.database.protocol.speaker_diarization import \
-                SpeakerDiarizationProtocol
-            from pyannote.database.protocol.speaker_recognition import \
-                SpeakerRecognitionProtocol
-
-            # speaker diarization
-            if isinstance(protocol, SpeakerDiarizationProtocol):
-                from pyannote.audio.embedding.callbacks import \
-                    SpeakerDiarizationValidation
-                ValidationCallback = SpeakerDiarizationValidation
-
-            # speaker recognition
-            elif isinstance(protocol, SpeakerRecognitionProtocol):
-                from pyannote.audio.embedding.callbacks import \
-                    SpeakerRecognitionValidation
-                ValidationCallback = SpeakerRecognitionValidation
-
-            else:
-                warnings.warn(
-                    'No validation callback available for this protocol.')
-
-            for subset in validation:
-                callback = ValidationCallback(
-                    self.glue, protocol, subset, log_dir)
-                callbacks.append(callback)
-
         # if generator has n_labels attribute, pass it to build_model
         n_labels = getattr(generator, 'n_labels', None)
         self.model_ = self.glue.build_model(
             generator.shape, design_embedding, n_labels=n_labels)
         self.model_.compile(optimizer=optimizer, loss=self.glue.loss)
 
-        samples_per_epoch = generator.get_samples_per_epoch(
+        steps_per_epoch = generator.get_steps_per_epoch(
             protocol, subset=train)
 
         return self.model_.fit_generator(
-            generator, samples_per_epoch, nb_epoch,
+            generator, steps_per_epoch, epochs=epochs,
             verbose=1, callbacks=callbacks, max_q_size=max_q_size)
 
     def transform(self, sequences, internal=None, batch_size=32):

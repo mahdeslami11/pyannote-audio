@@ -29,7 +29,7 @@
 import os.path
 
 from pyannote.audio.callback import LoggingCallback
-from keras.models import model_from_yaml
+import keras.models
 
 from pyannote.audio.keras_utils import CUSTOM_OBJECTS
 
@@ -41,62 +41,35 @@ class SequenceLabeling(object):
         super(SequenceLabeling, self).__init__()
 
     @classmethod
-    def from_disk(cls, architecture, weights):
+    def from_disk(cls, log_dir, epoch):
         """Load pre-trained sequence labeling from disk
 
         Parameters
         ----------
-        architecture : str
-            Path to architecture file (e.g. created by `to_disk` method)
-        weights : str
-            Path to pre-trained weight file (e.g. created by `to_disk` method)
+        log_dir : str
+        epoch : int
 
         Returns
         -------
         sequence_labeling : SequenceLabeling
             Pre-trained sequence labeling model.
         """
+
         self = SequenceLabeling()
 
-        with open(architecture, 'r') as fp:
-            yaml_string = fp.read()
-        self.labeling_ = model_from_yaml(
-            yaml_string, custom_objects=CUSTOM_OBJECTS)
-        self.labeling_.load_weights(weights)
+        weights_h5 = LoggingCallback.WEIGHTS_H5.format(log_dir=log_dir,
+                                                       epoch=epoch)
+
+        self.labeling_ = keras.models.load_model(
+            weights_h5, custom_objects=CUSTOM_OBJECTS,
+            compile=True)
+
+        self.labeling_.epoch = epoch
+
         return self
 
-    def to_disk(self, architecture=None, weights=None, overwrite=False):
-        """Save trained sequence labeling to disk
-
-        Parameters
-        ----------
-        architecture : str, optional
-            When provided, path where to save architecture.
-        weights : str, optional
-            When provided, path where to save weights
-        overwrite : boolean, optional
-            Overwrite (architecture or weights) file in case they exist.
-        """
-
-        if not hasattr(self, 'model_'):
-            raise AttributeError('Model must be trained first.')
-
-        if architecture and os.path.isfile(architecture) and not overwrite:
-            raise ValueError("File '{architecture}' already exists.".format(architecture=architecture))
-
-        if weights and os.path.isfile(weights) and not overwrite:
-            raise ValueError("File '{weights}' already exists.".format(weights=weights))
-
-        if architecture:
-            yaml_string = self.labeling_.to_yaml()
-            with open(architecture, 'w') as fp:
-                fp.write(yaml_string)
-
-        if weights:
-            self.labeling_.save_weights(weights, overwrite=overwrite)
-
     def fit(self, input_shape, design_labeling, generator,
-            samples_per_epoch, nb_epoch, loss='categorical_crossentropy', 
+            steps_per_epoch, epochs, loss='categorical_crossentropy',
             optimizer='rmsprop', log_dir=None):
         """Train the model
 
@@ -112,11 +85,11 @@ class SequenceLabeling(object):
             The output of the generator must be a tuple (inputs, targets) or a
             tuple (inputs, targets, sample_weights). All arrays should contain
             the same number of samples. The generator is expected to loop over
-            its data indefinitely. An epoch finishes when `samples_per_epoch`
+            its data indefinitely. An epoch finishes when `steps_per_epoch`
             samples have been seen by the model.
-        samples_per_epoch : int
-            Number of samples to process before going to the next epoch.
-        nb_epoch : int
+        steps_per_epoch : int
+            Number of batches to process before going to the next epoch.
+        epochs : int
             Total number of iterations on the data
         optimizer: str, optional
             Keras optimizer. Defaults to 'rmsprop'.
@@ -149,7 +122,7 @@ class SequenceLabeling(object):
                                metrics=['accuracy'])
 
         return self.labeling_.fit_generator(
-            generator, samples_per_epoch, nb_epoch,
+            generator, steps_per_epoch, epochs=epochs,
             verbose=1, callbacks=callbacks)
 
     def predict(self, sequence, batch_size=32, verbose=0):

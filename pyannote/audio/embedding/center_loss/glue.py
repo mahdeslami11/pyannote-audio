@@ -47,7 +47,7 @@ def center_loss(inputs, centers=None, distance=None):
     ----------
     embeddings : (n_samples, n_dimensions) numpy array
     labels : (n_samples, ) numpy array
-    center_labels : (n_centers, n_dimensions) numpy array
+    center_labels : (n_centers, ) numpy array
         n_centers <= n_labels
     centers : (n_labels, n_dimensions)
     distance : callable
@@ -122,7 +122,7 @@ class CenterLoss(BatchGlue):
                          output_shape=(output_dim, ),
                          name="centers")(x)
 
-        model = Model(input=trigger, output=centers)
+        model = Model(inputs=trigger, outputs=centers)
         model.compile(optimizer=SSMORMS3(), loss=self.loss)
         return model
 

@@ -27,7 +27,7 @@
 # Ruiqing YIN
 
 """
-change detection
+Speaker change detection
 
 Usage:
     pyannote-change-detection train [--database=<db.yml> --subset=<subset>] <experiment_dir> <database.task.protocol>
@@ -56,17 +56,23 @@ Options:
                                     In "tune" mode, default is "development".
                                     In "apply" mode, default is "test".
     --epoch=<epoch>                 The epoch in training process
-    --threshold=<threshold>         Threshold for choosing change points 
+    --threshold=<threshold>         Threshold for choosing change points
                                     [default: 0.1]
     --min_duration=<min_duration>   min duration between two adjacent peaks
                                     [default: 1.0]
     -h --help                       Show this screen.
     --version                       Show version.
 
+
+Database configuration file:
+    The database configuration provides details as to where actual files are
+    stored. See `pyannote.database.util.FileFinder` docstring for more
+    information on the expected format.
+
 Configuration file:
         The configuration of each experiment is described in a file called
         <experiment_dir>/config.yml, that describes the architecture of the neural
-        network used for sequence labeling, the feature extraction process 
+        network used for sequence labeling, the feature extraction process
         (e.g. MFCCs) and the sequence generator used for both training and applying.
 
         ................... <experiment_dir>/config.yml ...................
@@ -81,7 +87,7 @@ Configuration file:
                     stack: 1
                     duration: 0.025
                     step: 0.010
- 
+
         architecture:
              name: StackedLSTM
              params:                         # this experiments relies
@@ -95,6 +101,7 @@ Configuration file:
              duration: 3.2                 # this experiments relies
              step: 0.8                     # on sliding windows of 3.2s
              balance: 0.05                 # with a step of 0.8s
+             batch_size: 1024
         ...................................................................
 
 "train" mode:
@@ -108,8 +115,8 @@ Configuration file:
         This directory is called <train_dir> in the subsequent "evaluate" and "apply" mode.
 
 "evaluate" mode:
-        Then, one can evaluate the model with "evaluate" mode. This will create 
-        the following directory that contains coverages and purities based 
+        Then, one can evaluate the model with "evaluate" mode. This will create
+        the following directory that contains coverages and purities based
         on different thresholds:
                 <train_dir>/evaluate/<database.task.protocol>.<subset>
         This means that the model is evaluated on the <subset> subset of the
@@ -117,7 +124,7 @@ Configuration file:
 
 "apply" mode
         Finally, one can apply speaker change detection using "apply" mode.
-        This will create the following files that contains the segmentation results 
+        This will create the following files that contains the segmentation results
         with a requested threshold:
                 <train_dir>/segments/<database.task.protocol>.<subset>/<threshold>/{uri}.0.seg
         This means that file whose unique resource identifier is {uri} has been
@@ -142,6 +149,8 @@ from pyannote.audio.signal import Peak
 from pyannote.database import get_database
 from pyannote.audio.optimizers import SSMORMS3
 
+from pyannote.audio.callback import LoggingCallback
+
 from pyannote.metrics.segmentation import SegmentationPurity
 from pyannote.metrics.segmentation import SegmentationCoverage
 from pyannote.metrics import f_measure
@@ -157,7 +166,6 @@ from pyannote.audio.util import mkdir_p
 def train(protocol, experiment_dir, train_dir, subset='train'):
 
     # -- TRAINING --
-    batch_size = 1024
     nb_epoch = 100
     optimizer = SSMORMS3()
 
@@ -183,17 +191,17 @@ def train(protocol, experiment_dir, train_dir, subset='train'):
             **config['architecture'].get('params', {}))
 
     # -- SEQUENCE GENERATOR --
+    batch_size = config['sequences'].get('batch_size', 1024)
     duration = config['sequences']['duration']
     step = config['sequences']['step']
     balance = config['sequences']['balance']
     generator = ChangeDetectionBatchGenerator(
-            feature_extraction,
-            duration=duration, step=step, batch_size=batch_size, balance=balance)
+            feature_extraction, batch_size=batch_size,
+            duration=duration, step=step, balance=balance)
 
-    # number of samples per epoch + round it to closest batch
+    # number of steps per epoch
     seconds_per_epoch = protocol.stats(subset)['annotated']
-    samples_per_epoch = batch_size * \
-            int(np.ceil((seconds_per_epoch / step) / batch_size))
+    steps_per_epoch = int(np.ceil((seconds_per_epoch / step) / batch_size))
 
     # input shape (n_frames, n_features)
     input_shape = generator.shape
@@ -201,20 +209,20 @@ def train(protocol, experiment_dir, train_dir, subset='train'):
     labeling = SequenceLabeling()
     labeling.fit(input_shape, architecture,
                 generator(getattr(protocol, subset)(), infinite=True),
-                samples_per_epoch, nb_epoch, loss='binary_crossentropy',
+                steps_per_epoch, nb_epoch, loss='binary_crossentropy',
                 optimizer=optimizer, log_dir=train_dir)
 
 
-def evaluate(protocol, train_dir, store_dir, subset='development', 
+def evaluate(protocol, train_dir, store_dir, subset='development',
     epoch=None, min_duration=1.0):
 
     mkdir_p(store_dir)
+
     # -- LOAD MODEL --
-    architecture_yml = train_dir + '/architecture.yml'
-    WEIGHTS_H5 = train_dir + '/weights/{epoch:04d}.h5'
     nb_epoch = 0
     while True:
-        weights_h5 = WEIGHTS_H5.format(epoch=nb_epoch)
+        weights_h5 = LoggingCallback.WEIGHTS_H5.format(log_dir=train_dir,
+                                                       epoch=nb_epoch)
         if not os.path.isfile(weights_h5):
             break
         nb_epoch += 1
@@ -246,9 +254,8 @@ def evaluate(protocol, train_dir, store_dir, subset='development',
     if epoch is None:
         epoch = nb_epoch - 1
 
-    weights_h5 = WEIGHTS_H5.format(epoch=epoch)
     sequence_labeling = SequenceLabeling.from_disk(
-            architecture_yml, weights_h5)
+            train_dir, epoch)
 
     aggregation = SequenceLabelingAggregation(
             sequence_labeling, feature_extraction,
@@ -283,17 +290,16 @@ def evaluate(protocol, train_dir, store_dir, subset='development',
             c = 100 * abs(coverage[i])
             print(TEMPLATE.format(alpha=a, purity=p, coverage=c))
             fp.write(TEMPLATE.format(alpha=a, purity=p, coverage=c)+'\n')
-    
 
-def apply(protocol, train_dir, store_dir, threshold, subset='development', 
+
+def apply(protocol, train_dir, store_dir, threshold, subset='development',
     epoch=None, min_duration=1.0):
-    
+
     # -- LOAD MODEL --
-    architecture_yml = train_dir + '/architecture.yml'
-    WEIGHTS_H5 = train_dir + '/weights/{epoch:04d}.h5'
     nb_epoch = 0
     while True:
-        weights_h5 = WEIGHTS_H5.format(epoch=nb_epoch)
+        weights_h5 = LoggingCallback.WEIGHTS_H5.format(log_dir=train_dir,
+                                                       epoch=nb_epoch)
         if not os.path.isfile(weights_h5):
             break
         nb_epoch += 1
@@ -314,10 +320,10 @@ def apply(protocol, train_dir, store_dir, threshold, subset='development',
     duration = config['sequences']['duration']
     step = config['sequences']['step']
 
-    def saveSeg(filepath,filename,chn,segmentation):
+    def saveSeg(filepath,filename, segmentation):
         f = open(filepath,'w')
         for idx, val in enumerate(segmentation):
-            line = filename+' '+str(idx)+' '+str(chn)+' '+str(int(val[0]*100))+' '+str(int(val[1]*100-val[0]*100))+'\n'
+            line = filename + ' ' + str(idx) + ' 1 ' + str(int(val[0]*100))+' '+str(int(val[1]*100-val[0]*100))+'\n'
             f.write(line)
         f.close()
 
@@ -329,9 +335,8 @@ def apply(protocol, train_dir, store_dir, threshold, subset='development',
         raise ValueError('Epoch should be less than ' + str(nb_epoch))
     if epoch is None:
         epoch = nb_epoch - 1
-    weights_h5 = WEIGHTS_H5.format(epoch=epoch)
     sequence_labeling = SequenceLabeling.from_disk(
-            architecture_yml, weights_h5)
+            train_dir, epoch)
     aggregation = SequenceLabelingAggregation(
             sequence_labeling, feature_extraction,
             duration=duration, step=step)
@@ -340,18 +345,16 @@ def apply(protocol, train_dir, store_dir, threshold, subset='development',
     predictions = {}
     for dev_file in getattr(protocol, subset)():
         uri = dev_file['uri']
-        predictions[uri] = aggregation.apply(dev_file)  
+        predictions[uri] = aggregation.apply(dev_file)
 
     # initialize peak detection algorithm
     peak = Peak(alpha=threshold, min_duration=min_duration)
 
     for dev_file in getattr(protocol, subset)():
         uri = dev_file['uri']
-        prediction = predictions[uri]
-        hypothesis = peak.apply(prediction)
+        hypothesis = peak.apply(predictions[uri])
         filepath = store_dir+'/'+str(threshold) +'/'+uri+'.0.seg'
-        chn = 1
-        saveSeg(filepath,uri,chn,hypothesis)
+        saveSeg(filepath, uri, hypothesis)
 
 
 def main():
@@ -383,7 +386,7 @@ def main():
             subset = 'development'
         if epoch is not None:
             epoch = int(epoch)
-        
+
         min_duration = float(min_duration)
         store_dir = train_dir + '/evaluate/' + arguments['<database.task.protocol>'] + '.' + subset
         res = evaluate(protocol, train_dir, store_dir, subset=subset,
@@ -402,6 +405,5 @@ def main():
         min_duration= arguments['--min_duration']
         min_duration = float(min_duration)
         store_dir = train_dir + '/segments/' + arguments['<database.task.protocol>'] + '.' + subset
-        res = apply(protocol, train_dir, store_dir, threshold, subset=subset, 
+        res = apply(protocol, train_dir, store_dir, threshold, subset=subset,
             epoch=epoch, min_duration=min_duration)
-

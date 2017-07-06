@@ -28,6 +28,8 @@
 
 from keras.optimizers import Optimizer
 import keras.backend as K
+from pyannote.audio.keras_utils import register_custom_object
+
 
 class SMORMS3(Optimizer):
     '''SMORMS3 optimizer.
@@ -45,14 +47,14 @@ class SMORMS3(Optimizer):
         self.iterations = K.variable(0)
         self.lr = K.variable(lr)
         self.decay = K.variable(decay)
-        self.inital_decay = decay
+        self.initial_decay = decay
 
     def get_updates(self, params, constraints, loss):
         grads = self.get_gradients(loss, params)
         self.updates = [K.update_add(self.iterations, 1)]
 
         lr = self.lr
-        if self.inital_decay > 0:
+        if self.initial_decay > 0:
             lr *= (1. / (1. + self.decay * self.iterations))
 
         shapes = [K.get_variable_shape(p) for p in params]
@@ -87,6 +89,10 @@ class SMORMS3(Optimizer):
                   'epsilon': self.epsilon}
         base_config = super(SMORMS3, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
+
+
+# register user-defined Keras optimizer
+register_custom_object('SMORMS3', SMORMS3)
 
 
 class SSMORMS3(Optimizer):
@@ -139,3 +145,6 @@ class SSMORMS3(Optimizer):
         config = {'epsilon': self.epsilon}
         base_config = super(SSMORMS3, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
+
+# register user-defined Keras optimizer
+register_custom_object('SSMORMS3', SSMORMS3)

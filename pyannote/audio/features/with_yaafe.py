@@ -31,7 +31,11 @@ from __future__ import unicode_literals
 import warnings
 import numpy as np
 import yaafelib
-import pysndfile.sndio
+
+try:
+    import pysndfile.sndio
+except ImportError as e:
+    pass
 
 from pyannote.core.segment import SlidingWindow
 from pyannote.core.feature import SlidingWindowFeature
