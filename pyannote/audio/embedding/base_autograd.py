@@ -224,14 +224,9 @@ class SequenceEmbeddingAutograd(MixinDistanceAutograd, cbks.Callback):
         weights_h5 = LoggingCallback.WEIGHTS_H5.format(log_dir=log_dir,
                                                        epoch=epoch)
 
-        # TODO update this code once keras > 2.0.4 is released
-        try:
-            embedding = keras.models.load_model(
-                weights_h5, custom_objects=CUSTOM_OBJECTS,
-                compile=True)
-        except TypeError as e:
-            embedding = keras.models.load_model(
-                weights_h5, custom_objects=CUSTOM_OBJECTS)
+        embedding = keras.models.load_model(
+            weights_h5, custom_objects=CUSTOM_OBJECTS,
+            compile=True)
 
         embedding.epoch = epoch
 

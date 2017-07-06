@@ -60,14 +60,9 @@ class SequenceLabeling(object):
         weights_h5 = LoggingCallback.WEIGHTS_H5.format(log_dir=log_dir,
                                                        epoch=epoch)
 
-        # TODO update this code once keras > 2.0.4 is released
-        try:
-            self.labeling_ = keras.models.load_model(
-                weights_h5, custom_objects=CUSTOM_OBJECTS,
-                compile=True)
-        except TypeError as e:
-            self.labeling_ = keras.models.load_model(
-                weights_h5, custom_objects=CUSTOM_OBJECTS)
+        self.labeling_ = keras.models.load_model(
+            weights_h5, custom_objects=CUSTOM_OBJECTS,
+            compile=True)
 
         self.labeling_.epoch = epoch
 

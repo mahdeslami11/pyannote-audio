@@ -584,14 +584,9 @@ class SpeakerEmbedding(Application):
                 # sleep 5 seconds to let the checkpoint callback finish
                 time.sleep(5)
 
-                # TODO update this code once keras > 2.0.4 is released
-                try:
-                    embedding = keras.models.load_model(
-                        weights_h5, custom_objects=CUSTOM_OBJECTS,
-                        compile=False)
-                except TypeError as e:
-                    embedding = keras.models.load_model(
-                        weights_h5, custom_objects=CUSTOM_OBJECTS)
+                embedding = keras.models.load_model(
+                    weights_h5, custom_objects=CUSTOM_OBJECTS,
+                    compile=False)
 
                 if aggregate:
                     def embed(X):

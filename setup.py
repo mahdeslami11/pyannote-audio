@@ -44,7 +44,7 @@ setup(
         'pyannote.parser >= 0.6.5',
         'pyannote.algorithms >= 0.7.3',
         'pysndfile >= 0.2.11',
-        'keras >= 2.0.3',
+        'keras >= 2.0.5',
         'theano >= 0.8.2',
         'autograd >= 1.1.10',
         'scikit-optimize >= 0.2',

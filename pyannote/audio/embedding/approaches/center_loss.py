@@ -108,14 +108,9 @@ class CenterLoss(TripletLoss):
             weights_h5 = self.WEIGHTS_H5.format(log_dir=logs['log_dir'],
                                                 epoch=logs['epoch'])
 
-            # TODO update this code once keras > 2.0.4 is released
-            try:
-                self.centers_ = keras.models.load_model(
-                    weights_h5, custom_objects=CUSTOM_OBJECTS,
-                    compile=True)
-            except TypeError as e:
-                self.centers_ = keras.models.load_model(
-                    weights_h5, custom_objects=CUSTOM_OBJECTS)
+            self.centers_ = keras.models.load_model(
+                weights_h5, custom_objects=CUSTOM_OBJECTS,
+                compile=True)
 
         else:
 
