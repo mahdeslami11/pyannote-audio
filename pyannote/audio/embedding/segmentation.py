@@ -42,7 +42,7 @@ class Segmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
 
     Parameters
     ----------
-    sequence_embedding : SequenceEmbedding
+    sequence_embedding : keras.Model
         Pre-trained sequence embedding.
     feature_extractor : YaafeFeatureExtractor
         Yaafe feature extractor
@@ -53,7 +53,7 @@ class Segmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
 
     Usage
     -----
-    >>> sequence_embedding = SequenceEmbedding.from_disk('architecture_yml', 'weights.h5')
+    >>> sequence_embedding = load_model('weights.h5')
     >>> feature_extractor = YaafeFeatureExtractor(...)
     >>> segmentation = Segmentation(sequence_embedding, feature_extractor)
     >>> predictions = segmentation.apply(current_file)
@@ -61,7 +61,6 @@ class Segmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
 
     See also
     --------
-    pyannote.audio.embedding.models.SequenceEmbedding
     pyannote.audio.signal.Peak
 
     """
@@ -90,7 +89,7 @@ class Segmentation(PeriodicFeaturesMixin, FileBasedBatchGenerator):
         )
 
     def postprocess_ndarray(self, mono_batch):
-        return self.sequence_embedding.transform(mono_batch)
+        return self.sequence_embedding.predict(mono_batch)
 
     def apply(self, current_file):
         """Computes distance between sliding windows embeddings

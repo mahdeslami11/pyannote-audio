@@ -55,7 +55,7 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     Usage
     -----
     >>> epoch = 1000
-    >>> embedding = SequenceEmbeddingAutograd.load(train_dir, epoch)
+    >>> embedding = SequenceEmbedding.load(train_dir, epoch)
     >>> feature_extraction = YaafeMFCC(...)
     >>> duration = 3.2
     >>> extraction = Extraction(embedding, feature_extraction, duration)

@@ -24,12 +24,10 @@
 # SOFTWARE.
 
 # AUTHORS
-# Grégory GELLY
 # Hervé BREDIN - http://herve.niderb.fr
+# Grégory GELLY
 
-import numpy as np
 import keras.backend as K
-
 from pyannote.audio.keras_utils import register_custom_object
 
 def precomputed_gradient_loss(y_true, y_pred):
@@ -37,58 +35,3 @@ def precomputed_gradient_loss(y_true, y_pred):
 
 register_custom_object('precomputed_gradient_loss',
                        precomputed_gradient_loss)
-
-
-def unitary_angular_triplet_loss(anchor, positive, negative):
-    epsilon = 1e-6
-
-    dotProdPosAnc = np.clip(np.sum(positive*anchor), -1.0, 1.0)
-    dotProdNegAnc = np.clip(np.sum(negative*anchor), -1.0, 1.0)
-
-    localCost = (np.arccos(dotProdPosAnc)-np.arccos(dotProdNegAnc)-np.pi/60.0)
-    coeffSlope = 1.0
-    coeffSlopeNegative = 1.0
-    if (localCost < 0.0):
-        coeffSlope = coeffSlopeNegative
-    coeffSlopeInternal = 10.0
-    localCost *= coeffSlopeInternal
-    localCost = 1.0/(1.0 + np.exp(-localCost))
-
-    dotProdPosAnc = 1-dotProdPosAnc*dotProdPosAnc
-    dotProdNegAnc = 1-dotProdNegAnc*dotProdNegAnc
-    if (dotProdPosAnc < epsilon): dotProdPosAnc = epsilon
-    if (dotProdNegAnc < epsilon): dotProdNegAnc = epsilon
-
-    derivCoeff = localCost*(1.0-localCost)*coeffSlope*coeffSlopeInternal
-    localCost = coeffSlope*localCost+(coeffSlopeNegative-coeffSlope)*0.5
-
-    derivativeAnchor = (-positive/np.sqrt(dotProdPosAnc)+negative/np.sqrt(dotProdNegAnc))*derivCoeff
-    derivativePositive = -anchor/np.sqrt(dotProdPosAnc)*derivCoeff
-    derivativeNegative = (anchor/np.sqrt(dotProdNegAnc))*derivCoeff
-
-    return [localCost, derivativeAnchor, derivativePositive, derivativeNegative]
-
-def unitary_cosine_triplet_loss(anchor, positive, negative):
-    dotProdPosAnc = np.sum(positive*anchor)
-    dotProdNegAnc = np.sum(negative*anchor)
-
-    localCost = -dotProdPosAnc+dotProdNegAnc-1.0/30.0
-    localCost = 1.0/(1.0 + np.exp(-localCost))
-
-    derivCoeff = 1.0
-    derivativeAnchor = (-positive+negative)*derivCoeff
-    derivativePositive = -anchor*derivCoeff
-    derivativeNegative = anchor*derivCoeff
-
-    return [localCost, derivativeAnchor, derivativePositive, derivativeNegative]
-
-def unitary_euclidean_triplet_loss(anchor, positive, negative):
-
-    localCost = np.sum(np.square(positive-anchor))-np.sum(np.square(negative-anchor))+0.2
-    localCost = 1.0/(1.0 + np.exp(-localCost))
-
-    derivativeAnchor = -2.0*(positive-negative)
-    derivativePositive = -2.0*(anchor-positive)
-    derivativeNegative = -2.0*(negative-anchor)
-
-    return [localCost, derivativeAnchor, derivativePositive, derivativeNegative]

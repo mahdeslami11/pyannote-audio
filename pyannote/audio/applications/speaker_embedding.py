@@ -178,7 +178,7 @@ import keras.backend as K
 
 from sortedcontainers import SortedDict
 from pyannote.audio.features import Precomputed
-from pyannote.audio.embedding.base_autograd import SequenceEmbeddingAutograd
+from pyannote.audio.embedding.base import SequenceEmbedding
 from pyannote.audio.embedding.extraction import Extraction
 
 class SpeakerEmbedding(Application):
@@ -661,7 +661,7 @@ class SpeakerEmbedding(Application):
         with open(self.validate_txt_, 'r') as fp:
             eers = SortedDict(np.loadtxt(fp))
         best_epoch = int(eers.iloc[np.argmin(eers.values())])
-        embedding = SequenceEmbeddingAutograd.load(
+        embedding = SequenceEmbedding.load(
             self.train_dir_, best_epoch)
 
         # guess sequence duration from path (.../3.2+0.8/...)

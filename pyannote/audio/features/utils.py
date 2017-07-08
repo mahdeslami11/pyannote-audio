@@ -130,7 +130,7 @@ class Precomputed(object):
             msg = 'No precomputed features for "{uri}".'
             raise PyannoteFeatureExtractionError(msg.format(uri=uri))
 
-        f = h5py.File(path)
+        f = h5py.File(path, mode='r')
         data = np.array(f['features'])
         f.close()
 

@@ -27,7 +27,7 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 
-from ..base_autograd import SequenceEmbeddingAutograd
+from ..base import SequenceEmbedding
 from autograd import numpy as ag_np
 from autograd import value_and_grad
 
@@ -42,7 +42,7 @@ from pyannote.generators.batch import batchify
 from pyannote.core.util import pairwise
 
 
-class TripletLoss(SequenceEmbeddingAutograd):
+class TripletLoss(SequenceEmbedding):
     """
 
     loss = d(anchor, positive) - d(anchor, negative)
