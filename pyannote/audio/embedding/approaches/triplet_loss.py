@@ -59,12 +59,14 @@ class TripletLoss(SequenceEmbedding):
     clamp: {None, 'positive', 'sigmoid'}, optional
         If 'positive' (default), loss = max(0, loss)
         If 'sigmoid', loss = sigmoid(loss)
-    per_batch : int, optional
-        Number of folds per batch. Defaults to 1.
-    per_fold : int, optional
-        Number of speakers per fold. Defaults to 20.
     per_label : int, optional
         Number of sequences per speaker. Defaults to 3.
+    per_fold : int, optional
+        If provided, sample triplets from groups of `per_fold` speakers at a
+        time. Defaults to sample triplets from the whole speaker set.
+    per_batch : int, optional
+        Number of folds per batch. Defaults to 1.
+        Has no effect when `per_fold` is not provided.
     learn_to_aggregate : boolean, optional
     gradient_factor : float, optional
         Multiply gradient by this number. Defaults to 1.
@@ -74,7 +76,7 @@ class TripletLoss(SequenceEmbedding):
     """
 
     def __init__(self, metric='sqeuclidean', margin=0.1, clamp='positive',
-                 per_batch=1, per_label=3, per_fold=20,
+                 per_batch=1, per_label=3, per_fold=None,
                  learn_to_aggregate=False, **kwargs):
 
         self.margin = margin
@@ -125,11 +127,16 @@ class TripletLoss(SequenceEmbedding):
 
         signature = {'X': {'type': 'ndarray'},
                      'y': {'type': 'ndarray'}}
-        batch_size = self.per_batch * self.per_fold * self.per_label
+
+        if self.per_fold is None:
+            batch_size = n_classes * self.per_label
+            batches_per_epoch = 1
+        else:
+            batch_size = self.per_batch * self.per_fold * self.per_label
+            batches_per_epoch = n_classes // (self.per_batch * self.per_fold) + 1
+
         batch_generator = batchify(generator(), signature,
                                    batch_size=batch_size)
-
-        batches_per_epoch = n_classes // (self.per_batch * self.per_fold) + 1
 
         return {'batch_generator': batch_generator,
                 'batches_per_epoch': batches_per_epoch,
@@ -178,11 +185,15 @@ class TripletLoss(SequenceEmbedding):
                      'y': {'type': 'scalar'},
                      'n': {'type': 'complex'}}
 
-        batch_size = self.per_batch * self.per_fold * self.per_label
+        if self.per_fold is None:
+            batch_size = n_classes * self.per_label
+            batches_per_epoch = 1
+        else:
+            batch_size = self.per_batch * self.per_fold * self.per_label
+            batches_per_epoch = n_classes // (self.per_batch * self.per_fold) + 1
+
         batch_generator = batchify(generator(), signature,
                                    batch_size=batch_size)
-
-        batches_per_epoch = n_classes // (self.per_batch * self.per_fold) + 1
 
         return {'batch_generator': batch_generator,
                 'batches_per_epoch': batches_per_epoch,
@@ -205,6 +216,10 @@ class TripletLoss(SequenceEmbedding):
         return {'loss': loss, 'gradient': fX_grad}
 
     def loss_y(self, fX, y, *args):
+
+        if self.per_fold is None:
+            loss, n_comparisons = self.loss_y_fold(fX, y, *args)
+            return loss / n_comparisons
 
         loss = 0.
         n_comparisons = 0

@@ -68,12 +68,14 @@ class CenterLoss(TripletLoss):
     clamp: {None, 'positive', 'sigmoid'}, optional
         If 'positive', loss = max(0, loss + margin).
         If 'sigmoid' (default), loss = sigmoid(10 * (loss - margin)).
-    per_batch : int, optional
-        Number of folds per batch. Defaults to 1.
-    per_fold : int, optional
-        Number of speakers per fold. Defaults to 20.
     per_label : int, optional
         Number of sequences per speaker. Defaults to 3.
+    per_fold : int, optional
+        If provided, sample triplets from groups of `per_fold` speakers at a
+        time. Defaults to sample triplets from the whole speaker set.
+    per_batch : int, optional
+        Number of folds per batch. Defaults to 1.
+        Has no effect when `per_fold` is not provided.
     update_centers : {'batch', 'all'}
         Whether to only update centers in current 'batch' (default), or to
         update 'all' centers (even though they are not part of current batch).
