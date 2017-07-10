@@ -70,26 +70,12 @@ class CenterLoss(TripletLoss):
     margin: float, optional
         Margin factor. Defaults to 0.
     clamp: {None, 'positive', 'sigmoid'}, optional
-<<<<<<< HEAD
-        If 'positive', loss = max(0, loss + margin).
-        If 'sigmoid' (default), loss = sigmoid(10 * (loss - margin)).
-=======
         If 'positive', loss = max(0, loss)
         If 'sigmoid' (default), loss = sigmoid(loss)
->>>>>>> e384479872a16249fa89733e6194f650219dd05b
     per_label : int, optional
         Number of sequences per speaker. Defaults to 3.
     per_fold : int, optional
         If provided, sample triplets from groups of `per_fold` speakers at a
-<<<<<<< HEAD
-        time. Defaults to sample triplets from the whole speaker set.
-    per_batch : int, optional
-        Number of folds per batch. Defaults to 1.
-        Has no effect when `per_fold` is not provided.
-    update_centers : {'batch', 'all'}
-        Whether to only update centers in current 'batch' (default), or to
-        update 'all' centers (even though they are not part of current batch).
-=======
         time. Defaults to 20.
     per_batch : int, optional
         Number of folds per batch. Defaults to 1.
@@ -99,7 +85,6 @@ class CenterLoss(TripletLoss):
     n_negative : int, optional
         Number of other centers to sample per (anchor, center) pair.
         Defaults to sample every valid centers.
->>>>>>> e384479872a16249fa89733e6194f650219dd05b
     learn_to_aggregate : boolean, optional
     gradient_factor : float, optional
         Multiply gradient by this number. Defaults to 1.
