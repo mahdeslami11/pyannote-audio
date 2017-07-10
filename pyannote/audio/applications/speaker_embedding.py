@@ -34,6 +34,7 @@ Usage:
   pyannote-speaker-embedding train [--subset=<subset> --start=<epoch> --end=<epoch>] <experiment_dir> <database.task.protocol>
   pyannote-speaker-embedding validate [--subset=<subset> --aggregate --every=<epoch> --from=<epoch>] <train_dir> <database.task.protocol>
   pyannote-speaker-embedding apply [--database=<db.yml> --step=<step> --internal] <validate.txt> <database.task.protocol> <output_dir>
+  pyannote-speaker-embedding compare (<validate.txt> <legend>)... <output.png>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
 
@@ -789,3 +790,41 @@ def main():
         application = SpeakerEmbedding.from_validate_txt(validate_txt)
         application.apply(protocol_name, output_dir, step=step,
                           internal=internal)
+
+    if arguments['compare']:
+
+        import matplotlib.pyplot as plt
+        from pandas import read_table
+        from pandas import concat
+        from datetime import datetime
+
+        to_timestamp = \
+            lambda t: datetime.strptime(t, '%Y-%m-%dT%H:%M:%S.%f').timestamp()
+
+        fig, ax = plt.subplots()
+
+        for validate_txt, legend in zip(arguments['<validate.txt>'],
+                                        arguments['<legend>']):
+
+            # load logs
+            eer = read_table(validate_txt, delim_whitespace=True,
+                             names=['epoch', 'eer'], index_col=['epoch'])
+
+            app = SpeakerEmbedding.from_validate_txt(validate_txt)
+            train_dir = app.train_dir_
+            loss_txt = '{train_dir}/loss.train.txt'.format(train_dir=train_dir)
+            loss = read_table(loss_txt, delim_whitespace=True,
+                              names=['epoch', 't', 'loss'],
+                              index_col=['epoch'],
+                              converters={'t': to_timestamp})
+            loss['t'] = loss['t'] - loss['t'].iloc[0]
+
+            # plot logs
+            data = concat([eer, loss], axis=1)
+            ax.plot(data['t'] / 3600, 100 * data['eer'], label=legend)
+
+        ax.set_ylabel('EER (%)')
+        ax.set_xlabel('time (hours)')
+        ax.legend()
+
+        fig.savefig(arguments['<output.png>'])
