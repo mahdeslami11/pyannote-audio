@@ -809,7 +809,8 @@ def main():
             # load logs
             eer = read_table(validate_txt, delim_whitespace=True,
                              names=['epoch', 'eer'], index_col=['epoch'])
-
+            eer = eer.loc[~eer.index.duplicated(keep='first')]
+            
             app = SpeakerEmbedding.from_validate_txt(validate_txt)
             train_dir = app.train_dir_
             loss_txt = '{train_dir}/loss.train.txt'.format(train_dir=train_dir)
@@ -821,6 +822,7 @@ def main():
 
             # plot logs
             data = concat([eer, loss], axis=1)
+            data.sort_index(inplace=True)
             ax.plot(data['t'] / 3600, 100 * data['eer'], label=legend)
 
         ax.set_ylabel('EER (%)')
