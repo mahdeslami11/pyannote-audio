@@ -80,6 +80,16 @@ class TristouNet(object):
     ----------
     rnn : {'LSTM', 'GRU'}, optional
         Defaults to 'LSTM'.
+    implementation : {0, 1, 2}, optional
+        If set to 0, the RNN will use an implementation that uses fewer,
+        larger matrix products, thus running faster on CPU but consuming more
+        memory. If set to 1, the RNN will use more matrix products, but smaller
+        ones, thus running slower (may actually be faster on GPU) while
+        consuming less memory. If set to 2 (LSTM/GRU only), the RNN will combine
+        the input gate, the forget gate and the output gate into a single
+        matrix, enabling more time-efficient parallelization on the GPU.
+    mask : bool, optional
+        Set to True to support variable length sequences through masking.
     recurrent: list, optional
         List of output dimension of stacked RNNs.
         Defaults to [16, ] (i.e. one RNN with output dimension 16)
@@ -93,10 +103,13 @@ class TristouNet(object):
         Defaults to [16, 16] (i.e. two dense MLP layers with 16 units)
     """
 
-    def __init__(self, rnn='LSTM', recurrent=[16,], bidirectional='concat', mlp=[16, 16]):
+    def __init__(self, rnn='LSTM', implementation=0, mask=False,
+                 recurrent=[16,], bidirectional='concat', mlp=[16, 16]):
 
         super(TristouNet, self).__init__()
         self.rnn = rnn
+        self.implementation = implementation
+        self.mask = mask
         self.recurrent = recurrent
         self.bidirectional = bidirectional
         self.mlp = mlp
@@ -121,8 +134,11 @@ class TristouNet(object):
         inputs = Input(shape=input_shape,
                        name="input")
 
-        masking = Masking(mask_value=0.)
-        x = masking(inputs)
+        if self.mask:
+            masking = Masking(mask_value=0.)
+            x = masking(inputs)
+        else:
+            x = inputs
 
         # stack RNN layers
         for i, output_dim in enumerate(self.recurrent):
@@ -133,7 +149,7 @@ class TristouNet(object):
                 # 'go_backwards': False,
                 # 'stateful': False,
                 # 'unroll': False,
-                # 'implementation': 0,
+                'implementation': self.implementation,
                 'activation': 'tanh',
                 # 'recurrent_activation': 'hard_sigmoid',
                 # 'use_bias': True,
@@ -195,6 +211,16 @@ class TrottiNet(object):
     ----------
     rnn : {'LSTM', 'GRU'}, optional
         Defaults to 'LSTM'.
+    implementation : {0, 1, 2}, optional
+        If set to 0, the RNN will use an implementation that uses fewer,
+        larger matrix products, thus running faster on CPU but consuming more
+        memory. If set to 1, the RNN will use more matrix products, but smaller
+        ones, thus running slower (may actually be faster on GPU) while
+        consuming less memory. If set to 2 (LSTM/GRU only), the RNN will combine
+        the input gate, the forget gate and the output gate into a single
+        matrix, enabling more time-efficient parallelization on the GPU.
+    mask : bool, optional
+        Set to True to support variable length sequences through masking.
     recurrent: list, optional
         List of output dimension of stacked RNNs.
         Defaults to [16, ] (i.e. one RNN with output dimension 16)
@@ -208,10 +234,13 @@ class TrottiNet(object):
         Defaults to [16, 16] (i.e. add one dense MLP layer with 16 units)
     """
 
-    def __init__(self, rnn='LSTM', recurrent=[16,], bidirectional='ave', mlp=[16, 16]):
+    def __init__(self, rnn='LSTM', implementation=0, mask=False,
+                 recurrent=[16,], bidirectional='ave', mlp=[16, 16]):
 
         super(TrottiNet, self).__init__()
         self.rnn = rnn
+        self.implementation = implementation
+        self.mask = mask
         self.recurrent = recurrent
         self.bidirectional = bidirectional
         self.mlp = mlp
@@ -235,8 +264,11 @@ class TrottiNet(object):
         inputs = Input(shape=input_shape,
                        name="input")
 
-        masking = Masking(mask_value=0.)
-        x = masking(inputs)
+        if self.mask:
+            masking = Masking(mask_value=0.)
+            x = masking(inputs)
+        else:
+            x = inputs
 
         # stack (bidirectional) RNN layers
         for i, output_dim in enumerate(self.recurrent):
@@ -249,7 +281,7 @@ class TrottiNet(object):
                 # 'go_backwards': False,
                 # 'stateful': False,
                 # 'unroll': False,
-                # 'implementation': 0,
+                'implementation': self.implementation,
                 'activation': 'tanh',
                 # 'recurrent_activation': 'hard_sigmoid',
                 # 'use_bias': True,
@@ -319,6 +351,16 @@ class ClopiNet(object):
     ----------
     rnn: {'LSTM', 'GRU'}, optional
         Defaults to 'LSTM'.
+    implementation : {0, 1, 2}, optional
+        If set to 0, the RNN will use an implementation that uses fewer,
+        larger matrix products, thus running faster on CPU but consuming more
+        memory. If set to 1, the RNN will use more matrix products, but smaller
+        ones, thus running slower (may actually be faster on GPU) while
+        consuming less memory. If set to 2 (LSTM/GRU only), the RNN will combine
+        the input gate, the forget gate and the output gate into a single
+        matrix, enabling more time-efficient parallelization on the GPU.
+    mask : bool, optional
+        Set to True to support variable length sequences through masking.
     recurrent: list, optional
         List of output dimension of stacked RNNs.
         Defaults to [16, ] (i.e. one RNN with output dimension 16)
@@ -335,10 +377,13 @@ class ClopiNet(object):
         when `mlp` is empty.
     """
 
-    def __init__(self, rnn='LSTM', recurrent=[16, 8, 8], bidirectional='ave',
-                 mlp=[], linear=False):
+    def __init__(self, rnn='LSTM', implementation=0, mask=False,
+                 recurrent=[16, 8, 8], bidirectional='ave', mlp=[],
+                 linear=False):
         super(ClopiNet, self).__init__()
         self.rnn = rnn
+        self.implementation = implementation
+        self.mask = mask
         self.recurrent = recurrent
         self.bidirectional = bidirectional
         self.mlp = mlp
@@ -363,8 +408,11 @@ class ClopiNet(object):
         inputs = Input(shape=input_shape,
                        name="input")
 
-        masking = Masking(mask_value=0.)
-        x = masking(inputs)
+        if self.mask:
+            masking = Masking(mask_value=0.)
+            x = masking(inputs)
+        else:
+            x =  inputs
 
         # stack (bidirectional) recurrent layers
         for i, output_dim in enumerate(self.recurrent):
@@ -378,7 +426,7 @@ class ClopiNet(object):
                 # 'go_backwards': False,
                 # 'stateful': False,
                 # 'unroll': False,
-                # 'implementation': 0,
+                'implementation': self.implementation,
                 'activation': 'tanh',
                 # 'recurrent_activation': 'hard_sigmoid',
                 # 'use_bias': True,
