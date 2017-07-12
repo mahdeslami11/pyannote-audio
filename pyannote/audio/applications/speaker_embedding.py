@@ -174,9 +174,6 @@ from pyannote.metrics.binary_classification import det_curve
 
 from pyannote.audio.callback import LoggingCallback
 
-from pyannote.core.util import pairwise
-import keras.backend as K
-
 from sortedcontainers import SortedDict
 from pyannote.audio.features import Precomputed
 from pyannote.audio.embedding.base import SequenceEmbedding
@@ -530,6 +527,9 @@ class SpeakerEmbedding(Application):
     def validate(self, protocol_name, subset='development',
                  aggregate=False, every=1, start=0):
 
+        from pyannote.core.util import pairwise
+        import keras.backend as K
+
         # prepare paths
         validate_dir = self.VALIDATE_DIR.format(train_dir=self.train_dir_,
                                                 protocol=protocol_name)
@@ -820,7 +820,7 @@ def main():
             eer = read_table(validate_txt, delim_whitespace=True,
                              names=['epoch', 'eer'], index_col=['epoch'])
             eer = eer.loc[~eer.index.duplicated(keep='first')]
-            
+
             app = SpeakerEmbedding.from_validate_txt(validate_txt)
             train_dir = app.train_dir_
             loss_txt = '{train_dir}/loss.train.txt'.format(train_dir=train_dir)
