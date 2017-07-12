@@ -803,7 +803,6 @@ def main():
 
     if arguments['compare']:
 
-        import matplotlib.pyplot as plt
         from pandas import read_table
         from pandas import concat
         from datetime import datetime
@@ -832,7 +831,7 @@ def main():
 
             # plot logs
             data = concat([eer, loss], axis=1)
-            data.sort_index(inplace=True)
+            data.dropna(inplace=True).sort_index(inplace=True)
             ax.plot(data['t'] / 3600, 100 * data['eer'], label=legend)
 
         ax.set_ylabel('EER (%)')
