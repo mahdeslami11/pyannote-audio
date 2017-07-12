@@ -831,7 +831,8 @@ def main():
 
             # plot logs
             data = concat([eer, loss], axis=1)
-            data.dropna(inplace=True).sort_index(inplace=True)
+            data.dropna(inplace=True)
+            data.sort_index(inplace=True)
             ax.plot(data['t'] / 3600, 100 * data['eer'], label=legend)
 
         ax.set_ylabel('EER (%)')
