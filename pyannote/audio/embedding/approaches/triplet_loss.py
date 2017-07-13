@@ -230,7 +230,7 @@ class TripletLoss(SequenceEmbedding):
 
         if self.per_fold is None:
             loss, n_comparisons = self.loss_y_fold(fX, y, *args)
-            return loss / n_comparisons
+            return loss / n_comparisons if n_comparisons else 0.
 
         loss = 0.
         n_comparisons = 0
@@ -251,7 +251,7 @@ class TripletLoss(SequenceEmbedding):
             loss = loss + loss_fold
             n_comparisons += n_comparisons_fold
 
-        return loss / n_comparisons
+        return loss / n_comparisons if n_comparisons else 0.
 
     def triplet_loss(self, distance, anchor, positive, negative=None,
                      clamp=True):
