@@ -68,6 +68,10 @@ This tutorial relies on the [ETAPE database](http://islrn.org/resources/425-777-
 $ cat ~/.pyannote/db.yml
 Etape: /path/to/Etape/corpus/{uri}.wav
 ```
+
+If you want to train the network using a different database, you might need to create your own [`pyannote.database`](http://github.com/pyannote/pyannote-database) plugin.
+See [github.com/pyannote/pyannote-db-template](https://github.com/pyannote/pyannote-db-template) for details on how to do so.
+
 ### Configuration
 
 To ensure reproducibility, `pyannote-speech-detection` relies on a configuration file defining the experimental setup:
