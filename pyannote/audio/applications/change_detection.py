@@ -166,7 +166,7 @@ from pyannote.audio.util import mkdir_p
 def train(protocol, experiment_dir, train_dir, subset='train'):
 
     # -- TRAINING --
-    nb_epoch = 100
+    nb_epoch = 1000
     optimizer = SSMORMS3()
 
     # load configuration file
@@ -365,8 +365,7 @@ def main():
 
     if '<database.task.protocol>' in arguments:
         protocol_name = arguments['<database.task.protocol>']
-        protocol = get_protocol(protocol_name, progress=True,
-            preprocessors=preprocessors)
+        protocol = get_protocol(protocol_name, preprocessors=preprocessors)
 
     subset = arguments['--subset']
 
