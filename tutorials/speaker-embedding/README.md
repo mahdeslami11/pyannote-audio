@@ -60,7 +60,8 @@ If you use `pyannote-audio` for speaker (or audio) neural embedding, please cite
 $ conda create --name py35-pyannote-audio python=3.5 anaconda
 $ source activate py35-pyannote-audio
 $ conda install -c conda-forge yaafe
-$ pip install "pyannote.audio==0.3"
+$ pip install -U pip setuptools
+$ pip install pyannote.audio
 $ pip install pyannote.db.etape
 ```
 

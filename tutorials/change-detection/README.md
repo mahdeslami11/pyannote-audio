@@ -49,9 +49,9 @@ If you use `pyannote-audio` for speaker (or audio) change detection, please cite
 ```bash
 $ conda create --name py35-pyannote-audio python=3.5 anaconda
 $ ource activate py35-pyannote-audio
-$ conda install gcc
 $ conda install -c conda-forge yaafe
-$ pip install "pyannote.audio==0.2.1"
+$ pip install -U pip setuptools
+$ pip install pyannote.audio
 $ pip install pyannote.db.etape
 ```
 
