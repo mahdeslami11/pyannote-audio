@@ -27,9 +27,20 @@
 
 In this tutorial, you will learn how to train, tune, and test a speech activity detector based on MFCCs and LSTMs, using `pyannote-speech-detection` command line tool.
 
-## Citation
+## Table of contents
+- [Citation](#citation)
+- [Installation](#installation)
+- [Experimental setup](#experimental-setup)
+  - [ETAPE database](#etape-database)
+  - [Configuration](#configuration)
+  - [Training](#training)
+  - [Tuning](#tuning)
+  - [Testing](#testing)
+  - [Evaluation](#evaluation)
+
 
 ## Citation
+([↑up to table of contents](#table-of-contents))
 
 If you use `pyannote-audio` for speech activity detection, please cite the following paper:
 
@@ -45,9 +56,8 @@ If you use `pyannote-audio` for speech activity detection, please cite the follo
 }
 ```
 
-
-
 ## Installation
+([↑up to table of contents](#table-of-contents))
 
 ```bash
 $ conda create --name py35-pyannote-audio python=3.5 anaconda
@@ -59,8 +69,10 @@ $ pip install pyannote.db.etape
 ```
 
 ## Experimental setup
+([↑up to table of contents](#table-of-contents))
 
 ### ETAPE database
+([↑up to table of contents](#table-of-contents))
 
 This tutorial relies on the [ETAPE database](http://islrn.org/resources/425-777-374-455-4/). We first need to tell `pyannote` where the audio files are located:
 
@@ -73,6 +85,7 @@ If you want to train the network using a different database, you might need to c
 See [github.com/pyannote/pyannote-db-template](https://github.com/pyannote/pyannote-db-template) for details on how to do so.
 
 ### Configuration
+([↑up to table of contents](#table-of-contents))
 
 To ensure reproducibility, `pyannote-speech-detection` relies on a configuration file defining the experimental setup:
 
@@ -102,6 +115,7 @@ sequences:
 ```
 
 ### Training
+([↑up to table of contents](#table-of-contents))
 
 The following command will train the network using the training set of the `TV` protocol of the ETAPE database. This may take a long time...
 
@@ -124,6 +138,7 @@ This will create a bunch of files in `TRAIN_DIR` (defined below), including plot
 In the rest of this tutorial, we assume that we killed training after epoch #50.
 
 ### Tuning
+([↑up to table of contents](#table-of-contents))
 
 Now that the network is trained, we need to tune a bunch of hyper-parameters (including which epoch to use, and [various decision thresholds](https://github.com/pyannote/pyannote-audio/blob/8aaffd98434539304ac52d64097eec9a61bc71ee/pyannote/audio/signal.py#L137-L145))...
 
@@ -149,6 +164,7 @@ onset: 0.661734768362515             # parameters
 ```
 
 ### Testing
+([↑up to table of contents](#table-of-contents))
 
 Now that the speech activity detector is trained and tuned, we can apply it on the test set of the `TV` protocol of the ETAPE database:
 
@@ -172,6 +188,7 @@ BFMTV_BFMStory_2011-05-31_175900 1 25.71 4.74 speaker NA _ E
 ```
 
 ### Evaluation
+([↑up to table of contents](#table-of-contents))
 
 We can use [`pyannote.metrics`](http://pyannote.github.io/pyannote-metrics/) to evaluate the result:
 
@@ -192,9 +209,3 @@ TOTAL                                                     5.79       94.69      
 ```
 
 That's all folks!
-
-## Going further...
-
-```bash
-$ pyannote-speech-detection --help
-```
