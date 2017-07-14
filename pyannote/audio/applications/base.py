@@ -66,13 +66,33 @@ class Application(object):
             # but does consume (potentially) a LOT of memory
             self.cache_preprocessed_ = 'Precomputed' not in extraction_name
 
-    def get_epochs(self, train_dir):
-        """Get last completed epoch"""
+    def get_number_of_epochs(self, train_dir=None, return_first=False):
+        """Get information about completed epochs
+
+        Parameters
+        ----------
+        train_dir : str, optional
+            Training directory. Defaults to self.train_dir_
+        return_first : bool, optional
+            Defaults (False) to return number of epochs.
+            Set to True to also return index of first epoch.
+
+        """
+
+        if train_dir is None:
+            train_dir = self.train_dir_
 
         directory = self.WEIGHTS_H5.format(train_dir=train_dir, epoch=0)[:-7]
         weights_h5 = glob(directory + '*[0-9][0-9][0-9][0-9].h5')
 
         if not weights_h5:
-            return 0
+            number_of_epochs = 0
+            first_epoch = None
 
-        return int(os.path.basename(weights_h5[-1])[:-3]) + 1
+        else:
+            number_of_epochs = int(os.path.basename(weights_h5[-1])[:-3]) + 1
+            first_epoch = int(os.path.basename(weights_h5[0])[:-3])
+
+        return number_of_epochs, first_epoch if return_first \
+                                             else number_of_epochs
+

@@ -443,8 +443,8 @@ class SpeechActivityDetection(Application):
 
         mkdir_p(tune_dir)
 
-        epoch = self.get_epochs(self.train_dir_)
-        space = [skopt.space.Integer(0, epoch - 1)]
+        epoch, first_epoch = self.get_number_of_epochs(self.train_dir_, return_first=True)
+        space = [skopt.space.Integer(first_epoch, epoch - 1)]
 
         best_binarize_params = {}
         best_metric = {}

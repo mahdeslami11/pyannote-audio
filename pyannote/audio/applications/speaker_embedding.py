@@ -566,7 +566,7 @@ class SpeakerEmbedding(Application):
             while True:
 
                 # last completed epochs
-                completed_epochs = self.get_epochs(self.train_dir_) - 1
+                completed_epochs = self.get_number_of_epochs(self.train_dir_) - 1
 
                 if completed_epochs < epoch:
                     time.sleep(60)
