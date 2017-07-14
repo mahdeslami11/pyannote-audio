@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016 CNRS
+# Copyright (c) 2016-2017 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -30,7 +30,7 @@ from pyannote.audio.generators.periodic import PeriodicFeaturesMixin
 from pyannote.core import SlidingWindowFeature
 from pyannote.generators.fragment import SlidingSegments
 from pyannote.generators.batch import FileBasedBatchGenerator
-from pyannote.databse.util import get_annotated
+from pyannote.database import get_annotated
 import numpy as np
 
 
