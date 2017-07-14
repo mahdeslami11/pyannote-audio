@@ -45,7 +45,6 @@ setup(
         'pyannote.algorithms >= 0.7.3',
         'pysndfile >= 0.2.11',
         'keras >= 2.0.6',
-        'tensorflow >= 1.2.1',
         'autograd >= 1.1.10',
         'scikit-optimize >= 0.2',
         'pyYAML >= 3.12',

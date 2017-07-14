@@ -62,6 +62,7 @@ $ source activate py35-pyannote-audio
 $ conda install -c conda-forge yaafe
 $ pip install -U pip setuptools
 $ pip install pyannote.audio
+$ pip install tensorflow   # or tensorflow-gpu
 $ pip install pyannote.db.etape
 ```
 

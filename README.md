@@ -10,6 +10,7 @@ $ source activate pyannote
 $ conda install -c conda-forge yaafe
 $ pip install -U pip setuptools
 $ pip install pyannote.audio
+$ pip install tensorflow   # or tensorflow-gpu
 ```
 
 ## Citation
