@@ -31,7 +31,7 @@ Speech activity detection
 
 Usage:
   pyannote-speech-detection train [--database=<db.yml> --subset=<subset>] <experiment_dir> <database.task.protocol>
-  pyannote-speech-detection validate [--database=<db.yml> --subset=<subset>] <train_dir> <database.task.protocol>
+  pyannote-speech-detection validate [--database=<db.yml> --subset=<subset> --every=<epoch> --from=<epoch>] <train_dir> <database.task.protocol>
   pyannote-speech-detection tune  [--database=<db.yml> --subset=<subset>] <train_dir> <database.task.protocol>
   pyannote-speech-detection apply [--database=<db.yml> --subset=<subset>] <tune_dir> <database.task.protocol>
   pyannote-speech-detection -h | --help
@@ -229,13 +229,6 @@ class SpeechActivityDetection(Application):
     TRAIN_DIR = '{experiment_dir}/train/{protocol}.{subset}'
     APPLY_DIR = '{tune_dir}/apply'
 
-    # created by "validate" mode
-    VALIDATE_DIR = '{train_dir}/validate/{protocol}'
-    VALIDATE_TXT = '{validate_dir}/{subset}.eer.txt'
-    VALIDATE_TXT_TEMPLATE = '{epoch:04d} {eer:5f}\n'
-    VALIDATE_PNG = '{validate_dir}/{subset}.eer.png'
-    VALIDATE_EPS = '{validate_dir}/{subset}.eer.eps'
-
     # created by "tune" mode
     TUNE_DIR = '{train_dir}/tune/{protocol}.{subset}'
     TUNE_YML = '{tune_dir}/tune.yml'
@@ -309,7 +302,7 @@ class SpeechActivityDetection(Application):
 
         return labeling
 
-    def _validation_set(self, protocol_name, subset='development'):
+    def validation_init(self, protocol_name, subset='development'):
         # this generator is hacked to generate y_true
         # (which is stored in its internal preprocessed_ attribute)
         batch_generator = SpeechActivityDetectionBatchGenerator(
@@ -324,115 +317,47 @@ class SpeechActivityDetection(Application):
             identifier = get_unique_identifier(current_file)
             batch_generator.preprocess(current_file, identifier=identifier)
 
-        return batch_generator.preprocessed_['y']
+        return {'y': batch_generator.preprocessed_['y']}
 
-    def validate(self, protocol_name, subset='development'):
+    def validate_epoch(self, epoch, protocol_name, subset='development',
+                       validation_data=None):
 
-        # prepare paths
-        validate_dir = self.VALIDATE_DIR.format(train_dir=self.train_dir_,
-                                                protocol=protocol_name)
-        validate_txt = self.VALIDATE_TXT.format(validate_dir=validate_dir,
-                                                subset=subset)
-        validate_png = self.VALIDATE_PNG.format(validate_dir=validate_dir,
-                                                subset=subset)
-        validate_eps = self.VALIDATE_EPS.format(validate_dir=validate_dir,
-                                                subset=subset)
+        y = validation_data['y']
 
-        # create validation directory
-        mkdir_p(validate_dir)
+        weights_h5 = LoggingCallback.WEIGHTS_H5.format(
+            log_dir=self.train_dir_, epoch=epoch)
 
-        # Build validation set
-        y = self._validation_set(protocol_name, subset=subset)
+        # load model for current epoch
+        sequence_labeling = SequenceLabeling.from_disk(
+            self.train_dir_, epoch)
 
-        # list of equal error rates, and current epoch
-        eers, epoch = [], 0
+        # initialize sequence labeling
+        duration = self.config_['sequences']['duration']
+        step = duration   # HACK to make things faster during validation
+        aggregation = SequenceLabelingAggregation(
+            sequence_labeling, self.feature_extraction_,
+            duration=duration, step=step)
+        aggregation.cache_preprocessed_ = False
 
-        desc_format = ('EER = {eer:.2f}% @ epoch #{epoch:d} ::'
-                      ' Best EER = {best_eer:.2f}% @ epoch #{best_epoch:d} :')
-        progress_bar = tqdm(unit='epoch', total=1000)
+        # estimate equal error rate (average of all files)
+        eers = []
+        protocol = get_protocol(protocol_name, progress=False,
+                                preprocessors=self.preprocessors_)
+        file_generator = getattr(protocol, subset)()
+        for current_file in file_generator:
+            identifier = get_unique_identifier(current_file)
+            uem = get_annotated(current_file)
+            y_true = y[identifier].crop(uem)[:, 1]
+            counts = Counter(y_true)
+            if counts[0] * counts[1] == 0:
+                continue
+            y_pred = aggregation.apply(current_file).crop(uem)[:, 1]
 
-        with open(validate_txt, mode='w') as fp:
+            _, _, _, eer = det_curve(y_true, y_pred, distances=False)
 
-            # watch and evaluate forever
-            while True:
+            eers.append(eer)
 
-                weights_h5 = LoggingCallback.WEIGHTS_H5.format(
-                    log_dir=self.train_dir_, epoch=epoch)
-
-                # wait until weight file is available
-                if not isfile(weights_h5):
-                    time.sleep(60)
-                    continue
-
-                # load model for current epoch
-                sequence_labeling = SequenceLabeling.from_disk(
-                    self.train_dir_, epoch)
-
-                # initialize sequence labeling
-                duration = self.config_['sequences']['duration']
-                step = duration   # hack to make things faster
-                # step = self.config_['sequences']['step']
-                aggregation = SequenceLabelingAggregation(
-                    sequence_labeling, self.feature_extraction_,
-                    duration=duration, step=step)
-                aggregation.cache_preprocessed_ = False
-
-                # estimate equal error rate (average of all files)
-                eers_ = []
-                protocol = get_protocol(protocol_name, progress=False,
-                                        preprocessors=self.preprocessors_)
-                file_generator = getattr(protocol, subset)()
-                for current_file in file_generator:
-                    identifier = get_unique_identifier(current_file)
-                    uem = get_annotated(current_file)
-                    y_true = y[identifier].crop(uem)[:, 1]
-                    counts = Counter(y_true)
-                    if counts[0] * counts[1] == 0:
-                        continue
-                    y_pred = aggregation.apply(current_file).crop(uem)[:, 1]
-
-                    _, _, _, eer = det_curve(y_true, y_pred, distances=False)
-
-                    eers_.append(eer)
-                eer = np.mean(eers_)
-                eers.append(eer)
-
-                # save equal error rate to file
-                fp.write(self.VALIDATE_TXT_TEMPLATE.format(
-                    epoch=epoch, eer=eer))
-                fp.flush()
-
-                # keep track of best epoch so far
-                best_epoch, best_eer = np.argmin(eers), np.min(eers)
-
-                progress_bar.set_description(
-                    desc_format.format(epoch=epoch, eer=100*eer,
-                                       best_epoch=best_epoch,
-                                       best_eer=100*best_eer))
-                progress_bar.update(1)
-
-                # plot
-                fig = plt.figure()
-                plt.plot(eers, 'b')
-                plt.plot([best_epoch], [best_eer], 'bo')
-                plt.plot([0, epoch], [best_eer, best_eer], 'k--')
-                plt.grid(True)
-                plt.xlabel('epoch')
-                plt.ylabel('EER on {subset}'.format(subset=subset))
-                TITLE = '{best_eer:.5g} @ epoch #{best_epoch:d}'
-                title = TITLE.format(best_eer=best_eer,
-                                     best_epoch=best_epoch,
-                                     subset=subset)
-                plt.title(title)
-                plt.tight_layout()
-                plt.savefig(validate_png, dpi=75)
-                plt.savefig(validate_eps)
-                plt.close(fig)
-
-                # validate next epoch
-                epoch += 1
-
-        progress_bar.close()
+        return {'EER': {'minimize': True, 'value': np.mean(eers)}
 
     def tune(self, protocol_name, subset='development'):
 
@@ -592,11 +517,18 @@ def main():
 
     if arguments['validate']:
         train_dir = arguments['<train_dir>']
+
         if subset is None:
             subset = 'development'
+
+        every = int(arguments['--every'])
+        start = int(arguments['--from'])
+
         application = SpeechActivityDetection.from_train_dir(
             train_dir, db_yml=db_yml)
-        application.validate(protocol_name, subset=subset)
+
+        application.validate(protocol_name, subset=subset,
+                             every=every, start=start)
 
     if arguments['tune']:
         train_dir = arguments['<train_dir>']
