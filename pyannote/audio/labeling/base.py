@@ -62,7 +62,7 @@ class SequenceLabeling(object):
 
         self.labeling_ = keras.models.load_model(
             weights_h5, custom_objects=CUSTOM_OBJECTS,
-            compile=True)
+            compile=False)
 
         self.labeling_.epoch = epoch
 
