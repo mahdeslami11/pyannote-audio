@@ -109,7 +109,8 @@ class Application(object):
     def validate_init(self, protocol_name, subset='development'):
         pass
 
-    def validate_epoch(self, epoch, validation_data):
+    def validate_epoch(self, epoch, protocol_name, subset='development',
+                       validation_data=None):
         raise NotImplementedError('')
 
     def validate_plot(self, metric, values, minimize=True, png=None, eps=None):
@@ -168,7 +169,8 @@ class Application(object):
 
             # {'metric1': {'minimize': True, 'value': 0.2},
             #  'metric2': {'minimize': False, 'value': 0.9}}
-            metrics = self.validate_epoch(epoch, validation_data)
+            metrics = self.validate_epoch(epoch, protocol_name, subset=subset,
+                                          validation_data=validation_data)
 
             if i == 0:
                 for metric, details in metrics.items():

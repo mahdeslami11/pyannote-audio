@@ -475,7 +475,8 @@ class SpeakerEmbedding(Application):
                 'n': np.array(N),
                 'y': np.array(Y)[:, np.newaxis]}
 
-    def validate_epoch(self, epoch, validation_data):
+    def validate_epoch(self, epoch, protocol_name, subset='development',
+                       validation_data=None):
 
         from pyannote.core.util import pairwise
         import keras.backend as K
