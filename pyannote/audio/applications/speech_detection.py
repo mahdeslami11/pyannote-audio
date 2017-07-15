@@ -45,6 +45,8 @@ Options:
   <database.task.protocol>   Set evaluation protocol (e.g. "Etape.SpeakerDiarization.TV")
   <train_dir>                Set path to the directory containing pre-trained
                              models (i.e. the output of "train" mode).
+  --every=<epoch>            Defaults to every epoch [default: 1].
+  --from=<epoch>             Start at this epoch [default: 0].
   <tune_dir>                 Set path to the directory containing optimal
                              hyper-parameters (i.e. the output of "tune" mode).
   --database=<db.yml>        Path to database configuration file.
@@ -302,7 +304,7 @@ class SpeechActivityDetection(Application):
 
         return labeling
 
-    def validation_init(self, protocol_name, subset='development'):
+    def validate_init(self, protocol_name, subset='development'):
         # this generator is hacked to generate y_true
         # (which is stored in its internal preprocessed_ attribute)
         batch_generator = SpeechActivityDetectionBatchGenerator(
@@ -357,7 +359,7 @@ class SpeechActivityDetection(Application):
 
             eers.append(eer)
 
-        return {'EER': {'minimize': True, 'value': np.mean(eers)}
+        return {'EER': {'minimize': True, 'value': np.mean(eers)}}
 
     def tune(self, protocol_name, subset='development'):
 
