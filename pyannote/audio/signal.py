@@ -310,7 +310,7 @@ class Binarize(object):
 
         # because of padding, some 'active' segments might be overlapping
         # therefore, we merge those overlapping segments
-        active = active.coverage()
+        active = active.support()
 
         # remove short 'active' segments
         active = Timeline(
@@ -321,6 +321,6 @@ class Binarize(object):
         for s in inactive:
             if s.duration < self.min_duration[0]:
                 active.add(s)
-        active = active.coverage()
+        active = active.support()
 
         return active
