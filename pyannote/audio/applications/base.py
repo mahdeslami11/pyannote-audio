@@ -53,7 +53,9 @@ class Application(object):
         super(Application, self).__init__()
 
         self.db_yml = db_yml
-        self.preprocessors_ = {'wav': FileFinder(self.db_yml)}
+        self.preprocessors_ = {'audio': FileFinder(self.db_yml)}
+        # HACK until all packages are updated to new API
+        self.preprocessors_['wav'] = self.preprocessors_['audio']
 
         self.experiment_dir = experiment_dir
 
@@ -151,7 +153,7 @@ class Application(object):
         return best_value, best_epoch
 
     def validate(self, protocol_name, subset='development',
-                 every=1, start=0, **kwargs):
+                 every=1, start=0, end=None, **kwargs):
 
 
         validate_txt, validate_png, validate_eps = {}, {}, {}
@@ -165,7 +167,7 @@ class Application(object):
 
         progress_bar = tqdm(unit='epoch')
 
-        for i, epoch in enumerate(self.validate_iter(start=start, step=every)):
+        for i, epoch in enumerate(self.validate_iter(start=start, end=end, step=every)):
 
             # {'metric1': {'minimize': True, 'value': 0.2},
             #  'metric2': {'minimize': False, 'value': 0.9}}
@@ -219,7 +221,7 @@ class Application(object):
             progress_bar.update(1)
 
 
-    def validate_iter(self, start=0, step=1, sleep=60):
+    def validate_iter(self, start=0, end=None, step=1, sleep=60):
         """Continuously watches `train_dir` for newly completed epochs
         and yields them for validation
 
@@ -230,6 +232,8 @@ class Application(object):
         ----------
         start : int, optional
             Start validating after `start` epochs. Defaults to 0.
+        end : int, optional
+            Stop validating after epoch `end`. Defaults to never stop.
         step : int, optional
             Validate every `step`th epoch. Defaults to 1.
 
@@ -243,12 +247,15 @@ class Application(object):
 
         """
 
+        if end is None:
+            end = np.inf
+
         validated_epochs = set()
         next_epoch_to_validate_in_order = start
 
-        # wait for first epoch to complete
-        while True:
+        while next_epoch_to_validate_in_order < end:
 
+            # wait for first epoch to complete
             _, first_epoch = self.get_number_of_epochs(return_first=True)
             if first_epoch is None:
                 time.sleep(sleep)

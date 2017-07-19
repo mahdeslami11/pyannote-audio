@@ -34,6 +34,7 @@ In this tutorial, you will learn how to train, tune, and test a speech activity 
   - [ETAPE database](#etape-database)
   - [Configuration](#configuration)
   - [Training](#training)
+  - [Validation](#validation)
   - [Tuning](#tuning)
   - [Testing](#testing)
   - [Evaluation](#evaluation)
@@ -137,6 +138,21 @@ Epoch 50/1000
 This will create a bunch of files in `TRAIN_DIR` (defined below), including plots showing the accuracy epoch after epoch.
 
 In the rest of this tutorial, we assume that we killed training after epoch #50.
+
+### Validation
+([↑up to table of contents](#table-of-contents))
+
+To get a quick idea of how the network is doing during training, one can use the "validate" mode.
+It can (should!) be run in parallel to training and evaluates the model epoch after epoch.
+
+```bash
+$ export TRAIN_DIR=${EXPERIMENT_DIR}/train/Etape.SpeakerDiarization.TV.train
+$ pyannote-speech-detection validate \
+          ${TRAIN_DIR} \               # <train_dir>
+          Etape.SpeakerDiarization.TV  # <database.task.protocol>
+```
+
+This will create a bunch of files in `TRAIN_DIR/validate`, including plots showing the evolution of detection error rate epoch after epoch.
 
 ### Tuning
 ([↑up to table of contents](#table-of-contents))

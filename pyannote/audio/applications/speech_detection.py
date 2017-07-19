@@ -31,30 +31,45 @@ Speech activity detection
 
 Usage:
   pyannote-speech-detection train [--database=<db.yml> --subset=<subset>] <experiment_dir> <database.task.protocol>
-  pyannote-speech-detection validate [--database=<db.yml> --subset=<subset> --every=<epoch> --from=<epoch>] <train_dir> <database.task.protocol>
-  pyannote-speech-detection tune  [--database=<db.yml> --subset=<subset>] <train_dir> <database.task.protocol>
+  pyannote-speech-detection validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch>] <train_dir> <database.task.protocol>
+  pyannote-speech-detection tune [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch>] <train_dir> <database.task.protocol>
   pyannote-speech-detection apply [--database=<db.yml> --subset=<subset>] <tune_dir> <database.task.protocol>
   pyannote-speech-detection -h | --help
   pyannote-speech-detection --version
 
-Options:
-  <experiment_dir>           Set experiment root directory. This script expects
-                             a configuration file called "config.yml" to live
-                             in this directory. See "Configuration file"
-                             section below for more details.
-  <database.task.protocol>   Set evaluation protocol (e.g. "Etape.SpeakerDiarization.TV")
-  <train_dir>                Set path to the directory containing pre-trained
-                             models (i.e. the output of "train" mode).
-  --every=<epoch>            Defaults to every epoch [default: 1].
-  --from=<epoch>             Start at this epoch [default: 0].
-  <tune_dir>                 Set path to the directory containing optimal
-                             hyper-parameters (i.e. the output of "tune" mode).
+Common options:
+  <database.task.protocol>   Experimental protocol (e.g. "Etape.SpeakerDiarization.TV")
   --database=<db.yml>        Path to database configuration file.
                              [default: ~/.pyannote/db.yml]
   --subset=<subset>          Set subset (train|developement|test).
                              In "train" mode, default subset is "train".
-                             In "tune" mode, default subset is "development".
-                             In "apply" mode, default subset is "test".
+                             In "validate" mode, defaults to "development".
+                             In "tune" mode, defaults to "development".
+                             In "apply" mode, defaults to "test".
+  --from=<epoch>             Start validating/tuning at epoch <epoch>.
+                             Defaults to first available epoch.
+  --to=<epoch>               End validation/tuning at epoch <epoch>.
+                             In "validate" mode, defaults to never stop.
+                             In "tune" mode, defaults to last available epoch at launch time.
+
+"train" mode:
+  <experiment_dir>           Set experiment root directory. This script expects
+                             a configuration file called "config.yml" to live
+                             in this directory. See "Configuration file"
+                             section below for more details.
+
+"validation" mode:
+  --every=<epoch>            Validate model every <epoch> epochs [default: 1].
+  <train_dir>                Path to the directory containing pre-trained
+                             models (i.e. the output of "train" mode).
+
+"tune" mode:
+  <train_dir>                Path to the directory containing pre-trained
+                             models (i.e. the output of "train" mode).
+
+"apply" mode:
+  <tune_dir>                 Path to the directory containing optimal
+                             hyper-parameters (i.e. the output of "tune" mode).
   -h --help                  Show this screen.
   --version                  Show version.
 
@@ -104,7 +119,20 @@ Configuration file:
 
     This means that the network was trained on the <subset> subset of the
     <database.task.protocol> protocol. By default, <subset> is "train".
-    This directory is called <train_dir> in the subsequent "tune" mode.
+    This directory is called <train_dir> in the subsequent "validate" mode.
+
+"validate" mode:
+    In parallel to training, one should validate the performance of the model
+    epoch after epoch, using "validate" mode. This will create a bunch of files
+    in the following directory:
+
+        <train_dir>/validate/<database.task.protocol>
+
+    This means that the network was validated on the <database.task.protocol>
+    protocol. By default, validation is done on the "development" subset:
+    "developement.DetectionErrorRate.{txt|png|eps}" files are created and
+    updated continuously, epoch after epoch. This directory is called
+    <validate_dir> in the subsequent "tune" mode.
 
 "tune" mode:
     Then, one should tune the hyper-parameters using "tune" mode.
@@ -304,30 +332,14 @@ class SpeechActivityDetection(Application):
 
         return labeling
 
-    def validate_init(self, protocol_name, subset='development'):
-        # this generator is hacked to generate y_true
-        # (which is stored in its internal preprocessed_ attribute)
-        batch_generator = SpeechActivityDetectionBatchGenerator(
-            self.feature_extraction_)
-        batch_generator.cache_preprocessed_ = True
-
-        # iterate over each test file and generate y_true
-        protocol = get_protocol(protocol_name, progress=False,
-                                preprocessors=self.preprocessors_)
-        file_generator = getattr(protocol, subset)()
-        for current_file in file_generator:
-            identifier = get_unique_identifier(current_file)
-            batch_generator.preprocess(current_file, identifier=identifier)
-
-        return {'y': batch_generator.preprocessed_['y']}
-
     def validate_epoch(self, epoch, protocol_name, subset='development',
                        validation_data=None):
 
-        y = validation_data['y']
+        from pyannote.metrics.detection import DetectionErrorRate
+        from pyannote.audio.signal import Binarize
 
-        weights_h5 = LoggingCallback.WEIGHTS_H5.format(
-            log_dir=self.train_dir_, epoch=epoch)
+        der = DetectionErrorRate()
+        binarizer = Binarize(onset=0.5, offset=0.5)
 
         # load model for current epoch
         sequence_labeling = SequenceLabeling.from_disk(
@@ -335,33 +347,28 @@ class SpeechActivityDetection(Application):
 
         # initialize sequence labeling
         duration = self.config_['sequences']['duration']
-        step = duration   # HACK to make things faster during validation
         aggregation = SequenceLabelingAggregation(
             sequence_labeling, self.feature_extraction_,
-            duration=duration, step=step)
+            duration=duration, step=.25 * duration)
         aggregation.cache_preprocessed_ = False
 
-        # estimate equal error rate (average of all files)
-        eers = []
         protocol = get_protocol(protocol_name, progress=False,
                                 preprocessors=self.preprocessors_)
         file_generator = getattr(protocol, subset)()
         for current_file in file_generator:
-            identifier = get_unique_identifier(current_file)
+
+            predictions = aggregation.apply(current_file)
+            hypothesis = binarizer.apply(predictions, dimension=1).to_annotation()
+
+            reference = current_file['annotation']
             uem = get_annotated(current_file)
-            y_true = y[identifier].crop(uem)[:, 1]
-            counts = Counter(y_true)
-            if counts[0] * counts[1] == 0:
-                continue
-            y_pred = aggregation.apply(current_file).crop(uem)[:, 1]
+            _ = der(reference, hypothesis, uem=uem)
 
-            _, _, _, eer = det_curve(y_true, y_pred, distances=False)
+        return {'DetectionErrorRate': {'minimize': True, 'value': abs(der)}}
 
-            eers.append(eer)
+    def tune(self, protocol_name, subset='development', start=None, end=None):
 
-        return {'EER': {'minimize': True, 'value': np.mean(eers)}}
-
-    def tune(self, protocol_name, subset='development'):
+        # FIXME -- make sure "subset" is not empty
 
         tune_dir = self.TUNE_DIR.format(
             train_dir=self.train_dir_,
@@ -370,8 +377,13 @@ class SpeechActivityDetection(Application):
 
         mkdir_p(tune_dir)
 
-        epoch, first_epoch = self.get_number_of_epochs(self.train_dir_, return_first=True)
-        space = [skopt.space.Integer(first_epoch, epoch - 1)]
+        epoch, first_epoch = self.get_number_of_epochs(self.train_dir_,
+                                                       return_first=True)
+        if start is None:
+            start = first_epoch
+        if end is None:
+            end = epoch - 1
+        space = [skopt.space.Integer(start, end)]
 
         best_binarize_params = {}
         best_metric = {}
@@ -392,6 +404,8 @@ class SpeechActivityDetection(Application):
 
             # save state
             params = {'status': {'epochs': epoch,
+                                 'start': start,
+                                 'end': end,
                                  'objective': float(res.fun)},
                       'epoch': int(res.x[0]),
                       'onset': float(best_binarize_params[tuple(res.x)]['onset']),
@@ -422,7 +436,7 @@ class SpeechActivityDetection(Application):
 
         res = skopt.gp_minimize(
             objective_function, space, random_state=1337,
-            n_calls=20, n_random_starts=10, x0=[epoch - 1],
+            n_calls=20, n_random_starts=10, x0=[end],
             verbose=True, callback=callback)
 
         # TODO tune Binarize a bit longer with the best epoch
@@ -512,10 +526,13 @@ def main():
 
     if arguments['train']:
         experiment_dir = arguments['<experiment_dir>']
+
         if subset is None:
             subset = 'train'
+
         application = SpeechActivityDetection(experiment_dir, db_yml=db_yml)
         application.train(protocol_name, subset=subset)
+
 
     if arguments['validate']:
         train_dir = arguments['<train_dir>']
@@ -523,27 +540,49 @@ def main():
         if subset is None:
             subset = 'development'
 
-        every = int(arguments['--every'])
+        # start validating at this epoch (defaults to 0)
         start = int(arguments['--from'])
+
+        # stop validating at this epoch (defaults to None)
+        end = arguments['--to']
+        if end is not None:
+            end = int(end)
+
+        # validate every that many epochs (defaults to 1)
+        every = int(arguments['--every'])
 
         application = SpeechActivityDetection.from_train_dir(
             train_dir, db_yml=db_yml)
-
         application.validate(protocol_name, subset=subset,
-                             every=every, start=start)
+                             start=start, end=end, every=every)
 
     if arguments['tune']:
         train_dir = arguments['<train_dir>']
+
         if subset is None:
             subset = 'development'
+
+        # start tuning at this epoch (defaults to None)
+        start = arguments['--from']
+        if start is not None:
+            start = int(start)
+
+        # stop tuning at this epoch (defaults to None)
+        end = arguments['--to']
+        if end is not None:
+            end = int(end)
+
         application = SpeechActivityDetection.from_train_dir(
             train_dir, db_yml=db_yml)
-        application.tune(protocol_name, subset=subset)
+        application.tune(protocol_name, subset=subset,
+                         start=start, end=end)
 
     if arguments['apply']:
         tune_dir = arguments['<tune_dir>']
+
         if subset is None:
             subset = 'test'
+
         application = SpeechActivityDetection.from_tune_dir(
             tune_dir, db_yml=db_yml)
         application.apply(protocol_name, subset=subset)
