@@ -115,7 +115,8 @@ class Application(object):
                        validation_data=None):
         raise NotImplementedError('')
 
-    def validate_plot(self, metric, values, minimize=True, png=None, eps=None):
+    def validate_plot(self, metric, values, minimize=True, baseline=None,
+                      png=None, eps=None):
 
         import matplotlib
         matplotlib.use('Agg')
@@ -133,10 +134,17 @@ class Application(object):
         best_value = values[best_epoch]
 
         fig, ax = plt.subplots()
+        # plot value = f(epoch)
         ax.plot(values.keys(), values.values(), 'b')
+        # mark best epoch
         ax.plot([best_epoch], [best_value], 'bo')
+        # horizontal line at best value
         ax.plot([values.iloc[0], values.iloc[-1]],
                 [best_value, best_value], 'k--')
+        # horizontal line at baseline value
+        if baseline is not None:
+            ax.plot([values.iloc[0], values.iloc[-1]],
+                    [baseline, baseline], 'k', label='baseline')
         ax.grid()
         ax.set_xlabel('epoch')
         ax.set_title('{metric} = {value:.3f} @ epoch #{epoch}'.format(
@@ -157,7 +165,7 @@ class Application(object):
 
 
         validate_txt, validate_png, validate_eps = {}, {}, {}
-        minimize, values, best_epoch, best_value = {}, {}, {}, {}
+        minimize, baseline, values, best_epoch, best_value = {}, {}, {}, {}, {}
 
         validate_dir = self.VALIDATE_DIR.format(train_dir=self.train_dir_,
                                                 protocol=protocol_name)
@@ -169,7 +177,7 @@ class Application(object):
 
         for i, epoch in enumerate(self.validate_iter(start=start, end=end, step=every)):
 
-            # {'metric1': {'minimize': True, 'value': 0.2},
+            # {'metric1': {'minimize': True, 'value': 0.2, 'baseline': 0.1},
             #  'metric2': {'minimize': False, 'value': 0.9}}
             metrics = self.validate_epoch(epoch, protocol_name, subset=subset,
                                           validation_data=validation_data)
@@ -184,6 +192,7 @@ class Application(object):
                     validate_png[metric] = self.VALIDATE_PNG.format(**params)
                     validate_eps[metric] = self.VALIDATE_EPS.format(**params)
                     minimize[metric] = details.get('minimize', True)
+                    baseline[metric] = details.get('baseline', None)
                     values[metric] = SortedDict()
 
             description = 'Epoch #{epoch}'.format(epoch=epoch)
@@ -201,6 +210,7 @@ class Application(object):
                 best_value, best_epoch = self.validate_plot(
                     metric, values[metric],
                     minimize=minimize[metric],
+                    baseline=baseline[metric],
                     png=validate_png[metric],
                     eps=validate_eps[metric])
 
