@@ -39,6 +39,39 @@ from pyannote.core.util import pairwise
 from pyannote.database.util import get_annotated
 
 
+def helper_peak_tune(item_prediction, peak=None, metric=None):
+    """Apply peak detection on prediction and evaluate the result
+
+    Parameters
+    ----------
+    item : dict
+        Protocol item.
+    prediction : SlidingWindowFeature
+    peak : Peak, optional
+    metric : DiarizationPurityCoverageFMeasure, optional
+
+    Returns
+    -------
+    fscore : float
+    """
+
+    current_file, predictions = item_prediction
+
+    reference = current_file['annotation']
+
+    hypothesis = peak.apply(predictions).to_annotation()
+    # remove (reference) non-speech regions
+    hypothesis = hypothesis.crop(reference.get_timeline().support(),
+                                 mode='intersection')
+
+    uem = get_annotated(current_file)
+
+    # TODO this might take a very long time when hypothesis contains
+    # a large number of segments -- find a way to bypass this call
+    # and make sure the internal components are accumulated accordingly
+    return metric(reference, hypothesis, uem=uem)
+
+
 class Peak(object):
     """Peak detection
 
@@ -50,14 +83,110 @@ class Peak(object):
     ----------
     alpha : float, optional
         Adaptative threshold coefficient. Defaults to 0.5
+    percentile : bool, optional
+        When False (default), alpha = 0 correspond to min and = 1 to max
+        When True, alpha = 0 corresponds to p(1) and = 1 to p(99).
     min_duration : float, optional
         Defaults to 1 second.
 
     """
-    def __init__(self, alpha=0.5, min_duration=1.0):
+    def __init__(self, alpha=0.5, min_duration=1.0, percentile=False):
         super(Peak, self).__init__()
         self.alpha = alpha
+        self.percentile = percentile
         self.min_duration = min_duration
+
+    @classmethod
+    def tune(cls, items, get_prediction, purity=0.95,
+             n_calls=20, n_random_starts=10, n_jobs=-1):
+        """Find best set of hyper-parameters using skopt
+
+        Parameters
+        ----------
+        items : iterable
+            Protocol items used as development set. Typically, one would use
+            items = protocol.development()
+        get_prediction : callable
+            Callable that takes an item as input, and returns a prediction as
+            a SlidingWindowFeature instances.
+        purity : float, optional
+            Target purity. Defaults to 0.95.
+        n_calls : int, optional
+            Number of trials for hyper-parameter optimization. Defaults to 20.
+        n_random_starts : int, optional
+            Number of trials with random initialization before being smart.
+            Defaults to 10.
+        n_jobs : int, optional
+            Number of parallel job to use. Set to 1 to not use multithreading.
+            Defaults to whichever is minimum between number of CPUs and number
+            of items.
+
+        Returns
+        -------
+        best_parameters : dict
+            Best set of parameters.
+        best_coverage : float
+            Best coverage
+        """
+
+        import skopt
+        import skopt.space
+
+        from pyannote.metrics.diarization import DiarizationPurityCoverageFMeasure
+
+        # make sure items can be iterated over and over again
+        items = list(items)
+
+        # defaults to whichever is minimum between
+        # number of CPUs and number of items
+        if n_jobs < 0:
+            n_jobs = min(cpu_count(), len(items))
+
+        if n_jobs > 1:
+            pool = Pool(n_jobs)
+
+        # compute predictions once and for all
+        # NOTE could multithreading speed things up? this is unclear as
+        # get_prediction is probably already multithreaded, or (better) even
+        # precomputed
+        predictions = [get_prediction(item) for item in items]
+
+        def objective_function(params):
+            alpha, min_duration, = params
+            peak = cls(alpha=alpha, min_duration=min_duration)
+
+            metric = DiarizationPurityCoverageFMeasure()
+            process_one_file = functools.partial(
+                helper_peak_tune, peak=peak, metric=metric)
+
+            if n_jobs > 1:
+                results = list(pool.map(process_one_file,
+                                        zip(items, predictions)))
+            else:
+                results = [process_one_file(item_prediction)
+                           for item_prediction in zip(items, predictions)]
+
+            p, c, f = metric.compute_metrics()
+
+            if p < purity:
+                return 1.
+            else:
+                return 1. - c
+
+        # 0 < alpha < 1 || 0 < min_duration < 5s
+        space = [skopt.space.Real(0., 1., prior='uniform'),
+                 skopt.space.Real(0., 5., prior='uniform')]
+
+        res = skopt.gp_minimize(
+            objective_function, space,
+            n_calls=n_calls, n_random_starts=n_random_starts,
+            random_state=1337, verbose=False)
+
+        if n_jobs > 1:
+            pool.terminate()
+
+        return {'alpha': res.x[0], 'min_duration': res.x[1]}, 1. - res.fun
+
 
     def apply(self, predictions, dimension=0):
         """Peak detection
@@ -83,11 +212,11 @@ class Peak(object):
         sw = predictions.sliding_window
 
         precision = sw.step
-        order = int(np.rint(self.min_duration / precision))
+        order = max(1, int(np.rint(self.min_duration / precision)))
         indices = scipy.signal.argrelmax(y, order=order)[0]
 
-        mini = np.nanpercentile(y, 1)
-        maxi = np.nanpercentile(y, 99)
+        mini = np.nanpercentile(y, 1) if self.percentile else np.nanmin(y)
+        maxi = np.nanpercentile(y, 99) if self.percentile else np.nanmax(y)
         threshold = mini + self.alpha * (maxi - mini)
 
         peak_time = np.array([sw[i].middle for i in indices if y[i] > threshold])
