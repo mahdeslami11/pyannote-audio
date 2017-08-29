@@ -645,7 +645,9 @@ def main():
                              every=every, start=start)
 
     if arguments['apply']:
-        validate_txt = arguments['<validate.txt>']
+        # [0] is a hack due to a bug in docopt and
+        # "compare" mode support for multiple <validate.txt>
+        validate_txt = arguments['<validate.txt>'][0]
         output_dir = arguments['<output_dir>']
         if subset is None:
             subset = 'test'
