@@ -230,7 +230,7 @@ class Application(object):
             progress_bar.update(1)
 
 
-    def validate_iter(self, start=0, end=None, step=1, sleep=60):
+    def validate_iter(self, start=None, end=None, step=1, sleep=60):
         """Continuously watches `train_dir` for newly completed epochs
         and yields them for validation
 
@@ -258,6 +258,9 @@ class Application(object):
 
         if end is None:
             end = np.inf
+
+        if start is None:
+            start = 0
 
         validated_epochs = set()
         next_epoch_to_validate_in_order = start
