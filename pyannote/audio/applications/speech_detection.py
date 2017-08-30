@@ -32,7 +32,7 @@ Speech activity detection
 Usage:
   pyannote-speech-detection train [--database=<db.yml> --subset=<subset>] <experiment_dir> <database.task.protocol>
   pyannote-speech-detection validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch>] <train_dir> <database.task.protocol>
-  pyannote-speech-detection tune [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch>] <train_dir> <database.task.protocol>
+  pyannote-speech-detection tune [--database=<db.yml> --subset=<subset> [--from=<epoch> --to=<epoch> | --at=<epoch>]] <train_dir> <database.task.protocol>
   pyannote-speech-detection apply [--database=<db.yml> --subset=<subset>] <tune_dir> <database.task.protocol>
   pyannote-speech-detection -h | --help
   pyannote-speech-detection --version
@@ -366,7 +366,8 @@ class SpeechActivityDetection(Application):
 
         return {'DetectionErrorRate': {'minimize': True, 'value': abs(der)}}
 
-    def tune(self, protocol_name, subset='development', start=None, end=None):
+    def tune(self, protocol_name, subset='development',
+             start=None, end=None, at=None):
 
         # FIXME -- make sure "subset" is not empty
 
@@ -379,10 +380,17 @@ class SpeechActivityDetection(Application):
 
         epoch, first_epoch = self.get_number_of_epochs(self.train_dir_,
                                                        return_first=True)
-        if start is None:
-            start = first_epoch
-        if end is None:
-            end = epoch - 1
+
+        if at is None:
+            if start is None:
+                start = first_epoch
+            if end is None:
+                end = epoch - 1
+
+        else:
+            start = at
+            end = at
+
         space = [skopt.space.Integer(start, end)]
 
         best_binarize_params = {}
@@ -572,10 +580,14 @@ def main():
         if end is not None:
             end = int(end)
 
+        at = arguments['--at']
+        if at is not None:
+            at = int(at)
+
         application = SpeechActivityDetection.from_train_dir(
             train_dir, db_yml=db_yml)
         application.tune(protocol_name, subset=subset,
-                         start=start, end=end)
+                         start=start, end=end, at=at)
 
     if arguments['apply']:
         tune_dir = arguments['<tune_dir>']
