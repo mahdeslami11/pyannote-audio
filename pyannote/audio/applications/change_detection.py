@@ -52,6 +52,7 @@ Common options:
   --to=<epoch>               End validation/tuning at epoch <epoch>.
                              In "validate" mode, defaults to never stop.
                              In "tune" mode, defaults to last available epoch at launch time.
+  --at=<epoch>               In "tune" mode, use this very epoch.
 
 "train" mode:
   <experiment_dir>           Set experiment root directory. This script expects
@@ -661,7 +662,7 @@ def main():
         if end is not None:
             end = int(end)
 
-        at == arguments['--at']
+        at = arguments['--at']
         if at is not None:
             at = int(at)
 
