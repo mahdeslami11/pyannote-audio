@@ -548,8 +548,10 @@ def main():
         if subset is None:
             subset = 'development'
 
-        # start validating at this epoch (defaults to 0)
-        start = int(arguments['--from'])
+        # start validating at this epoch (defaults to None)
+        start = arguments['--from']
+        if start is not None:
+            start = int(start)
 
         # stop validating at this epoch (defaults to None)
         end = arguments['--to']
