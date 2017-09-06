@@ -100,12 +100,14 @@ class CenterLoss(TripletLoss):
 
     def __init__(self, metric='angular', margin=0.0, clamp='sigmoid',
                  per_batch=1, per_fold=20, per_label=3,
-                 update_centers='batch', learn_to_aggregate=False, **kwargs):
+                 update_centers='batch', learn_to_aggregate=False,
+                 gradient_factor=1, batch_size=32):
 
         super(CenterLoss, self).__init__(
             metric=metric, margin=margin, clamp=clamp,
             per_label=per_label, per_fold=per_fold, per_batch=per_batch,
-            learn_to_aggregate=learn_to_aggregate, **kwargs)
+            learn_to_aggregate=learn_to_aggregate,
+            gradient_factor=gradient_factor, batch_size=batch_size)
 
         self.update_centers = update_centers
 

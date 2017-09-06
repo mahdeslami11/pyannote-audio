@@ -86,7 +86,8 @@ class TripletLoss(SequenceEmbedding):
 
     def __init__(self, metric='sqeuclidean', margin=0.1, clamp='positive',
                  per_batch=1, per_label=3, per_fold=None, sampling='all',
-                 n_negative=None, learn_to_aggregate=False, **kwargs):
+                 n_negative=None, learn_to_aggregate=False,
+                 gradient_factor=1, batch_size=32):
 
         self.margin = margin
         self.clamp = clamp
@@ -96,7 +97,10 @@ class TripletLoss(SequenceEmbedding):
         self.sampling = sampling
         self.n_negative = np.inf if n_negative is None else n_negative
         self.learn_to_aggregate = learn_to_aggregate
-        super(TripletLoss, self).__init__(**kwargs)
+        super(TripletLoss, self).__init__(
+            metric=metric,
+            gradient_factor=gradient_factor,
+            batch_size=batch_size)
 
     def get_batch_generator(self, data_h5):
         if self.learn_to_aggregate:
