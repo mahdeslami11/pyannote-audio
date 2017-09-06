@@ -28,7 +28,7 @@
 
 
 from .triplet_loss import TripletLoss
-from ..base import value_and_multigrad
+from autograd import value_and_multigrad
 from autograd import numpy as ag_np
 
 import numpy as np
