@@ -45,7 +45,7 @@ setup(
         'pyannote.algorithms >= 0.7.3',
         'audioread >= 2.1.5',
         'librosa >= 0.5.1',
-        'keras >= 2.0.6',
+        'keras == 2.0.8',
         'autograd >= 1.1.10',
         'scikit-optimize >= 0.2',
         'pyYAML >= 3.12',

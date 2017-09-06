@@ -26,60 +26,70 @@
 # AUTHORS
 # Gregory GELLY - gregory.gelly@limsi.fr
 
+
+from keras.legacy import interfaces
 from keras.optimizers import Optimizer
 import keras.backend as K
 from pyannote.audio.keras_utils import register_custom_object
 
 
 class SMORMS3(Optimizer):
-    '''SMORMS3 optimizer.
-    Default parameters follow those provided in the blog.
+    """SMORMS3 optimizer.
+
+    Default parameters follow those provided in the blog post.
+
     # Arguments
         lr: float >= 0. Learning rate.
         epsilon: float >= 0. Fuzz factor.
         decay: float >= 0. Learning rate decay over each update.
+
     # References
         - [RMSprop loses to SMORMS3 - Beware the Epsilon!](http://sifter.org/~simon/journal/20150420.html)
-    '''
-    def __init__(self, lr=0.001, epsilon=1e-16, decay=0., **kwargs):
+    """
+
+    def __init__(self, lr=0.001, epsilon=1e-16, decay=0.,
+                 **kwargs):
         super(SMORMS3, self).__init__(**kwargs)
-        self.__dict__.update(locals())
-        self.iterations = K.variable(0)
-        self.lr = K.variable(lr)
-        self.decay = K.variable(decay)
+        with K.name_scope(self.__class__.__name__):
+            self.lr = K.variable(lr, name='lr')
+            self.decay = K.variable(decay, name='decay')
+            self.iterations = K.variable(0, dtype='int64', name='iterations')
+        self.epsilon = epsilon
         self.initial_decay = decay
 
-    def get_updates(self, params, constraints, loss):
+    @interfaces.legacy_get_updates_support
+    def get_updates(self, loss, params):
         grads = self.get_gradients(loss, params)
-        self.updates = [K.update_add(self.iterations, 1)]
-
-        lr = self.lr
-        if self.initial_decay > 0:
-            lr *= (1. / (1. + self.decay * self.iterations))
-
         shapes = [K.get_variable_shape(p) for p in params]
         ms = [K.zeros(shape) for shape in shapes]
         vs = [K.zeros(shape) for shape in shapes]
         mems = [K.zeros(shape) for shape in shapes]
         self.weights = [self.iterations] + ms + vs + mems
+        self.updates = [K.update_add(self.iterations, 1)]
+
+        lr = self.lr
+        if self.initial_decay > 0:
+            lr *= (1. / (1. + self.decay * K.cast(self.iterations,
+                                                  K.dtype(self.decay))))
+
 
         for p, g, m, v, mem in zip(params, grads, ms, vs, mems):
+
             r = 1. / (1. + mem)
-            m_t = (1. - r) * m + r * g
-            v_t = (1. - r) * v + r * K.square(g)
-            denoise = K.square(m_t) / (v_t + self.epsilon)
-            p_t = p - g * K.minimum(lr, denoise) / (K.sqrt(v_t) + self.epsilon)
-            mem_t = 1. + mem * (1. - denoise)
+            new_m = (1. - r) * m + r * g
+            new_v = (1. - r) * v + r * K.square(g)
+            denoise = K.square(new_m) / (new_v + self.epsilon)
+            new_p = p - g * K.minimum(lr, denoise) / (K.sqrt(new_v) + self.epsilon)
+            new_mem = 1. + mem * (1. - denoise)
 
-            self.updates.append(K.update(m, m_t))
-            self.updates.append(K.update(v, v_t))
-            self.updates.append(K.update(mem, mem_t))
+            self.updates.append(K.update(m, new_m))
+            self.updates.append(K.update(v, new_v))
+            self.updates.append(K.update(mem, new_mem))
 
-            new_p = p_t
-            # apply constraints
-            if p in constraints:
-                c = constraints[p]
-                new_p = c(new_p)
+            # Apply constraints.
+            if getattr(p, 'constraint', None) is not None:
+                new_p = p.constraint(new_p)
+
             self.updates.append(K.update(p, new_p))
         return self.updates
 
@@ -90,54 +100,60 @@ class SMORMS3(Optimizer):
         base_config = super(SMORMS3, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
-
 # register user-defined Keras optimizer
 register_custom_object('SMORMS3', SMORMS3)
 
 
 class SSMORMS3(Optimizer):
-    '''SSMORMS3 optimizer for Stabilized SMORMS3.
-    Slight modification of SMORMS3 that stabilizes its behavior
+    """Stabilized SMORMS3 optimizer.
+
+    Slight variation over SMORMS3 default implementation.
+
     # Arguments
         epsilon: float >= 0. Fuzz factor.
+
     # References
         - [RMSprop loses to SMORMS3 - Beware the Epsilon!](http://sifter.org/~simon/journal/20150420.html)
-    '''
+    """
+
     def __init__(self, epsilon=1e-8, **kwargs):
         super(SSMORMS3, self).__init__(**kwargs)
-        self.__dict__.update(locals())
-        self.iterations = K.variable(0)
 
-    def get_updates(self, params, constraints, loss):
+        with K.name_scope(self.__class__.__name__):
+            self.iterations = K.variable(0, dtype='int64', name='iterations')
+        self.epsilon = epsilon
+
+
+    @interfaces.legacy_get_updates_support
+    def get_updates(self, loss, params):
         grads = self.get_gradients(loss, params)
-        self.updates = [K.update_add(self.iterations, 1)]
-
         shapes = [K.get_variable_shape(p) for p in params]
         ms = [K.zeros(shape) for shape in shapes]
         vs = [K.zeros(shape) for shape in shapes]
         mems = [K.zeros(shape) for shape in shapes]
         denoises = [K.zeros(shape) for shape in shapes]
         self.weights = [self.iterations] + ms + vs + mems + denoises
+        self.updates = [K.update_add(self.iterations, 1)]
 
         for p, g, m, v, mem, denoise in zip(params, grads, ms, vs, mems, denoises):
+
             r = K.minimum(0.2, K.maximum(0.005, 1. / (1. + mem)))
-            mem_t = 1. / r - 1.
-            m_t = (1. - r) * m + r * g
-            v_t = (1. - r) * v + r * K.square(g)
-            denoise_t = 0.99 * denoise + 0.01 * K.square(m_t) / (v_t + self.epsilon)
-            p_t = p - g * denoise_t / (K.sqrt(v_t) + self.epsilon)
-            mem_t = K.maximum(0., 1. + mem_t * (1. - denoise_t))
+            new_mem = 1. / r - 1.
+            new_m = (1. - r) * m + r * g
+            new_v = (1. - r) * v + r * K.square(g)
+            new_denoise = 0.99 * denoise + 0.01 * K.square(new_m) / (new_v + self.epsilon)
+            new_p = p - g * new_denoise / (K.sqrt(new_v) + self.epsilon)
+            new_mem = K.maximum(0., 1. + new_mem * (1. - new_denoise))
 
-            self.updates.append(K.update(m, m_t))
-            self.updates.append(K.update(v, v_t))
-            self.updates.append(K.update(mem, mem_t))
-            self.updates.append(K.update(denoise, denoise_t))
+            self.updates.append(K.update(m, new_m))
+            self.updates.append(K.update(v, new_v))
+            self.updates.append(K.update(mem, new_mem))
+            self.updates.append(K.update(denoise, new_denoise))
 
-            new_p = p_t
-            # apply constraints
-            if p in constraints:
-                c = constraints[p]
-                new_p = c(new_p)
+            # Apply constraints.
+            if getattr(p, 'constraint', None) is not None:
+                new_p = p.constraint(new_p)
+
             self.updates.append(K.update(p, new_p))
         return self.updates
 
