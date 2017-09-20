@@ -28,7 +28,7 @@
 
 import time
 import yaml
-import os.path
+from os.path import dirname, basename
 import numpy as np
 from tqdm import tqdm
 from glob import glob
@@ -50,6 +50,13 @@ class Application(object):
     VALIDATE_TXT_TEMPLATE = '{epoch:04d} {value:5f}\n'
     VALIDATE_PNG = '{validate_dir}/{subset}.{metric}.png'
     VALIDATE_EPS = '{validate_dir}/{subset}.{metric}.eps'
+
+    @classmethod
+    def from_train_dir(cls, train_dir, db_yml=None):
+        experiment_dir = dirname(dirname(train_dir))
+        app = cls(experiment_dir, db_yml=db_yml)
+        app.train_dir_ = train_dir
+        return app
 
     def __init__(self, experiment_dir, db_yml=None):
         super(Application, self).__init__()
@@ -112,8 +119,8 @@ class Application(object):
             first_epoch = None
 
         else:
-            number_of_epochs = int(os.path.basename(weights_h5[-1])[:-3]) + 1
-            first_epoch = int(os.path.basename(weights_h5[0])[:-3])
+            number_of_epochs = int(basename(weights_h5[-1])[:-3]) + 1
+            first_epoch = int(basename(weights_h5[0])[:-3])
 
         return (number_of_epochs, first_epoch) if return_first \
                                                else number_of_epochs

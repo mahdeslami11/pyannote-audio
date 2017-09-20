@@ -194,14 +194,6 @@ class SpeakerEmbedding(Application):
         return speaker_embedding
 
     @classmethod
-    def from_train_dir(cls, train_dir, db_yml=None):
-        """Initialize application from <train_dir>"""
-        experiment_dir = dirname(dirname(train_dir))
-        speaker_embedding = cls(experiment_dir, db_yml=db_yml)
-        speaker_embedding.train_dir_ = train_dir
-        return speaker_embedding
-
-    @classmethod
     def from_validate_txt(cls, validate_txt, db_yml=None):
         train_dir = dirname(dirname(dirname(validate_txt)))
         speaker_embedding = cls.from_train_dir(train_dir, db_yml=db_yml)

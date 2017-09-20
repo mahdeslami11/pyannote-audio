@@ -261,13 +261,6 @@ class SpeechActivityDetection(Application):
     HARD_MDTM = '{apply_dir}/{protocol}.{subset}.mdtm'
 
     @classmethod
-    def from_train_dir(cls, train_dir, db_yml=None):
-        experiment_dir = dirname(dirname(train_dir))
-        speech_activity_detection = cls(experiment_dir, db_yml=db_yml)
-        speech_activity_detection.train_dir_ = train_dir
-        return speech_activity_detection
-
-    @classmethod
     def from_tune_dir(cls, tune_dir, db_yml=None):
         train_dir = dirname(dirname(tune_dir))
         speech_activity_detection = cls.from_train_dir(train_dir,
