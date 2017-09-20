@@ -92,8 +92,12 @@ class Application(object):
 
         weights_h5 = self.WEIGHTS_H5.format(train_dir=train_dir, epoch=epoch)
 
-        return keras.models.load_model(weights_h5,
+        model = keras.models.load_model(weights_h5,
             custom_objects=CUSTOM_OBJECTS, compile=compile)
+
+        model.epoch = epoch
+
+        return model
 
     def get_number_of_epochs(self, train_dir=None, return_first=False):
         """Get information about completed epochs
