@@ -28,6 +28,11 @@
 
 CUSTOM_OBJECTS = {}
 
-
 def register_custom_object(key, value):
     CUSTOM_OBJECTS[key] = value
+
+import keras.models
+def load_model(weights_h5, compile=False):
+    model = keras.models.load_model(weights_h5,
+        custom_objects=CUSTOM_OBJECTS, compile=compile)
+    return model
