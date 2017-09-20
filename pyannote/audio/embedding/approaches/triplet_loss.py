@@ -27,7 +27,7 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 
-from ..base import SequenceEmbedding
+from .base import SequenceEmbeddingTraining
 from autograd import numpy as ag_np
 from autograd import value_and_grad
 
@@ -43,7 +43,7 @@ from pyannote.core.util import pairwise
 from random import shuffle
 
 
-class TripletLoss(SequenceEmbedding):
+class TripletLoss(SequenceEmbeddingTraining):
     """
 
     loss = d(anchor, positive) - d(anchor, negative)
@@ -326,7 +326,7 @@ class TripletLoss(SequenceEmbedding):
     def triplet_sampling_hard(self, y, anchor, positive, distance=None):
         """Choose negative at random such that
 
-0 < d(anchor, positive) - d(anchor, negative) + margin
+        0 < d(anchor, positive) - d(anchor, negative) + margin
         """
 
         # find hard cases (loss > 0)
@@ -344,7 +344,7 @@ class TripletLoss(SequenceEmbedding):
     def triplet_sampling_semi_hard(self, y, anchor, positive, distance=None):
         """Choose negative at random such that
 
-0 < d(anchor, positive) - d(anchor, negative) + margin < margin
+        0 < d(anchor, positive) - d(anchor, negative) + margin < margin
         """
 
         # find semi-hard cases (margin > loss > 0)
@@ -363,8 +363,8 @@ class TripletLoss(SequenceEmbedding):
     def triplet_sampling_hardest(self, y, anchor, positive, distance=None):
         """Choose negative such that
 
-* 0 < d(anchor, positive) - d(anchor, negative) + margin
-* negative = argmin(d(anchor, negative))
+        * 0 < d(anchor, positive) - d(anchor, negative) + margin
+        * negative = argmin(d(anchor, negative))
         """
 
         # find hard cases (loss > 0)

@@ -144,13 +144,10 @@ Database configuration file:
     protocol, task, or database).
 """
 
-from os.path import dirname, basename, isfile, expanduser
+from os.path import dirname, basename, expanduser
 import numpy as np
 import pandas as pd
-import time
 import yaml
-from tqdm import tqdm
-
 from docopt import docopt
 
 import matplotlib
@@ -166,17 +163,13 @@ from .base import Application
 from pyannote.generators.fragment import SlidingLabeledSegments
 from pyannote.audio.optimizers import SSMORMS3
 
-import keras.models
-from pyannote.audio.keras_utils import CUSTOM_OBJECTS
-from pyannote.audio.embedding.utils import pdist, cdist, l2_normalize
+from pyannote.audio.embedding.utils import pdist, l2_normalize
 from pyannote.metrics.binary_classification import det_curve
-
-from pyannote.audio.callback import LoggingCallback
 
 from sortedcontainers import SortedDict
 from pyannote.audio.features import Precomputed
-from pyannote.audio.embedding.base import SequenceEmbedding
-from pyannote.audio.embedding.extraction import Extraction
+from pyannote.audio.embedding.extraction import SequenceEmbedding
+
 
 class SpeakerEmbedding(Application):
 
@@ -481,22 +474,23 @@ class SpeakerEmbedding(Application):
         y_true = pdist(y, metric='chebyshev') < 1
 
         # load embedding
-        weights_h5 = LoggingCallback.WEIGHTS_H5.format(
-            log_dir=self.train_dir_, epoch=epoch)
-        embedding = keras.models.load_model(
-            weights_h5, custom_objects=CUSTOM_OBJECTS, compile=False)
-
+        embedding = self.load_model(epoch)
         X = validation_data['X']
         fX = embedding.predict(X, batch_size=batch_size)
         y_pred = pdist(fX, metric=self.approach_.metric)
         _, _, _, eer = det_curve(y_true, y_pred, distances=True)
         metrics['EER.1seq'] = {'minimize': True, 'value': eer}
 
+        try:
+            internal_layer = embedding.get_layer(name='internal')
+        except ValueError as e:
+            return metrics
+
         # internal embeddings
         def embed(XX):
             func = K.function(
                 [embedding.get_layer(name='input').input, K.learning_phase()],
-                [embedding.get_layer(name='internal').output])
+                [internal_layer.output])
             return func([XX, 0])[0]
 
         # embed internal embedding using batches
@@ -525,8 +519,7 @@ class SpeakerEmbedding(Application):
         with open(self.validate_txt_, 'r') as fp:
             eers = SortedDict(np.loadtxt(fp))
         best_epoch = int(eers.iloc[np.argmin(eers.values())])
-        embedding = SequenceEmbedding.load(
-            self.train_dir_, best_epoch)
+        model = self.load_model(best_epoch)
 
         # guess sequence duration from path (.../3.2+0.8/...)
         directory = basename(dirname(self.experiment_dir))
@@ -536,11 +529,12 @@ class SpeakerEmbedding(Application):
 
         # initialize embedding extraction
         batch_size = self.approach_.batch_size
-        extraction = Extraction(embedding, self.feature_extraction_, duration,
-                                step=step, batch_size=batch_size,
-                                internal=internal)
-        sliding_window = extraction.sliding_window
-        dimension = extraction.dimension
+        sequence_embedding = SequenceEmbedding(
+            model, self.feature_extraction_, duration,
+            step=step, batch_size=batch_size,
+            internal=internal)
+        sliding_window = sequence_embedding.sliding_window
+        dimension = sequence_embedding.dimension
 
         # create metadata file at root that contains
         # sliding window and dimension information
@@ -569,7 +563,7 @@ class SpeakerEmbedding(Application):
 
             for current_file in file_generator:
 
-                fX = extraction.apply(current_file)
+                fX = sequence_embedding.apply(current_file)
 
                 path = Precomputed.get_path(output_dir, current_file)
                 mkdir_p(dirname(path))

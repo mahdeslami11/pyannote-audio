@@ -27,13 +27,9 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 from autograd import numpy as ag_np
-from autograd import value_and_grad
 from autograd.core import primitive
 
 import numpy as np
-import functools
-import pickle
-import h5py
 
 import keras.backend as K
 import keras.callbacks as cbks
@@ -46,8 +42,7 @@ from pyannote.audio.callback import Debugging
 # populate CUSTOM_OBJECTS with user-defined optimizers and layers
 import pyannote.audio.optimizers
 import pyannote.audio.embedding.models
-from pyannote.audio.embedding.losses import precomputed_gradient_loss
-from pyannote.audio.keras_utils import CUSTOM_OBJECTS
+from pyannote.audio.keras_utils import register_custom_object
 
 from pyannote.generators.batch import batchify
 
@@ -112,8 +107,7 @@ class DistanceMixin:
             ag_np.sum((embedding[i] - other_embedding) ** 2, axis=1)
             for i in range(n_samples))
 
-    @staticmethod
-    def euclidean(embedding, other_embedding=None):
+    def euclidean(self, embedding, other_embedding=None):
         """Compute euclidean distance
 
         Parameters
@@ -178,8 +172,15 @@ class DistanceMixin:
             ag_np.sum(embedding[i] * other_embedding, axis=1)
             for i in range(n_samples)))
 
-class SequenceEmbedding(DistanceMixin, cbks.Callback):
-    """Base class for sequence embedding
+def precomputed_gradient_loss(y_true, y_pred):
+    return K.sum((y_pred * y_true), axis=-1)
+
+register_custom_object('precomputed_gradient_loss',
+                       precomputed_gradient_loss)
+
+
+class SequenceEmbeddingTraining(DistanceMixin, cbks.Callback):
+    """Base class for sequence embedding training approaches
 
     Parameters
     ----------
@@ -192,7 +193,7 @@ class SequenceEmbedding(DistanceMixin, cbks.Callback):
     """
 
     def __init__(self, metric='cosine', gradient_factor=1., batch_size=32):
-        super(SequenceEmbedding, self).__init__()
+        super(SequenceEmbeddingTraining, self).__init__()
         self.metric = metric
         self.gradient_factor = gradient_factor
         self.batch_size = batch_size
@@ -202,21 +203,6 @@ class SequenceEmbedding(DistanceMixin, cbks.Callback):
 
         self.float_autograd_ = ag_np.array(0.).dtype.name
         self.float_backend_ = K.floatx()
-
-
-    @classmethod
-    def load(cls, log_dir, epoch):
-
-        weights_h5 = LoggingCallback.WEIGHTS_H5.format(log_dir=log_dir,
-                                                       epoch=epoch)
-
-        embedding = keras.models.load_model(
-            weights_h5, custom_objects=CUSTOM_OBJECTS,
-            compile=True)
-
-        embedding.epoch = epoch
-
-        return embedding
 
     def embed(self, embedding, X, internal=False):
         """Apply embedding on sequences

@@ -44,7 +44,7 @@ from keras.layers import Dense
 from keras.layers import Lambda
 import keras.models
 from pyannote.audio.optimizers import SSMORMS3
-from pyannote.audio.embedding.losses import precomputed_gradient_loss
+from .base import precomputed_gradient_loss
 from pyannote.audio.callback import LoggingCallback
 from pyannote.audio.keras_utils import CUSTOM_OBJECTS
 from pyannote.core.util import pairwise
