@@ -26,58 +26,145 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-import os.path
+import numpy as np
 
+from pyannote.core import SlidingWindow, SlidingWindowFeature
+
+from pyannote.generators.batch import FileBasedBatchGenerator
+from pyannote.generators.fragment import SlidingSegments
+
+from pyannote.audio.generators.periodic import PeriodicFeaturesMixin
 from pyannote.audio.callback import LoggingCallback
-import keras.models
 
-from pyannote.audio.keras_utils import CUSTOM_OBJECTS
+from pyannote.database import get_unique_identifier
 
 
-class SequenceLabeling(object):
+class SequenceLabeling(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     """Sequence labeling
+
+    Parameters
+    ----------
+    model : keras.Model
+        Pre-trained sequence labeling model.
+    feature_extraction : callable
+        Feature extractor
+    duration : float
+        Subsequence duration, in seconds.
+    step : float, optional
+        Subsequence step, in seconds. Defaults to 50% of `duration`.
+    batch_size : int, optional
+        Defaults to 32.
+
+    Usage
+    -----
+    >>> model = keras.models.load_model(...)
+    >>> feature_extraction = YaafeMFCC(...)
+    >>> sequence_labeling = SequenceLabeling(model, feature_extraction, duration)
+    >>> sequence_labeling.apply(current_file)
     """
-    def __init__(self):
-        super(SequenceLabeling, self).__init__()
 
-    @classmethod
-    def from_disk(cls, log_dir, epoch):
-        """Load pre-trained sequence labeling from disk
+    def __init__(self, model, feature_extraction, duration,
+                 step=None, batch_size=32, source='audio'):
 
-        Parameters
-        ----------
-        log_dir : str
-        epoch : int
+        self.model = model
+        self.feature_extractor = feature_extraction
+        self.duration = duration
+        self.batch_size = batch_size
+
+        generator = SlidingSegments(duration=duration, step=step, source=source)
+        self.step = generator.step if step is None else step
+
+        super(SequenceLabeling, self).__init__(
+            generator, batch_size=self.batch_size)
+
+    @property
+    def dimension(self):
+        return self.model.output_shape[-1]
+
+    @property
+    def sliding_window(self):
+        return self.feature_extractor.sliding_window()
+
+    def signature(self):
+        shape = self.shape
+        return {'type': 'ndarray', 'shape': self.shape}
+
+    def postprocess_ndarray(self, X):
+        """Label sequences
+
+        Parameter
+        ---------
+        X : (batch_size, n_samples, n_features) numpy array
+            Batch of input sequences
 
         Returns
         -------
-        sequence_labeling : SequenceLabeling
-            Pre-trained sequence labeling model.
+        prediction : (batch_size, n_samples, dimension) numpy array
+            Batch of sequence labelings.
+        """
+        return self.model.predict(X)
+
+    def apply(self, current_file):
+        """Compute predictions on a sliding window
+
+        Parameter
+        ---------
+        current_file : dict
+
+        Returns
+        -------
+        predictions : SlidingWindowFeature
         """
 
-        self = SequenceLabeling()
+        fX = np.vstack(
+            [batch for batch in self.from_file(current_file,
+                                               incomplete=True)])
 
-        weights_h5 = LoggingCallback.WEIGHTS_H5.format(log_dir=log_dir,
-                                                       epoch=epoch)
+        subsequences = SlidingWindow(duration=self.duration, step=self.step)
 
-        self.labeling_ = keras.models.load_model(
-            weights_h5, custom_objects=CUSTOM_OBJECTS,
-            compile=False)
+        # get total number of frames
+        identifier = get_unique_identifier(current_file)
+        n_frames = self.preprocessed_['X'][identifier].data.shape[0]
 
-        self.labeling_.epoch = epoch
+        # data[i] is the sum of all predictions for frame #i
+        data = np.zeros((n_frames, self.dimension), dtype=np.float32)
 
-        return self
+        # k[i] is the number of sequences that overlap with frame #i
+        k = np.zeros((n_frames, 1), dtype=np.int8)
 
-    def fit(self, input_shape, design_labeling, generator,
-            steps_per_epoch, epochs, loss='categorical_crossentropy',
-            optimizer='rmsprop', log_dir=None):
+        # frame and sub-sequence sliding windows
+        frames = self.feature_extractor.sliding_window()
+
+        for subsequence, fX_ in zip(subsequences, fX):
+
+            # indices of frames overlapped by subsequence
+            indices = frames.crop(subsequence,
+                                  mode='center',
+                                  fixed=self.duration)
+
+            # accumulate the outputs
+            data[indices] += fX_
+
+            # keep track of the number of overlapping sequence
+            # TODO - use smarter weights (e.g. Hamming window)
+            k[indices] += 1
+
+        # compute average embedding of each frame
+        data = data / np.maximum(k, 1)
+
+        return SlidingWindowFeature(data, frames)
+
+    @classmethod
+    def train(cls, input_shape, design_model, generator, steps_per_epoch,
+              epochs, loss='categorical_crossentropy', optimizer='rmsprop',
+              log_dir=None):
         """Train the model
 
         Parameters
         ----------
         input_shape : (n_frames, n_features) tuple
             Shape of input sequence
-        design_labeling : function or callable
+        design_model : function or callable
             This function should take input_shape as input and return a Keras
             model that takes a sequence as input, and returns the labeling as
             output.
@@ -116,29 +203,11 @@ class SequenceLabeling(object):
             if hasattr(stuff, 'callbacks'):
                 callbacks.extend(stuff.callbacks())
 
-        self.labeling_ = design_labeling(input_shape)
-        self.labeling_.compile(optimizer=optimizer,
+        model = design_model(input_shape)
+        model.compile(optimizer=optimizer,
                                loss=loss,
                                metrics=['accuracy'])
 
-        return self.labeling_.fit_generator(
+        return model.fit_generator(
             generator, steps_per_epoch, epochs=epochs,
             verbose=1, callbacks=callbacks)
-
-    def predict(self, sequence, batch_size=32, verbose=0):
-        """Apply pre-trained labeling to sequences
-
-        Parameters
-        ----------
-        sequences : (n_samples, n_frames, n_features) array
-            Array of sequences.
-        batch_size : int, optional
-            Number of samples per batch
-        verbose : int, optional
-
-        Returns
-        -------
-        labels : (n_samples, n_frames, n_classes) array
-        """
-        return self.labeling_.predict(
-            sequence, batch_size=batch_size, verbose=verbose)

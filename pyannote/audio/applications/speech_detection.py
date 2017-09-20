@@ -134,10 +134,14 @@ Configuration file:
     updated continuously, epoch after epoch. This directory is called
     <validate_dir> in the subsequent "tune" mode.
 
+    In practice, for each epoch, "validate" mode will report the detection
+    error rate obtained by applying (possibly not optimal) onset/offset
+    thresholds of 0.5.
+
 "tune" mode:
-    Then, one should tune the hyper-parameters using "tune" mode.
-    This will create the following files describing the best hyper-parameters
-    to use:
+    To actually use the optimal set of hyper-parameters, one should tune the
+    system using "tune" mode. This will create the following files describing
+    the best hyper-parameters to use:
 
         <train_dir>/tune/<database.task.protocol>.<subset>/tune.yml
         <train_dir>/tune/<database.task.protocol>.<subset>/tune.png
@@ -146,26 +150,26 @@ Configuration file:
     <database.task.protocol> protocol. By default, <subset> is "development".
     This directory is called <tune_dir> in the subsequent "apply" mode.
 
+    In practice, "tune" mode will look for the set of hyper-parameters that
+    minimizes the detection error rate.
+
 "apply" mode
     Finally, one can apply speech activity detection using "apply" mode.
     This will create the following files that contains the hard (mdtm) and
-    soft (h5) outputs of speech activity detection.
+    soft (h5) outputs of speech activity detection, based on the set of hyper-
+    parameters obtain with "tune" mode:
 
         <tune_dir>/apply/<database.task.protocol>.<subset>.mdtm
         <tune_dir>/apply/{database}/{uri}.h5
 
     This means that file whose unique resource identifier is {uri} has been
     processed.
-
 """
 
 import io
 import yaml
-import time
-import warnings
-from os.path import dirname, isfile, expanduser
+from os.path import dirname, expanduser
 import numpy as np
-from collections import Counter
 
 from docopt import docopt
 
@@ -178,27 +182,18 @@ from pyannote.audio.generators.speech import \
     SpeechActivityDetectionBatchGenerator
 from pyannote.audio.optimizers import SSMORMS3
 
-from pyannote.audio.callback import LoggingCallback
-
-from pyannote.audio.labeling.aggregation import SequenceLabelingAggregation
 from pyannote.audio.signal import Binarize
-from pyannote.database.util import get_unique_identifier
 from pyannote.database.util import get_annotated
 from pyannote.database import get_protocol
-
-from pyannote.metrics.binary_classification import det_curve
 
 from pyannote.parser import MDTMParser
 
 from pyannote.audio.util import mkdir_p
-import pyannote.core.json
 
 from pyannote.audio.features.utils import Precomputed
 import h5py
 
 from .base import Application
-
-from tqdm import tqdm
 
 import skopt
 import skopt.space
@@ -231,22 +226,21 @@ def tune_binarizer(app, epoch, protocol_name, subset='development'):
                             preprocessors=app.preprocessors_)
 
     # load model for epoch 'epoch'
-    sequence_labeling = SequenceLabeling.from_disk(
-        app.train_dir_, epoch)
+    model = app.load_model(epoch)
 
     # initialize sequence labeling
     duration = app.config_['sequences']['duration']
     step = app.config_['sequences']['step']
-    aggregation = SequenceLabelingAggregation(
-        sequence_labeling, app.feature_extraction_,
-        duration=duration, step=step)
-    aggregation.cache_preprocessed_ = False
+    sequence_labeling = SequenceLabeling(
+        model, app.feature_extraction_,
+        duration, step=step)
+    sequence_labeling.cache_preprocessed_ = False
 
     # tune Binarize thresholds (onset & offset)
     # with respect to detection error rate
     binarize_params, metric = Binarize.tune(
         getattr(protocol, subset)(),
-        aggregation.apply,
+        sequence_labeling.apply,
         get_metric=DetectionErrorRate,
         dimension=1)
 
@@ -325,12 +319,9 @@ class SpeechActivityDetection(Application):
         train_files = getattr(protocol, subset)()
         generator = batch_generator(train_files, infinite=True)
 
-        labeling = SequenceLabeling()
-        labeling.fit(input_shape, self.architecture_,
-                     generator, steps_per_epoch, 1000,
-                     optimizer=SSMORMS3(), log_dir=train_dir)
-
-        return labeling
+        return SequenceLabeling.train(
+            input_shape, self.architecture_, generator, steps_per_epoch, 1000,
+            optimizer=SSMORMS3(), log_dir=train_dir)
 
     def validate_epoch(self, epoch, protocol_name, subset='development',
                        validation_data=None):
@@ -342,22 +333,21 @@ class SpeechActivityDetection(Application):
         binarizer = Binarize(onset=0.5, offset=0.5)
 
         # load model for current epoch
-        sequence_labeling = SequenceLabeling.from_disk(
-            self.train_dir_, epoch)
+        model = self.load_model(epoch)
 
         # initialize sequence labeling
         duration = self.config_['sequences']['duration']
-        aggregation = SequenceLabelingAggregation(
-            sequence_labeling, self.feature_extraction_,
-            duration=duration, step=.25 * duration)
-        aggregation.cache_preprocessed_ = False
+        sequence_labeling = SequenceLabeling(
+            model, self.feature_extraction_, duration,
+            step=.25 * duration)
+        sequence_labeling.cache_preprocessed_ = False
 
         protocol = get_protocol(protocol_name, progress=False,
                                 preprocessors=self.preprocessors_)
         file_generator = getattr(protocol, subset)()
         for current_file in file_generator:
 
-            predictions = aggregation.apply(current_file)
+            predictions = sequence_labeling.apply(current_file)
             hypothesis = binarizer.apply(predictions, dimension=1).to_annotation()
 
             reference = current_file['annotation']
@@ -393,7 +383,7 @@ class SpeechActivityDetection(Application):
 
         space = [skopt.space.Integer(start, end)]
 
-        best_binarize_params = {}
+        best_params = {}
         best_metric = {}
 
         tune_yml = self.TUNE_YML.format(tune_dir=tune_dir)
@@ -416,8 +406,8 @@ class SpeechActivityDetection(Application):
                                  'end': end,
                                  'objective': float(res.fun)},
                       'epoch': int(res.x[0]),
-                      'onset': float(best_binarize_params[tuple(res.x)]['onset']),
-                      'offset': float(best_binarize_params[tuple(res.x)]['offset'])
+                      'onset': float(best_params[tuple(res.x)]['onset']),
+                      'offset': float(best_params[tuple(res.x)]['offset'])
                       }
 
             with io.open(tune_yml, 'w') as fp:
@@ -437,7 +427,7 @@ class SpeechActivityDetection(Application):
                 self, epoch, protocol_name, subset=subset)
 
             # remember outcome of this trial
-            best_binarize_params[params] = binarize_params
+            best_params[params] = binarize_params
             best_metric[params] = metric
 
             return metric
@@ -464,15 +454,14 @@ class SpeechActivityDetection(Application):
 
         # load model for epoch 'epoch'
         epoch = self.tune_['epoch']
-        sequence_labeling = SequenceLabeling.from_disk(
-            self.train_dir_, epoch)
+        model = self.load_model(epoch)
 
         # initialize sequence labeling
         duration = self.config_['sequences']['duration']
         step = self.config_['sequences']['step']
-        aggregation = SequenceLabelingAggregation(
-            sequence_labeling, self.feature_extraction_,
-            duration=duration, step=step)
+        sequence_labeling = SequenceLabeling(
+            model, self.feature_extraction_, duration,
+            step=step)
 
         # initialize protocol
         protocol = get_protocol(protocol_name, progress=True,
@@ -480,16 +469,16 @@ class SpeechActivityDetection(Application):
 
         for i, item in enumerate(getattr(protocol, subset)()):
 
-            prediction = aggregation.apply(item)
+            predictions = sequence_labeling.apply(item)
 
             if i == 0:
                 # create metadata file at root that contains
                 # sliding window and dimension information
                 path = Precomputed.get_config_path(apply_dir)
                 f = h5py.File(path)
-                f.attrs['start'] = prediction.sliding_window.start
-                f.attrs['duration'] = prediction.sliding_window.duration
-                f.attrs['step'] = prediction.sliding_window.step
+                f.attrs['start'] = predictions.sliding_window.start
+                f.attrs['duration'] = predictions.sliding_window.duration
+                f.attrs['step'] = predictions.sliding_window.step
                 f.attrs['dimension'] = 2
                 f.close()
 
@@ -499,11 +488,11 @@ class SpeechActivityDetection(Application):
             mkdir_p(dirname(path))
 
             f = h5py.File(path)
-            f.attrs['start'] = prediction.sliding_window.start
-            f.attrs['duration'] = prediction.sliding_window.duration
-            f.attrs['step'] = prediction.sliding_window.step
+            f.attrs['start'] = predictions.sliding_window.start
+            f.attrs['duration'] = predictions.sliding_window.duration
+            f.attrs['step'] = predictions.sliding_window.step
             f.attrs['dimension'] = 2
-            f.create_dataset('features', data=prediction.data)
+            f.create_dataset('features', data=predictions.data)
             f.close()
 
         # initialize binarizer
@@ -514,12 +503,13 @@ class SpeechActivityDetection(Application):
         precomputed = Precomputed(root_dir=apply_dir)
 
         writer = MDTMParser()
-        path = self.HARD_MDTM.format(apply_dir=apply_dir, protocol=protocol_name,
-                                subset=subset)
+        path = self.HARD_MDTM.format(apply_dir=apply_dir,
+                                     protocol=protocol_name,
+                                     subset=subset)
         with io.open(path, mode='w') as gp:
             for item in getattr(protocol, subset)():
-                prediction = precomputed(item)
-                segmentation = binarize.apply(prediction, dimension=1)
+                predictions = precomputed(item)
+                segmentation = binarize.apply(predictions, dimension=1)
                 writer.write(segmentation.to_annotation(),
                              f=gp, uri=item['uri'], modality='speaker')
 

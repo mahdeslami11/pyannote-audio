@@ -32,7 +32,7 @@ Speaker change detection
 
 Usage:
   pyannote-change-detection train [--database=<db.yml> --subset=<subset>] <experiment_dir> <database.task.protocol>
-  pyannote-change-detection validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch>] <train_dir> <database.task.protocol>
+  pyannote-change-detection validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch> --purity=<purity>] <train_dir> <database.task.protocol>
   pyannote-change-detection tune [--database=<db.yml> --subset=<subset> [--from=<epoch> --to=<epoch> | --at=<epoch>] --purity=<purity>] <train_dir> <database.task.protocol>
   pyannote-change-detection apply [--database=<db.yml> --subset=<subset>] <tune_dir> <database.task.protocol>
   pyannote-change-detection -h | --help
@@ -53,6 +53,7 @@ Common options:
                              In "validate" mode, defaults to never stop.
                              In "tune" mode, defaults to last available epoch at launch time.
   --at=<epoch>               In "tune" mode, use this very epoch.
+  --purity=<purity>          Target segment purity [default: 0.9].
 
 "train" mode:
   <experiment_dir>           Set experiment root directory. This script expects
@@ -68,7 +69,6 @@ Common options:
 "tune" mode:
   <train_dir>                Path to the directory containing pre-trained
                              models (i.e. the output of "train" mode).
-  --purity=<purity>          Target purity [default: 0.95].
 
 "apply" mode:
   <tune_dir>                 Path to the directory containing optimal
@@ -133,14 +133,18 @@ Configuration file:
 
     This means that the network was validated on the <database.task.protocol>
     protocol. By default, validation is done on the "development" subset:
-    "developement.FScore.{txt|png|eps}" files are created and
+    "developement.DiarizationCoverage.{txt|png|eps}" files are created and
     updated continuously, epoch after epoch. This directory is called
     <validate_dir> in the subsequent "tune" mode.
 
+    In practice, for each epoch, "validate" mode will approximate  the set of
+    hyper-parameters that maximizes coverage, given that the purity must be
+    higher than the value provided by the "--purity" option.
+
 "tune" mode:
-    Then, one should tune the hyper-parameters using "tune" mode.
-    This will create the following files describing the best hyper-parameters
-    to use:
+    To actually use the optimal set of hyper-parameters, one should tune the
+    system using "tune" mode. This will create the following files describing
+    the best hyper-parameters to use:
 
         <train_dir>/tune/<database.task.protocol>.<subset>/tune.yml
         <train_dir>/tune/<database.task.protocol>.<subset>/tune.png
@@ -149,26 +153,27 @@ Configuration file:
     <database.task.protocol> protocol. By default, <subset> is "development".
     This directory is called <tune_dir> in the subsequent "apply" mode.
 
+    In practice, "tune" mode will look for the set of hyper-parameters that
+    maximizes coverage, given that purity must be higher than the value
+    provided by the "--purity" option.
+
 "apply" mode
-    Finally, one can apply speech activity detection using "apply" mode.
+    Finally, one can apply speaker change detection using "apply" mode.
     This will create the following files that contains the hard (mdtm) and
-    soft (h5) outputs of speaker change detection.
+    soft (h5) outputs of speaker change detection, based on the set of hyper-
+    parameters obtain with "tune" mode:
 
         <tune_dir>/apply/<database.task.protocol>.<subset>.mdtm
         <tune_dir>/apply/{database}/{uri}.h5
 
     This means that file whose unique resource identifier is {uri} has been
     processed.
-
 """
 
 import io
 import yaml
-import time
-import warnings
-from os.path import dirname, isfile, expanduser
+from os.path import dirname, expanduser
 import numpy as np
-from collections import Counter
 
 from docopt import docopt
 
@@ -181,65 +186,27 @@ from pyannote.audio.generators.change import \
     ChangeDetectionBatchGenerator
 from pyannote.audio.optimizers import SSMORMS3
 
-from pyannote.audio.callback import LoggingCallback
-
-from pyannote.audio.labeling.aggregation import SequenceLabelingAggregation
 from pyannote.audio.signal import Peak
-from pyannote.database.util import get_unique_identifier
 from pyannote.database.util import get_annotated
 from pyannote.database import get_protocol
 
-from pyannote.metrics.binary_classification import det_curve
-from pyannote.metrics.diarization import DiarizationPurityCoverageFMeasure
 
 from pyannote.parser import MDTMParser
 
 from pyannote.audio.util import mkdir_p
-import pyannote.core.json
 
 from pyannote.audio.features.utils import Precomputed
 import h5py
 
-from .base import Application
-
-from tqdm import tqdm
+from .speech_detection import SpeechActivityDetection
 
 import skopt
 import skopt.space
-
-from functools import partial
-
-
-def helper_tune_peak(item_prediction,
-                     peak=None, metric=None, **kwargs):
-    """Apply peak detection on prediction and evaluate the result
-
-    Parameters
-    ----------
-    item : dict
-        Protocol item.
-    prediction : SlidingWindowFeature
-    peaker : Peak, optional
-    metric : BaseMetric, optional
-        Defaults to
-    **kwargs : dict
-        Passed to peak.apply()
-
-    Returns
-    -------
-    value : float
-        Metric value
-    """
-
-    item, prediction = item_prediction
-    uem = get_annotated(item)
-    reference = item['annotation']
-    hypothesis = peak.apply(prediction, **kwargs).to_annotation()
-    result = metric(reference, hypothesis, uem=uem)
-    return result
+from pyannote.metrics.diarization import DiarizationPurityCoverageFMeasure
 
 
-def tune_peak(app, epoch, protocol_name, subset='development', purity=0.95):
+def tune_peak(app, epoch, protocol_name, subset='development', purity=0.9,
+              n_calls=20, n_random_starts=10, n_jobs=-1):
     """Tune peak detection
 
     Parameters
@@ -253,12 +220,22 @@ def tune_peak(app, epoch, protocol_name, subset='development', purity=0.95):
         Defaults to 'development'.
     purity : float, optional
         Target purity. Defaults to 0.95.
+    n_calls : int, optional
+        Number of trials for hyper-parameter optimization. Defaults to 20.
+    n_random_starts : int, optional
+        Number of trials with random initialization before being smart.
+        Defaults to 10.
+    n_jobs : int, optional
+        Number of parallel job to use. Set to 1 to not use multithreading.
+        Defaults to whichever is minimum between number of CPUs and number
+        of items.
+
 
     Returns
     -------
     params : dict
         See Peak.tune
-    metric : float
+    coverage : float
         Best achieved coverage (at target purity)
     """
 
@@ -267,64 +244,25 @@ def tune_peak(app, epoch, protocol_name, subset='development', purity=0.95):
                             preprocessors=app.preprocessors_)
 
     # load model for epoch 'epoch'
-    sequence_labeling = SequenceLabeling.from_disk(
-        app.train_dir_, epoch)
+    model = app.load_model(epoch)
 
     # initialize sequence labeling
     duration = app.config_['sequences']['duration']
-    aggregation = SequenceLabelingAggregation(
-        sequence_labeling, app.feature_extraction_,
-        duration=duration, step=.9 * duration)
-    aggregation.cache_preprocessed_ = False
+    sequence_labeling = SequenceLabeling(
+        model, app.feature_extraction_,
+        duration, step=.9 * duration)
+    sequence_labeling.cache_preprocessed_ = False
 
     # tune Peak parameters (alpha & min_duration)
     # with respect to coverage @ given purity
-    peak_params, metric = Peak.tune(
-        getattr(protocol, subset)(), aggregation.apply, purity=purity)
+    peak_params, coverage = Peak.tune(
+        getattr(protocol, subset)(), sequence_labeling.apply, purity=purity,
+        n_calls=n_calls, n_random_starts=n_random_starts, n_jobs=n_jobs)
 
-    return peak_params, metric
+    return peak_params, coverage
 
 
-class SpeakerChangeDetection(Application):
-
-    # created by "train" mode
-    TRAIN_DIR = '{experiment_dir}/train/{protocol}.{subset}'
-    APPLY_DIR = '{tune_dir}/apply'
-
-    # created by "tune" mode
-    TUNE_DIR = '{train_dir}/tune/{protocol}.{subset}'
-    TUNE_YML = '{tune_dir}/tune.yml'
-    TUNE_PNG = '{tune_dir}/tune.png'
-
-    HARD_MDTM = '{apply_dir}/{protocol}.{subset}.mdtm'
-
-    @classmethod
-    def from_train_dir(cls, train_dir, db_yml=None):
-        experiment_dir = dirname(dirname(train_dir))
-        speaker_change_detection = cls(experiment_dir, db_yml=db_yml)
-        speaker_change_detection.train_dir_ = train_dir
-        return speaker_change_detection
-
-    @classmethod
-    def from_tune_dir(cls, tune_dir, db_yml=None):
-        train_dir = dirname(dirname(tune_dir))
-        speaker_change_detection = cls.from_train_dir(train_dir,
-                                                       db_yml=db_yml)
-        speaker_change_detection.tune_dir_ = tune_dir
-        return speaker_change_detection
-
-    def __init__(self, experiment_dir, db_yml=None):
-
-        super(SpeakerChangeDetection, self).__init__(
-            experiment_dir, db_yml=db_yml)
-
-        # architecture
-        architecture_name = self.config_['architecture']['name']
-        models = __import__('pyannote.audio.labeling.models',
-                            fromlist=[architecture_name])
-        Architecture = getattr(models, architecture_name)
-        self.architecture_ = Architecture(
-            **self.config_['architecture'].get('params', {}))
+class SpeakerChangeDetection(SpeechActivityDetection):
 
     def train(self, protocol_name, subset='train'):
 
@@ -338,7 +276,7 @@ class SpeakerChangeDetection(Application):
         duration = self.config_['sequences']['duration']
         step = self.config_['sequences']['step']
         balance = self.config_['sequences']['balance']
-        batch_generator = SpeakerChangeDetectionBatchGenerator(
+        batch_generator = ChangeDetectionBatchGenerator(
             self.feature_extraction_, duration=duration, step=step,
             balance=balance, batch_size=batch_size)
         batch_generator.cache_preprocessed_ = self.cache_preprocessed_
@@ -358,33 +296,15 @@ class SpeakerChangeDetection(Application):
         train_files = getattr(protocol, subset)()
         generator = batch_generator(train_files, infinite=True)
 
-        labeling = SequenceLabeling()
-        labeling.fit(input_shape, self.architecture_,
-                     generator, steps_per_epoch, 1000,
-                     loss='binary_crossentropy', optimizer=SSMORMS3(),
-                     log_dir=train_dir)
+        return SequenceLabeling.train(
+            input_shape, self.architecture_, generator, steps_per_epoch, 1000,
+            loss='binary_crossentropy', optimizer=SSMORMS3(),
+            log_dir=train_dir)
 
         return labeling
 
-    def validate_init(self, protocol_name, subset='development'):
-
-        from pyannote.metrics.diarization import DiarizationPurityCoverageFMeasure
-        metric = DiarizationPurityCoverageFMeasure()
-
-        protocol = get_protocol(protocol_name, progress=False,
-                                preprocessors=self.preprocessors_)
-        file_generator = getattr(protocol, subset)()
-
-        for current_file in file_generator:
-            reference = current_file['annotation']
-            uem = get_annotated(current_file)
-            hypothesis = reference.get_timeline().segmentation().to_annotation()
-            _ = metric(reference, hypothesis, uem=uem)
-
-        purity, coverage, fscore = metric.compute_metrics()
-        return {'DiarizationPurity': purity,
-                'DiarizationCoverage': coverage,
-                'DiarizationPurityCoverageFMeasure': fscore}
+    def validate_init(self, protocol_name, subset='development', purity=0.9):
+        return {'purity': purity}
 
     def validate_epoch(self, epoch, protocol_name, subset='development',
                        validation_data=None):
@@ -392,55 +312,15 @@ class SpeakerChangeDetection(Application):
         from pyannote.metrics.diarization import DiarizationPurityCoverageFMeasure
         from pyannote.audio.signal import Peak
 
-        metric = DiarizationPurityCoverageFMeasure()
-        peak = Peak(alpha=0.5, min_duration=1.0)
+        purity = validation_data['purity']
 
-        # load model for current epoch
-        sequence_labeling = SequenceLabeling.from_disk(
-            self.train_dir_, epoch)
+        peak_params, coverage = tune_peak(
+            self, epoch, protocol_name, subset=subset, purity=purity)
 
-        # initialize sequence labeling
-        duration = self.config_['sequences']['duration']
-        aggregation = SequenceLabelingAggregation(
-            sequence_labeling, self.feature_extraction_,
-            duration=duration, step=.9 * duration)
-        aggregation.cache_preprocessed_ = False
-
-        protocol = get_protocol(protocol_name, progress=False,
-                                preprocessors=self.preprocessors_)
-        file_generator = getattr(protocol, subset)()
-        for current_file in file_generator:
-            reference = current_file['annotation']
-            uem = get_annotated(current_file)
-
-            predictions = aggregation.apply(current_file)
-            hypothesis = peak.apply(predictions).to_annotation()
-
-            # remove (reference) non-speech regions
-            hypothesis = hypothesis.crop(reference.get_timeline().support(),
-                                         mode='intersection')
-
-            _ = metric(reference, hypothesis, uem=uem)
-
-        purity, coverage, fscore = metric.compute_metrics()
-
-        return {
-            'DiarizationPurity': {
-                'minimize': False, 'value': purity,
-                'baseline': validation_data['DiarizationPurity']
-            },
-            'DiarizationCoverage': {
-                'minimize': False, 'value': coverage,
-                'baseline': validation_data['DiarizationCoverage']
-            },
-            'DiarizationPurityCoverageFMeasure': {
-                'minimize': False, 'value': coverage,
-                'baseline': validation_data['DiarizationPurityCoverageFMeasure']
-            }
-        }
+        return {'DiarizationCoverage': {'minimize': False, 'value': coverage}}
 
     def tune(self, protocol_name, subset='development',
-             start=None, end=None, at=None, purity=0.95):
+             start=None, end=None, at=None, purity=0.9):
 
         # FIXME -- make sure "subset" is not empty
 
@@ -466,7 +346,7 @@ class SpeakerChangeDetection(Application):
 
         space = [skopt.space.Integer(start, end)]
 
-        best_peak_params = {}
+        best_params = {}
         best_metric = {}
 
         tune_yml = self.TUNE_YML.format(tune_dir=tune_dir)
@@ -489,8 +369,8 @@ class SpeakerChangeDetection(Application):
                                  'end': end,
                                  'objective': float(res.fun)},
                       'epoch': int(res.x[0]),
-                      'alpha': float(best_peak_params[tuple(res.x)]['alpha']),
-                      'min_duration': float(best_peak_params[tuple(res.x)]['min_duration'])
+                      'alpha': float(best_params[tuple(res.x)]['alpha']),
+                      'min_duration': float(best_params[tuple(res.x)]['min_duration'])
                       }
 
             with io.open(tune_yml, 'w') as fp:
@@ -510,8 +390,8 @@ class SpeakerChangeDetection(Application):
                 self, epoch, protocol_name, subset=subset, purity=purity)
 
             # remember outcome of this trial
-            best_peak_params[params] = peak_params
-            best_metric[params] = coverage
+            best_params[params] = peak_params
+            best_metric[params] = 1. - coverage
 
             return 1. - coverage
 
@@ -520,14 +400,8 @@ class SpeakerChangeDetection(Application):
             n_calls=20, n_random_starts=10, x0=[end],
             verbose=True, callback=callback)
 
-        epoch = res.x[0]
-
-        # TODO tune Peak a bit longer with the best epoch
-        # tune peak detection
-        peak_params, coverage = tune_peak(
-            self, epoch, protocol_name, subset=subset, purity=purity)
-
-        return {'epoch': epoch}, 1.- res.fun
+        coverage = 1. - res.fun
+        return {'epoch': res.x[0]}, coverage
 
     def apply(self, protocol_name, subset='test'):
 
@@ -542,15 +416,14 @@ class SpeakerChangeDetection(Application):
 
         # load model for epoch 'epoch'
         epoch = self.tune_['epoch']
-        sequence_labeling = SequenceLabeling.from_disk(
-            self.train_dir_, epoch)
+        model = self.load_model(epoch)
 
         # initialize sequence labeling
         duration = self.config_['sequences']['duration']
         step = self.config_['sequences']['step']
-        aggregation = SequenceLabelingAggregation(
-            sequence_labeling, self.feature_extraction_,
-            duration=duration, step=step)
+        sequence_labeling = SequenceLabeling(
+            model, self.feature_extraction_, duration,
+            step=step)
 
         # initialize protocol
         protocol = get_protocol(protocol_name, progress=True,
@@ -558,16 +431,16 @@ class SpeakerChangeDetection(Application):
 
         for i, item in enumerate(getattr(protocol, subset)()):
 
-            prediction = aggregation.apply(item)
+            predictions = sequence_labeling.apply(item)
 
             if i == 0:
                 # create metadata file at root that contains
                 # sliding window and dimension information
                 path = Precomputed.get_config_path(apply_dir)
                 f = h5py.File(path)
-                f.attrs['start'] = prediction.sliding_window.start
-                f.attrs['duration'] = prediction.sliding_window.duration
-                f.attrs['step'] = prediction.sliding_window.step
+                f.attrs['start'] = predictions.sliding_window.start
+                f.attrs['duration'] = predictions.sliding_window.duration
+                f.attrs['step'] = predictions.sliding_window.step
                 f.attrs['dimension'] = 2
                 f.close()
 
@@ -577,11 +450,11 @@ class SpeakerChangeDetection(Application):
             mkdir_p(dirname(path))
 
             f = h5py.File(path)
-            f.attrs['start'] = prediction.sliding_window.start
-            f.attrs['duration'] = prediction.sliding_window.duration
-            f.attrs['step'] = prediction.sliding_window.step
+            f.attrs['start'] = predictions.sliding_window.start
+            f.attrs['duration'] = predictions.sliding_window.duration
+            f.attrs['step'] = predictions.sliding_window.step
             f.attrs['dimension'] = 2
-            f.create_dataset('features', data=prediction.data)
+            f.create_dataset('features', data=predictions.data)
             f.close()
 
         # initialize peak detection
@@ -592,15 +465,15 @@ class SpeakerChangeDetection(Application):
         precomputed = Precomputed(root_dir=apply_dir)
 
         writer = MDTMParser()
-        path = self.HARD_MDTM.format(apply_dir=apply_dir, protocol=protocol_name,
-                                subset=subset)
+        path = self.HARD_MDTM.format(apply_dir=apply_dir,
+                                     protocol=protocol_name,
+                                     subset=subset)
         with io.open(path, mode='w') as gp:
             for item in getattr(protocol, subset)():
-                prediction = precomputed(item)
-                segmentation = peak.apply(prediction)
+                predictions = precomputed(item)
+                segmentation = peak.apply(predictions)
                 writer.write(segmentation.to_annotation(),
                              f=gp, uri=item['uri'], modality='speaker')
-
 
 def main():
 
@@ -641,10 +514,13 @@ def main():
         # validate every that many epochs (defaults to 1)
         every = int(arguments['--every'])
 
+        purity = float(arguments['--purity'])
+
         application = SpeakerChangeDetection.from_train_dir(
             train_dir, db_yml=db_yml)
         application.validate(protocol_name, subset=subset,
-                             start=start, end=end, every=every)
+                             start=start, end=end, every=every,
+                             purity=purity)
 
     if arguments['tune']:
         train_dir = arguments['<train_dir>']
