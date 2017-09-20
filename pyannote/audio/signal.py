@@ -185,7 +185,8 @@ class Peak(object):
         if n_jobs > 1:
             pool.terminate()
 
-        return {'alpha': res.x[0], 'min_duration': res.x[1]}, 1. - res.fun
+        best_coverage = 1. - res.fun
+        return {'alpha': res.x[0], 'min_duration': res.x[1]}, best_coverage
 
 
     def apply(self, predictions, dimension=0):
