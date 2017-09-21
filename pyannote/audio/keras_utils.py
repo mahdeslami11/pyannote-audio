@@ -33,6 +33,12 @@ def register_custom_object(key, value):
 
 import keras.models
 def load_model(weights_h5, compile=False):
+
+    # needed to register pyannote.audio's own Keras layers
+    import pyannote.audio.embedding.models
+    # needed to register pyannote.audio's own Keras optimizers
+    import pyannote.audio.optimizers
+
     model = keras.models.load_model(weights_h5,
         custom_objects=CUSTOM_OBJECTS, compile=compile)
     return model
