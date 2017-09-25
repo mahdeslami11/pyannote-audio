@@ -80,7 +80,7 @@ from docopt import docopt
 import pyannote.core
 import pyannote.database
 from pyannote.database import get_database
-from pyannote.database import SpeakerDiarizationProtocol
+from pyannote.database.protocol import SpeakerDiarizationProtocol
 from pyannote.database.util import FileFinder
 from pyannote.database.util import get_unique_identifier
 
