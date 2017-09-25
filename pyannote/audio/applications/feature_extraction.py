@@ -80,6 +80,7 @@ from docopt import docopt
 import pyannote.core
 import pyannote.database
 from pyannote.database import get_database
+from pyannote.database import SpeakerDiarizationProtocol
 from pyannote.database.util import FileFinder
 from pyannote.database.util import get_unique_identifier
 
@@ -93,17 +94,14 @@ def extract(database_name, task_name, protocol_name, preprocessors, experiment_d
     database = get_database(database_name, preprocessors=preprocessors)
     protocol = database.get_protocol(task_name, protocol_name, progress=True)
 
-    if task_name == 'SpeakerDiarization':
+    if isinstance(protocol, SpeakerDiarizationProtocol):
         items = itertools.chain(protocol.train(),
                                 protocol.development(),
                                 protocol.test())
 
-    elif task_name == 'SpeakerRecognition':
-        items = itertools.chain(protocol.train(yield_name=False),
-                                protocol.development_enroll(yield_name=False),
-                                protocol.development_test(yield_name=False),
-                                protocol.test_enroll(yield_name=False),
-                                protocol.test_test(yield_name=False))
+    else:
+        msg = '{task_name} protocols are not supported yet.'
+        raise NotImplementedError(msg.format(task_name=task_name))
 
     # load configuration file
     config_yml = experiment_dir + '/config.yml'
