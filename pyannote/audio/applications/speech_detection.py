@@ -233,7 +233,7 @@ def tune_binarizer(app, epoch, protocol_name, subset='development'):
     step = app.config_['sequences']['step']
     sequence_labeling = SequenceLabeling(
         model, app.feature_extraction_,
-        duration, step=step)
+        duration, step=step, source='annotated')
     sequence_labeling.cache_preprocessed_ = False
 
     # tune Binarize thresholds (onset & offset)
@@ -332,7 +332,7 @@ class SpeechActivityDetection(Application):
         duration = self.config_['sequences']['duration']
         sequence_labeling = SequenceLabeling(
             model, self.feature_extraction_, duration,
-            step=.25 * duration)
+            step=.25 * duration, source='annotated')
         sequence_labeling.cache_preprocessed_ = False
 
         protocol = get_protocol(protocol_name, progress=False,

@@ -250,7 +250,8 @@ def tune_peak(app, epoch, protocol_name, subset='development', purity=0.9,
     duration = app.config_['sequences']['duration']
     sequence_labeling = SequenceLabeling(
         model, app.feature_extraction_,
-        duration, step=.9 * duration)
+        duration, step=.9 * duration,
+        source='annotated')
     sequence_labeling.cache_preprocessed_ = False
 
     # tune Peak parameters (alpha & min_duration)
