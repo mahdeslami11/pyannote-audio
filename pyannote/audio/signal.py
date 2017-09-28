@@ -178,7 +178,7 @@ class Peak(object):
                  skopt.space.Real(0., 5., prior='uniform')]
 
         res = skopt.gp_minimize(
-            objective_function, space,
+            objective_function, space, x0=[[0.5, 2.]],
             n_calls=n_calls, n_random_starts=n_random_starts,
             random_state=1337, verbose=False)
 
