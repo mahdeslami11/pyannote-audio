@@ -378,6 +378,7 @@ class Binarize(object):
 
         res = skopt.gp_minimize(
             objective_function, space,
+            x0=[[0.25, 0.25],[0.5, 0.5], [0.75, 0.75]],
             n_calls=n_calls, n_random_starts=n_random_starts,
             random_state=1337, verbose=False)
 
