@@ -144,7 +144,7 @@ Database configuration file:
     protocol, task, or database).
 """
 
-from os.path import dirname, basename, expanduser
+from os.path import dirname, basename, expanduser, isfile
 import numpy as np
 import pandas as pd
 import yaml
@@ -155,6 +155,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from pyannote.database import get_protocol
+from pyannote.database import get_unique_identifier
 from pyannote.audio.util import mkdir_p
 import h5py
 
@@ -551,6 +552,8 @@ class SpeakerEmbedding(Application):
         protocol = get_protocol(protocol_name, progress=True,
                                 preprocessors=self.preprocessors_)
 
+        processed_uris = set()
+
         for subset in ['development', 'test', 'train']:
 
             try:
@@ -562,6 +565,11 @@ class SpeakerEmbedding(Application):
             file_generator = getattr(protocol, subset)()
 
             for current_file in file_generator:
+
+                # corner case when the same file is iterated several times
+                uri = get_unique_identifier(current_file)
+                if uri in processed_uris:
+                    continue
 
                 fX = sequence_embedding.apply(current_file)
 
@@ -575,6 +583,8 @@ class SpeakerEmbedding(Application):
                 f.attrs['dimension'] = dimension
                 f.create_dataset('features', data=fX.data)
                 f.close()
+
+                processed_uris.add(uri)
 
 def main():
 
