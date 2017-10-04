@@ -52,7 +52,8 @@ class SequenceEmbedding(SequenceLabeling):
 
     Usage
     -----
-    >>> model = keras.models.load_model(...)
+    >>> from pyannote.audio.keras_utils import load_model
+    >>> model = load_model('/path/to/model.h5')
     >>> feature_extraction = YaafeMFCC(...)
     >>> duration = 3.2
     >>> sequence_embedding = SequenceEmbedding(model, feature_extraction, duration)
