@@ -111,53 +111,6 @@ def read_audio(current_file, sample_rate=None, mono=True):
     return y.T, sample_rate
 
 
-def stream_audio(current_file, sample_rate=None, mono=True, duration=1.):
-    """Simulate audio file streaming
-
-    Parameters
-    ----------
-    current_file : dict
-        Dictionary given by pyannote.database.
-    sample_rate: int, optional
-        Target sampling rate. Defaults to using native sampling rate.
-    mono : int, optional
-        Convert multi-channel to mono. Defaults to True.
-    duration : float, optional
-        Buffer duration, in seconds. Defaults to 1.
-
-    Returns
-    -------
-    buffer : iterable
-        Yields SlidingWindowFeature instances
-
-    Usage
-    -----
-    >>> buffer = stream_audio(current_file)
-    >>> for swf in buffer:
-    ...     do_something_with(swf)
-
-    Notes
-    -----
-    In case `current_file` contains a `channel` key, data of this (1-indexed)
-    channel will be yielded.
-
-    """
-
-    y, sample_rate = read_audio(current_file,
-                                sample_rate=sample_rate,
-                                mono=mono)
-
-    n_samples_total = len(y)
-    n_samples_buffer = int(duration * sample_rate)
-
-    for i in range(0, n_samples_total, n_samples_buffer):
-        data = y[i: i + n_samples_buffer, np.newaxis]
-        sw = SlidingWindow(start=i / sample_rate,
-                           duration=1 / sample_rate,
-                           step=1 / sample_rate)
-        yield SlidingWindowFeature(data, sw)
-
-
 class RawAudio(object):
     """
 
