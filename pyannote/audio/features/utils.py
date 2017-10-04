@@ -31,7 +31,6 @@ from __future__ import division
 
 import h5py
 import os.path
-import warnings
 from glob import glob
 import numpy as np
 from struct import unpack
@@ -39,6 +38,7 @@ import audioread
 import librosa
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.database.util import get_unique_identifier
+
 
 class PyannoteFeatureExtractionError(Exception):
     pass
@@ -63,6 +63,27 @@ def get_audio_duration(current_file):
         duration = f.duration
 
     return duration
+
+
+def get_audio_sample_rate(current_file):
+    """Return audio file sampling rate
+
+    Parameters
+    ----------
+    current_file : dict
+        Dictionary given by pyannote.database.
+
+    Returns
+    -------
+    sample_rate : int
+        Sampling rate
+    """
+    path = current_file['audio']
+
+    with audioread.audio_open(path) as f:
+        sample_rate = f.samplerate
+
+    return sample_rate
 
 
 def read_audio(current_file, sample_rate=None, mono=True):
