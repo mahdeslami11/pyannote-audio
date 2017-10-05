@@ -287,10 +287,20 @@ class Accumulate(object):
 
 
 class Aggregate(object):
+    """This module accumulates (possibly overlaping) sequences
+    and returns their aggregated version as soon as possible.
 
-    def __init__(self, merge_func=np.nanmean):
+    Parameters
+    ----------
+    agg_func : callable, optional
+        Aggregation function. Takes buffer of (possibly overlaping) sequences
+        as input and returns their aggregation (must support the `axis=0`
+        keyword argument). Defaults to np.nanmean.
+    """
+
+    def __init__(self, agg_func=np.nanmean):
         super(Aggregate, self).__init__()
-        self.merge_func = merge_func
+        self.agg_func = agg_func
         self.initialized_ = False
 
     def initalize(self, sequence):
@@ -321,7 +331,7 @@ class Aggregate(object):
                 return Stream.EndOfStream
 
             self.initialized_ = False
-            data = self.merge_func(self.buffer_, axis=0)
+            data = self.agg_func(self.buffer_, axis=0)
             return SlidingWindowFeature(data, self.frames_)
 
         if not self.initialized_:
@@ -335,7 +345,7 @@ class Aggregate(object):
 
         delta_start = sw.start - self.frames_.start
         ready = self.frames_.samples(delta_start, mode='center')
-        data = self.merge_func(self.buffer_[:, :ready], axis=0)
+        data = self.agg_func(self.buffer_[:, :ready], axis=0)
         output = SlidingWindowFeature(data, self.frames_)
 
         self.buffer_ = self.buffer_[:, ready:]
