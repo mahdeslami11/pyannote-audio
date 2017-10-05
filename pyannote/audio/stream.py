@@ -131,24 +131,25 @@ def stream_features(feature_extraction, current_file, duration=1.):
         yield Stream.EndOfStream
 
 
-class Accumulate(object):
-    """
+class Buffer(object):
+    """This module concatenates (adjacent) input sequences and returns the
+    result using a sliding window.
 
     Parameters
     ----------
     duration : float, optional
-        Defaults to 3.2 seconds.
+        Sliding window duration. Defaults to 3.2 seconds.
     step : float, optional
-        Defaults to 0.8 seconds.
+        Sliding window step. Defaults to `duration`.
     incomplete : bool, optional
         Set to True to return the current buffer on "end-of-stream"
         even if is is not complete. Defaults to False.
     """
 
-    def __init__(self, duration=3.2, step=0.8, incomplete=False):
-        super(Accumulate, self).__init__()
+    def __init__(self, duration=3.2, step=None, incomplete=False):
+        super(Buffer, self).__init__()
         self.duration = duration
-        self.step = step
+        self.step = duration if step is None else step
         self.incomplete = incomplete
         self.initialized_ = False
 
@@ -211,7 +212,7 @@ class Accumulate(object):
                 self.initalize(sequence)
 
         # if not enough samples are available, there is nothing to return
-        if self.buffer_.shape[0] < self.n_samples_:
+        if not self.initialized_ or self.buffer_.shape[0] < self.n_samples_:
             return Stream.NoNewData
 
         # if enough samples are available, prepare output
