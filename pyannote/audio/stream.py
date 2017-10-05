@@ -239,6 +239,53 @@ class Buffer(object):
         return output
 
 
+class Accumulate(object):
+    """This module concatenates (adjacent) input sequences
+    """
+
+    def __init__(self):
+        super(Accumulate, self).__init__()
+        self.initialized_ = False
+
+    def initalize(self, sequence):
+
+        # common time base
+        sw = sequence.sliding_window
+        self.frames_ = SlidingWindow(start=sw.start,
+                                     duration=sw.duration,
+                                     step=sw.step)
+
+        self.buffer_ = np.array(sequence.data)
+        self.initialized_ = True
+
+    def __call__(self, sequence=Stream.NoNewData):
+
+        if sequence in [Stream.EndOfStream, Stream.NoNewData]:
+            return sequence
+
+        # append to buffer
+        if self.initialized_:
+
+            # check that feature sequence uses the common time base
+            sw = sequence.sliding_window
+            assert sw.duration == self.frames_.duration
+            assert sw.step == self.frames_.step
+
+            # check that first frame is exactly the one that is expected
+            expected = self.frames_[len(self.buffer_)]
+            assert np.allclose(expected, sw[0])
+
+            # append the new samples at the end of buffer
+            self.buffer_ = np.concatenate(
+                [self.buffer_, sequence.data], axis=0)
+
+        # initialize buffer
+        else:
+            self.initalize(sequence)
+
+        return SlidingWindowFeature(self.buffer_, self.frames_)
+
+
 class Aggregate(object):
 
     def __init__(self, merge_func=np.nanmean):
