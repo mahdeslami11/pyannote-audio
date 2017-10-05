@@ -413,7 +413,7 @@ class Pipeline(object):
 
     def __init__(self, dsk):
         super(Pipeline, self).__init__()
-        # TODO -- check that at least one input depends on 'input_buffer'
+        # TODO -- check that at least one input depends on 'input'
         self.dsk = dsk
         self.t_ = Segment(0, 0)
 
@@ -423,19 +423,19 @@ class Pipeline(object):
 
     def __call__(self, input_buffer):
 
-        keys = sorted(['input_buffer'] + list(self.dsk.keys()))
+        keys = sorted(['input'] + list(self.dsk.keys()))
         more = False
 
         while True:
 
             if more:
-                self.dsk['input_buffer'] = Stream.NoNewData
+                self.dsk['input'] = Stream.NoNewData
                 more = False
             else:
                 buf = next(input_buffer)
                 if buf not in [Stream.EndOfStream, Stream.NoNewData]:
-                self.dsk['input_buffer'] = buf
                     self.t_ |= buf.getExtent()
+                self.dsk['input'] = buf
 
             outputs = {key: output
                        for key, output in zip(keys, dask.get(self.dsk, keys))}
