@@ -371,7 +371,6 @@ class Aggregate(object):
 
         return output
 
-
 class Process(object):
 
     def __init__(self, process_func):
@@ -416,11 +415,11 @@ class Pipeline(object):
         super(Pipeline, self).__init__()
         # TODO -- check that at least one input depends on 'input_buffer'
         self.dsk = dsk
-        self.so_far_ = Segment(0, 0)
+        self.t_ = Segment(0, 0)
 
     @property
-    def so_far(self):
-        return self.so_far_
+    def t(self):
+        return self.t_
 
     def __call__(self, input_buffer):
 
@@ -435,8 +434,8 @@ class Pipeline(object):
             else:
                 buf = next(input_buffer)
                 if buf not in [Stream.EndOfStream, Stream.NoNewData]:
-                    self.so_far_ |= buf.getExtent()
                 self.dsk['input_buffer'] = buf
+                    self.t_ |= buf.getExtent()
 
             outputs = {key: output
                        for key, output in zip(keys, dask.get(self.dsk, keys))}
