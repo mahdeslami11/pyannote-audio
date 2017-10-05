@@ -448,5 +448,7 @@ class Pipeline(object):
             if all(o == Stream.EndOfStream for o in outputs.values()):
                 return
 
+            outputs['t'] = self.t_.end
+
             yield outputs
 
