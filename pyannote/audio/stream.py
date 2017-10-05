@@ -388,6 +388,28 @@ class Process(object):
         return self.process_func(sequence)
 
 
+class SequenceLabeling(object):
+    def __init__(self, model, dimension=None):
+        super(SequenceLabeling, self).__init__()
+        self.model = model
+        self.dimension = dimension
+
+    def __call__(self, sequence=Stream.NoNewData):
+
+        if isinstance(sequence, More):
+            sequence = sequence.output
+
+        if sequence in [Stream.NoNewData, Stream.EndOfStream]:
+            return sequence
+
+        X = sequence.data[np.newaxis, :, :]
+        predicted = self.model.predict(X, batch_size=1)[0, :, :]
+        if self.dimension is not None:
+            predicted = predicted[:, self.dimension]
+
+        return SlidingWindowFeature(predicted, sequence.sliding_window)
+
+
 class Pipeline(object):
 
     def __init__(self, dsk):
