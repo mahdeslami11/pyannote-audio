@@ -29,7 +29,8 @@
 import dask
 import numpy as np
 from .features.utils import read_audio
-from pyannote.core import Segment, SlidingWindow, SlidingWindowFeature
+from pyannote.core import Segment, Timeline
+from pyannote.core import SlidingWindow, SlidingWindowFeature
 
 
 class Stream:
@@ -287,6 +288,78 @@ class StreamAccumulate(object):
 
 
 
+class StreamBinarize(object):
+    """This module binarizes input score sequence
+    """
+
+    def __init__(self, onset=0.5, offset=0.5):
+        super(StreamBinarize, self).__init__()
+        self.onset = onset
+        self.offset = offset
+        self.initialized_ = False
+
+    def initialize(self, sequence):
+        self.active_ = sequence.data[0] > self.onset
+        self.initialized_ = True
+
+    def __call__(self, sequence=Stream.NoNewData):
+
+        if sequence in [Stream.EndOfStream, Stream.NoNewData]:
+            return sequence
+
+        if not self.initialized_:
+            self.initialize(sequence)
+
+        sw = sequence.sliding_window
+        binarized = np.NAN * np.ones(sequence.data.shape, dtype=np.bool)
+        for i, y in enumerate(sequence.data):
+            if self.active_:
+                self.active_ = ~(y < self.offset)
+            else:
+                self.active_ = y > self.onset
+            binarized[i] = self.active_
+
+        return SlidingWindowFeature(binarized, sw)
+
+
+class StreamToTimeline(object):
+    """This module converts binary sequences into timelines
+    """
+
+    def __init__(self):
+        super(StreamToTimeline, self).__init__()
+
+    def __call__(self, sequence=Stream.NoNewData):
+
+        if sequence in [Stream.EndOfStream, Stream.NoNewData]:
+            return sequence
+
+        data = sequence.data
+        active = data[0]
+
+        sw = sequence.sliding_window
+        start = sw[0].middle
+
+        timeline = Timeline()
+        timeline.start = start
+
+        for i, y in enumerate(data):
+            if active and not y:
+                segment = Segment(start, sw[i].middle)
+                timeline.add(segment)
+                active = False
+            elif not active and y:
+                active = True
+                start = sw[i].middle
+
+        if active:
+            segment = Segment(start, sw[i].middle)
+            timeline.add(segment)
+
+        timeline.end = sw[i].middle
+
+        return timeline
+
 class StreamAggregate(object):
     """This module accumulates (possibly overlaping) sequences
     and returns their aggregated version as soon as possible.
@@ -372,6 +445,16 @@ class StreamAggregate(object):
 
         return output
 
+
+class StreamPassthrough(object):
+
+    def __init__(self):
+        super(StreamPassthrough, self).__init__()
+
+    def __call__(self, sequence=Stream.NoNewData):
+        return sequence
+
+
 class StreamProcess(object):
 
     def __init__(self, process_func):
@@ -446,7 +529,7 @@ class Pipeline(object):
                     more = True
                     outputs[key] = outputs[key].output
 
-            if all(o == Stream.EndOfStream for o in outputs.values()):
+            if all(Stream.EndOfStream == o for o in outputs.values()):
                 return
 
             outputs['t'] = self.t_.end
