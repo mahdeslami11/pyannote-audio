@@ -153,7 +153,7 @@ class Buffer(object):
         self.incomplete = incomplete
         self.initialized_ = False
 
-    def initalize(self, sequence):
+    def initialize(self, sequence):
 
         # common time base
         sw = sequence.sliding_window
@@ -209,7 +209,7 @@ class Buffer(object):
 
             # initialize buffer
             else:
-                self.initalize(sequence)
+                self.initialize(sequence)
 
         # if not enough samples are available, there is nothing to return
         if not self.initialized_ or self.buffer_.shape[0] < self.n_samples_:
@@ -222,7 +222,7 @@ class Buffer(object):
         # switch to next window
         self.current_window_ = next(self.window_)
 
-        # update buffer by remove old samples and updating start time
+        # update buffer by removing old samples and updating start time
         first_valid = self.frames_.crop(self.current_window_,
                                         mode='center',
                                         fixed=self.duration)[0]
@@ -247,7 +247,7 @@ class Accumulate(object):
         super(Accumulate, self).__init__()
         self.initialized_ = False
 
-    def initalize(self, sequence):
+    def initialize(self, sequence):
 
         # common time base
         sw = sequence.sliding_window
@@ -281,7 +281,7 @@ class Accumulate(object):
 
         # initialize buffer
         else:
-            self.initalize(sequence)
+            self.initialize(sequence)
 
         return SlidingWindowFeature(self.buffer_, self.frames_)
 
@@ -303,7 +303,7 @@ class Aggregate(object):
         self.agg_func = agg_func
         self.initialized_ = False
 
-    def initalize(self, sequence):
+    def initialize(self, sequence):
 
         # common time base
         sw = sequence.sliding_window
@@ -335,7 +335,7 @@ class Aggregate(object):
             return SlidingWindowFeature(data, self.frames_)
 
         if not self.initialized_:
-            return self.initalize(sequence)
+            return self.initialize(sequence)
 
         # check that feature sequence uses the common time base
         sw = sequence.sliding_window
