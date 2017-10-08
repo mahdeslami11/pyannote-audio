@@ -131,7 +131,7 @@ def stream_features(feature_extraction, current_file, duration=1.):
         yield Stream.EndOfStream
 
 
-class Buffer(object):
+class StreamBuffer(object):
     """This module concatenates (adjacent) input sequences and returns the
     result using a sliding window.
 
@@ -147,7 +147,7 @@ class Buffer(object):
     """
 
     def __init__(self, duration=3.2, step=None, incomplete=False):
-        super(Buffer, self).__init__()
+        super(StreamBuffer, self).__init__()
         self.duration = duration
         self.step = duration if step is None else step
         self.incomplete = incomplete
@@ -239,12 +239,12 @@ class Buffer(object):
         return output
 
 
-class Accumulate(object):
+class StreamAccumulate(object):
     """This module concatenates (adjacent) input sequences
     """
 
     def __init__(self):
-        super(Accumulate, self).__init__()
+        super(StreamAccumulate, self).__init__()
         self.initialized_ = False
 
     def initialize(self, sequence):
@@ -286,7 +286,8 @@ class Accumulate(object):
         return SlidingWindowFeature(self.buffer_, self.frames_)
 
 
-class Aggregate(object):
+
+class StreamAggregate(object):
     """This module accumulates (possibly overlaping) sequences
     and returns their aggregated version as soon as possible.
 
@@ -299,7 +300,7 @@ class Aggregate(object):
     """
 
     def __init__(self, agg_func=np.nanmean):
-        super(Aggregate, self).__init__()
+        super(StreamAggregate, self).__init__()
         self.agg_func = agg_func
         self.initialized_ = False
 
@@ -371,11 +372,11 @@ class Aggregate(object):
 
         return output
 
-class Process(object):
+class StreamProcess(object):
 
     def __init__(self, process_func):
 
-        super(Process, self).__init__()
+        super(StreamProcess, self).__init__()
         self.process_func = process_func
 
     def __call__(self, sequence=Stream.NoNewData):
@@ -387,9 +388,9 @@ class Process(object):
         return self.process_func(sequence)
 
 
-class SequenceLabeling(object):
+class StreamPredict(object):
     def __init__(self, model, dimension=None):
-        super(SequenceLabeling, self).__init__()
+        super(StreamPredict, self).__init__()
         self.model = model
         self.dimension = dimension
 
