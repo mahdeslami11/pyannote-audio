@@ -305,6 +305,7 @@ class StreamBinarize(object):
         self.initialized_ = False
 
     def initialize(self, sequence):
+
         self.active_ = sequence.data[0] > self.onset
         self.initialized_ = True
 
@@ -371,6 +372,7 @@ class StreamToTimeline(object):
         timeline.end = sw[i].middle
 
         return timeline
+
 
 class StreamAggregate(object):
     """This module accumulates (possibly overlaping) sequences
@@ -495,6 +497,7 @@ class StreamProcess(object):
 
 class StreamPredict(object):
     def __init__(self, model, dimension=None):
+
         super(StreamPredict, self).__init__()
         self.model = model
         self.dimension = dimension
@@ -508,11 +511,58 @@ class StreamPredict(object):
             return sequence
 
         X = sequence.data[np.newaxis, :, :]
+
         predicted = self.model.predict(X, batch_size=1)[0, :, :]
         if self.dimension is not None:
             predicted = predicted[:, self.dimension]
 
         return SlidingWindowFeature(predicted, sequence.sliding_window)
+
+
+class StreamEmbed(object):
+    def __init__(self, model, internal=True):
+
+        super(StreamEmbed, self).__init__()
+        self.model = model
+        self.internal = internal
+
+        import keras.backend as K
+
+        if self.internal:
+            output_layer = self.model.get_layer(name='internal')
+        else:
+            output_layer = self.model.get_layer(index=-1)
+
+        input_layer = self.model.get_layer(name='input')
+        K_func = K.function(
+            [input_layer.input, K.learning_phase()], [output_layer.output])
+
+        def embed(batch):
+            return K_func([batch, 0])[0]
+        self.embed_ = embed
+
+
+    def __call__(self, sequence=Stream.NoNewData):
+
+        if isinstance(sequence, More):
+            sequence = sequence.output
+
+        if sequence in [Stream.NoNewData, Stream.EndOfStream]:
+            return sequence
+
+        X = sequence.data[np.newaxis, :, :]
+        embedded = self.embed_(X)[0]
+
+        if self.internal:
+            return SlidingWindowFeature(embedded, sequence.sliding_window)
+
+        raise NotImplementedError('')
+        # data = ????
+        # extent = sequence.getExtent()
+        # sw = SlidingWindow(duration=extent.duration,
+        #                    step=?????,
+        #                    start=extent.start)
+        # return SlidingWindowFeature(data, ew)
 
 
 class Pipeline(object):
