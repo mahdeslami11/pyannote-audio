@@ -173,6 +173,9 @@ class StreamBuffer(object):
 
     def __call__(self, sequence=Stream.NoNewData):
 
+        if isinstance(sequence, More):
+            sequence = sequence.output
+
         # if input stream has ended
         if sequence == Stream.EndOfStream:
 
@@ -261,6 +264,9 @@ class StreamAccumulate(object):
 
     def __call__(self, sequence=Stream.NoNewData):
 
+        if isinstance(sequence, More):
+            sequence = sequence.output
+
         if sequence in [Stream.EndOfStream, Stream.NoNewData]:
             return sequence
 
@@ -304,6 +310,9 @@ class StreamBinarize(object):
 
     def __call__(self, sequence=Stream.NoNewData):
 
+        if isinstance(sequence, More):
+            sequence = sequence.output
+
         if sequence in [Stream.EndOfStream, Stream.NoNewData]:
             return sequence
 
@@ -330,6 +339,9 @@ class StreamToTimeline(object):
         super(StreamToTimeline, self).__init__()
 
     def __call__(self, sequence=Stream.NoNewData):
+
+        if isinstance(sequence, More):
+            sequence = sequence.output
 
         if sequence in [Stream.EndOfStream, Stream.NoNewData]:
             return sequence
@@ -396,6 +408,9 @@ class StreamAggregate(object):
 
     def __call__(self, sequence=Stream.NoNewData):
 
+        if isinstance(sequence, More):
+            sequence = sequence.output
+
         # no input ==> no output
         if sequence is Stream.NoNewData:
             return Stream.NoNewData
@@ -452,6 +467,10 @@ class StreamPassthrough(object):
         super(StreamPassthrough, self).__init__()
 
     def __call__(self, sequence=Stream.NoNewData):
+
+        if isinstance(sequence, More):
+            sequence = sequence.output
+
         return sequence
 
 
@@ -463,6 +482,9 @@ class StreamProcess(object):
         self.process_func = process_func
 
     def __call__(self, sequence=Stream.NoNewData):
+
+        if isinstance(sequence, More):
+            sequence = sequence.output
 
         # no input ==> no output
         if sequence in [Stream.NoNewData, Stream.EndOfStream]:
