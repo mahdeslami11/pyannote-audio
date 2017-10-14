@@ -185,6 +185,7 @@ from pyannote.audio.optimizers import SSMORMS3
 from pyannote.audio.signal import Binarize
 from pyannote.database.util import get_annotated
 from pyannote.database import get_protocol
+from pyannote.database import get_unique_identifier
 
 from pyannote.parser import MDTMParser
 
@@ -460,7 +461,15 @@ class SpeechActivityDetection(Application):
         protocol = get_protocol(protocol_name, progress=True,
                                 preprocessors=self.preprocessors_)
 
-        for i, item in enumerate(getattr(protocol, subset)()):
+        file_generator = getattr(protocol, subset)
+        processed_uris = set()
+
+        for i, item in enumerate(file_generator()):
+
+           # corner case when the same file is iterated several times
+            uri = get_unique_identifier(item)
+            if uri in processed_uris:
+                continue
 
             predictions = sequence_labeling.apply(item)
 
@@ -488,6 +497,8 @@ class SpeechActivityDetection(Application):
             f.create_dataset('features', data=predictions.data)
             f.close()
 
+            processed_uris.add(uri)
+
         # initialize binarizer
         onset = self.tune_['onset']
         offset = self.tune_['offset']
@@ -500,12 +511,22 @@ class SpeechActivityDetection(Application):
                                      protocol=protocol_name,
                                      subset=subset)
         with io.open(path, mode='w') as gp:
-            for item in getattr(protocol, subset)():
+
+            processed_uris = set()
+
+            for item in file_generator():
+
+               # corner case when the same file is iterated several times
+                uri = get_unique_identifier(item)
+                if uri in processed_uris:
+                    continue
+
                 predictions = precomputed(item)
                 segmentation = binarize.apply(predictions, dimension=1)
                 writer.write(segmentation.to_annotation(),
                              f=gp, uri=item['uri'], modality='speaker')
 
+                processed_uris.add(uri)
 
 def main():
 
