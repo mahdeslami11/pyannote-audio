@@ -72,27 +72,23 @@ Configuration file:
 import yaml
 import h5py
 import os.path
-import warnings
-import itertools
 import numpy as np
 from docopt import docopt
 
 import pyannote.core
 import pyannote.database
-from pyannote.database import get_database
-from pyannote.database.protocol import SpeakerDiarizationProtocol
-from pyannote.database.util import FileFinder
-from pyannote.database.util import get_unique_identifier
+from pyannote.database import FileFinder
+from pyannote.database import get_unique_identifier
+from pyannote.database import get_protocol
 
 from pyannote.audio.util import mkdir_p
 from pyannote.audio.features.utils import Precomputed
 from pyannote.audio.features.utils import PyannoteFeatureExtractionError
 
 
-def extract(database_name, task_name, protocol_name, preprocessors, experiment_dir, robust=False):
+def extract(protocol_name, file_finder, experiment_dir, robust=False):
 
-    database = get_database(database_name, preprocessors=preprocessors)
-    protocol = database.get_protocol(task_name, protocol_name, progress=True)
+    protocol = get_protocol(protocol_name, progress=False)
 
     # load configuration file
     config_yml = experiment_dir + '/config.yml'
@@ -122,14 +118,24 @@ def extract(database_name, task_name, protocol_name, preprocessors, experiment_d
     for subset in ['development', 'test', 'train']:
 
         try:
+            protocol.progress = False
             file_generator = getattr(protocol, subset)()
             first_item = next(file_generator)
         except NotImplementedError as e:
             continue
 
+        protocol.progress = True
         file_generator = getattr(protocol, subset)()
 
         for current_file in file_generator:
+
+            try:
+                current_file['audio'] = file_finder(current_file)
+            except ValueError as e:
+                if not robust:
+                    raise e
+                print(e)
+                continue
 
             uri = get_unique_identifier(current_file)
             path = Precomputed.get_path(experiment_dir, current_file)
@@ -138,23 +144,21 @@ def extract(database_name, task_name, protocol_name, preprocessors, experiment_d
                 continue
 
             try:
-                # NOTE current_file contains the 'channel' key
                 features = feature_extraction(current_file)
             except PyannoteFeatureExtractionError as e:
-                if robust:
-                    msg = 'Feature extraction failed for file "{uri}".'
-                    msg = msg.format(uri=uri)
-                    warnings.warn(msg)
-                    continue
-                else:
-                    raise e
+                msg = 'Feature extraction failed for file "{uri}".'
+                msg = msg.format(uri=uri)
+                if not robust:
+                    raise PyannoteFeatureExtractionError(msg)
+                print(msg)
+                continue
 
             if features is None:
                 msg = 'Feature extraction returned None for file "{uri}".'
                 msg = msg.format(uri=uri)
                 if not robust:
                     raise PyannoteFeatureExtractionError(msg)
-                warnings.warn(msg)
+                print(msg)
                 continue
 
             data = features.data
@@ -164,7 +168,7 @@ def extract(database_name, task_name, protocol_name, preprocessors, experiment_d
                 msg = msg.format(uri=uri)
                 if not robust:
                     raise PyannoteFeatureExtractionError(msg)
-                warnings.warn(msg)
+                print(msg)
                 continue
 
             # create parent directory
@@ -184,9 +188,9 @@ def main():
     arguments = docopt(__doc__, version='Feature extraction')
 
     db_yml = os.path.expanduser(arguments['--database'])
-    preprocessors = {'audio': FileFinder(db_yml)}
+    file_finder = FileFinder(db_yml)
 
-    database_name, task_name, protocol_name = arguments['<database.task.protocol>'].split('.')
+    protocol_name = arguments['<database.task.protocol>']
     experiment_dir = arguments['<experiment_dir>']
     robust = arguments['--robust']
-    extract(database_name, task_name, protocol_name, preprocessors, experiment_dir, robust=robust)
+    extract(protocol_name, file_finder, experiment_dir, robust=robust)
