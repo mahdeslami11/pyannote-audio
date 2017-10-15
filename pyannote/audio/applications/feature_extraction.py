@@ -94,15 +94,6 @@ def extract(database_name, task_name, protocol_name, preprocessors, experiment_d
     database = get_database(database_name, preprocessors=preprocessors)
     protocol = database.get_protocol(task_name, protocol_name, progress=True)
 
-    if isinstance(protocol, SpeakerDiarizationProtocol):
-        items = itertools.chain(protocol.train(),
-                                protocol.development(),
-                                protocol.test())
-
-    else:
-        msg = '{task_name} protocols are not supported yet.'
-        raise NotImplementedError(msg.format(task_name=task_name))
-
     # load configuration file
     config_yml = experiment_dir + '/config.yml'
     with open(config_yml, 'r') as fp:
@@ -128,54 +119,64 @@ def extract(database_name, task_name, protocol_name, preprocessors, experiment_d
     f.attrs['dimension'] = dimension
     f.close()
 
-    for item in items:
-
-        uri = get_unique_identifier(item)
-        path = Precomputed.get_path(experiment_dir, item)
-
-        if os.path.exists(path):
-            continue
+    for subset in ['development', 'test', 'train']:
 
         try:
-            # NOTE item contains the 'channel' key
-            features = feature_extraction(item)
-        except PyannoteFeatureExtractionError as e:
-            if robust:
-                msg = 'Feature extraction failed for file "{uri}".'
+            file_generator = getattr(protocol, subset)()
+            first_item = next(file_generator)
+        except NotImplementedError as e:
+            continue
+
+        file_generator = getattr(protocol, subset)()
+
+        for current_file in file_generator:
+
+            uri = get_unique_identifier(current_file)
+            path = Precomputed.get_path(experiment_dir, current_file)
+
+            if os.path.exists(path):
+                continue
+
+            try:
+                # NOTE current_file contains the 'channel' key
+                features = feature_extraction(current_file)
+            except PyannoteFeatureExtractionError as e:
+                if robust:
+                    msg = 'Feature extraction failed for file "{uri}".'
+                    msg = msg.format(uri=uri)
+                    warnings.warn(msg)
+                    continue
+                else:
+                    raise e
+
+            if features is None:
+                msg = 'Feature extraction returned None for file "{uri}".'
                 msg = msg.format(uri=uri)
+                if not robust:
+                    raise PyannoteFeatureExtractionError(msg)
                 warnings.warn(msg)
                 continue
-            else:
-                raise e
 
-        if features is None:
-            msg = 'Feature extraction returned None for file "{uri}".'
-            msg = msg.format(uri=uri)
-            if not robust:
-                raise PyannoteFeatureExtractionError(msg)
-            warnings.warn(msg)
-            continue
+            data = features.data
 
-        data = features.data
+            if np.any(np.isnan(data)):
+                msg = 'Feature extraction returned NaNs for file "{uri}".'
+                msg = msg.format(uri=uri)
+                if not robust:
+                    raise PyannoteFeatureExtractionError(msg)
+                warnings.warn(msg)
+                continue
 
-        if np.any(np.isnan(data)):
-            msg = 'Feature extraction returned NaNs for file "{uri}".'
-            msg = msg.format(uri=uri)
-            if not robust:
-                raise PyannoteFeatureExtractionError(msg)
-            warnings.warn(msg)
-            continue
+            # create parent directory
+            mkdir_p(os.path.dirname(path))
 
-        # create parent directory
-        mkdir_p(os.path.dirname(path))
-
-        f = h5py.File(path)
-        f.attrs['start'] = sliding_window.start
-        f.attrs['duration'] = sliding_window.duration
-        f.attrs['step'] = sliding_window.step
-        f.attrs['dimension'] = dimension
-        f.create_dataset('features', data=data)
-        f.close()
+            f = h5py.File(path)
+            f.attrs['start'] = sliding_window.start
+            f.attrs['duration'] = sliding_window.duration
+            f.attrs['step'] = sliding_window.step
+            f.attrs['dimension'] = dimension
+            f.create_dataset('features', data=data)
+            f.close()
 
 
 def main():
