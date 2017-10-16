@@ -30,7 +30,7 @@
 Feature extraction
 
 Usage:
-  pyannote-speech-feature [--robust --database=<db.yml>] <experiment_dir> <database.task.protocol>
+  pyannote-speech-feature [--robust --parallel --database=<db.yml>] <experiment_dir> <database.task.protocol>
   pyannote-speech-feature check [--database=<db.yml>] <experiment_dir> <database.task.protocol>
   pyannote-speech-feature -h | --help
   pyannote-speech-feature --version
@@ -44,6 +44,7 @@ Options:
   --database=<db.yml>        Path to database configuration file.
                              [default: ~/.pyannote/db.yml]
   --robust                   When provided, skip files for which feature extraction fails.
+  --parallel                 When provided, process files in parallel.
   -h --help                  Show this screen.
   --version                  Show version.
 
@@ -74,6 +75,8 @@ import yaml
 import h5py
 import os.path
 import numpy as np
+import functools
+import itertools
 from docopt import docopt
 
 import pyannote.core
@@ -87,8 +90,87 @@ from pyannote.audio.features.utils import Precomputed
 from pyannote.audio.features.utils import get_audio_duration
 from pyannote.audio.features.utils import PyannoteFeatureExtractionError
 
+from multiprocessing import cpu_count, Pool
 
-def extract(protocol_name, file_finder, experiment_dir, robust=False):
+
+def init_feature_extraction(experiment_dir):
+
+    # load configuration file
+    config_yml = experiment_dir + '/config.yml'
+    with open(config_yml, 'r') as fp:
+        config = yaml.load(fp)
+
+    feature_extraction_name = config['feature_extraction']['name']
+    features = __import__('pyannote.audio.features',
+                          fromlist=[feature_extraction_name])
+    FeatureExtraction = getattr(features, feature_extraction_name)
+    feature_extraction = FeatureExtraction(
+        **config['feature_extraction'].get('params', {}))
+
+    return feature_extraction
+
+def process_current_file(current_file, file_finder=None, experiment_dir=None,
+                         feature_extraction=None):
+
+    try:
+        current_file['audio'] = file_finder(current_file)
+    except ValueError as e:
+        if not robust:
+            raise PyannoteFeatureExtractionError(*e.args)
+        return e
+
+    uri = get_unique_identifier(current_file)
+    path = Precomputed.get_path(experiment_dir, current_file)
+
+    if os.path.exists(path):
+        return
+
+    try:
+        features = feature_extraction(current_file)
+    except PyannoteFeatureExtractionError as e:
+        msg = 'Feature extraction failed for file "{uri}".'
+        return msg.format(uri=uri)
+
+    if features is None:
+        msg = 'Feature extraction returned None for file "{uri}".'
+        return msg.format(uri=uri)
+
+    data = features.data
+
+    if np.any(np.isnan(data)):
+        msg = 'Feature extraction returned NaNs for file "{uri}".'
+        return msg.format(uri=uri)
+
+    # create parent directory
+    mkdir_p(os.path.dirname(path))
+
+    sliding_window = feature_extraction.sliding_window()
+    dimension = feature_extraction.dimension()
+
+    f = h5py.File(path)
+
+    f.attrs['start'] = sliding_window.start
+    f.attrs['duration'] = sliding_window.duration
+    f.attrs['step'] = sliding_window.step
+    f.attrs['dimension'] = dimension
+    f.create_dataset('features', data=data)
+    f.close()
+
+    return
+
+
+def helper_extract(current_file, file_finder=None, experiment_dir=None,
+                   config_yml=None, feature_extraction=None, robust=False):
+
+    if feature_extraction is None:
+        feature_extraction = init_feature_extraction(config_yml, experiment_dir)
+
+    return process_current_file(current_file, file_finder=file_finder,
+                                experiment_dir=experiment_dir,
+                                feature_extraction=feature_extraction)
+
+def extract(protocol_name, file_finder, experiment_dir,
+            robust=False, parallel=False):
 
     protocol = get_protocol(protocol_name, progress=False)
 
@@ -117,6 +199,29 @@ def extract(protocol_name, file_finder, experiment_dir, robust=False):
     f.attrs['dimension'] = dimension
     f.close()
 
+    if parallel:
+
+        extract_one = functools.partial(helper_extract,
+                                        file_finder=file_finder,
+                                        experiment_dir=experiment_dir,
+                                        config_yml=config_yml,
+                                        robust=robust)
+
+        n_jobs = cpu_count()
+        pool = Pool(n_jobs)
+        imap = pool.imap
+
+    else:
+
+        feature_extraction = init_feature_extraction(experiment_dir)
+        extract_one = functools.partial(helper_extract,
+                                        file_finder=file_finder,
+                                        experiment_dir=experiment_dir,
+                                        feature_extraction=feature_extraction,
+                                        robust=robust)
+
+        imap = itertools.imap
+
     for subset in ['development', 'test', 'train']:
 
         try:
@@ -129,60 +234,10 @@ def extract(protocol_name, file_finder, experiment_dir, robust=False):
         protocol.progress = True
         file_generator = getattr(protocol, subset)()
 
-        for current_file in file_generator:
-
-            try:
-                current_file['audio'] = file_finder(current_file)
-            except ValueError as e:
-                if not robust:
-                    raise e
-                print(e)
+        for result in imap(extract_one, file_generator):
+            if result is None:
                 continue
-
-            uri = get_unique_identifier(current_file)
-            path = Precomputed.get_path(experiment_dir, current_file)
-
-            if os.path.exists(path):
-                continue
-
-            try:
-                features = feature_extraction(current_file)
-            except PyannoteFeatureExtractionError as e:
-                msg = 'Feature extraction failed for file "{uri}".'
-                msg = msg.format(uri=uri)
-                if not robust:
-                    raise PyannoteFeatureExtractionError(msg)
-                print(msg)
-                continue
-
-            if features is None:
-                msg = 'Feature extraction returned None for file "{uri}".'
-                msg = msg.format(uri=uri)
-                if not robust:
-                    raise PyannoteFeatureExtractionError(msg)
-                print(msg)
-                continue
-
-            data = features.data
-
-            if np.any(np.isnan(data)):
-                msg = 'Feature extraction returned NaNs for file "{uri}".'
-                msg = msg.format(uri=uri)
-                if not robust:
-                    raise PyannoteFeatureExtractionError(msg)
-                print(msg)
-                continue
-
-            # create parent directory
-            mkdir_p(os.path.dirname(path))
-
-            f = h5py.File(path)
-            f.attrs['start'] = sliding_window.start
-            f.attrs['duration'] = sliding_window.duration
-            f.attrs['step'] = sliding_window.step
-            f.attrs['dimension'] = dimension
-            f.create_dataset('features', data=data)
-            f.close()
+            print(result)
 
 def check(protocol_name, file_finder, experiment_dir):
 
@@ -235,4 +290,6 @@ def main():
         check(protocol_name, file_finder, experiment_dir)
     else:
         robust = arguments['--robust']
-        extract(protocol_name, file_finder, experiment_dir, robust=robust)
+        parallel = arguments['--parallel']
+        extract(protocol_name, file_finder, experiment_dir, 
+                robust=robust, parallel=parallel)
