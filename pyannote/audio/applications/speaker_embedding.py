@@ -164,7 +164,7 @@ from .base import Application
 from pyannote.generators.fragment import SlidingLabeledSegments
 from pyannote.audio.optimizers import SSMORMS3
 
-from pyannote.audio.embedding.utils import pdist, l2_normalize
+from pyannote.audio.embedding.utils import pdist, cdist, l2_normalize
 from pyannote.metrics.binary_classification import det_curve
 
 from sortedcontainers import SortedDict
@@ -188,12 +188,12 @@ class SpeakerEmbedding(Application):
         return speaker_embedding
 
     @classmethod
-    def from_validate_txt(cls, validate_txt, db_yml=None):
-        train_dir = dirname(dirname(dirname(validate_txt)))
-        speaker_embedding = cls.from_train_dir(train_dir, db_yml=db_yml)
-        speaker_embedding.validate_txt_ = validate_txt
+    def from_train_dir(cls, train_dir, db_yml=None):
+        experiment_dir = dirname(dirname(train_dir))
+        speaker_embedding = cls(experiment_dir, db_yml=db_yml)
+        speaker_embedding.train_dir_ = train_dir
 
-        root_dir = dirname(dirname(dirname(dirname(train_dir))))
+        root_dir = dirname(dirname(experiment_dir))
         with open(root_dir + '/config.yml', 'r') as fp:
             config = yaml.load(fp)
             extraction_name = config['feature_extraction']['name']
@@ -208,6 +208,13 @@ class SpeakerEmbedding(Application):
             # but does consume (potentially) a LOT of memory
             speaker_embedding.cache_preprocessed_ = 'Precomputed' not in extraction_name
 
+        return speaker_embedding
+
+    @classmethod
+    def from_validate_txt(cls, validate_txt, db_yml=None):
+        train_dir = dirname(dirname(dirname(validate_txt)))
+        speaker_embedding = cls.from_train_dir(train_dir, db_yml=db_yml)
+        speaker_embedding.validate_txt_ = validate_txt
         return speaker_embedding
 
     def __init__(self, experiment_dir, db_yml=None):
@@ -417,6 +424,18 @@ class SpeakerEmbedding(Application):
 
     def validate_init(self, protocol_name, subset='development'):
 
+        task = protocol_name.split('.')[1]
+        if task == 'SpeakerVerification':
+            return self._validate_init_verification(protocol_name,
+                                                    subset=subset)
+
+        return self._validate_init_default(protocol_name, subset=subset)
+
+    def _validate_init_verification(self, protocol_name, subset='development'):
+        return {}
+
+    def _validate_init_default(self, protocol_name, subset='development'):
+
         # reproducibility
         np.random.seed(1337)
 
@@ -463,6 +482,88 @@ class SpeakerEmbedding(Application):
 
     def validate_epoch(self, epoch, protocol_name, subset='development',
                        validation_data=None):
+
+        task = protocol_name.split('.')[1]
+        if task == 'SpeakerVerification':
+            return self._validate_epoch_verification(
+                epoch, protocol_name, subset=subset,
+                validation_data=validation_data)
+
+        return self._validate_epoch_default(epoch, protocol_name, subset=subset,
+                                           validation_data=validation_data)
+
+    def _validate_epoch_verification(self, epoch, protocol_name,
+                                     subset='development',
+                                     validation_data=None):
+
+        # load current model
+        model = self.load_model(epoch)
+
+        # guess sequence duration from path (.../3.2+0.8/...)
+        directory = basename(dirname(self.experiment_dir))
+        duration, _, step, _ = self._directory_to_params(directory)
+        if step is None:
+            step = 0.5 * duration
+
+        # initialize embedding extraction
+        batch_size = self.approach_.batch_size
+
+        try:
+            # use internal representation when available
+            internal = True
+            sequence_embedding = SequenceEmbedding(
+                model, self.feature_extraction_, duration,
+                step=step, batch_size=batch_size,
+                internal=internal)
+
+        except ValueError as e:
+            # else use final representation
+            internal = False
+            sequence_embedding = SequenceEmbedding(
+                model, self.feature_extraction_, duration,
+                step=step, batch_size=batch_size,
+                internal=internal)
+
+        metrics = {}
+        protocol = get_protocol(protocol_name, progress=False,
+                                preprocessors=self.preprocessors_)
+
+        models = {}
+        enrolments = getattr(protocol, '{0}_enrolment'.format(subset))()
+        for i, enrolment in enumerate(enrolments):
+            model_id = enrolment['model_id']
+            embedding = sequence_embedding.apply(enrolment)
+            data = embedding.crop(enrolment['enrol_with'],
+                                  mode='center', return_data=True)
+
+            models[model_id] = np.mean(data, axis=0, keepdims=True)
+
+        trials = getattr(protocol, '{0}_trial'.format(subset))()
+        y_true, y_pred = [], []
+        for i, trial in enumerate(trials):
+            model_id = trial['model_id']
+            if model_id not in models:
+                continue
+
+            embedding = sequence_embedding.apply(trial)
+            data = embedding.crop(trial['try_with'],
+                                  mode='center', return_data=True)
+            model = np.mean(data, axis=0, keepdims=True)
+            distance = cdist(models[model_id], model,
+                             metric=self.approach_.metric)[0, 0]
+            y_pred.append(distance)
+            y_true.append(trial['reference'])
+
+        _, _, _, eer = det_curve(np.array(y_true), np.array(y_pred),
+                                 distances=True)
+        metrics['EER.internal' if internal else 'EER.final'] = \
+            {'minimize': True, 'value': eer}
+
+        return metrics
+
+
+    def _validate_epoch_default(self, epoch, protocol_name,
+                               subset='development', validation_data=None):
 
         from pyannote.core.util import pairwise
         import keras.backend as K
