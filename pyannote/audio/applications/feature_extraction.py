@@ -163,7 +163,7 @@ def helper_extract(current_file, file_finder=None, experiment_dir=None,
                    config_yml=None, feature_extraction=None, robust=False):
 
     if feature_extraction is None:
-        feature_extraction = init_feature_extraction(config_yml, experiment_dir)
+        feature_extraction = init_feature_extraction(experiment_dir)
 
     return process_current_file(current_file, file_finder=file_finder,
                                 experiment_dir=experiment_dir,
@@ -291,5 +291,5 @@ def main():
     else:
         robust = arguments['--robust']
         parallel = arguments['--parallel']
-        extract(protocol_name, file_finder, experiment_dir, 
+        extract(protocol_name, file_finder, experiment_dir,
                 robust=robust, parallel=parallel)
