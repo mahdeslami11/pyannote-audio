@@ -528,28 +528,49 @@ class SpeakerEmbedding(Application):
         protocol = get_protocol(protocol_name, progress=False,
                                 preprocessors=self.preprocessors_)
 
-        models = {}
+        enrolment_models, enrolment_khashes = {}, {}
         enrolments = getattr(protocol, '{0}_enrolment'.format(subset))()
         for i, enrolment in enumerate(enrolments):
             model_id = enrolment['model_id']
             embedding = sequence_embedding.apply(enrolment)
             data = embedding.crop(enrolment['enrol_with'],
                                   mode='center', return_data=True)
+            enrolment_models[model_id] = np.mean(data, axis=0, keepdims=True)
 
-            models[model_id] = np.mean(data, axis=0, keepdims=True)
+            # in some specific speaker verification protocols,
+            # enrolment data may be  used later as trial data.
+            # therefore, we cache information about enrolment data
+            # to speed things up by reusing the enrolment as trial
+            h = hash((get_unique_identifier(enrolment),
+                      tuple(enrolment['enrol_with'])))
+            enrolment_khashes[h] = model_id
 
+        trial_models = {}
         trials = getattr(protocol, '{0}_trial'.format(subset))()
         y_true, y_pred = [], []
         for i, trial in enumerate(trials):
             model_id = trial['model_id']
-            if model_id not in models:
-                continue
 
-            embedding = sequence_embedding.apply(trial)
-            data = embedding.crop(trial['try_with'],
-                                  mode='center', return_data=True)
-            model = np.mean(data, axis=0, keepdims=True)
-            distance = cdist(models[model_id], model,
+            h = hash((get_unique_identifier(trial),
+                      tuple(trial['try_with'])))
+
+            # re-use enrolment model whenever possible
+            if h in enrolment_khashes:
+                model = enrolment_models[enrolment_khashes[h]]
+
+            # re-use trial model whenever possible
+            elif h in trial_models:
+                model = trial_models[h]
+
+            else:
+                embedding = sequence_embedding.apply(trial)
+                data = embedding.crop(trial['try_with'],
+                                      mode='center', return_data=True)
+                model = np.mean(data, axis=0, keepdims=True)
+                # cache trial model for later re-use
+                trial_models[h] = model
+
+            distance = cdist(enrolment_models[model_id], model,
                              metric=self.approach_.metric)[0, 0]
             y_pred.append(distance)
             y_true.append(trial['reference'])
