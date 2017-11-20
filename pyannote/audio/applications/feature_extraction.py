@@ -219,8 +219,7 @@ def extract(protocol_name, file_finder, experiment_dir,
                                         experiment_dir=experiment_dir,
                                         feature_extraction=feature_extraction,
                                         robust=robust)
-
-        imap = itertools.imap
+        imap = map
 
     for subset in ['development', 'test', 'train']:
 
