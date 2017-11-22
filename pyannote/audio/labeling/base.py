@@ -116,9 +116,16 @@ class SequenceLabeling(PeriodicFeaturesMixin, FileBasedBatchGenerator):
         predictions : SlidingWindowFeature
         """
 
-        fX = np.vstack(
-            [batch for batch in self.from_file(current_file,
-                                               incomplete=True)])
+        # frame and sub-sequence sliding windows
+        frames = self.feature_extractor.sliding_window()
+
+        batches = [batch for batch in self.from_file(current_file,
+                                                     incomplete=True)]
+        if not batches:
+            data = np.zeros((0, self.dimension), dtype=np.float32)
+            return SlidingWindowFeature(data, frames)
+
+        fX = np.vstack(batches)
 
         subsequences = SlidingWindow(duration=self.duration, step=self.step)
 
@@ -131,9 +138,6 @@ class SequenceLabeling(PeriodicFeaturesMixin, FileBasedBatchGenerator):
 
         # k[i] is the number of sequences that overlap with frame #i
         k = np.zeros((n_frames, 1), dtype=np.int8)
-
-        # frame and sub-sequence sliding windows
-        frames = self.feature_extractor.sliding_window()
 
         for subsequence, fX_ in zip(subsequences, fX):
 
