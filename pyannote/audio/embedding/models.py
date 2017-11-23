@@ -34,8 +34,12 @@ from keras.models import Model
 from keras.layers import Input
 from keras.layers import Masking
 from keras.layers import Dense
+from keras.layers import Flatten
 from keras.layers import Lambda
-from keras.layers.merge import Concatenate
+from keras.layers import Permute
+from keras.layers import RepeatVector
+from keras.layers import Concatenate
+from keras.layers import Multiply
 from keras.layers.wrappers import Bidirectional
 from keras.layers.wrappers import TimeDistributed
 import numpy as np
@@ -273,7 +277,7 @@ class TrottiNet(object):
         # stack (bidirectional) RNN layers
         for i, output_dim in enumerate(self.recurrent):
 
-            last_internal_layer = not self.mlp and i + 1 == len(self.recurrent)
+            internal_layer = not self.mlp and i + 1 == len(self.recurrent)
 
             params = {
                 'name': 'rnn_{i:d}'.format(i=i),
@@ -304,13 +308,13 @@ class TrottiNet(object):
             if i == 0:
                 params['input_shape'] = input_shape
 
-            if last_internal_layer and not self.bidirectional:
+            if internal_layer and not self.bidirectional:
                 params['name'] = 'internal'
 
             recurrent = self.RNN_(output_dim, **params)
 
             if self.bidirectional:
-                name = 'internal' if last_internal_layer else None
+                name = 'internal' if internal_layer else None
                 recurrent = Bidirectional(recurrent,
                                      merge_mode=self.bidirectional,
                                      name=name)
@@ -320,13 +324,13 @@ class TrottiNet(object):
         # stack dense MLP layers
         for i, output_dim in enumerate(self.mlp):
 
-            last_internal_layer = i + 1 == len(self.mlp)
+            internal_layer = i + 1 == len(self.mlp)
 
             mlp = Dense(output_dim,
                         activation='tanh',
                         name='mlp_{i:d}'.format(i=i))
 
-            name = 'internal' if last_internal_layer else None
+            name = 'internal' if internal_layer else None
             x = TimeDistributed(mlp, name=name)(x)
 
         # average pooling and L2 normalization
@@ -379,7 +383,7 @@ class ClopiNet(object):
 
     def __init__(self, rnn='LSTM', implementation=0, mask=False,
                  recurrent=[16, 8, 8], bidirectional='ave', mlp=[],
-                 linear=False):
+                 linear=False, attention=False):
         super(ClopiNet, self).__init__()
         self.rnn = rnn
         self.implementation = implementation
@@ -388,6 +392,7 @@ class ClopiNet(object):
         self.bidirectional = bidirectional
         self.mlp = mlp
         self.linear = linear
+        self.attention = attention
 
         rnns = __import__('keras.layers.recurrent', fromlist=[self.rnn])
         self.RNN_ = getattr(rnns, self.rnn)
@@ -412,13 +417,20 @@ class ClopiNet(object):
             masking = Masking(mask_value=0.)
             x = masking(inputs)
         else:
-            x =  inputs
+            x = inputs
 
         # stack (bidirectional) recurrent layers
         for i, output_dim in enumerate(self.recurrent):
 
+            # is it the sole layer in the network?
             sole_layer = not self.mlp and len(self.recurrent) == 1
-            last_internal_layer = not self.mlp and i + 1 == len(self.recurrent)
+
+            # is it the last layer before pooling?
+            internal_layer = not self.mlp and i + 1 == len(self.recurrent)
+
+            # the sole purpose of these two booleans is to determine
+            # which layer in the last one before pooling so that it
+            # can be given the name "internal".
 
             params = {
                 'name': 'rnn_{i:d}'.format(i=i),
@@ -449,23 +461,26 @@ class ClopiNet(object):
             if i == 0:
                 params['input_shape'] = input_shape
 
-            if sole_layer and not self.bidirectional:
+            if sole_layer and not self.bidirectional and not self.attention:
                 params['name'] = 'internal'
 
             recurrent = self.RNN_(output_dim, **params)
 
             # bi-directional RNN
             if self.bidirectional:
+                name = 'internal' if (sole_layer and not self.attention) \
+                       else None
                 recurrent = Bidirectional(recurrent,
-                                     merge_mode=self.bidirectional,
-                                     name='internal' if sole_layer else None)
+                                          merge_mode=self.bidirectional,
+                                          name=name)
 
             # (actually) stack RNN
             x = recurrent(x)
 
             # concatenate output of all levels
             if i > 0:
-                name = 'internal' if last_internal_layer else None
+                name = 'internal' if (internal_layer and not self.attention) \
+                       else None
                 concat_x = Concatenate(axis=-1, name=name)([concat_x, x])
             else:
                 # corner case for 1st level (i=0)
@@ -478,18 +493,32 @@ class ClopiNet(object):
         # (optionally) stack dense MLP layers
         for i, output_dim in enumerate(self.mlp):
 
-            last_internal_layer = i + 1 == len(self.mlp)
+            internal_layer = i + 1 == len(self.mlp)
 
             activation = 'tanh'
-            if last_internal_layer and self.linear:
+            use_bias = True
+            if internal_layer and self.linear:
                 activation = 'linear'
+                use_bias = True  # TODO - test with use_bias = False
 
             mlp = Dense(output_dim,
                         name='mlp_{i:d}'.format(i=i),
-                        activation=activation)
+                        activation=activation,
+                        use_bias=use_bias)
 
-            name = 'internal' if last_internal_layer else None
+            name = 'internal' if (internal_layer and not self.attention) \
+                   else None
             x = TimeDistributed(mlp, name=name)(x)
+
+        if self.attention:
+            # https://github.com/fchollet/keras/issues/1472
+            attention = Dense(input_shape[0],
+                              activation='softmax',
+                              name='attention')
+            a = attention(Flatten()(x))
+            a = RepeatVector(self.output_dim)(a)
+            a = Permute((2, 1))(a)
+            x = Multiply(name='internal')([x, a])
 
         # average pooling and L2 normalization
         pooling = EmbeddingAveragePooling(name='pooling')
