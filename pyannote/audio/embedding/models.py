@@ -377,8 +377,8 @@ class ClopiNet(object):
         Number of units in additionnal stacked dense MLP layers.
         Defaults to [] (i.e. do not stack any dense MLP layer)
     linear: bool, optional
-        Make final dense layer use linear activation. Has no effect
-        when `mlp` is empty.
+        Make final dense layer use linear activation (without bias).
+        Has no effect when `mlp` is empty.
     """
 
     def __init__(self, rnn='LSTM', implementation=0, mask=False,
@@ -499,7 +499,7 @@ class ClopiNet(object):
             use_bias = True
             if internal_layer and self.linear:
                 activation = 'linear'
-                use_bias = True  # TODO - test with use_bias = False
+                use_bias = False
 
             mlp = Dense(output_dim,
                         name='mlp_{i:d}'.format(i=i),
