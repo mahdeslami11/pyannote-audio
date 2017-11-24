@@ -205,7 +205,7 @@ class SpeakerEmbedding(Application):
 
         params = config['feature_extraction'].get('params', {})
 
-        if self.normalize_:
+        if speaker_embedding.normalize_:
             norm_h5 = speaker_embedding.NORM_H5.format(
                 train_dir=speaker_embedding.train_dir_)
             with h5py.File(norm_h5, mode='r') as g:
