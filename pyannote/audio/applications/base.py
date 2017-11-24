@@ -47,7 +47,7 @@ class Application(object):
     # created by "validate" mode
     VALIDATE_DIR = '{train_dir}/validate/{protocol}'
     VALIDATE_TXT = '{validate_dir}/{subset}.{metric}.txt'
-    VALIDATE_TXT_TEMPLATE = '{epoch:04d} {value:5f}\n'
+    VALIDATE_TXT_TEMPLATE = '{epoch:04d} {value:.6f}\n'
     VALIDATE_PNG = '{validate_dir}/{subset}.{metric}.png'
     VALIDATE_EPS = '{validate_dir}/{subset}.{metric}.eps'
 
@@ -168,7 +168,7 @@ class Application(object):
                     [baseline, baseline], 'k', label='baseline')
         ax.grid()
         ax.set_xlabel('epoch')
-        ax.set_title('{metric} = {value:.3f} @ epoch #{epoch}'.format(
+        ax.set_title('{metric} = {value:.6f} @ epoch #{epoch}'.format(
             metric=metric, value=best_value, epoch=best_epoch))
 
         fig.tight_layout()
