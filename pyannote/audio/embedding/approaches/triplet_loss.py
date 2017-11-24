@@ -102,13 +102,13 @@ class TripletLoss(SequenceEmbeddingTraining):
             gradient_factor=gradient_factor,
             batch_size=batch_size)
 
-    def get_batch_generator(self, data_h5):
+    def get_batch_generator(self, data_h5, normalize=False):
         if self.learn_to_aggregate:
-            return self._get_batch_generator_z(data_h5)
+            return self._get_batch_generator_z(data_h5, normalize=normalize)
         else:
-            return self._get_batch_generator_y(data_h5)
+            return self._get_batch_generator_y(data_h5, normalize=normalize)
 
-    def _get_batch_generator_y(self, data_h5):
+    def _get_batch_generator_y(self, data_h5, normalize=False):
         """Get batch generator
 
         Parameters
@@ -116,6 +116,8 @@ class TripletLoss(SequenceEmbeddingTraining):
         data_h5 : str
             Path to HDF5 file containing precomputed sequences.
             It must have to aligned datasets 'X' and 'y'.
+        normalize : bool, optional
+            Defaults to not normalize.
 
         Returns
         -------
@@ -128,6 +130,12 @@ class TripletLoss(SequenceEmbeddingTraining):
         h5_X = fp['X']
         h5_y = fp['y']
 
+        if normalize:
+            mu = h5_X.attrs['mu']
+            sigma = h5_X.attrs['sigma']
+        else:
+            mu, sigma = 0., 1.
+
         # keep track of number of labels and rename labels to integers
         unique, y = np.unique(h5_y, return_inverse=True)
         n_classes = len(unique)
@@ -138,7 +146,8 @@ class TripletLoss(SequenceEmbeddingTraining):
         def generator():
             while True:
                 i = next(index_generator)
-                yield {'X': h5_X[i], 'y': y[i]}
+                yield {'X': (h5_X[i]- mu) / sigma,
+                       'y': y[i]}
 
         signature = {'X': {'type': 'ndarray'},
                      'y': {'type': 'ndarray'}}
@@ -158,13 +167,19 @@ class TripletLoss(SequenceEmbeddingTraining):
                 'n_classes': n_classes,
                 'classes': unique}
 
-    def _get_batch_generator_z(self, data_h5):
+    def _get_batch_generator_z(self, data_h5, normalize=False):
         """"""
 
         fp = h5py.File(data_h5, mode='r')
         h5_X = fp['X']
         h5_y = fp['y']
         h5_z = fp['z']
+
+        if normalize:
+            mu = h5_X.attrs['mu']
+            sigma = h5_X.attrs['sigma']
+        else:
+            mu, sigma = 0., 1.
 
         df = pd.DataFrame({'y': h5_y, 'z': h5_z})
         z_groups = df.groupby('z')
@@ -192,7 +207,7 @@ class TripletLoss(SequenceEmbeddingTraining):
 
                 X = np.array(h5_X[sorted(selector)])
                 n = X.shape[0]
-                yield {'X': X,
+                yield {'X': (X - mu) / sigma,
                        'y': label,
                        'n': n}
 

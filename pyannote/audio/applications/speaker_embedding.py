@@ -148,6 +148,7 @@ from os.path import dirname, basename, expanduser, isfile
 import numpy as np
 import pandas as pd
 import yaml
+from tqdm import tqdm
 from docopt import docopt
 
 import matplotlib
@@ -180,6 +181,7 @@ class SpeakerEmbedding(Application):
 
     # created by "train" mode
     TRAIN_DIR = '{experiment_dir}/train/{protocol}.{subset}'
+    NORM_H5 = '{train_dir}/norm.h5'
 
     @classmethod
     def from_root_dir(cls, root_dir, db_yml=None):
@@ -196,17 +198,26 @@ class SpeakerEmbedding(Application):
         root_dir = dirname(dirname(experiment_dir))
         with open(root_dir + '/config.yml', 'r') as fp:
             config = yaml.load(fp)
-            extraction_name = config['feature_extraction']['name']
-            features = __import__('pyannote.audio.features',
-                                  fromlist=[extraction_name])
-            FeatureExtraction = getattr(features, extraction_name)
-            speaker_embedding.feature_extraction_ = FeatureExtraction(
-                **config['feature_extraction'].get('params', {}))
+        extraction_name = config['feature_extraction']['name']
+        features = __import__('pyannote.audio.features',
+                              fromlist=[extraction_name])
+        FeatureExtraction = getattr(features, extraction_name)
 
-            # do not cache features in memory when they are precomputed on disk
-            # as this does not bring any significant speed-up
-            # but does consume (potentially) a LOT of memory
-            speaker_embedding.cache_preprocessed_ = 'Precomputed' not in extraction_name
+        params = config['feature_extraction'].get('params', {})
+
+        if self.normalize_:
+            norm_h5 = speaker_embedding.NORM_H5.format(
+                train_dir=speaker_embedding.train_dir_)
+            with h5py.File(norm_h5, mode='r') as g:
+                params['mu'] = g.attrs['mu']
+                params['sigma'] = g.attrs['sigma']
+
+        speaker_embedding.feature_extraction_ = FeatureExtraction(**params)
+
+        # do not cache features in memory when they are precomputed on disk
+        # as this does not bring any significant speed-up
+        # but does consume (potentially) a LOT of memory
+        speaker_embedding.cache_preprocessed_ = 'Precomputed' not in extraction_name
 
         return speaker_embedding
 
@@ -239,6 +250,9 @@ class SpeakerEmbedding(Application):
             Approach = getattr(approaches, approach_name)
             self.approach_ = Approach(
                 **self.config_['approach'].get('params', {}))
+
+        # feature normalization
+        self.normalize_ = self.config_.get('normalize', False)
 
     # (5, None, None, False) ==> '5'
     # (5, 1, None, False) ==> '1-5'
@@ -394,22 +408,46 @@ class SpeakerEmbedding(Application):
                 Y.resize(i-1, axis=0)
                 Z.resize(i-1, axis=0)
 
+                # precompute feature normalization
+                weights, means, squared_means = zip(*(
+                    (len(x), np.mean(x, axis=0), np.mean(x**2, axis=0))
+                    for x in tqdm(X)))
+                mu = np.average(means, weights=weights, axis=0)
+                squared_mean = np.average(squared_means, weights=weights, axis=0)
+                sigma = np.sqrt(squared_mean - mu ** 2)
+
+                # store it as X attribute
+                X.attrs['mu'] = mu
+                X.attrs['sigma'] = sigma
+
+
     def train(self, protocol_name, subset='train', start=None, end=1000):
+
+        train_dir = self.TRAIN_DIR.format(experiment_dir=self.experiment_dir,
+                                          protocol=protocol_name,
+                                          subset=subset)
 
         data_dir = dirname(self.experiment_dir)
         data_h5 = self.DATA_H5.format(data_dir=data_dir,
                                       protocol=protocol_name,
                                       subset=subset)
 
-        got = self.approach_.get_batch_generator(data_h5)
+        if self.normalize_:
+            # copy mu/sigma from data_h5 to norm_h5
+            norm_h5 = self.NORM_H5.format(train_dir=train_dir)
+            mkdir_p(train_dir)
+            with h5py.File(data_h5, mode='r') as f, \
+                 h5py.File(norm_h5, mode='w') as g:
+                g.attrs['mu'] = f['X'].attrs['mu']
+                g.attrs['sigma'] = f['X'].attrs['sigma']
+
+        # generator
+        got = self.approach_.get_batch_generator(data_h5,
+                                                 normalize=self.normalize_)
         batch_generator = got['batch_generator']
         batches_per_epoch = got['batches_per_epoch']
         n_classes = got.get('n_classes', None)
         classes = got.get('classes', None)
-
-        train_dir = self.TRAIN_DIR.format(experiment_dir=self.experiment_dir,
-                                          protocol=protocol_name,
-                                          subset=subset)
 
         if start is None:
             init_embedding = self.architecture_

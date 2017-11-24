@@ -53,9 +53,12 @@ class YaafeFeatureExtractor(object):
         Defaults to 0.010.
     stack : int, optional
         Stack `stack` consecutive features. Defaults to 1.
+    mu, sigma : np.array, optional
+        Apply mu/sigma feature normalization.
     """
 
-    def __init__(self, sample_rate=16000, duration=0.025, step=0.010, stack=1):
+    def __init__(self, sample_rate=16000, duration=0.025, step=0.010, stack=1,
+                 mu=0., sigma=1.):
 
         super(YaafeFeatureExtractor, self).__init__()
 
@@ -63,6 +66,8 @@ class YaafeFeatureExtractor(object):
         self.duration = duration
         self.step = step
         self.stack = stack
+        self.mu = mu
+        self.sigma = sigma
 
         start = -0.5 * self.duration
         self.sliding_window_ = SlidingWindow(start=start,
@@ -139,13 +144,15 @@ class YaafeFeatureExtractor(object):
             msg = 'Features extracted from "{uri}" contain NaNs.'
             warnings.warn(msg.format(uri=uri))
 
-        return SlidingWindowFeature(data, self.sliding_window_)
+        return SlidingWindowFeature((data - self.mu) / self.sigma,
+                                    self.sliding_window_)
 
 
 class YaafeCompound(YaafeFeatureExtractor):
 
     def __init__(self, extractors, sample_rate=16000,
-                 duration=0.025, step=0.010, stack=1):
+                 duration=0.025, step=0.010, stack=1,
+                 mu=0., sigma=1.):
 
         assert all(e.sample_rate == sample_rate for e in extractors)
         assert all(e.duration == duration for e in extractors)
@@ -153,7 +160,7 @@ class YaafeCompound(YaafeFeatureExtractor):
         assert all(e.stack == stack for e in extractors)
 
         super(YaafeCompound, self).__init__(duration=duration, step=step,
-                                            stack=stack)
+                                            stack=stack, mu=mu, sigma=sigma)
 
         self.extractors = extractors
 
@@ -240,6 +247,7 @@ class YaafeMFCC(YaafeFeatureExtractor):
     def __init__(
         self, sample_rate=16000, duration=0.025, step=0.010, stack=1,
         e=True, coefs=11, De=False, DDe=False, D=False, DD=False,
+        mu=0., sigma=1.
     ):
 
         self.e = e
@@ -251,7 +259,7 @@ class YaafeMFCC(YaafeFeatureExtractor):
 
         super(YaafeMFCC, self).__init__(sample_rate=sample_rate,
                                         duration=duration, step=step,
-                                        stack=stack)
+                                        stack=stack, mu=mu, sigma=sigma)
 
     def dimension(self):
 
