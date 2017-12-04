@@ -10,7 +10,7 @@ class SpeakerDiarization(object):
 
     def __init__(self, feature_extraction, sad__h5, scd__h5, emb__h5,
                  sad__onset=0.7, sad__offset=0.7, sad__dimension=1,
-                 scd__alpha=0.5, scd__dimension=1,
+                 scd__alpha=0.5, scd__min_duration=1., scd__dimension=1,
                  emb__internal=False,
                  cls__min_cluster_size=5, cls__min_samples=None,
                  cls__metric='cosine'):
@@ -28,7 +28,7 @@ class SpeakerDiarization(object):
         # speaker change detection hyper-parameters
         self.scd__h5 = scd__h5
         self.scd__alpha = scd__alpha
-        self.scd__min_duration = min_duration
+        self.scd__min_duration = scd__min_duration
 
         # embedding hyper-parameters
         self.emb__h5 = emb__h5
