@@ -84,7 +84,7 @@ class SpeakerDiarization(object):
         # speaker change detection
         soft_scd = self.scd_.apply(current_file)
         hard_scd = self.scd_peak_.apply(
-            soft_scd, dimension=self.scd_dimension)
+            soft_scd, dimension=self.scd__dimension)
 
         # speech turns
         speech_turns = hard_scd.crop(hard_sad)
