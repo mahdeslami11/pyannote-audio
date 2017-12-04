@@ -175,3 +175,21 @@ class EmbeddingClustering(HierarchicalAgglomerativeClustering):
             stopping_criterion=stopping_criterion,
             constraint=constraint,
             logger=logger)
+
+
+class Clustering(object):
+    def __init__(self, min_cluster_size=5, min_samples=None,
+                 metric='euclidean'):
+        super(Clustering, self).__init__()
+
+
+        self.min_cluster_size = min_cluster_size
+        self.min_samples = min_samples
+        self.metric = metric
+
+    def apply(self, fX):
+        from hdbscan import HDBSCAN
+        clusterer = HDBSCAN(min_cluster_size=self.min_cluster_size,
+                            min_samples=self.min_samples,
+                            metric=self.metric)
+        return clusterer.fit_predict(fX)
