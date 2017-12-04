@@ -182,7 +182,6 @@ class Clustering(object):
                  metric='euclidean'):
         super(Clustering, self).__init__()
 
-
         self.min_cluster_size = min_cluster_size
         self.min_samples = min_samples
         self.metric = metric
@@ -191,5 +190,22 @@ class Clustering(object):
         from hdbscan import HDBSCAN
         clusterer = HDBSCAN(min_cluster_size=self.min_cluster_size,
                             min_samples=self.min_samples,
-                            metric=self.metric)
-        return clusterer.fit_predict(fX)
+                            metric='precomputed')
+        distance_matrix = squareform(pdist(fX, metric=self.metric))
+
+        # apply clustering
+        cluster_labels = clusterer.fit_predict(distance_matrix)
+        
+        # cluster embedding
+        n_clusters = np.max(cluster_labels) + 1
+        fC = l2_normalize(
+            np.vstack([np.sum(fX[cluster_labels == k, :], axis=0)
+                       for k in range(n_clusters)]))
+
+        # tag each undefined embedding to closest cluster
+        undefined = cluster_labels == -1
+        closest_cluster = np.argmin(
+            cdist(fC, fX[undefined, :], metric=self.metric), axis=0)
+        cluster_labels[undefined] = closest_cluster        
+
+        return cluster_labels

@@ -1,9 +1,12 @@
 
+import numpy as np
 from pyannote.audio.keras_utils import load_model
 from pyannote.audio.labeling.base import SequenceLabeling
 from pyannote.audio.signal import Binarize, Peak
 from pyannote.audio.embedding.extraction import SequenceEmbedding
 from pyannote.audio.embedding.clustering import Clustering
+from pyannote.core import Annotation
+from pyannote.audio.embedding.utils import l2_normalize
 
 
 class SpeakerDiarization(object):
@@ -92,10 +95,10 @@ class SpeakerDiarization(object):
 
         # speech turns embedding
         emb = self.emb_.apply(current_file)
-        fX = np.hstack([
-            np.sum(emb.crop(speech_turn, mode='loose'), axis=1)
+        fX = l2_normalize(np.vstack([
+            np.sum(emb.crop(speech_turn, mode='loose'), axis=0)
             for speech_turn in speech_turns
-        ])
+        ]))
 
         # speech turn clustering
         cluster_labels = self.cls_.apply(fX)
@@ -104,6 +107,5 @@ class SpeakerDiarization(object):
         hypothesis = Annotation(uri=current_file['uri'])
         for speech_turn, label in zip(speech_turns, cluster_labels):
             hypothesis[speech_turn] = label
-        hypothesis = hypothesis.support().rename_labels()
-
         return hypothesis
+
