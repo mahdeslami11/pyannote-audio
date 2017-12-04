@@ -29,6 +29,7 @@ class SpeakerDiarization(object):
         self.scd__h5 = scd__h5
         self.scd__alpha = scd__alpha
         self.scd__min_duration = scd__min_duration
+        self.scd__dimension = scd__dimension
 
         # embedding hyper-parameters
         self.emb__h5 = emb__h5
