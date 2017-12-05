@@ -7,6 +7,7 @@ from pyannote.audio.embedding.extraction import SequenceEmbedding
 from pyannote.audio.embedding.clustering import Clustering
 from pyannote.core import Annotation
 from pyannote.audio.embedding.utils import l2_normalize
+from pyannote.database import get_annotated
 
 
 class SpeakerDiarization(object):
@@ -78,7 +79,7 @@ class SpeakerDiarization(object):
                                min_samples=self.cls__min_samples)
 
 
-    def __call__(self, current_file, return_timing=False):
+    def __call__(self, current_file, annotated=False):
 
         # speech activity detection
         soft_sad = self.sad_.apply(current_file)
@@ -92,6 +93,10 @@ class SpeakerDiarization(object):
 
         # speech turns
         speech_turns = hard_scd.crop(hard_sad)
+
+        if annotated:
+            speech_turns = speech_turns.crop(
+                get_annotated(current_file))
 
         # speech turns embedding
         emb = self.emb_.apply(current_file)
@@ -108,4 +113,3 @@ class SpeakerDiarization(object):
         for speech_turn, label in zip(speech_turns, cluster_labels):
             hypothesis[speech_turn] = label
         return hypothesis
-
