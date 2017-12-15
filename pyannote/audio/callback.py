@@ -163,7 +163,7 @@ class LoggingCallback(Callback):
             # write value to file
             log_txt = self.LOG_TXT.format(
                 log_dir=self.log_dir, name=name, subset=subset)
-            TXT_TEMPLATE = '{epoch:d} ' + now + ' {value:.3f}\n'
+            TXT_TEMPLATE = '{epoch:d} ' + now + ' {value:.8f}\n'
 
             mode = 'a' if epoch > 0 else 'w'
             try:
@@ -193,7 +193,7 @@ class LoggingCallback(Callback):
             ylabel = YLABEL.format(name=name, subset=subset)
             plt.ylabel(ylabel)
 
-            TITLE = '{name} = {best_value:.3f} on {subset} @ epoch #{best_epoch:d}'
+            TITLE = '{name} = {best_value:.8f} on {subset} @ epoch #{best_epoch:d}'
             title = TITLE.format(name=name, subset=subset, best_value=best_value, best_epoch=best_epoch)
             plt.title(title)
 
