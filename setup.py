@@ -61,6 +61,7 @@ setup(
             'pyannote-speech-detection=pyannote.audio.applications.speech_detection:main',
             'pyannote-change-detection=pyannote.audio.applications.change_detection:main',
             'pyannote-speaker-embedding=pyannote.audio.applications.speaker_embedding:main',
+            'pyannote-speaker-embedding-pytorch=pyannote.audio.applications.speaker_embedding_pytorch:main',
             'pyannote-bic-clustering=pyannote.audio.applications.bic_clustering:main']
     },
     # versioneer
