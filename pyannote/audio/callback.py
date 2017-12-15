@@ -35,14 +35,11 @@ with warnings.catch_warnings():
 import matplotlib.pyplot as plt
 
 import os
-import pickle
 import os.path
 import datetime
 import numpy as np
-from keras.callbacks import Callback
-import keras.optimizers
 from pyannote.audio.util import mkdir_p
-from keras.models import save_model
+from keras.callbacks import Callback
 
 
 class LoggingCallback(Callback):
@@ -64,14 +61,14 @@ class LoggingCallback(Callback):
     ARCHITECTURE_YML = '{log_dir}/architecture.yml'
     WEIGHTS_DIR = '{log_dir}/weights'
     WEIGHTS_H5 = '{log_dir}/weights/{epoch:04d}.h5'
-    OPTIMIZER_DIR = '{log_dir}/optimizer'
-    OPTIMIZER_PKL = '{log_dir}/optimizer/{epoch:04d}.pkl'
+    WEIGHTS_PT = '{log_dir}/weights/{epoch:04d}.pt'
+    OPTIMIZER_PT = '{log_dir}/weights/{epoch:04d}.optimizer.pt'
     LOG_TXT = '{log_dir}/{name}.{subset}.txt'
     LOG_PNG = '{log_dir}/{name}.{subset}.png'
     LOG_EPS = '{log_dir}/{name}.{subset}.eps'
 
     def __init__(self, log_dir, log=None, extract_embedding=None,
-                 restart=False):
+                 restart=False, backend='keras'):
         super(LoggingCallback, self).__init__()
 
         # make sure path is absolute
@@ -82,13 +79,7 @@ class LoggingCallback(Callback):
         self.extract_embedding = extract_embedding
 
         # create log_dir directory
-        try:
-            os.makedirs(self.log_dir)
-        except OSError as e:
-            # this happens when log_dir already exists.
-            # we need this **not** to fail because this directory
-            # may contain pre-computed (cached) sequences
-            pass
+        mkdir_p(self.log_dir)
 
         # this will fail if the directory already exists
         # and this is OK  because 'weights' directory
@@ -98,9 +89,6 @@ class LoggingCallback(Callback):
         if not self.restart:
             weights_dir = self.WEIGHTS_DIR.format(log_dir=self.log_dir)
             os.makedirs(weights_dir)
-
-        # optimizer_dir = self.OPTIMIZER_DIR.format(log_dir=self.log_dir)
-        # mkdir_p(optimizer_dir)
 
         if log is None:
             log = [('train', 'loss')]
@@ -112,6 +100,8 @@ class LoggingCallback(Callback):
                 self.values[subset] = {}
             if name not in self.values[subset]:
                 self.values[subset][name] = []
+
+        self.backend = backend
 
     def get_loss(self, epoch, subset, logs={}):
         if subset != 'train':
@@ -139,13 +129,28 @@ class LoggingCallback(Callback):
         now = datetime.datetime.now().isoformat()
 
         # save model after this epoch
-        weights_h5 = self.WEIGHTS_H5.format(log_dir=self.log_dir, epoch=epoch)
 
-        # . overwrite only in case of a restart
-        # . include optimizer only every 10 epochs
-        keras.models.save_model(self.model, weights_h5,
-                                overwrite=self.restart,
-                                include_optimizer=(epoch % 10 == 0))
+        if self.backend == 'keras':
+            import keras.models
+
+            weights_h5 = self.WEIGHTS_H5.format(log_dir=self.log_dir,
+                                                epoch=epoch)
+            # overwrite only in case of a restart
+            # include optimizer only every 10 epochs
+            keras.models.save_model(self.model, weights_h5,
+                                    overwrite=self.restart,
+                                    include_optimizer=(epoch % 10 == 0))
+
+        elif self.backend == 'pytorch':
+            import torch
+
+            weights_pt = self.WEIGHTS_PT.format(
+                log_dir=self.log_dir, epoch=epoch)
+            torch.save(self.model.state_dict(), weights_pt)
+
+            optimizer_pt = self.OPTIMIZER_PT.format(
+                log_dir=self.log_dir, epoch=epoch)
+            torch.save(self.optimizer.state_dict(), optimizer_pt)
 
         for subset, name in self.log:
 
