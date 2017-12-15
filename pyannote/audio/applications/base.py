@@ -43,6 +43,7 @@ class Application(object):
 
     CONFIG_YML = '{experiment_dir}/config.yml'
     WEIGHTS_H5 = '{train_dir}/weights/{epoch:04d}.h5'
+    WEIGHTS_PT = '{train_dir}/weights/{epoch:04d}.pt'
 
     # created by "validate" mode
     VALIDATE_DIR = '{train_dir}/validate/{protocol}'
@@ -58,10 +59,12 @@ class Application(object):
         app.train_dir_ = train_dir
         return app
 
-    def __init__(self, experiment_dir, db_yml=None):
+    def __init__(self, experiment_dir, db_yml=None, backend='keras'):
         super(Application, self).__init__()
 
         self.db_yml = db_yml
+        self.backend = backend
+
         self.preprocessors_ = {'audio': FileFinder(self.db_yml)}
 
         self.experiment_dir = experiment_dir
@@ -90,14 +93,21 @@ class Application(object):
         if train_dir is None:
             train_dir = self.train_dir_
 
-        weights_h5 = self.WEIGHTS_H5.format(train_dir=train_dir, epoch=epoch)
+        if self.backend == 'keras':
+            import keras.model
+            weights_h5 = self.WEIGHTS_H5.format(
+                train_dir=train_dir, epoch=epoch)
+            model = keras.models.load_model(weights_h5,
+                custom_objects=CUSTOM_OBJECTS, compile=compile)
+            model.epoch = epoch
+            return model
 
-        model = keras.models.load_model(weights_h5,
-            custom_objects=CUSTOM_OBJECTS, compile=compile)
-
-        model.epoch = epoch
-
-        return model
+        elif self.backend == 'pytorch':
+            import torch
+            weights_pt = self.WEIGHTS_PT.format(
+                train_dir=train_dir, epoch=epoch)
+            self.model_.load_state_dict(torch.load(weights_pt))
+            return self.model_
 
     def get_number_of_epochs(self, train_dir=None, return_first=False):
         """Get information about completed epochs
@@ -115,16 +125,21 @@ class Application(object):
         if train_dir is None:
             train_dir = self.train_dir_
 
-        directory = self.WEIGHTS_H5.format(train_dir=train_dir, epoch=0)[:-7]
-        weights_h5 = glob(directory + '*[0-9][0-9][0-9][0-9].h5')
+        if self.backend == 'keras':
+            directory = self.WEIGHTS_H5.format(train_dir=train_dir, epoch=0)[:-7]
+            weights = glob(directory + '*[0-9][0-9][0-9][0-9].h5')
 
-        if not weights_h5:
+        elif self.backend == 'pytorch':
+            directory = self.WEIGHTS_PT.format(train_dir=train_dir, epoch=0)[:-7]
+            weights = glob(directory + '*[0-9][0-9][0-9][0-9].pt')
+
+        if not weights:
             number_of_epochs = 0
             first_epoch = None
 
         else:
-            number_of_epochs = int(basename(weights_h5[-1])[:-3]) + 1
-            first_epoch = int(basename(weights_h5[0])[:-3])
+            number_of_epochs = int(basename(weights[-1])[:-3]) + 1
+            first_epoch = int(basename(weights[0])[:-3])
 
         return (number_of_epochs, first_epoch) if return_first \
                                                else number_of_epochs
