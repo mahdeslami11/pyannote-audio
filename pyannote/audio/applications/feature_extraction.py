@@ -109,7 +109,7 @@ def init_feature_extraction(experiment_dir):
 
     return feature_extraction
 
-def process_current_file(current_file, file_finder=None, experiment_dir=None,
+def process_current_file(current_file, file_finder=None, precomputed=None,
                          feature_extraction=None):
 
     try:
@@ -120,7 +120,7 @@ def process_current_file(current_file, file_finder=None, experiment_dir=None,
         return e
 
     uri = get_unique_identifier(current_file)
-    path = Precomputed.get_path(experiment_dir, current_file)
+    path = precomputed.get_path(current_file)
 
     if os.path.exists(path):
         return
@@ -135,26 +135,11 @@ def process_current_file(current_file, file_finder=None, experiment_dir=None,
         msg = 'Feature extraction returned None for file "{uri}".'
         return msg.format(uri=uri)
 
-    data = features.data
-
-    if np.any(np.isnan(data)):
+    if np.any(np.isnan(features.data)):
         msg = 'Feature extraction returned NaNs for file "{uri}".'
         return msg.format(uri=uri)
 
-    # create parent directory
-    mkdir_p(os.path.dirname(path))
-
-    sliding_window = feature_extraction.sliding_window()
-    dimension = feature_extraction.dimension()
-
-    f = h5py.File(path)
-
-    f.attrs['start'] = sliding_window.start
-    f.attrs['duration'] = sliding_window.duration
-    f.attrs['step'] = sliding_window.step
-    f.attrs['dimension'] = dimension
-    f.create_dataset('features', data=data)
-    f.close()
+    precomputed.dump(current_file, features)
 
     return
 
@@ -165,8 +150,9 @@ def helper_extract(current_file, file_finder=None, experiment_dir=None,
     if feature_extraction is None:
         feature_extraction = init_feature_extraction(experiment_dir)
 
+    precomputed = Precomputed(root_dir=experiment_dir)
     return process_current_file(current_file, file_finder=file_finder,
-                                experiment_dir=experiment_dir,
+                                precomputed=precomputed,
                                 feature_extraction=feature_extraction)
 
 def extract(protocol_name, file_finder, experiment_dir,
@@ -191,13 +177,10 @@ def extract(protocol_name, file_finder, experiment_dir,
 
     # create metadata file at root that contains
     # sliding window and dimension information
-    path = Precomputed.get_config_path(experiment_dir)
-    f = h5py.File(path)
-    f.attrs['start'] = sliding_window.start
-    f.attrs['duration'] = sliding_window.duration
-    f.attrs['step'] = sliding_window.step
-    f.attrs['dimension'] = dimension
-    f.close()
+
+    precomputed = Precomputed(root_dir=experiment_dir,
+                              sliding_window=sliding_window,
+                              dimension=dimension)
 
     if parallel:
 

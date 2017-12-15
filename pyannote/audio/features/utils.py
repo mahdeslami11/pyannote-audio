@@ -29,8 +29,10 @@
 
 from __future__ import division
 
-import h5py
+import yaml
+import io
 import os.path
+import warnings
 from glob import glob
 import numpy as np
 from struct import unpack
@@ -38,6 +40,8 @@ import audioread
 import librosa
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.database.util import get_unique_identifier
+from pyannote.audio.util import mkdir_p
+
 
 
 class PyannoteFeatureExtractionError(Exception):
@@ -166,42 +170,72 @@ class RawAudio(object):
 
 
 class Precomputed(object):
-    """Load precomputed features from HDF5 file
+    """Precomputed features
 
     Parameters
     ----------
     root_dir :
+    use_memmap : bool, optional
     mu, sigma : np.array, optional
         Apply mu/sigma normalization.
     """
 
-    @staticmethod
-    def get_config_path(root_dir):
-        path = '{root_dir}/metadata.h5'.format(root_dir=root_dir)
-        return path
-
-    @staticmethod
-    def get_path(root_dir, item):
+    def get_path(self, item):
         uri = get_unique_identifier(item)
-        path = '{root_dir}/{uri}.h5'.format(root_dir=root_dir, uri=uri)
+        path = '{root_dir}/{uri}.npy'.format(root_dir=self.root_dir, uri=uri)
         return path
 
-    def __init__(self, root_dir=None, mu=0., sigma=1.):
+    def __init__(self, root_dir=None, use_memmap=True,
+                 sliding_window=None, dimension=None,
+                 mu=None, sigma=None):
+
         super(Precomputed, self).__init__()
         self.root_dir = root_dir
+        self.use_memmap = use_memmap
         self.mu = mu
         self.sigma = sigma
 
-        path = self.get_config_path(self.root_dir)
+        path = '{root_dir}/metadata.yml'.format(root_dir=self.root_dir)
 
-        f = h5py.File(path)
-        start = f.attrs['start']
-        duration = f.attrs['duration']
-        step = f.attrs['step']
-        self.sliding_window_ = SlidingWindow(
-            start=start, duration=duration, step=step)
-        self.dimension_ = f.attrs['dimension']
-        f.close()
+        if os.path.exists(path):
+
+            with io.open(path, 'r') as f:
+                params = yaml.load(f)
+
+            self.dimension_ = params.pop('dimension')
+            self.sliding_window_ = SlidingWindow(**params)
+
+            if dimension is not None and self.dimension_ != dimension:
+                msg = 'inconsistent "dimension" (is: {0}, should be: {1})'
+                raise ValueError(msg.format(dimension, self.dimensions_))
+
+            if ((sliding_window is not None) and
+                ((sliding_window.start != self.sliding_window_.start) or
+                 (sliding_window.duration != self.sliding_window_.duration) or
+                 (sliding_window.step != self.sliding_window_.step))):
+                msg = 'inconsistent "sliding_window"'
+                raise ValueError(msg)
+
+        else:
+
+            if sliding_window is None:
+                raise ValueError('missing "sliding_window" parameter.')
+            if dimension is None:
+                raise ValueError('missing "dimension" parameter.')
+
+            # create parent directory
+            mkdir_p(os.path.dirname(path))
+
+            params = {'start': sliding_window.start,
+                      'duration': sliding_window.duration,
+                      'step': sliding_window.step,
+                      'dimension': dimension}
+
+            with io.open(path, 'w') as f:
+                yaml.dump(params, f, default_flow_style=False)
+
+            self.sliding_window_ = sliding_window
+            self.dimension_ = dimension
 
     def sliding_window(self):
         return self.sliding_window_
@@ -211,19 +245,28 @@ class Precomputed(object):
 
     def __call__(self, item):
 
-        path = self.get_path(self.root_dir, item)
+        path = self.get_path(item)
 
         if not os.path.exists(path):
             uri = get_unique_identifier(item)
             msg = 'No precomputed features for "{uri}".'
             raise PyannoteFeatureExtractionError(msg.format(uri=uri))
 
-        f = h5py.File(path, mode='r')
-        data = np.array(f['features'])
-        f.close()
+        if self.use_memmap:
+            data = np.load(path, mmap_mode='r')
+        else:
+            data = np.load(path)
+
+        if self.mu is None and self.sigma is None:
+            return SlidingWindowFeature(data, self.sliding_window_)
 
         return SlidingWindowFeature((data - self.mu) / self.sigma,
                                     self.sliding_window_)
+
+    def dump(self, item, features):
+        path = self.get_path(item)
+        mkdir_p(os.path.dirname(path))
+        np.save(path, features.data)
 
 
 class PrecomputedHTK(object):

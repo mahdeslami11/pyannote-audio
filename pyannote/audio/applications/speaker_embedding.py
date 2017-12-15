@@ -442,8 +442,8 @@ class SpeakerEmbedding(Application):
                 g.attrs['sigma'] = f['X'].attrs['sigma']
 
         # generator
-        got = self.approach_.get_batch_generator(data_h5,
-                                                 normalize=self.normalize_)
+        got = self.approach_.get_batch_generator(
+            data_h5, normalize=self.normalize_)
         batch_generator = got['batch_generator']
         batches_per_epoch = got['batches_per_epoch']
         n_classes = got.get('n_classes', None)
@@ -699,14 +699,10 @@ class SpeakerEmbedding(Application):
 
         # create metadata file at root that contains
         # sliding window and dimension information
-        path = Precomputed.get_config_path(output_dir)
-        mkdir_p(dirname(path))
-        f = h5py.File(path)
-        f.attrs['start'] = sliding_window.start
-        f.attrs['duration'] = sliding_window.duration
-        f.attrs['step'] = sliding_window.step
-        f.attrs['dimension'] = dimension
-        f.close()
+        precomputed = Precomputed(
+            root_dir=output_dir,
+            sliding_window=sliding_window,
+            dimension=dimension)
 
         # file generator
         protocol = get_protocol(protocol_name, progress=True,
@@ -733,17 +729,7 @@ class SpeakerEmbedding(Application):
 
                 fX = sequence_embedding.apply(current_file)
 
-                path = Precomputed.get_path(output_dir, current_file)
-                mkdir_p(dirname(path))
-
-                f = h5py.File(path)
-                f.attrs['start'] = sliding_window.start
-                f.attrs['duration'] = sliding_window.duration
-                f.attrs['step'] = sliding_window.step
-                f.attrs['dimension'] = dimension
-                f.create_dataset('features', data=fX.data)
-                f.close()
-
+                precomputed.dump(current_file, fX)
                 processed_uris.add(uri)
 
 def main():

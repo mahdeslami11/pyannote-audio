@@ -476,27 +476,12 @@ class SpeechActivityDetection(Application):
             if i == 0:
                 # create metadata file at root that contains
                 # sliding window and dimension information
-                path = Precomputed.get_config_path(apply_dir)
-                f = h5py.File(path)
-                f.attrs['start'] = predictions.sliding_window.start
-                f.attrs['duration'] = predictions.sliding_window.duration
-                f.attrs['step'] = predictions.sliding_window.step
-                f.attrs['dimension'] = 2
-                f.close()
+                precomputed = Precomputed(
+                    root_dir=apply_dir,
+                    sliding_window=predictions.sliding_window,
+                    dimension=2)
 
-            path = Precomputed.get_path(apply_dir, item)
-
-            # create parent directory
-            mkdir_p(dirname(path))
-
-            f = h5py.File(path)
-            f.attrs['start'] = predictions.sliding_window.start
-            f.attrs['duration'] = predictions.sliding_window.duration
-            f.attrs['step'] = predictions.sliding_window.step
-            f.attrs['dimension'] = 2
-            f.create_dataset('features', data=predictions.data)
-            f.close()
-
+            precomputed.dump(item, predictions)
             processed_uris.add(uri)
 
         # initialize binarizer

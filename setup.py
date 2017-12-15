@@ -37,7 +37,7 @@ setup(
     namespace_packages=['pyannote'],
     packages=find_packages(),
     install_requires=[
-        'pyannote.core >= 1.2',
+        'pyannote.core >= 1.3.1',
         'pyannote.metrics >= 1.3',
         'pyannote.generators >= 0.15',
         'pyannote.database >= 0.11.2',
