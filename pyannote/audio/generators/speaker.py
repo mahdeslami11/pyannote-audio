@@ -210,3 +210,10 @@ class SpeechTurnGenerator(object):
 
         for batch in batchify(generator, signature, batch_size=batch_size):
             yield batch
+
+
+    @property
+    def n_sequences_per_batch(self):
+        if self.per_fold is None:
+            return self.per_label * len(self.data_)
+        return self.per_label * self.per_fold
