@@ -42,19 +42,21 @@ class SpeechTurnGenerator(object):
     precomputed : pyannote.audio.features.utils.Precomputed
     per_label : int, optional
         Number of speech turns per speaker in each batch
+    per_fold : int, optional
     duration : float, optional
     min_duration : float, optional
     max_duration : float, optional
 
     """
 
-    def __init__(self, precomputed, per_label=3,
+    def __init__(self, precomputed, per_label=3, per_fold=None,
                  duration=None, min_duration=None, max_duration=None):
 
         super(SpeechTurnGenerator, self).__init__()
 
         self.precomputed = precomputed
         self.per_label = per_label
+        self.per_fold = per_fold
         self.duration = duration
 
         if self.duration is None:
@@ -200,7 +202,11 @@ class SpeechTurnGenerator(object):
         signature = {'X': {'type': 'ndarray'},
                      'y': {'type': 'str'}}
 
-        batch_size = self.per_label * len(self.data_)
+        if self.per_fold is not None:
+            batch_size = self.per_label * self.per_fold
+
+        else:
+            batch_size = self.per_label * len(self.data_)
 
         for batch in batchify(generator, signature, batch_size=batch_size):
             yield batch
