@@ -217,3 +217,7 @@ class SpeechTurnGenerator(object):
         if self.per_fold is None:
             return self.per_label * len(self.data_)
         return self.per_label * self.per_fold
+
+    @property
+    def n_labels(self):
+        return len(self.data_)
