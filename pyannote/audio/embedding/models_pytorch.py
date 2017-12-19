@@ -56,6 +56,11 @@ class ClopiNet(nn.Module):
         one linear layer with hidden dimension of 16.
     weighted : bool, optional
         Add dimension-wise trainable weights. Defaults to False.
+
+    Usage
+    -----
+    >>> model = ClopiNet(n_features)
+    >>> final, internal = model(sequence)
     """
 
     def __init__(self, n_features,
@@ -164,10 +169,12 @@ class ClopiNet(nn.Module):
         if self.weighted:
             output = output * self.alphas_
 
-        ## average temporal pooling
-        # output = output.sum(dim=0)
+        internal = output
 
-        ## L2 normalization
-        # output = output / torch.norm(output, 2, 0)
+        # average temporal pooling
+        final = internal.sum(dim=0)
 
-        return output
+        # L2 normalization
+        final = final / torch.norm(final, 2, 0)
+
+        return final, internal
