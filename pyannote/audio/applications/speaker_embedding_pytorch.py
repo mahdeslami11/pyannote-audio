@@ -158,6 +158,7 @@ from pyannote.database import get_unique_identifier
 from pyannote.audio.util import mkdir_p
 
 from pyannote.audio.features.utils import Precomputed
+from pyannote.audio.embedding.approaches_pytorch.triplet_loss import TripletLoss
 
 from .base import Application
 
@@ -182,114 +183,40 @@ class SpeakerEmbeddingPytorch(Application):
             int(self.feature_extraction_.dimension()),
             **self.config_['architecture'].get('params', {}))
 
-    def train(self, protocol_name, subset='train'):
+        approach_name = self.config_['approach']['name']
+        approaches = __import__('pyannote.audio.embedding.approaches_pytorch',
+                                fromlist=[approach_name])
+        Approach = getattr(approaches, approach_name)
+        self.approach_ = Approach(
+            **self.config_['approach'].get('params', {}))
 
-        from pyannote.audio.generators.speaker import SpeechTurnGenerator
-        from pyannote.database import get_protocol, FileFinder
-        from pyannote.audio.callback import LoggingCallback
-        import numpy as np
-        from torch.autograd import Variable
-        import torch
-        import torch.nn
-        import torch.optim
-        from tqdm import tqdm
+    def train(self, protocol_name, subset='train'):
 
         train_dir = self.TRAIN_DIR.format(
             experiment_dir=self.experiment_dir,
             protocol=protocol_name,
             subset=subset)
 
-        duration = self.config_['sequences']['duration']
-        per_label = self.config_['sequences']['per_label']
-        batch_generator = SpeechTurnGenerator(self.feature_extraction_,
-                                              per_label=per_label,
-                                              duration=duration)
         protocol = get_protocol(protocol_name, progress=False,
                                 preprocessors=self.preprocessors_)
 
-        batches = batch_generator(protocol, subset=subset)
-
-        duration_per_speaker = 60.
-        batches_per_epoch = int(np.ceil(
-            duration_per_speaker / (per_label * duration)))
-
-        triplet_loss = torch.nn.TripletMarginLoss(margin=1.0, p=2)
-        optimizer = torch.optim.SGD(self.model_.parameters(), lr=0.1)
-
-        logging_callback = LoggingCallback(
-            log_dir=train_dir,
-            backend='pytorch',
-            log=[('train', 'loss')])
-
-        while True:
-
-            for epoch in range(1000):
-                running_loss = 0.
-
-                for _ in tqdm(range(batches_per_epoch)):
-
-                    self.model_.zero_grad()
-
-                    batch = next(batches)
-
-                    # create pytorch variable
-                    X = Variable(torch.from_numpy(
-                        np.array(np.rollaxis(batch['X'], 0, 2), dtype=np.float32)))
-
-                    # forward pass + temporal pooling
-                    fX = self.model_(X).sum(dim=0)
-
-                    # L2 normalization
-                    fX = fX / torch.norm(fX, 2, 0)
-
-                    y = batch['y']
-                    anchors, positives, negatives = [], [], []
-
-                    for anchor, y_anchor in enumerate(y):
-                        for positive, y_positive in enumerate(y):
-
-                            # if same embedding or different labels, skip
-                            if (anchor == positive) or (y_anchor != y_positive):
-                                continue
-
-                            for negative, y_negative in enumerate(y):
-
-                                if y_negative == y_anchor:
-                                    continue
-
-                                anchors.append(anchor)
-                                positives.append(positive)
-                                negatives.append(negative)
-
-                    loss = triplet_loss(fX[anchors, :],
-                                        fX[positives, :],
-                                        fX[negatives, :])
-
-                    running_loss += float(loss.data.numpy())
-
-                    loss.backward()
-                    optimizer.step()
-
-                running_loss /= batches_per_epoch
-
-                logging_callback.model = self.model_
-                logging_callback.optimizer = optimizer
-                logging_callback.on_epoch_end(
-                    epoch, logs={'loss': running_loss})
+        self.approach_.fit(self.model_, self.feature_extraction_, protocol,
+                           train_dir, subset=subset, n_epochs=1000)
 
     def validate_init(self, protocol_name, subset='development'):
         from pyannote.audio.generators.speaker import SpeechTurnGenerator
-        from pyannote.database import get_protocol
         from pyannote.audio.embedding.utils import pdist
 
         import numpy as np
         np.random.seed(1337)
 
-        duration = self.config_['sequences']['duration']
         batch_generator = SpeechTurnGenerator(
-            self.feature_extraction_, per_label=10, duration=duration)
+            self.feature_extraction_, per_label=10,
+            duration=self.approach_.duration)
+
         protocol = get_protocol(
             protocol_name, progress=False, preprocessors=self.preprocessors_)
+
         batch = next(batch_generator(protocol, subset=subset))
 
         _, y = np.unique(batch['y'], return_inverse=True)
@@ -304,7 +231,7 @@ class SpeakerEmbeddingPytorch(Application):
         import torch
         from torch.autograd import Variable
         from pyannote.metrics.binary_classification import det_curve
-        from pyannote.audio.embedding.utils import pdist, l2_normalize
+        from pyannote.audio.embedding.utils import pdist
 
         model = self.load_model(epoch)
         model.eval()
@@ -312,9 +239,9 @@ class SpeakerEmbeddingPytorch(Application):
         X = Variable(torch.from_numpy(
             np.array(np.rollaxis(validation_data['X'], 0, 2),
                      dtype=np.float32)))
-        fX = np.rollaxis(model(X).data.numpy(), 1, 0)
-        fX = l2_normalize(np.sum(fX, axis=1))
-        y_pred = pdist(fX, metric='euclidean')
+        fX, _ = model(X)
+
+        y_pred = pdist(fX.data.numpy(), metric=self.approach_.metric)
 
         _, _, _, eer = det_curve(validation_data['y'], y_pred,
                                  distances=True)
