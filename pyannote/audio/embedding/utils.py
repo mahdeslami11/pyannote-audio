@@ -66,3 +66,29 @@ def cdist(fX_trn, fX_tst, metric='euclidean', **kwargs):
 
     return scipy.spatial.distance.cdist(
         fX_trn, fX_tst, metric=metric, **kwargs)
+def to_condensed(i, j):
+    """Compute index in condensed pdist matrix
+
+           0 1 2 3 4
+        0  . . . . .
+        1  0 . . . .  --> 0 1 2 3 4 5 6 7 8 9
+        2  1 2 . . .                      ^
+      > 3  3 4 5 . .
+        4  6 7 8 9 .
+               ^
+    Parameters
+    ----------
+    i, j : int
+        Indices in squared pdist matrix
+
+    Returns
+    -------
+    k : int
+        Index in condensed pdist matrix
+    """
+
+    assert i != j, "no diagonal elements in condensed matrix"
+    if i < j:
+        i, j = j, i
+
+    return j + int(.5 * (i * (i - 1)))
