@@ -113,6 +113,12 @@ class ClopiNet(nn.Module):
         if self.weighted:
             self.alphas_ = nn.Parameter(torch.ones(input_dim))
 
+    @property
+    def output_dim(self):
+        if self.linear:
+            return self.linear[-1]
+        return sum(self.recurrent)
+
     def forward(self, sequence):
 
         # check input feature dimension
