@@ -198,6 +198,10 @@ class Clustering(object):
         
         # cluster embedding
         n_clusters = np.max(cluster_labels) + 1
+
+        if n_clusters < 2:
+            return np.zeros(fX.shape[0], dtype=np.int)
+        
         fC = l2_normalize(
             np.vstack([np.sum(fX[cluster_labels == k, :], axis=0)
                        for k in range(n_clusters)]))
