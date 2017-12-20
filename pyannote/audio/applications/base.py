@@ -340,11 +340,13 @@ class Application(object):
                 time.sleep(sleep)
                 continue
 
-            # yield next epoch to process
-            yield next_epoch_to_validate
+            if next_epoch_to_validate not in validated_epochs:
 
-            # remember which epoch was processed
-            validated_epochs.add(next_epoch_to_validate)
+                # yield next epoch to process
+                yield next_epoch_to_validate
+
+                # remember which epoch was processed
+                validated_epochs.add(next_epoch_to_validate)
 
             # increment 'in_order' processing
             if next_epoch_to_validate_in_order == next_epoch_to_validate:
