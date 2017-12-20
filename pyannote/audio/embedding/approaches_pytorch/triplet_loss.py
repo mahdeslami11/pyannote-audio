@@ -32,7 +32,7 @@ import torch
 from torch.autograd import Variable
 import torch.nn.functional as F
 from pyannote.audio.generators.speaker import SpeechTurnGenerator
-from pyannote.audio.callback import LoggingCallback
+from pyannote.audio.callback import LoggingCallbackPytorch
 from torch.optim import RMSprop
 
 import itertools
@@ -209,8 +209,7 @@ class TripletLoss(object):
     def fit(self, model, feature_extraction, protocol, log_dir, subset='train',
             n_epochs=1000):
 
-        logging_callback = LoggingCallback(
-            log_dir=log_dir, backend='pytorch', log=[('train', 'loss')])
+        logging_callback = LoggingCallbackPytorch(log_dir=log_dir)
 
         batch_generator = SpeechTurnGenerator(
             feature_extraction,
