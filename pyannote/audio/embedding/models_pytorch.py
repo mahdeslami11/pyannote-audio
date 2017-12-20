@@ -30,6 +30,7 @@
 import torch
 from torch.autograd import Variable
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class ClopiNet(nn.Module):
@@ -107,9 +108,6 @@ class ClopiNet(nn.Module):
             self.linear_layers_.append(linear_layer)
             input_dim = hidden_dim
 
-        # define post-linear activation
-        self.tanh_ = nn.Tanh()
-
         if self.weighted:
             self.alphas_ = nn.Parameter(torch.ones(input_dim))
 
@@ -170,7 +168,7 @@ class ClopiNet(nn.Module):
             output = layer(output)
 
             # apply non-linear activation function
-            output = self.tanh_(output)
+            output = F.tanh(output)
 
         if self.weighted:
             output = output * self.alphas_
