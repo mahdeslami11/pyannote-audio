@@ -115,6 +115,8 @@ class SpeechTurnGenerator(object):
                 datum = (segment_generator, duration, current_file, features)
                 self.data_.setdefault(label, []).append(datum)
 
+        self.classes_ = {label: i for i, label in enumerate(self.data_)}
+
     def generator(self):
 
         labels = list(self.data_)
@@ -192,7 +194,8 @@ class SpeechTurnGenerator(object):
                         X = features[i].crop(sub_segment, mode='center',
                                              fixed=self.duration)
 
-                    yield {'X': X, 'y': label}
+                    yield {'X': X, 'y': self.classes_[label],
+                           'extra': {'y': label}}
 
     def __call__(self, protocol, subset='train'):
 
@@ -200,7 +203,8 @@ class SpeechTurnGenerator(object):
         generator = self.generator()
 
         signature = {'X': {'type': 'ndarray'},
-                     'y': {'type': 'str'}}
+                     'y': {'type': 'scalar'},
+                     'extra': {'y': {'type': 'str'}}}
 
         if self.per_fold is not None:
             batch_size = self.per_label * self.per_fold
