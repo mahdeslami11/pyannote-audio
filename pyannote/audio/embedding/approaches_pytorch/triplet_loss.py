@@ -36,7 +36,7 @@ from pyannote.audio.callback import LoggingCallbackPytorch
 from torch.optim import RMSprop
 
 import itertools
-from pyannote.audio.embedding.utils import to_condensed, n_squared
+from pyannote.audio.embedding.utils import to_condensed
 
 class TripletLoss(object):
     """
@@ -116,6 +116,7 @@ class TripletLoss(object):
 
         n_sequences, _ = fX.size()
         distances = []
+
         for i in range(1, n_sequences):
 
             if self.metric in ('cosine', 'angular'):
@@ -238,6 +239,7 @@ class TripletLoss(object):
                     model.zero_grad()
 
                     batch = next(batches)
+
                     X = Variable(torch.from_numpy(
                         np.array(np.rollaxis(batch['X'], 0, 2),
                                  dtype=np.float32)))
