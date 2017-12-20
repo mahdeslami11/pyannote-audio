@@ -267,7 +267,7 @@ class Application(object):
             progress_bar.set_description(description)
             progress_bar.update(1)
 
-    def validate_iter(self, start=None, end=None, step=1, sleep=60):
+    def validate_iter(self, start=None, end=None, step=1, sleep=10):
         """Continuously watches `train_dir` for newly completed epochs
         and yields them for validation
 
@@ -335,7 +335,7 @@ class Application(object):
             elif next_epoch_to_validate_in_order < last_completed_epoch:
                 next_epoch_to_validate = next_epoch_to_validate_in_order
 
-            #  otherwise, just wait for a new epoch to complete
+            # otherwise, just wait for a new epoch to complete
             else:
                 time.sleep(sleep)
                 continue
