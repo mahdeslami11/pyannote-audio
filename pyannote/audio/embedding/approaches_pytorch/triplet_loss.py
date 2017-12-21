@@ -26,6 +26,7 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
+import itertools
 import numpy as np
 from tqdm import tqdm
 import torch
@@ -34,9 +35,8 @@ import torch.nn.functional as F
 from pyannote.audio.generators.speaker import SpeechTurnGenerator
 from pyannote.audio.callback import LoggingCallbackPytorch
 from torch.optim import RMSprop
-
-import itertools
 from pyannote.audio.embedding.utils import to_condensed
+
 
 class TripletLoss(object):
     """
@@ -231,7 +231,7 @@ class TripletLoss(object):
 
             for epoch in range(n_epochs):
 
-                running_loss = 0.
+                running_tloss = 0.
 
                 desc = 'Epoch #{0}'.format(epoch)
                 for _ in tqdm(range(batches_per_epoch), desc=desc):
@@ -244,10 +244,10 @@ class TripletLoss(object):
                         np.array(np.rollaxis(batch['X'], 0, 2),
                                  dtype=np.float32)))
 
-                    embedding, internal_embedding = model(X)
+                    fX, internal_embedding = model(X)
 
                     # pre-compute pairwise distances
-                    distances = self.pdist(embedding)
+                    distances = self.pdist(fX)
 
                     # sample triplets
                     if self.sampling == 'all':
@@ -257,15 +257,14 @@ class TripletLoss(object):
                     # compute triplet loss
                     loss = self.triplet_loss(
                         distances, anchors, positives, negatives)
+                    running_tloss += float(loss.data.numpy())
 
                     loss.backward()
                     optimizer.step()
 
-                    running_loss += float(loss.data.numpy())
+                running_tloss /= batches_per_epoch
 
-                running_loss /= batches_per_epoch
-
+                logs = {'loss': running_tloss}
                 logging_callback.model = model
                 logging_callback.optimizer = optimizer
-                logging_callback.on_epoch_end(
-                    epoch, logs={'loss': running_loss})
+                logging_callback.on_epoch_end(epoch, logs=logs)
