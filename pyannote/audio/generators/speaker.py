@@ -101,7 +101,7 @@ class SpeechTurnGenerator(object):
 
                 # remove segments shorter than min_duration (when provided)
                 segments = [s for s in timeline
-                              if s.duration < self.min_duration_]
+                              if s.duration > self.min_duration_]
 
                 # corner case where no segment is long enough
                 # and we removed them all...
