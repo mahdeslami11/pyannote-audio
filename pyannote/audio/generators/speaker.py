@@ -46,11 +46,13 @@ class SpeechTurnGenerator(object):
     duration : float, optional
     min_duration : float, optional
     max_duration : float, optional
-
+    fast : bool, optional
+        Defaults to True.
     """
 
     def __init__(self, precomputed, per_label=3, per_fold=None,
-                 duration=None, min_duration=None, max_duration=None):
+                 duration=None, min_duration=None, max_duration=None,
+                 fast=True):
 
         super(SpeechTurnGenerator, self).__init__()
 
@@ -58,6 +60,7 @@ class SpeechTurnGenerator(object):
         self.per_label = per_label
         self.per_fold = per_fold
         self.duration = duration
+        self.fast = fast
 
         if self.duration is None:
             self.min_duration = min_duration
@@ -84,7 +87,11 @@ class SpeechTurnGenerator(object):
                 msg = ('Loading all precomputed features in memory. '
                        'Set "use_memmap" to True if you run out of memory.')
                 warnings.warn(msg)
-            features = self.precomputed(current_file)
+
+            if self.fast:
+                features = self.precomputed(current_file)
+            else:
+                features = None
 
             # loop on each label in current file
             for label in annotation.labels():
@@ -142,6 +149,11 @@ class SpeechTurnGenerator(object):
                 # loop on (randomly) chosen files
                 for i in chosen:
 
+                    if features[i] is None:
+                        features_ = self.precomputed(files[i])
+                    else:
+                        features_ = features[i]
+
                     # choose one segment at random with
                     # probability proportional to duration
                     segment = next(segment_generators[i])
@@ -183,7 +195,7 @@ class SpeechTurnGenerator(object):
                                     segment, self.max_duration,
                                     min_duration=self.min_duration))
 
-                        X = features[i].crop(sub_segment, mode='center')
+                        X = features_.crop(sub_segment, mode='center')
 
                     else:
 
@@ -191,8 +203,8 @@ class SpeechTurnGenerator(object):
                         sub_segment = next(random_subsegment(
                             segment, self.duration))
 
-                        X = features[i].crop(sub_segment, mode='center',
-                                             fixed=self.duration)
+                        X = features_.crop(
+                            sub_segment, mode='center', fixed=self.duration)
 
                     yield {'X': X, 'y': self.classes_[label],
                            'extra': {'y': label}}
