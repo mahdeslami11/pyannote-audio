@@ -217,7 +217,15 @@ class TripletLoss(object):
             per_label=self.per_label, per_fold=self.per_fold,
             duration=self.duration)
 
-        batches = batch_generator(protocol, subset=subset)
+        try:
+            batches = batch_generator(protocol, subset=subset)
+        except OSError as e:
+            batch_generator = SpeechTurnGenerator(
+                feature_extraction,
+                per_label=self.per_label, per_fold=self.per_fold,
+                duration=self.duration, fast=False)
+            batches = batch_generator(protocol, subset=subset)
+
         batch = next(batches)
 
         # one minute per speaker
