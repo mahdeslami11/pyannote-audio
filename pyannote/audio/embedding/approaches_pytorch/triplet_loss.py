@@ -212,21 +212,21 @@ class TripletLoss(object):
 
         logging_callback = LoggingCallbackPytorch(log_dir=log_dir)
 
-        batch_generator = SpeechTurnGenerator(
-            feature_extraction,
-            per_label=self.per_label, per_fold=self.per_fold,
-            duration=self.duration)
-
         try:
+            batch_generator = SpeechTurnGenerator(
+                feature_extraction,
+                per_label=self.per_label, per_fold=self.per_fold,
+                duration=self.duration)
             batches = batch_generator(protocol, subset=subset)
+            batch = next(batches)
         except OSError as e:
+            del batch_generator.data_
             batch_generator = SpeechTurnGenerator(
                 feature_extraction,
                 per_label=self.per_label, per_fold=self.per_fold,
                 duration=self.duration, fast=False)
             batches = batch_generator(protocol, subset=subset)
-
-        batch = next(batches)
+            batch = next(batches)
 
         # one minute per speaker
         duration_per_epoch = 60. * batch_generator.n_labels
