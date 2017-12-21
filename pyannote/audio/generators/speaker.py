@@ -79,6 +79,13 @@ class SpeechTurnGenerator(object):
             # get annotation for current file
             annotation = current_file['annotation']
 
+            # pre-load features.
+            if not self.precomputed.use_memmap:
+                msg = ('Loading all precomputed features in memory. '
+                       'Set "use_memmap" to True if you run out of memory.')
+                warnings.warn(msg)
+            features = self.precomputed(current_file)
+
             # loop on each label in current file
             for label in annotation.labels():
 
@@ -103,13 +110,6 @@ class SpeechTurnGenerator(object):
                 # proportional to its duration. in other words, longer segments
                 # are more likely to be selected.
                 segment_generator = random_segment(segments, weighted=True)
-
-                # pre-load features.
-                if not self.precomputed.use_memmap:
-                    msg = ('Loading all precomputed features in memory. '
-                           'Set "use_memmap" to True if you run out of memory.')
-                    warnings.warn(msg)
-                features = self.precomputed(current_file)
 
                 # store all these in data_ dictionary
                 datum = (segment_generator, duration, current_file, features)
