@@ -31,13 +31,17 @@ import keras.backend as K
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from ..labeling.base import SequenceLabeling
 
+import torch.nn as nn
+from torch.autograd import Variable
+import torch
+
 
 class SequenceEmbedding(SequenceLabeling):
     """Sequence embedding
 
     Parameters
     ----------
-    model : keras.Model
+    model : keras.Model or nn.Module
         Pre-trained sequence embedding model.
     feature_extraction : callable
         Feature extractor
@@ -73,21 +77,34 @@ class SequenceEmbedding(SequenceLabeling):
         # build function that takes batch of sequences as input
         # and returns their (internal) embedding
 
-        if self.internal:
-            # TODO add support for any internal layer
-            output_layer = self.model.get_layer(name='internal')
-            if output_layer is None:
-                raise ValueError(
-                    'Model does not support extraction of internal embedding.')
-        else:
-            output_layer = self.model.get_layer(index=-1)
+        if isinstance(self.model, nn.Module):
 
-        input_layer = self.model.get_layer(name='input')
-        K_func = K.function(
-            [input_layer.input, K.learning_phase()], [output_layer.output])
-        def embed(batch):
-            return K_func([batch, 0])[0]
-        self.embed_ = embed
+            def embed(X):
+                X = Variable(torch.from_numpy(np.rollaxis(np.array(X, dtype=np.float32), 0, 2)))
+                emb_final, emb_internal = self.model(X)
+                if self.internal:
+                    return np.rollaxis(emb_internal.data.numpy(), 1, 0)
+                else:
+                    return np.rollaxis(emb_final.data.numpy(), 1, 0)
+            self.embed_ = embed
+
+        else:
+
+            if self.internal:
+                # TODO add support for any internal layer
+                output_layer = self.model.get_layer(name='internal')
+                if output_layer is None:
+                    raise ValueError(
+                        'Model does not support extraction of internal embedding.')
+            else:
+                output_layer = self.model.get_layer(index=-1)
+
+            input_layer = self.model.get_layer(name='input')
+            K_func = K.function(
+                [input_layer.input, K.learning_phase()], [output_layer.output])
+            def embed(batch):
+                return K_func([batch, 0])[0]
+            self.embed_ = embed
 
     @property
     def sliding_window(self):

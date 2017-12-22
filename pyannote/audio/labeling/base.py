@@ -38,6 +38,10 @@ from pyannote.audio.callback import LoggingCallback
 
 from pyannote.database import get_unique_identifier
 
+import torch.nn as nn
+from torch.autograd import Variable
+import torch
+
 
 class SequenceLabeling(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     """Sequence labeling
@@ -79,7 +83,10 @@ class SequenceLabeling(PeriodicFeaturesMixin, FileBasedBatchGenerator):
 
     @property
     def dimension(self):
-        return self.model.output_shape[-1]
+        if isinstance(self.model, nn.Module):
+            return self.model.n_classes
+        else:
+            return self.model.output_shape[-1]
 
     @property
     def sliding_window(self):
@@ -102,7 +109,12 @@ class SequenceLabeling(PeriodicFeaturesMixin, FileBasedBatchGenerator):
         prediction : (batch_size, n_samples, dimension) numpy array
             Batch of sequence labelings.
         """
-        return self.model.predict(X)
+        if isinstance(self.model, nn.Module):
+            X = Variable(torch.from_numpy(np.rollaxis(np.array(X, dtype=np.float32), 0, 2)))
+            prediction = self.model(X).data.numpy()
+            return np.rollaxis(prediction, 1, 0)
+        else:
+            return self.model.predict(X)
 
     def apply(self, current_file):
         """Compute predictions on a sliding window
