@@ -158,7 +158,7 @@ from pyannote.database import get_unique_identifier
 from pyannote.audio.util import mkdir_p
 
 from pyannote.audio.features.utils import Precomputed
-from pyannote.audio.embedding.approaches_pytorch.triplet_loss import TripletLoss
+from pyannote.audio.embedding.extraction import SequenceEmbedding
 
 from .base import Application
 
@@ -204,6 +204,18 @@ class SpeakerEmbeddingPytorch(Application):
                            train_dir, subset=subset, n_epochs=1000)
 
     def validate_init(self, protocol_name, subset='development'):
+
+        task = protocol_name.split('.')[1]
+        if task == 'SpeakerVerification':
+            return self._validate_init_verification(protocol_name,
+                                                    subset=subset)
+
+        return self._validate_init_default(protocol_name, subset=subset)
+
+    def _validate_init_verification(self, protocol_name, subset='development'):
+        return {}
+
+    def _validate_init_default(self, protocol_name, subset='development'):
         from pyannote.audio.generators.speaker import SpeechTurnGenerator
         from pyannote.audio.embedding.utils import pdist
 
@@ -226,6 +238,109 @@ class SpeakerEmbeddingPytorch(Application):
 
     def validate_epoch(self, epoch, protocol_name, subset='development',
                        validation_data=None):
+
+        task = protocol_name.split('.')[1]
+        if task == 'SpeakerVerification':
+            return self._validate_epoch_verification(
+                epoch, protocol_name, subset=subset,
+                validation_data=validation_data)
+
+        return self._validate_epoch_default(epoch, protocol_name, subset=subset,
+                                           validation_data=validation_data)
+
+    def _validate_epoch_verification(self, epoch, protocol_name,
+                                     subset='development',
+                                     validation_data=None):
+
+        # load current model
+        model = self.load_model(epoch)
+        model.eval()
+
+        duration = self.approach_.duration
+        step = .25 * duration
+
+        protocol = get_protocol(
+        protocol_name, progress=False, preprocessors=self.preprocessors_)
+
+        # initialize embedding extraction
+        batch_size = self.approach_.batch_size
+
+        try:
+            # use internal representation when available
+            internal = True
+            sequence_embedding = SequenceEmbedding(
+                model, self.feature_extraction_, duration,
+                step=step, batch_size=batch_size,
+                internal=internal)
+
+        except ValueError as e:
+            # else use final representation
+            internal = False
+            sequence_embedding = SequenceEmbedding(
+                model, self.feature_extraction_, duration,
+                step=step, batch_size=batch_size,
+                internal=internal)
+
+        metrics = {}
+        protocol = get_protocol(protocol_name, progress=False,
+                                preprocessors=self.preprocessors_)
+
+        enrolment_models, enrolment_khashes = {}, {}
+        enrolments = getattr(protocol, '{0}_enrolment'.format(subset))()
+        for i, enrolment in enumerate(enrolments):
+            model_id = enrolment['model_id']
+            embedding = sequence_embedding.apply(enrolment)
+            data = embedding.crop(enrolment['enrol_with'],
+                                  mode='center', return_data=True)
+            enrolment_models[model_id] = np.mean(data, axis=0, keepdims=True)
+
+            # in some specific speaker verification protocols,
+            # enrolment data may be  used later as trial data.
+            # therefore, we cache information about enrolment data
+            # to speed things up by reusing the enrolment as trial
+            h = hash((get_unique_identifier(enrolment),
+                      tuple(enrolment['enrol_with'])))
+            enrolment_khashes[h] = model_id
+
+        trial_models = {}
+        trials = getattr(protocol, '{0}_trial'.format(subset))()
+        y_true, y_pred = [], []
+        for i, trial in enumerate(trials):
+            model_id = trial['model_id']
+
+            h = hash((get_unique_identifier(trial),
+                      tuple(trial['try_with'])))
+
+            # re-use enrolment model whenever possible
+            if h in enrolment_khashes:
+                model = enrolment_models[enrolment_khashes[h]]
+
+            # re-use trial model whenever possible
+            elif h in trial_models:
+                model = trial_models[h]
+
+            else:
+                embedding = sequence_embedding.apply(trial)
+                data = embedding.crop(trial['try_with'],
+                                      mode='center', return_data=True)
+                model = np.mean(data, axis=0, keepdims=True)
+                # cache trial model for later re-use
+                trial_models[h] = model
+
+            distance = cdist(enrolment_models[model_id], model,
+                             metric=self.approach_.metric)[0, 0]
+            y_pred.append(distance)
+            y_true.append(trial['reference'])
+
+        _, _, _, eer = det_curve(np.array(y_true), np.array(y_pred),
+                                 distances=True)
+        metrics['EER.internal' if internal else 'EER.final'] = \
+            {'minimize': True, 'value': eer}
+
+        return metrics
+
+    def _validate_epoch_default(self, epoch, protocol_name,
+                                subset='development', validation_data=None):
 
         import numpy as np
         import torch
