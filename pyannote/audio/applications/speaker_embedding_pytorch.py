@@ -197,7 +197,7 @@ class SpeakerEmbeddingPytorch(Application):
             protocol=protocol_name,
             subset=subset)
 
-        protocol = get_protocol(protocol_name, progress=False,
+        protocol = get_protocol(protocol_name, progress=True,
                                 preprocessors=self.preprocessors_)
 
         self.approach_.fit(self.model_, self.feature_extraction_, protocol,
