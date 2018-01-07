@@ -35,7 +35,6 @@ from glob import glob
 from pyannote.database.util import FileFinder
 from pyannote.audio.util import mkdir_p
 from sortedcontainers import SortedDict
-import keras.models
 from ..keras_utils import CUSTOM_OBJECTS
 
 
@@ -94,7 +93,7 @@ class Application(object):
             train_dir = self.train_dir_
 
         if self.backend == 'keras':
-            import keras.model
+            import keras.models
             weights_h5 = self.WEIGHTS_H5.format(
                 train_dir=train_dir, epoch=epoch)
             model = keras.models.load_model(weights_h5,
