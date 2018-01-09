@@ -134,6 +134,7 @@ import yaml
 from os.path import expanduser
 
 from docopt import docopt
+import numpy as np
 
 import matplotlib
 matplotlib.use('Agg')
@@ -205,6 +206,7 @@ class SpeakerEmbeddingPytorch(Application):
         return {}
 
     def _validate_init_default(self, protocol_name, subset='development'):
+
         from pyannote.audio.generators.speaker import SpeechTurnGenerator
         from pyannote.audio.embedding.utils import pdist
 
@@ -240,6 +242,9 @@ class SpeakerEmbeddingPytorch(Application):
     def _validate_epoch_verification(self, epoch, protocol_name,
                                      subset='development',
                                      validation_data=None):
+
+        from pyannote.metrics.binary_classification import det_curve
+        from pyannote.audio.embedding.utils import cdist
 
         # load current model
         model = self.load_model(epoch)
