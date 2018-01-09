@@ -260,6 +260,10 @@ class SpeakerEmbeddingPytorch(Application):
         #batch_size = self.approach_.batch_size
         batch_size = 32
 
+        # do not use memmap as this would lead to too many open files
+        if isinstance(self.feature_extraction_, Precomputed):
+            self.feature_extraction_.use_memmap = False
+
         try:
             # use internal representation when available
             internal = True
