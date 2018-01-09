@@ -58,6 +58,13 @@ class Application(object):
         app.train_dir_ = train_dir
         return app
 
+    @classmethod
+    def from_validate_txt(cls, validate_txt, db_yml=None):
+        train_dir = dirname(dirname(dirname(validate_txt)))
+        app = cls.from_train_dir(train_dir, db_yml=db_yml)
+        app.validate_txt_ = validate_txt
+        return app
+
     def __init__(self, experiment_dir, db_yml=None, backend='keras'):
         super(Application, self).__init__()
 

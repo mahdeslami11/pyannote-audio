@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2017 CNRS
+# Copyright (c) 2017-2018 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -32,7 +32,7 @@ Speaker embedding
 Usage:
   pyannote-speaker-embedding train [--database=<db.yml> --subset=<subset>] <experiment_dir> <database.task.protocol>
   pyannote-speaker-embedding validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch>] <train_dir> <database.task.protocol>
-  pyannote-speaker-embedding apply [--database=<db.yml> --subset=<subset>] <tune_dir> <database.task.protocol>
+  pyannote-speaker-embedding apply [--database=<db.yml> --step=<step> --internal] <validate.txt> <database.task.protocol> <output_dir>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
 
@@ -84,21 +84,27 @@ Configuration file:
     feature_extraction:
        name: Precomputed
        params:
-          root_dir: /path/to/precomputed/features
-          use_memmap: True
+          root_dir: /vol/work1/bredin/feature_extraction/mfcc
 
     architecture:
        name: ClopiNet
        params:
-          rnn: GRU
-          recurrent: [64, 64, 64]
-          bidirectional: True
-          linear: []
-          weighted: True
+         rnn: LSTM
+         recurrent: [64, 64, 64]
+         bidirectional: True
+         linear: []
+         weighted: False
 
-    sequences:
-       duration: 3.2
-       per_label: 3
+    approach:
+       name: TripletLoss
+       params:
+         metric: cosine
+         margin: 0.1
+         clamp: positive
+         duration: 3.2
+         sampling: all
+         per_fold: 100
+         per_label: 3
     ...................................................................
 
 "train" mode:
@@ -112,33 +118,15 @@ Configuration file:
     This directory is called <train_dir> in the subsequent "validate" mode.
 
 "validate" mode:
-    In parallel to training, one should validate the performance of the model
-    epoch after epoch, using "validate" mode. This will create a bunch of files
-    in the following directory:
+    Use the "validate" mode to run validation in parallel to training.
+    "validate" mode will watch the <train_dir> directory, and run validation
+    experiments every time a new epoch has ended. This will create the
+    following directory that contains validation results:
 
         <train_dir>/validate/<database.task.protocol>
 
-    This means that the network was validated on the <database.task.protocol>
-    protocol. By default, validation is done on the "development" subset:
-    "developement.DetectionErrorRate.{txt|png|eps}" files are created and
-    updated continuously, epoch after epoch. This directory is called
-    <validate_dir> in the subsequent "tune" mode.
-
-    In practice, for each epoch, "validate" mode will report the detection
-    error rate obtained by applying (possibly not optimal) onset/offset
-    thresholds of 0.5.
-
-"apply" mode
-    Finally, one can apply speech activity detection using "apply" mode.
-    This will create the following files that contains the hard (mdtm) and
-    soft (h5) outputs of speech activity detection, based on the set of hyper-
-    parameters obtain with "tune" mode:
-
-        <tune_dir>/apply/<database.task.protocol>.<subset>.mdtm
-        <tune_dir>/apply/{database}/{uri}.h5
-
-    This means that file whose unique resource identifier is {uri} has been
-    processed.
+    You can run multiple "validate" in parallel (e.g. for every subset,
+    protocol, task, or database).
 """
 
 import io
@@ -161,6 +149,7 @@ from pyannote.audio.features.utils import Precomputed
 from pyannote.audio.embedding.extraction import SequenceEmbedding
 
 from .base import Application
+from sortedcontainers import SortedDict
 
 
 class SpeakerEmbeddingPytorch(Application):
@@ -365,83 +354,63 @@ class SpeakerEmbeddingPytorch(Application):
         metrics['EER.1seq'] = {'minimize': True, 'value': eer}
         return metrics
 
-    # def apply(self, protocol_name, subset='test'):
-    #
-    #     apply_dir = self.APPLY_DIR.format(tune_dir=self.tune_dir_)
-    #
-    #     mkdir_p(apply_dir)
-    #
-    #     # load tuning results
-    #     tune_yml = self.TUNE_YML.format(tune_dir=self.tune_dir_)
-    #     with io.open(tune_yml, 'r') as fp:
-    #         self.tune_ = yaml.load(fp)
-    #
-    #     # load model for epoch 'epoch'
-    #     epoch = self.tune_['epoch']
-    #     model = self.load_model(epoch)
-    #
-    #     # initialize sequence labeling
-    #     duration = self.config_['sequences']['duration']
-    #     step = self.config_['sequences']['step']
-    #     sequence_labeling = SequenceLabeling(
-    #         model, self.feature_extraction_, duration,
-    #         step=step)
-    #
-    #     # initialize protocol
-    #     protocol = get_protocol(protocol_name, progress=True,
-    #                             preprocessors=self.preprocessors_)
-    #
-    #     file_generator = getattr(protocol, subset)
-    #     processed_uris = set()
-    #
-    #     for i, item in enumerate(file_generator()):
-    #
-    #        # corner case when the same file is iterated several times
-    #         uri = get_unique_identifier(item)
-    #         if uri in processed_uris:
-    #             continue
-    #
-    #         predictions = sequence_labeling.apply(item)
-    #
-    #         if i == 0:
-    #             # create metadata file at root that contains
-    #             # sliding window and dimension information
-    #             precomputed = Precomputed(
-    #                 root_dir=apply_dir,
-    #                 sliding_window=predictions.sliding_window,
-    #                 dimension=2)
-    #
-    #         precomputed.dump(item, predictions)
-    #         processed_uris.add(uri)
-    #
-    #     # initialize binarizer
-    #     onset = self.tune_['onset']
-    #     offset = self.tune_['offset']
-    #     binarize = Binarize(onset=onset, offset=offset)
-    #
-    #     precomputed = Precomputed(root_dir=apply_dir)
-    #
-    #     writer = MDTMParser()
-    #     path = self.HARD_MDTM.format(apply_dir=apply_dir,
-    #                                  protocol=protocol_name,
-    #                                  subset=subset)
-    #     with io.open(path, mode='w') as gp:
-    #
-    #         processed_uris = set()
-    #
-    #         for item in file_generator():
-    #
-    #            # corner case when the same file is iterated several times
-    #             uri = get_unique_identifier(item)
-    #             if uri in processed_uris:
-    #                 continue
-    #
-    #             predictions = precomputed(item)
-    #             segmentation = binarize.apply(predictions, dimension=1)
-    #             writer.write(segmentation.to_annotation(),
-    #                          f=gp, uri=item['uri'], modality='speaker')
-    #
-    #             processed_uris.add(uri)
+    def apply(self, protocol_name, output_dir, step=None, internal=False):
+
+        # load best performing model
+        with open(self.validate_txt_, 'r') as fp:
+            eers = SortedDict(np.loadtxt(fp))
+        best_epoch = int(eers.iloc[np.argmin(eers.values())])
+        model = self.load_model(best_epoch)
+
+        # guess sequence duration from path (.../3.2+0.8/...)
+        directory = basename(dirname(self.experiment_dir))
+        duration, _, _, _ = self._directory_to_params(directory)
+        if step is None:
+            step = 0.5 * duration
+
+        # initialize embedding extraction
+        batch_size = self.approach_.batch_size
+        sequence_embedding = SequenceEmbedding(
+            model, self.feature_extraction_, duration,
+            step=step, batch_size=batch_size,
+            internal=internal)
+        sliding_window = sequence_embedding.sliding_window
+        dimension = sequence_embedding.dimension
+
+        # create metadata file at root that contains
+        # sliding window and dimension information
+        precomputed = Precomputed(
+            root_dir=output_dir,
+            sliding_window=sliding_window,
+            dimension=dimension)
+
+        # file generator
+        protocol = get_protocol(protocol_name, progress=True,
+                                preprocessors=self.preprocessors_)
+
+        processed_uris = set()
+
+        for subset in ['development', 'test', 'train']:
+
+            try:
+                file_generator = getattr(protocol, subset)()
+                first_item = next(file_generator)
+            except NotImplementedError as e:
+                continue
+
+            file_generator = getattr(protocol, subset)()
+
+            for current_file in file_generator:
+
+                # corner case when the same file is iterated several times
+                uri = get_unique_identifier(current_file)
+                if uri in processed_uris:
+                    continue
+
+                fX = sequence_embedding.apply(current_file)
+
+                precomputed.dump(current_file, fX)
+                processed_uris.add(uri)
 
 def main():
 
@@ -483,38 +452,20 @@ def main():
             train_dir, db_yml=db_yml)
         application.validate(protocol_name, subset=subset,
                              start=start, end=end, every=every)
-    #
-    # if arguments['tune']:
-    #     train_dir = arguments['<train_dir>']
-    #
-    #     if subset is None:
-    #         subset = 'development'
-    #
-    #     # start tuning at this epoch (defaults to None)
-    #     start = arguments['--from']
-    #     if start is not None:
-    #         start = int(start)
-    #
-    #     # stop tuning at this epoch (defaults to None)
-    #     end = arguments['--to']
-    #     if end is not None:
-    #         end = int(end)
-    #
-    #     at = arguments['--at']
-    #     if at is not None:
-    #         at = int(at)
-    #
-    #     application = SpeakerEmbeddingPytorch.from_train_dir(
-    #         train_dir, db_yml=db_yml)
-    #     application.tune(protocol_name, subset=subset,
-    #                      start=start, end=end, at=at)
-    #
-    # if arguments['apply']:
-    #     tune_dir = arguments['<tune_dir>']
-    #
-    #     if subset is None:
-    #         subset = 'test'
-    #
-    #     application = SpeakerEmbeddingPytorch.from_tune_dir(
-    #         tune_dir, db_yml=db_yml)
-    #     application.apply(protocol_name, subset=subset)
+
+    if arguments['apply']:
+
+        validate_txt = arguments['<validate.txt>']
+        output_dir = arguments['<output_dir>']
+        if subset is None:
+            subset = 'test'
+
+        step = arguments['--step']
+        if step is not None:
+            step = float(step)
+
+        internal = arguments['--internal']
+
+        application = SpeakerEmbeddingPytorch.from_validate_txt(validate_txt)
+        application.apply(protocol_name, output_dir, step=step,
+                          internal=internal)
