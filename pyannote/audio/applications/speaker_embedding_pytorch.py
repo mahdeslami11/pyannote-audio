@@ -374,12 +374,17 @@ class SpeakerEmbeddingPytorch(Application):
 
         # guess sequence duration from path (.../3.2+0.8/...)
         directory = basename(dirname(self.experiment_dir))
-        duration, _, _, _ = self._directory_to_params(directory)
+        duration = self.approach_.duration
         if step is None:
             step = 0.5 * duration
 
         # initialize embedding extraction
-        batch_size = self.approach_.batch_size
+        batch_size = 32
+
+        # do not use memmap as this would lead to too many open files
+        if isinstance(self.feature_extraction_, Precomputed):
+            self.feature_extraction_.use_memmap = False
+
         sequence_embedding = SequenceEmbedding(
             model, self.feature_extraction_, duration,
             step=step, batch_size=batch_size,
