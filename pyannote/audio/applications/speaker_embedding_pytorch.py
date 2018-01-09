@@ -131,7 +131,7 @@ Configuration file:
 
 import io
 import yaml
-from os.path import expanduser
+from os.path import expanduser, dirname, basename
 
 from docopt import docopt
 import numpy as np
