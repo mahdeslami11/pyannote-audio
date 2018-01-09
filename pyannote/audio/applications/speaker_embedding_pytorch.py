@@ -257,7 +257,8 @@ class SpeakerEmbeddingPytorch(Application):
         protocol_name, progress=False, preprocessors=self.preprocessors_)
 
         # initialize embedding extraction
-        batch_size = self.approach_.batch_size
+        #batch_size = self.approach_.batch_size
+        batch_size = 32
 
         try:
             # use internal representation when available
