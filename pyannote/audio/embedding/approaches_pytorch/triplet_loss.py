@@ -234,6 +234,7 @@ class TripletLoss(object):
         batches_per_epoch = int(np.ceil(duration_per_epoch / duration_per_batch))
 
         optimizer = RMSprop(model.parameters())
+        model.internal = False
 
         while True:
 
@@ -252,7 +253,7 @@ class TripletLoss(object):
                         np.array(np.rollaxis(batch['X'], 0, 2),
                                  dtype=np.float32)))
 
-                    fX, internal_embedding = model(X)
+                    fX = model(X)
 
                     # pre-compute pairwise distances
                     distances = self.pdist(fX)

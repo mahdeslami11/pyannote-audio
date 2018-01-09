@@ -57,16 +57,18 @@ class ClopiNet(nn.Module):
         one linear layer with hidden dimension of 16.
     weighted : bool, optional
         Add dimension-wise trainable weights. Defaults to False.
+    internal : bool, optional
+        Return sequence of internal embeddings. Defaults to False.
 
     Usage
     -----
     >>> model = ClopiNet(n_features)
-    >>> final, internal = model(sequence)
+    >>> embedding = model(sequence)
     """
 
     def __init__(self, n_features,
                  rnn='LSTM', recurrent=[16,], bidirectional=False,
-                 linear=[16, ], weighted=False):
+                 linear=[16, ], weighted=False, internal=False):
 
         super(ClopiNet, self).__init__()
 
@@ -76,6 +78,7 @@ class ClopiNet(nn.Module):
         self.bidirectional = bidirectional
         self.linear = linear
         self.weighted = weighted
+        self.internal = internal
 
         self.num_directions_ = 2 if self.bidirectional else 1
 
@@ -173,12 +176,13 @@ class ClopiNet(nn.Module):
         if self.weighted:
             output = output * self.alphas_
 
-        internal = output
+        if self.internal:
+            return output
 
         # average temporal pooling
-        final = internal.sum(dim=0)
+        output = output.sum(dim=0)
 
         # L2 normalization
-        final = final / torch.norm(final, 2, 0)
+        output = output / torch.norm(output, 2, 0)
 
-        return final, internal
+        return output

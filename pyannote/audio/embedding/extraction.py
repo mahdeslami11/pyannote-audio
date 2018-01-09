@@ -78,14 +78,11 @@ class SequenceEmbedding(SequenceLabeling):
         # and returns their (internal) embedding
 
         if isinstance(self.model, nn.Module):
-
+            self.model.internal = self.internal
             def embed(X):
                 X = Variable(torch.from_numpy(np.rollaxis(np.array(X, dtype=np.float32), 0, 2)))
-                emb_final, emb_internal = self.model(X)
-                if self.internal:
-                    return np.rollaxis(emb_internal.data.numpy(), 1, 0)
-                else:
-                    return np.rollaxis(emb_final.data.numpy(), 1, 0)
+                emb = self.model(X)
+                return np.rollaxis(emb.data.numpy(), 1, 0)
             self.embed_ = embed
 
         else:
