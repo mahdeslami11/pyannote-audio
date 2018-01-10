@@ -12,15 +12,13 @@ from pyannote.database import get_annotated
 
 class SpeakerDiarization(object):
 
-    def __init__(self, feature_extraction, sad, scd, emb,
+    def __init__(self, sad, scd, emb,
                  sad__onset=0.7, sad__offset=0.7, sad__dimension=1,
                  scd__alpha=0.5, scd__min_duration=1., scd__dimension=1,
                  cls__min_cluster_size=5, cls__min_samples=None,
                  cls__metric='cosine'):
 
         super(SpeakerDiarization, self).__init__()
-
-        self.feature_extraction = feature_extraction
 
         # speech activity detection hyper-parameters
         self.sad = sad
@@ -41,8 +39,6 @@ class SpeakerDiarization(object):
         self.cls__min_cluster_size = cls__min_cluster_size
         self.cls__min_samples = cls__min_samples
         self.cls__metric = cls__metric
-
-        step = self.feature_extraction.sliding_window().step
 
         # initialize speech activity detection module
         self.sad_binarize_ = Binarize(onset=self.sad__onset,
@@ -78,18 +74,21 @@ class SpeakerDiarization(object):
             speech_turns = speech_turns.crop(
                 get_annotated(current_file))
 
+        hypothesis = Annotation(uri=current_file['uri'])
+        if not speech_turns:
+            return hypothesis
+
         # speech turns embedding
         emb = self.emb(current_file)
-        fX = l2_normalize(np.vstack([
-            np.sum(emb.crop(speech_turn, mode='loose'), axis=0)
-            for speech_turn in speech_turns
-        ]))
+
+        fX_ = [np.sum(emb.crop(speech_turn, mode='loose'), axis=0)
+               for speech_turn in speech_turns]
+        fX = l2_normalize(np.vstack(fX_))
 
         # speech turn clustering
         cluster_labels = self.cls_.apply(fX)
 
         # build hypothesis from clustering results
-        hypothesis = Annotation(uri=current_file['uri'])
         for speech_turn, label in zip(speech_turns, cluster_labels):
             hypothesis[speech_turn] = label
         return hypothesis
