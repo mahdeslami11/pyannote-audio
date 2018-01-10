@@ -82,7 +82,10 @@ class SequenceEmbedding(SequenceLabeling):
             def embed(X):
                 X = Variable(torch.from_numpy(np.rollaxis(np.array(X, dtype=np.float32), 0, 2)))
                 emb = self.model(X)
-                return np.rollaxis(emb.data.numpy(), 1, 0)
+                if self.internal:
+                    return np.rollaxis(emb.data.numpy(), 1, 0)
+                else:
+                    return emb.data.numpy() 
             self.embed_ = embed
 
         else:
