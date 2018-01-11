@@ -272,11 +272,15 @@ class TripletLoss(object):
                     # compute triplet loss
                     loss = self.triplet_loss(
                         distances, anchors, positives, negatives)
-                    running_tloss += float(loss.data.numpy())
 
                     loss.backward()
                     optimizer.step()
 
+                    if gpu:
+                        running_tloss += float(loss.data.cpu().numpy())
+                    else:
+                        running_tloss += float(loss.data.numpy())
+                
                 running_tloss /= batches_per_epoch
 
                 logs = {'loss': running_tloss}
