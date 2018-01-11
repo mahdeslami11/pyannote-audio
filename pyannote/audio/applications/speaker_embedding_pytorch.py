@@ -30,7 +30,7 @@
 Speaker embedding
 
 Usage:
-  pyannote-speaker-embedding validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch>] <train_dir> <database.task.protocol>
+  pyannote-speaker-embedding validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch> --gpu] <train_dir> <database.task.protocol>
   pyannote-speaker-embedding apply [--database=<db.yml> --step=<step> --internal] <validate.txt> <database.task.protocol> <output_dir>
   pyannote-speaker-embedding train [--database=<db.yml> --subset=<subset> --gpu] <experiment_dir> <database.task.protocol>
   pyannote-speaker-embedding -h | --help
@@ -250,6 +250,8 @@ class SpeakerEmbeddingPytorch(Application):
 
         # load current model
         model = self.load_model(epoch)
+        if self.gpu:
+            model = model.cuda()
         model.eval()
 
         duration = self.approach_.duration
@@ -350,14 +352,19 @@ class SpeakerEmbeddingPytorch(Application):
         from pyannote.audio.embedding.utils import pdist
 
         model = self.load_model(epoch)
+        if self.gpu:
+            model = model.cuda()
         model.eval()
 
         X = Variable(torch.from_numpy(
             np.array(np.rollaxis(validation_data['X'], 0, 2),
                      dtype=np.float32)))
-        fX = model(X)
+        if self.gpu:
+            fX = model(X.cuda()).data.cpu().numpy()
+        else:
+            fX = model(X).data.numpy()
 
-        y_pred = pdist(fX.data.numpy(), metric=self.approach_.metric)
+        y_pred = pdist(fX, metric=self.approach_.metric)
 
         _, _, _, eer = det_curve(validation_data['y'], y_pred,
                                  distances=True)
@@ -469,6 +476,7 @@ def main():
 
         application = SpeakerEmbeddingPytorch.from_train_dir(
             train_dir, db_yml=db_yml)
+        application.gpu = gpu
         application.validate(protocol_name, subset=subset,
                              start=start, end=end, every=every)
 
