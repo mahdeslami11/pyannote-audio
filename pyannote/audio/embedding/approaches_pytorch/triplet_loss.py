@@ -156,7 +156,10 @@ class TripletLoss(object):
 
         anchors, positives, negatives = [], [], []
 
-        distances = squareform(distances.data.numpy())
+        if distances.is_cuda:
+            distances = squareform(distances.data.cpu().numpy())
+        else:
+            distances = squareform(distances.data.numpy())
         y = np.array(y)
 
         for anchor, y_anchor in enumerate(y):
