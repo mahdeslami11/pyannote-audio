@@ -58,6 +58,8 @@ class SequenceLabeling(PeriodicFeaturesMixin, FileBasedBatchGenerator):
         Subsequence step, in seconds. Defaults to 50% of `duration`.
     batch_size : int, optional
         Defaults to 32.
+    gpu : boolean, optional
+        Run on GPU. Only works witht pytorch backend.
 
     Usage
     -----
@@ -68,12 +70,13 @@ class SequenceLabeling(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     """
 
     def __init__(self, model, feature_extraction, duration,
-                 step=None, batch_size=32, source='audio'):
+                 step=None, batch_size=32, source='audio', gpu=False):
 
-        self.model = model
+        self.model = model.cuda() if gpu else model
         self.feature_extractor = feature_extraction
         self.duration = duration
         self.batch_size = batch_size
+        self.gpu = gpu
 
         generator = SlidingSegments(duration=duration, step=step, source=source)
         self.step = generator.step if step is None else step
@@ -111,7 +114,10 @@ class SequenceLabeling(PeriodicFeaturesMixin, FileBasedBatchGenerator):
         """
         if isinstance(self.model, nn.Module):
             X = Variable(torch.from_numpy(np.rollaxis(np.array(X, dtype=np.float32), 0, 2)))
-            prediction = self.model(X).data.numpy()
+            if self.gpu:
+                prediction = self.model(X.cuda()).data.cpu().numpy()
+            else:
+                prediction = self.model(X).data.numpy()
             return np.rollaxis(prediction, 1, 0)
         else:
             return self.model.predict(X)

@@ -53,6 +53,8 @@ class SequenceEmbedding(SequenceLabeling):
         Extract internal representation.
     batch_size : int, optional
         Defaults to 32.
+    gpu : boolean, optional
+        Run on GPU. Only works witht pytorch backend.
 
     Usage
     -----
@@ -66,11 +68,11 @@ class SequenceEmbedding(SequenceLabeling):
 
     def __init__(self, model, feature_extraction, duration,
                  step=None, batch_size=32, internal=False,
-                 source='audio'):
+                 source='audio', gpu=False):
 
         super(SequenceEmbedding, self).__init__(model, feature_extraction, duration,
                                         step=step, batch_size=batch_size,
-                                        source=source)
+                                        source=source, gpu=gpu)
 
         self.internal = internal
 
@@ -81,11 +83,16 @@ class SequenceEmbedding(SequenceLabeling):
             self.model.internal = self.internal
             def embed(X):
                 X = Variable(torch.from_numpy(np.rollaxis(np.array(X, dtype=np.float32), 0, 2)))
-                emb = self.model(X)
-                if self.internal:
-                    return np.rollaxis(emb.data.numpy(), 1, 0)
+
+                if self.gpu:
+                    emb = self.model(X.cuda()).data.cpu().numpy()
                 else:
-                    return emb.data.numpy() 
+                    emb = self.model(X).data.numpy()
+
+                if self.internal:
+                    return np.rollaxis(emb, 1, 0)
+                else:
+                    return emb
             self.embed_ = embed
 
         else:

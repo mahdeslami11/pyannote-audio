@@ -274,7 +274,7 @@ class SpeakerEmbeddingPytorch(Application):
             sequence_embedding = SequenceEmbedding(
                 model, self.feature_extraction_, duration,
                 step=step, batch_size=batch_size,
-                internal=internal)
+                internal=internal, gpu=self.gpu)
 
         except ValueError as e:
             # else use final representation
@@ -282,7 +282,7 @@ class SpeakerEmbeddingPytorch(Application):
             sequence_embedding = SequenceEmbedding(
                 model, self.feature_extraction_, duration,
                 step=step, batch_size=batch_size,
-                internal=internal)
+                internal=internal, gpu=self.gpu)
 
         metrics = {}
         protocol = get_protocol(protocol_name, progress=False,
