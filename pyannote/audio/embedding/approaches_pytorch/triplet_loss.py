@@ -208,7 +208,7 @@ class TripletLoss(object):
         return torch.mean(loss)
 
     def fit(self, model, feature_extraction, protocol, log_dir, subset='train',
-            n_epochs=1000):
+            n_epochs=1000, gpu=False):
 
         logging_callback = LoggingCallbackPytorch(log_dir=log_dir)
 
@@ -233,6 +233,9 @@ class TripletLoss(object):
         duration_per_batch = self.duration * batch_generator.n_sequences_per_batch
         batches_per_epoch = int(np.ceil(duration_per_epoch / duration_per_batch))
 
+        if gpu:
+            model = model.cuda()
+
         optimizer = RMSprop(model.parameters())
         model.internal = False
 
@@ -252,6 +255,9 @@ class TripletLoss(object):
                     X = Variable(torch.from_numpy(
                         np.array(np.rollaxis(batch['X'], 0, 2),
                                  dtype=np.float32)))
+
+                    if gpu:
+                        X = X.cuda()
 
                     fX = model(X)
 

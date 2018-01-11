@@ -30,9 +30,9 @@
 Speaker embedding
 
 Usage:
-  pyannote-speaker-embedding train [--database=<db.yml> --subset=<subset>] <experiment_dir> <database.task.protocol>
   pyannote-speaker-embedding validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch>] <train_dir> <database.task.protocol>
   pyannote-speaker-embedding apply [--database=<db.yml> --step=<step> --internal] <validate.txt> <database.task.protocol> <output_dir>
+  pyannote-speaker-embedding train [--database=<db.yml> --subset=<subset> --gpu] <experiment_dir> <database.task.protocol>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
 
@@ -50,6 +50,7 @@ Common options:
   --to=<epoch>               End validation/tuning at epoch <epoch>.
                              In "validate" mode, defaults to never stop.
                              In "tune" mode, defaults to last available epoch at launch time.
+  --gpu                      Run on GPUs. Defaults to using CPUs.
 
 "train" mode:
   <experiment_dir>           Set experiment root directory. This script expects
@@ -180,7 +181,7 @@ class SpeakerEmbeddingPytorch(Application):
         self.approach_ = Approach(
             **self.config_['approach'].get('params', {}))
 
-    def train(self, protocol_name, subset='train'):
+    def train(self, protocol_name, subset='train', gpu=False):
 
         train_dir = self.TRAIN_DIR.format(
             experiment_dir=self.experiment_dir,
@@ -191,7 +192,7 @@ class SpeakerEmbeddingPytorch(Application):
                                 preprocessors=self.preprocessors_)
 
         self.approach_.fit(self.model_, self.feature_extraction_, protocol,
-                           train_dir, subset=subset, n_epochs=1000)
+                           train_dir, subset=subset, n_epochs=1000, gpu=gpu)
 
     def validate_init(self, protocol_name, subset='development'):
 
@@ -434,6 +435,7 @@ def main():
     db_yml = expanduser(arguments['--database'])
     protocol_name = arguments['<database.task.protocol>']
     subset = arguments['--subset']
+    gpu = arguments['--gpu']
 
     if arguments['train']:
         experiment_dir = arguments['<experiment_dir>']
@@ -442,7 +444,7 @@ def main():
             subset = 'train'
 
         application = SpeakerEmbeddingPytorch(experiment_dir, db_yml=db_yml)
-        application.train(protocol_name, subset=subset)
+        application.train(protocol_name, subset=subset, gpu=gpu)
 
     if arguments['validate']:
         train_dir = arguments['<train_dir>']
