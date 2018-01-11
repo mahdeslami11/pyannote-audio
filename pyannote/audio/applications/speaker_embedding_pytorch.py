@@ -181,7 +181,7 @@ class SpeakerEmbeddingPytorch(Application):
         self.approach_ = Approach(
             **self.config_['approach'].get('params', {}))
 
-    def train(self, protocol_name, subset='train', gpu=False):
+    def train(self, protocol_name, subset='train'):
 
         train_dir = self.TRAIN_DIR.format(
             experiment_dir=self.experiment_dir,
@@ -192,7 +192,8 @@ class SpeakerEmbeddingPytorch(Application):
                                 preprocessors=self.preprocessors_)
 
         self.approach_.fit(self.model_, self.feature_extraction_, protocol,
-                           train_dir, subset=subset, n_epochs=1000, gpu=gpu)
+                           train_dir, subset=subset, n_epochs=1000,
+                           gpu=self.gpu)
 
     def validate_init(self, protocol_name, subset='development'):
 
@@ -444,7 +445,8 @@ def main():
             subset = 'train'
 
         application = SpeakerEmbeddingPytorch(experiment_dir, db_yml=db_yml)
-        application.train(protocol_name, subset=subset, gpu=gpu)
+        application.gpu = gpu
+        application.train(protocol_name, subset=subset)
 
     if arguments['validate']:
         train_dir = arguments['<train_dir>']
