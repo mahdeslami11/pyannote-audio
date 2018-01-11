@@ -354,7 +354,7 @@ class SpeakerEmbeddingPytorch(Application):
         X = Variable(torch.from_numpy(
             np.array(np.rollaxis(validation_data['X'], 0, 2),
                      dtype=np.float32)))
-        fX, _ = model(X)
+        fX = model(X)
 
         y_pred = pdist(fX.data.numpy(), metric=self.approach_.metric)
 
