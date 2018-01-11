@@ -36,6 +36,7 @@ from pyannote.audio.generators.speaker import SpeechTurnGenerator
 from pyannote.audio.callback import LoggingCallbackPytorch
 from torch.optim import RMSprop
 from pyannote.audio.embedding.utils import to_condensed
+from scipy.spatial.distance import squareform
 
 
 class TripletLoss(object):
@@ -58,7 +59,7 @@ class TripletLoss(object):
         Margin factor. Defaults to 0.2.
     clamp : {'positive', 'sigmoid'}, optional
         Defaults to 'positive'.
-    sampling : {'all'}, optional
+    sampling : {'all', 'hard'}, optional
         Triplet sampling strategy.
     per_label : int, optional
         Number of sequences per speaker in each batch. Defaults to 3.
@@ -91,8 +92,8 @@ class TripletLoss(object):
             raise ValueError(msg)
         self.clamp = clamp
 
-        if sampling not in {'all'}:
-            msg = "'sampling' must be one of {'all'}."
+        if sampling not in {'all', 'hard'}:
+            msg = "'sampling' must be one of {'all', 'hard'}."
             raise ValueError(msg)
         self.sampling = sampling
 
@@ -137,7 +138,46 @@ class TripletLoss(object):
 
         return torch.cat(distances)
 
-    def sample_all(self, y, distances):
+    def batch_hard(self, y, distances):
+        """
+
+        Parameters
+        ----------
+        y : list
+            Sequence labels.
+        distances : (n * (n-1) / 2,) torch.autograd.Variable
+            Condensed pairwise distance matrix
+
+        Returns
+        -------
+        anchors, positives, negatives : list of int
+            Triplets indices.
+        """
+
+        anchors, positives, negatives = [], [], []
+
+        distances = squareform(distances.data.numpy())
+        y = np.array(y)
+
+        for anchor, y_anchor in enumerate(y):
+
+            d = distances[anchor]
+            pos = np.where(y == y_anchor)[0]
+
+            # hardest positive
+            positive = pos[np.argmax(d[pos])]
+
+            # hardest negative
+            neg = np.where(y != y_anchor)[0]
+            negative = neg[np.argmin(d[neg])]
+
+            anchors.append(anchor)
+            positives.append(positive)
+            negatives.append(negative)
+
+        return anchors, positives, negatives
+
+    def batch_all(self, y, distances):
         """
 
         Parameters
@@ -266,7 +306,11 @@ class TripletLoss(object):
 
                     # sample triplets
                     if self.sampling == 'all':
-                        anchors, positives, negatives = self.sample_all(
+                        anchors, positives, negatives = self.batch_all(
+                            batch['y'], distances)
+
+                    elif self.sampling == 'hard':
+                        anchors, positives, negatives = self.batch_hard(
                             batch['y'], distances)
 
                     # compute triplet loss
@@ -280,7 +324,7 @@ class TripletLoss(object):
                         running_tloss += float(loss.data.cpu().numpy())
                     else:
                         running_tloss += float(loss.data.numpy())
-                
+
                 running_tloss /= batches_per_epoch
 
                 logs = {'loss': running_tloss}
