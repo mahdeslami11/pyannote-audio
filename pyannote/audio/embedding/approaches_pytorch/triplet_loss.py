@@ -166,6 +166,7 @@ class TripletLoss(object):
 
             d = distances[anchor]
             pos = np.where(y == y_anchor)[0]
+            pos = [p for p in pos if p != anchor]
 
             # hardest positive
             positive = int(pos[np.argmax(d[pos])])
