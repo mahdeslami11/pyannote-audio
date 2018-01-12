@@ -299,6 +299,9 @@ class TripletLoss(object):
                 nonzero_max = 0.
                 nonzero_avg = 0.
 
+                distances_avg = 0.
+                norm_avg = 0.
+
                 desc = 'Epoch #{0}'.format(epoch)
                 for _ in tqdm(range(batches_per_epoch), desc=desc):
 
@@ -314,9 +317,22 @@ class TripletLoss(object):
                         X = X.cuda()
 
                     fX = model(X)
+                    if gpu:
+                        fX_ = fX.data.cpu().numpy()
+                    else:
+                        fX_ = fX.data.numpy()
+                    norm_avg += np.mean(np.linalg.norm(fX_, axis=0))
+                    # TODO. percentile
 
                     # pre-compute pairwise distances
                     distances = self.pdist(fX)
+
+                    if gpu:
+                        distances_ = distances.data.cpu().numpy()
+                    else:
+                        distances_ = distances.data.numpy()
+                    distances_avg += np.mean(distances_)
+                    # TODO. percentile
 
                     # sample triplets
                     if self.sampling == 'all':
@@ -356,13 +372,17 @@ class TripletLoss(object):
 
                 loss_avg /= batches_per_epoch
                 nonzero_avg /= batches_per_epoch
+                distances_avg /= batches_per_epoch
+                norm_avg /= batches_per_epoch
 
                 logs = {'loss_avg': loss_avg,
                         'loss_min': loss_min,
                         'loss_max': loss_max,
                         'nonzero_avg': nonzero_avg,
                         'nonzero_max': nonzero_max,
-                        'nonzero_min': nonzero_min}
+                        'nonzero_min': nonzero_min,
+                        'distances_avg': distances_avg,
+                        'norm_avg': norm_avg}
 
                 logging_callback.model = model
                 logging_callback.optimizer = optimizer
