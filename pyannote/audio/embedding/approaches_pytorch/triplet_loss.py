@@ -34,7 +34,7 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 from pyannote.audio.generators.speaker import SpeechTurnGenerator
 from pyannote.audio.callback import LoggingCallbackPytorch
-from torch.optim import RMSprop
+from torch.optim import Adam
 from pyannote.audio.embedding.utils import to_condensed
 from scipy.spatial.distance import squareform
 
@@ -284,7 +284,7 @@ class TripletLoss(object):
         if gpu:
             model = model.cuda()
 
-        optimizer = RMSprop(model.parameters())
+        optimizer = Adam(model.parameters())
         model.internal = False
 
         while True:
