@@ -364,7 +364,6 @@ class TripletLoss(object):
                         'nonzero_max': nonzero_max,
                         'nonzero_min': nonzero_min}
 
-                logs = {'loss': running_tloss,
                 logging_callback.model = model
                 logging_callback.optimizer = optimizer
                 logging_callback.on_epoch_end(epoch, logs=logs)
