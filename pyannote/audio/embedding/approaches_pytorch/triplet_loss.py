@@ -132,7 +132,7 @@ class TripletLoss(object):
             elif self.metric == 'euclidean':
                 d = F.pairwise_distance(
                     fX[i, :].expand(i, -1), fX[:i, :],
-                    p=2, eps=1e-06)
+                    p=2, eps=1e-06).view(-1)
 
             distances.append(d)
 
