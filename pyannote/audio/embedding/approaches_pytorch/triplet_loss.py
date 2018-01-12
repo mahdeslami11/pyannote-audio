@@ -291,8 +291,13 @@ class TripletLoss(object):
 
             for epoch in range(n_epochs):
 
-                running_tloss = 0.
-                running_non_zero = 0.
+                loss_min = np.inf
+                loss_max = -np.inf
+                loss_avg = 0.
+
+                nonzero_min = 1.
+                nonzero_max = 0.
+                nonzero_avg = 0.
 
                 desc = 'Epoch #{0}'.format(epoch)
                 for _ in tqdm(range(batches_per_epoch), desc=desc):
@@ -326,26 +331,40 @@ class TripletLoss(object):
                     losses = self.triplet_loss(
                         distances, anchors, positives, negatives)
 
+                    # log ratio of non-zero triplets
                     if gpu:
-                        running_non_zero += np.mean(losses.data.cpu().numpy() > 0)
+                        nonzero_ = np.mean(losses.data.cpu().numpy() > 0)
                     else:
-                        running_non_zero += np.mean(losses.data.numpy() > 0)
+                        nonzero_ = np.mean(losses.data.numpy() > 0)
+                    nonzero_avg += nonzero_
+                    nonzero_min = min(nonzero_min, nonzero_)
+                    nonzero_max = min(nonzero_max, nonzero_)
 
                     loss = torch.mean(losses)
+
+                    # log batch loss
+                    if gpu:
+                        loss_ = float(loss.data.cpu().numpy())
+                    else:
+                        loss_ = float(loss.data.numpy())
+                    loss_avg += loss_
+                    loss_min = min(loss_min, loss_)
+                    loss_max = max(loss_max, loss_)
 
                     loss.backward()
                     optimizer.step()
 
-                    if gpu:
-                        running_tloss += float(loss.data.cpu().numpy())
-                    else:
-                        running_tloss += float(loss.data.numpy())
+                loss_avg /= batches_per_epoch
+                nonzero_avg /= batches_per_epoch
 
-                running_tloss /= batches_per_epoch
-                running_non_zero /= batches_per_epoch
+                logs = {'loss_avg': loss_avg,
+                        'loss_min': loss_min,
+                        'loss_max': loss_max,
+                        'nonzero_avg': nonzero_avg,
+                        'nonzero_max': nonzero_max,
+                        'nonzero_min': nonzero_min}
 
                 logs = {'loss': running_tloss,
-                        'non_zero': running_non_zero}
                 logging_callback.model = model
                 logging_callback.optimizer = optimizer
                 logging_callback.on_epoch_end(epoch, logs=logs)
