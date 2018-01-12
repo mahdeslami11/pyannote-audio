@@ -292,6 +292,7 @@ class TripletLoss(object):
             for epoch in range(n_epochs):
 
                 running_tloss = 0.
+                running_non_zero = 0.
 
                 desc = 'Epoch #{0}'.format(epoch)
                 for _ in tqdm(range(batches_per_epoch), desc=desc):
@@ -325,6 +326,11 @@ class TripletLoss(object):
                     losses = self.triplet_loss(
                         distances, anchors, positives, negatives)
 
+                    if gpu:
+                        running_non_zero += np.mean(losses.data.cpu().numpy() > 0)
+                    else:
+                        running_non_zero += np.mean(losses.data.numpy() > 0)
+
                     loss = torch.mean(losses)
 
                     loss.backward()
@@ -336,8 +342,10 @@ class TripletLoss(object):
                         running_tloss += float(loss.data.numpy())
 
                 running_tloss /= batches_per_epoch
+                running_non_zero /= batches_per_epoch
 
-                logs = {'loss': running_tloss}
+                logs = {'loss': running_tloss,
+                        'non_zero': running_non_zero}
                 logging_callback.model = model
                 logging_callback.optimizer = optimizer
                 logging_callback.on_epoch_end(epoch, logs=logs)
