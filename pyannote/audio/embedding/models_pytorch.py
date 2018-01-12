@@ -59,6 +59,8 @@ class ClopiNet(nn.Module):
         Add dimension-wise trainable weights. Defaults to False.
     internal : bool, optional
         Return sequence of internal embeddings. Defaults to False.
+    normalize : bool, optional
+        Set to False to **not** unit-normalize embeddings.
 
     Usage
     -----
@@ -68,7 +70,8 @@ class ClopiNet(nn.Module):
 
     def __init__(self, n_features,
                  rnn='LSTM', recurrent=[16,], bidirectional=False,
-                 linear=[16, ], weighted=False, internal=False):
+                 linear=[16, ], weighted=False, internal=False,
+                 normalize=True):
 
         super(ClopiNet, self).__init__()
 
@@ -79,6 +82,7 @@ class ClopiNet(nn.Module):
         self.linear = linear
         self.weighted = weighted
         self.internal = internal
+        self.normalize = normalize
 
         self.num_directions_ = 2 if self.bidirectional else 1
 
@@ -188,6 +192,7 @@ class ClopiNet(nn.Module):
         output = output.sum(dim=0)
 
         # L2 normalization
-        output = output / torch.norm(output, 2, 0)
+        if self.normalize:
+            output = output / torch.norm(output, 2, 0)
 
         return output
