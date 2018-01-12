@@ -253,7 +253,7 @@ class TripletLoss(object):
             loss = F.sigmoid(10 * delta)
 
         # return average triplet loss
-        return torch.mean(loss)
+        return loss
 
     def fit(self, model, feature_extraction, protocol, log_dir, subset='train',
             n_epochs=1000, gpu=False):
@@ -322,8 +322,10 @@ class TripletLoss(object):
                             batch['y'], distances)
 
                     # compute triplet loss
-                    loss = self.triplet_loss(
+                    losses = self.triplet_loss(
                         distances, anchors, positives, negatives)
+
+                    loss = torch.mean(losses)
 
                     loss.backward()
                     optimizer.step()
