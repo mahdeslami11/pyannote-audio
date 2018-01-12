@@ -338,7 +338,7 @@ class TripletLoss(object):
                         nonzero_ = np.mean(losses.data.numpy() > 0)
                     nonzero_avg += nonzero_
                     nonzero_min = min(nonzero_min, nonzero_)
-                    nonzero_max = min(nonzero_max, nonzero_)
+                    nonzero_max = max(nonzero_max, nonzero_)
 
                     loss = torch.mean(losses)
 
