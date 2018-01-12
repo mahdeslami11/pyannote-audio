@@ -87,8 +87,8 @@ class TripletLoss(object):
             msg = "'metric' must be one of {'euclidean', 'cosine', 'angular'}."
             raise ValueError(msg)
 
-        if clamp not in {'positive', 'sigmoid'}:
-            msg = "'clamp' must be one of {'positive', 'sigmoid'}."
+        if clamp not in {'positive', 'sigmoid', 'softmargin'}:
+            msg = "'clamp' must be one of {'positive', 'sigmoid', 'softmargin'}."
             raise ValueError(msg)
         self.clamp = clamp
 
