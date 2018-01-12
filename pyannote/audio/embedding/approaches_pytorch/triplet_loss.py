@@ -57,7 +57,7 @@ class TripletLoss(object):
         Defaults to 'cosine'.
     margin: float, optional
         Margin factor. Defaults to 0.2.
-    clamp : {'positive', 'sigmoid'}, optional
+    clamp : {'positive', 'sigmoid', 'softmargin'}, optional
         Defaults to 'positive'.
     sampling : {'all', 'hard'}, optional
         Triplet sampling strategy.
@@ -239,11 +239,15 @@ class TripletLoss(object):
         n = list(map(to_condensed, anchors, negatives))
 
         # compute raw triplet loss (no margin, no clamping)
+        # the lower, the better
         delta = distances[p] - distances[n]
 
         # clamp triplet loss
         if self.clamp == 'positive':
             loss = torch.clamp(delta + self.margin_, min=0)
+
+        elif self.clamp == 'softmargin':
+            loss = torch.log1p(torch.exp(delta))
 
         elif self.clamp == 'sigmoid':
             loss = F.sigmoid(10 * delta)
