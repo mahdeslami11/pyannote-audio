@@ -130,7 +130,9 @@ class SpeechTurnGenerator(object):
                 self.data_.setdefault(l, []).append(datum)
 
         self.labels_ = {label: i for i, label in enumerate(self.data_)}
-        self.databases_ = {database: i for i, database in enumerate(databases)}
+
+        self.domains_ = {}
+        self.domains_['database'] = {db: i for i, db in enumerate(databases)}
 
     def generator(self):
 
@@ -220,7 +222,7 @@ class SpeechTurnGenerator(object):
 
                     yield {'X': X,
                            'y': self.labels_[label],
-                           'y_database': self.databases_[database],
+                           'y_database': self.domains_['database'][database],
                            'extra': extra}
 
     def __call__(self, protocol, subset='train'):

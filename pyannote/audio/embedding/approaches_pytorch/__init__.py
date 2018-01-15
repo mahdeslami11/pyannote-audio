@@ -27,3 +27,4 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 from .triplet_loss import TripletLoss
+from .domain_adversarial_triplet_loss import DomainAdversarialTripletLoss
