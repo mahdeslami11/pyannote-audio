@@ -127,7 +127,7 @@ class TripletLoss(object):
                     dim=1, eps=1e-8)
 
                 if self.metric == 'angular':
-                    d = torch.acos(1. - d)
+                    d = torch.acos(torch.clamp(1. - d, -1 + 1e-6, 1 - 1e-6)) 
 
             elif self.metric == 'euclidean':
                 d = F.pairwise_distance(
