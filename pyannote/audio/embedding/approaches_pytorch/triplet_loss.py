@@ -258,7 +258,8 @@ class TripletLoss(object):
     def fit(self, model, feature_extraction, protocol, log_dir, subset='train',
             epochs=1000, restart=None, gpu=False):
 
-        logging_callback = LoggingCallbackPytorch(log_dir=log_dir)
+        logging_callback = LoggingCallbackPytorch(
+            log_dir=log_dir, restart=(False if restart is None else True))
 
         try:
             batch_generator = SpeechTurnGenerator(
