@@ -75,9 +75,14 @@ class SpeechTurnGenerator(object):
     def initialize(self, protocol, subset='train'):
 
         self.data_ = {}
+        databases = set()
 
         # loop once on all files
         for current_file in getattr(protocol, subset)():
+
+            # keep track of database
+            database = current_file['database']
+            databases.add(database)
 
             # get annotation for current file
             annotation = current_file['annotation']
@@ -120,9 +125,11 @@ class SpeechTurnGenerator(object):
 
                 # store all these in data_ dictionary
                 datum = (segment_generator, duration, current_file, features)
-                self.data_.setdefault(label, []).append(datum)
+                l = get_label_identifier(label, current_file)
+                self.data_.setdefault(l, []).append(datum)
 
-        self.classes_ = {label: i for i, label in enumerate(self.data_)}
+        self.labels_ = {label: i for i, label in enumerate(self.data_)}
+        self.databases_ = {database: i for i, database in enumerate(databases)}
 
     def generator(self):
 
@@ -206,17 +213,27 @@ class SpeechTurnGenerator(object):
                         X = features_.crop(
                             sub_segment, mode='center', fixed=self.duration)
 
-                    yield {'X': X, 'y': self.classes_[label],
-                           'extra': {'y': label}}
+                    database = files[i]['database']
+                    extra = {'label': label,
+                             'database': database}
+
+                    yield {'X': X,
+                           'y': self.labels_[label],
+                           'y_database': self.databases_[database],
+                           'extra': extra}
 
     def __call__(self, protocol, subset='train'):
 
         self.initialize(protocol, subset=subset)
         generator = self.generator()
 
+        signature_extra = {'label': {'type': 'str'},
+                           'database': {'type': 'str'}}
+
         signature = {'X': {'type': 'ndarray'},
                      'y': {'type': 'scalar'},
-                     'extra': {'y': {'type': 'str'}}}
+                     'y_database': {'type': 'scalar'},
+                     'extra': signature_extra}
 
         if self.per_fold is not None:
             batch_size = self.per_label * self.per_fold
