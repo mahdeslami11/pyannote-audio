@@ -30,9 +30,9 @@
 Speaker embedding
 
 Usage:
+  pyannote-speaker-embedding train [--database=<db.yml> --subset=<subset> --from=<epoch> --for=<epochs> --gpu] <experiment_dir> <database.task.protocol>
   pyannote-speaker-embedding validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch> --gpu] <train_dir> <database.task.protocol>
   pyannote-speaker-embedding apply [--database=<db.yml> --step=<step> --internal] <validate.txt> <database.task.protocol> <output_dir>
-  pyannote-speaker-embedding train [--database=<db.yml> --subset=<subset> --gpu] <experiment_dir> <database.task.protocol>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
 
@@ -45,9 +45,9 @@ Common options:
                              In "validate" mode, defaults to "development".
                              In "tune" mode, defaults to "development".
                              In "apply" mode, defaults to "test".
-  --from=<epoch>             Start validating/tuning at epoch <epoch>.
-                             Defaults to first available epoch.
-  --to=<epoch>               End validation/tuning at epoch <epoch>.
+  --from=<epoch>             Start {train|validat}ing at epoch <epoch>.
+  --for=<epochs>             Train during that many epochs [default: 1000].
+  --to=<epoch>               End validation at epoch <epoch>.
                              In "validate" mode, defaults to never stop.
                              In "tune" mode, defaults to last available epoch at launch time.
   --gpu                      Run on GPUs. Defaults to using CPUs.
@@ -181,7 +181,7 @@ class SpeakerEmbeddingPytorch(Application):
         self.approach_ = Approach(
             **self.config_['approach'].get('params', {}))
 
-    def train(self, protocol_name, subset='train'):
+    def train(self, protocol_name, subset='train', restart=None, epochs=1000):
 
         train_dir = self.TRAIN_DIR.format(
             experiment_dir=self.experiment_dir,
@@ -192,8 +192,8 @@ class SpeakerEmbeddingPytorch(Application):
                                 preprocessors=self.preprocessors_)
 
         self.approach_.fit(self.model_, self.feature_extraction_, protocol,
-                           train_dir, subset=subset, n_epochs=1000,
-                           gpu=self.gpu)
+                           train_dir, subset=subset, epochs=epochs,
+                           restart=restart, gpu=self.gpu)
 
     def validate_init(self, protocol_name, subset='development'):
 
@@ -451,9 +451,20 @@ def main():
         if subset is None:
             subset = 'train'
 
+        # start training at this epoch (defaults to None)
+        restart = arguments['--from']
+        if restart is not None:
+            restart = int(restart)
+
+        # train for that many epochs (defaults to 1000)
+        epochs = arguments['--for']
+        if epochs is not None:
+            epochs = int(epochs)
+
         application = SpeakerEmbeddingPytorch(experiment_dir, db_yml=db_yml)
         application.gpu = gpu
-        application.train(protocol_name, subset=subset)
+        application.train(protocol_name, subset=subset,
+                          restart=restart, epochs=epochs)
 
     if arguments['validate']:
         train_dir = arguments['<train_dir>']

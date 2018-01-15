@@ -256,7 +256,7 @@ class TripletLoss(object):
         return loss
 
     def fit(self, model, feature_extraction, protocol, log_dir, subset='train',
-            n_epochs=1000, gpu=False):
+            epochs=1000, restart=None, gpu=False):
 
         logging_callback = LoggingCallbackPytorch(log_dir=log_dir)
 
@@ -281,109 +281,123 @@ class TripletLoss(object):
         duration_per_batch = self.duration * batch_generator.n_sequences_per_batch
         batches_per_epoch = int(np.ceil(duration_per_epoch / duration_per_batch))
 
+        if restart is not None:
+            weights_pt = logging_callback.WEIGHTS_PT.format(
+                log_dir=log_dir, epoch=restart)
+            model.load_state_dict(torch.load(weights_pt))
+
         if gpu:
             model = model.cuda()
 
-        optimizer = Adam(model.parameters())
         model.internal = False
 
-        while True:
+        optimizer = Adam(model.parameters())
+        if restart is not None:
+            optimizer_pt = logging_callback.OPTIMIZER_PT.format(
+                log_dir=log_dir, epoch=restart)
+            optimizer.load_state_dict(torch.load(optimize_pt))
+            if gpu:
+                for state in optimizer.state.values():
+                    for k, v in state.items():
+                        if torch.is_tensor(v):
+                            state[k] = v.cuda()
 
-            for epoch in range(n_epochs):
+        restart = 0 if restart is None else restart + 1
+        for epoch in range(restart, restart + epochs):
 
-                loss_min = np.inf
-                loss_max = -np.inf
-                loss_avg = 0.
+            loss_min = np.inf
+            loss_max = -np.inf
+            loss_avg = 0.
 
-                nonzero_min = 1.
-                nonzero_max = 0.
-                nonzero_avg = 0.
+            nonzero_min = 1.
+            nonzero_max = 0.
+            nonzero_avg = 0.
 
-                distances_avg = 0.
-                norm_avg = 0.
+            distances_avg = 0.
+            norm_avg = 0.
 
-                desc = 'Epoch #{0}'.format(epoch)
-                for _ in tqdm(range(batches_per_epoch), desc=desc):
+            desc = 'Epoch #{0}'.format(epoch)
+            for _ in tqdm(range(batches_per_epoch), desc=desc):
 
-                    model.zero_grad()
+                model.zero_grad()
 
-                    batch = next(batches)
+                batch = next(batches)
 
-                    X = Variable(torch.from_numpy(
-                        np.array(np.rollaxis(batch['X'], 0, 2),
-                                 dtype=np.float32)))
+                X = Variable(torch.from_numpy(
+                    np.array(np.rollaxis(batch['X'], 0, 2),
+                             dtype=np.float32)))
 
-                    if gpu:
-                        X = X.cuda()
+                if gpu:
+                    X = X.cuda()
 
-                    fX = model(X)
-                    if gpu:
-                        fX_ = fX.data.cpu().numpy()
-                    else:
-                        fX_ = fX.data.numpy()
-                    norm_avg += np.mean(np.linalg.norm(fX_, axis=0))
-                    # TODO. percentile
+                fX = model(X)
+                if gpu:
+                    fX_ = fX.data.cpu().numpy()
+                else:
+                    fX_ = fX.data.numpy()
+                norm_avg += np.mean(np.linalg.norm(fX_, axis=0))
+                # TODO. percentile
 
-                    # pre-compute pairwise distances
-                    distances = self.pdist(fX)
+                # pre-compute pairwise distances
+                distances = self.pdist(fX)
 
-                    if gpu:
-                        distances_ = distances.data.cpu().numpy()
-                    else:
-                        distances_ = distances.data.numpy()
-                    distances_avg += np.mean(distances_)
-                    # TODO. percentile
+                if gpu:
+                    distances_ = distances.data.cpu().numpy()
+                else:
+                    distances_ = distances.data.numpy()
+                distances_avg += np.mean(distances_)
+                # TODO. percentile
 
-                    # sample triplets
-                    if self.sampling == 'all':
-                        anchors, positives, negatives = self.batch_all(
-                            batch['y'], distances)
+                # sample triplets
+                if self.sampling == 'all':
+                    anchors, positives, negatives = self.batch_all(
+                        batch['y'], distances)
 
-                    elif self.sampling == 'hard':
-                        anchors, positives, negatives = self.batch_hard(
-                            batch['y'], distances)
+                elif self.sampling == 'hard':
+                    anchors, positives, negatives = self.batch_hard(
+                        batch['y'], distances)
 
-                    # compute triplet loss
-                    losses = self.triplet_loss(
-                        distances, anchors, positives, negatives)
+                # compute triplet loss
+                losses = self.triplet_loss(
+                    distances, anchors, positives, negatives)
 
-                    # log ratio of non-zero triplets
-                    if gpu:
-                        nonzero_ = np.mean(losses.data.cpu().numpy() > 0)
-                    else:
-                        nonzero_ = np.mean(losses.data.numpy() > 0)
-                    nonzero_avg += nonzero_
-                    nonzero_min = min(nonzero_min, nonzero_)
-                    nonzero_max = max(nonzero_max, nonzero_)
+                # log ratio of non-zero triplets
+                if gpu:
+                    nonzero_ = np.mean(losses.data.cpu().numpy() > 0)
+                else:
+                    nonzero_ = np.mean(losses.data.numpy() > 0)
+                nonzero_avg += nonzero_
+                nonzero_min = min(nonzero_min, nonzero_)
+                nonzero_max = max(nonzero_max, nonzero_)
 
-                    loss = torch.mean(losses)
+                loss = torch.mean(losses)
 
-                    # log batch loss
-                    if gpu:
-                        loss_ = float(loss.data.cpu().numpy())
-                    else:
-                        loss_ = float(loss.data.numpy())
-                    loss_avg += loss_
-                    loss_min = min(loss_min, loss_)
-                    loss_max = max(loss_max, loss_)
+                # log batch loss
+                if gpu:
+                    loss_ = float(loss.data.cpu().numpy())
+                else:
+                    loss_ = float(loss.data.numpy())
+                loss_avg += loss_
+                loss_min = min(loss_min, loss_)
+                loss_max = max(loss_max, loss_)
 
-                    loss.backward()
-                    optimizer.step()
+                loss.backward()
+                optimizer.step()
 
-                loss_avg /= batches_per_epoch
-                nonzero_avg /= batches_per_epoch
-                distances_avg /= batches_per_epoch
-                norm_avg /= batches_per_epoch
+            loss_avg /= batches_per_epoch
+            nonzero_avg /= batches_per_epoch
+            distances_avg /= batches_per_epoch
+            norm_avg /= batches_per_epoch
 
-                logs = {'loss_avg': loss_avg,
-                        'loss_min': loss_min,
-                        'loss_max': loss_max,
-                        'nonzero_avg': nonzero_avg,
-                        'nonzero_max': nonzero_max,
-                        'nonzero_min': nonzero_min,
-                        'distances_avg': distances_avg,
-                        'norm_avg': norm_avg}
+            logs = {'loss_avg': loss_avg,
+                    'loss_min': loss_min,
+                    'loss_max': loss_max,
+                    'nonzero_avg': nonzero_avg,
+                    'nonzero_max': nonzero_max,
+                    'nonzero_min': nonzero_min,
+                    'distances_avg': distances_avg,
+                    'norm_avg': norm_avg}
 
-                logging_callback.model = model
-                logging_callback.optimizer = optimizer
-                logging_callback.on_epoch_end(epoch, logs=logs)
+            logging_callback.model = model
+            logging_callback.optimizer = optimizer
+            logging_callback.on_epoch_end(epoch, logs=logs)
