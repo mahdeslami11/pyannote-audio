@@ -116,9 +116,20 @@ def read_audio(current_file, sample_rate=None, mono=True):
 
     """
 
-    y, sample_rate = librosa.load(current_file['audio'],
-                                  sr=sample_rate,
-                                  mono=False)
+    if current_file['audio'][-4:] == '.sph':
+        from sphfile import SPHFile
+        sph = SPHFile(current_file['audio'])
+        y = sph.content
+        sample_rate_ = sph.format['sample_rate']
+        if sample_rate is not None and sample_rate_ != sample_rate:
+            y = librosa.resample(y, sample_rate_, sample_rate)
+        else:
+            sample_rate = sample_rate_
+
+    else:
+        y, sample_rate = librosa.load(current_file['audio'],
+                                      sr=sample_rate,
+                                      mono=False)
 
     # reshape mono files to (1, n) [was (n, )]
     if y.ndim == 1:
