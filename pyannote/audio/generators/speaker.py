@@ -32,6 +32,7 @@ from pyannote.audio.features import Precomputed
 from pyannote.generators.fragment import random_segment
 from pyannote.generators.fragment import random_subsegment
 from pyannote.generators.batch import batchify
+from pyannote.database import get_label_identifier
 
 
 class SpeechTurnGenerator(object):
