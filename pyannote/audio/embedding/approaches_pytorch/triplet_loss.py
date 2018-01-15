@@ -296,7 +296,7 @@ class TripletLoss(object):
         if restart is not None:
             optimizer_pt = logging_callback.OPTIMIZER_PT.format(
                 log_dir=log_dir, epoch=restart)
-            optimizer.load_state_dict(torch.load(optimize_pt))
+            optimizer.load_state_dict(torch.load(optimizer_pt))
             if gpu:
                 for state in optimizer.state.values():
                     for k, v in state.items():
