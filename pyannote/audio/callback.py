@@ -300,11 +300,8 @@ class LoggingCallbackPytorch(object):
     WEIGHTS_DIR = '{log_dir}/weights'
     WEIGHTS_PT = '{log_dir}/weights/{epoch:04d}.pt'
     OPTIMIZER_PT = '{log_dir}/weights/{epoch:04d}.optimizer.pt'
-    LOG_TXT = '{log_dir}/{name}.{subset}.txt'
-    LOG_PNG = '{log_dir}/{name}.{subset}.png'
-    LOG_EPS = '{log_dir}/{name}.{subset}.eps'
 
-    def __init__(self, log_dir, log=None,restart=False):
+    def __init__(self, log_dir, restart=False):
         super(LoggingCallbackPytorch, self).__init__()
 
         # make sure path is absolute
@@ -325,13 +322,12 @@ class LoggingCallbackPytorch(object):
         self.values_ = {}
 
     def on_epoch_end(self, epoch, logs={}):
-        """Save weights (and various curves) after each epoch"""
+        """Save weights after each epoch"""
 
         # keep track of when the epoch ended
         now = datetime.datetime.now().isoformat()
 
         # save model after this epoch
-
         import torch
 
         weights_pt = self.WEIGHTS_PT.format(
@@ -341,70 +337,3 @@ class LoggingCallbackPytorch(object):
         optimizer_pt = self.OPTIMIZER_PT.format(
             log_dir=self.log_dir, epoch=epoch)
         torch.save(self.optimizer.state_dict(), optimizer_pt)
-
-        for name, value in logs.items():
-
-            # TODO
-            minimize = True
-            subset = 'train'
-
-            # keep track of value after last epoch
-            self.values_.setdefault(name, []).append(value)
-            values = self.values_[name]
-
-            # write value to file
-            log_txt = self.LOG_TXT.format(
-                log_dir=self.log_dir, name=name, subset=subset)
-            TXT_TEMPLATE = '{epoch:d} ' + now + ' {value:.8f}\n'
-
-            mode = 'a' if epoch > 0 else 'w'
-            try:
-                with open(log_txt, mode) as fp:
-                    fp.write(TXT_TEMPLATE.format(epoch=epoch, value=value))
-                    fp.flush()
-            except Exception as e:
-                pass
-
-            # keep track of 'best value' model
-            if minimize:
-                best_epoch = np.argmin(values)
-                best_value = np.min(values)
-            else:
-                best_epoch = np.argmax(values)
-                best_value = np.max(values)
-
-            # plot values to file and mark best value so far
-            plt.plot(values, 'b')
-            plt.plot([best_epoch], [best_value], 'bo')
-            plt.plot([0, epoch], [best_value, best_value], 'k--')
-            plt.grid(True)
-
-            plt.xlabel('epoch')
-
-            YLABEL = '{name} on {subset}'
-            ylabel = YLABEL.format(name=name, subset=subset)
-            plt.ylabel(ylabel)
-
-            TITLE = '{name} = {best_value:.8f} on {subset} @ epoch #{best_epoch:d}'
-            title = TITLE.format(name=name, subset=subset, best_value=best_value, best_epoch=best_epoch)
-            plt.title(title)
-
-            plt.tight_layout()
-
-            # save plot as PNG
-            log_png = self.LOG_PNG.format(
-                log_dir=self.log_dir, name=name, subset=subset)
-            try:
-                plt.savefig(log_png, dpi=75)
-            except Exception as e:
-                pass
-
-            # save plot as EPS
-            log_eps = self.LOG_EPS.format(
-                log_dir=self.log_dir, name=name, subset=subset)
-            try:
-                plt.savefig(log_eps)
-            except Exception as e:
-                pass
-
-            plt.close()

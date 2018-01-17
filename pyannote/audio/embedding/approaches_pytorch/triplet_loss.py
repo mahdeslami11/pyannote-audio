@@ -36,7 +36,7 @@ from pyannote.audio.generators.speaker import SpeechTurnGenerator
 from pyannote.audio.callback import LoggingCallbackPytorch
 from torch.optim import Adam
 from pyannote.audio.embedding.utils import to_condensed
-from scipy.spatial.distance import squareform
+from scipy.spatial.distance import pdist, squareform
 
 
 class TripletLoss(object):
@@ -261,6 +261,9 @@ class TripletLoss(object):
         logging_callback = LoggingCallbackPytorch(
             log_dir=log_dir, restart=(False if restart is None else True))
 
+        import tensorboardX
+        writer = tensorboardX.SummaryWriter(log_dir=log_dir)
+
         try:
             batch_generator = SpeechTurnGenerator(
                 feature_extraction,
@@ -306,19 +309,13 @@ class TripletLoss(object):
         restart = 0 if restart is None else restart + 1
         for epoch in range(restart, restart + epochs):
 
-            loss_min = np.inf
-            loss_max = -np.inf
             loss_avg = 0.
-
-            nonzero_min = 1.
-            nonzero_max = 0.
-            nonzero_avg = 0.
-
-            distances_avg = 0.
-            norm_avg = 0.
+            positive, negative = [], []
+            if not model.normalize:
+                norms = []
 
             desc = 'Epoch #{0}'.format(epoch)
-            for _ in tqdm(range(batches_per_epoch), desc=desc):
+            for i in tqdm(range(batches_per_epoch), desc=desc):
 
                 model.zero_grad()
 
@@ -332,12 +329,13 @@ class TripletLoss(object):
                     X = X.cuda()
 
                 fX = model(X)
-                if gpu:
-                    fX_ = fX.data.cpu().numpy()
-                else:
-                    fX_ = fX.data.numpy()
-                norm_avg += np.mean(np.linalg.norm(fX_, axis=0))
-                # TODO. percentile
+
+                if not model.normalize:
+                    if gpu:
+                        fX_ = fX.data.cpu().numpy()
+                    else:
+                        fX_ = fX.data.numpy()
+                    norms.append(np.linalg.norm(fX_, axis=0))
 
                 # pre-compute pairwise distances
                 distances = self.pdist(fX)
@@ -346,8 +344,9 @@ class TripletLoss(object):
                     distances_ = distances.data.cpu().numpy()
                 else:
                     distances_ = distances.data.numpy()
-                distances_avg += np.mean(distances_)
-                # TODO. percentile
+                is_positive = pdist(batch['y'].reshape((-1, 1)), metric='chebyshev') < 1
+                positive.append(distances_[np.where(is_positive)])
+                negative.append(distances_[np.where(~is_positive)])
 
                 # sample triplets
                 if self.sampling == 'all':
@@ -362,15 +361,6 @@ class TripletLoss(object):
                 losses = self.triplet_loss(
                     distances, anchors, positives, negatives)
 
-                # log ratio of non-zero triplets
-                if gpu:
-                    nonzero_ = np.mean(losses.data.cpu().numpy() > 0)
-                else:
-                    nonzero_ = np.mean(losses.data.numpy() > 0)
-                nonzero_avg += nonzero_
-                nonzero_min = min(nonzero_min, nonzero_)
-                nonzero_max = max(nonzero_max, nonzero_)
-
                 loss = torch.mean(losses)
 
                 # log batch loss
@@ -379,26 +369,35 @@ class TripletLoss(object):
                 else:
                     loss_ = float(loss.data.numpy())
                 loss_avg += loss_
-                loss_min = min(loss_min, loss_)
-                loss_max = max(loss_max, loss_)
+                writer.add_scalar(
+                    'loss/batch', loss_,
+                    global_step=i + epoch * batches_per_epoch)
 
                 loss.backward()
                 optimizer.step()
 
             loss_avg /= batches_per_epoch
-            nonzero_avg /= batches_per_epoch
-            distances_avg /= batches_per_epoch
-            norm_avg /= batches_per_epoch
+            writer.add_scalar('loss', loss_avg, global_step=epoch)
 
-            logs = {'loss_avg': loss_avg,
-                    'loss_min': loss_min,
-                    'loss_max': loss_max,
-                    'nonzero_avg': nonzero_avg,
-                    'nonzero_max': nonzero_max,
-                    'nonzero_min': nonzero_min,
-                    'distances_avg': distances_avg,
-                    'norm_avg': norm_avg}
+            positive = np.hstack(positive)
+            negative = np.hstack(negative)
+            writer.add_histogram(
+                'embedding/pairwise_distance/positive', positive,
+                global_step=i + epoch * batches_per_epoch,
+                bins='auto')
+            writer.add_histogram(
+                'embedding/pairwise_distance/negative', negative,
+                global_step=i + epoch * batches_per_epoch,
+                bins='auto')
+
+            if not model.normalize:
+                norms = np.hstack(norms)
+                writer.add_histogram(
+                    'embedding/norm', norms,
+                    global_step=i + epoch * batches_per_epoch,
+                    bins='auto')
+
 
             logging_callback.model = model
             logging_callback.optimizer = optimizer
-            logging_callback.on_epoch_end(epoch, logs=logs)
+            logging_callback.on_epoch_end(epoch)
