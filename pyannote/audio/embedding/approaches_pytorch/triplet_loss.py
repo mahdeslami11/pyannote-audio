@@ -255,7 +255,7 @@ class TripletLoss(object):
         elif self.clamp == 'sigmoid':
             loss = F.sigmoid(10 * delta)
 
-        # return average triplet loss
+        # return triplet losses
         return loss
 
     def fit(self, model, feature_extraction, protocol, log_dir, subset='train',
