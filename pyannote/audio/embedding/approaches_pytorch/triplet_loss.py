@@ -118,21 +118,20 @@ class TripletLoss(object):
         n_sequences, _ = fX.size()
         distances = []
 
-        for i in range(1, n_sequences):
+        for i in range(n_sequences - 1):
 
             if self.metric in ('cosine', 'angular'):
-
                 d = 1. - F.cosine_similarity(
-                    fX[i, :].expand(i, -1), fX[:i, :],
-                    dim=1, eps=1e-8)
+                    fX[i, :].expand(n_sequences - 1 - i, -1),
+                    fX[i+1:, :], dim=1, eps=1e-8)
 
                 if self.metric == 'angular':
                     d = torch.acos(torch.clamp(1. - d, -1 + 1e-6, 1 - 1e-6))
 
             elif self.metric == 'euclidean':
                 d = F.pairwise_distance(
-                    fX[i, :].expand(i, -1), fX[:i, :],
-                    p=2, eps=1e-06).view(-1)
+                    fX[i, :].expand(n_sequences - 1 - i, -1),
+                    fX[i+1:, :], p=2, eps=1e-06).view(-1)
 
             distances.append(d)
 
@@ -165,10 +164,10 @@ class TripletLoss(object):
         for anchor, y_anchor in enumerate(y):
 
             d = distances[anchor]
-            pos = np.where(y == y_anchor)[0]
-            pos = [p for p in pos if p != anchor]
 
             # hardest positive
+            pos = np.where(y == y_anchor)[0]
+            # pos = [p for p in pos if p != anchor]
             positive = int(pos[np.argmax(d[pos])])
 
             # hardest negative
@@ -233,14 +232,18 @@ class TripletLoss(object):
             Average triplet loss.
         """
 
+        # estimate total number of embeddings from pdist shape
+        n = int(.5 * (1 + np.sqrt(1 + 8 * len(distances))))
+        n = [n] * len(anchors)
+
         # convert indices from squared matrix
         # to condensed matrix referential
-        p = list(map(to_condensed, anchors, positives))
-        n = list(map(to_condensed, anchors, negatives))
+        pos = list(map(to_condensed, n, anchors, positives))
+        neg = list(map(to_condensed, n, anchors, negatives))
 
         # compute raw triplet loss (no margin, no clamping)
         # the lower, the better
-        delta = distances[p] - distances[n]
+        delta = distances[pos] - distances[neg]
 
         # clamp triplet loss
         if self.clamp == 'positive':

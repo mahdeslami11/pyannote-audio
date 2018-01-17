@@ -66,18 +66,24 @@ def cdist(fX_trn, fX_tst, metric='euclidean', **kwargs):
 
     return scipy.spatial.distance.cdist(
         fX_trn, fX_tst, metric=metric, **kwargs)
-def to_condensed(i, j):
+
+
+def to_condensed(n, i, j):
     """Compute index in condensed pdist matrix
 
-           0 1 2 3 4
-        0  . . . . .
-        1  0 . . . .  --> 0 1 2 3 4 5 6 7 8 9
-        2  1 2 . . .                      ^
-      > 3  3 4 5 . .
-        4  6 7 8 9 .
-               ^
+                V
+        0 | . 0 1 2 3
+     -> 1 | . . 4 5 6 <-   ==>   0 1 2 3 4 5 6 7 8 9
+        2 | . . . 7 8                    ^
+        3 | . . . . 9
+        4 | . . . . .
+           ----------
+            0 1 2 3 4
+
     Parameters
     ----------
+    n : int
+        Number of inputs in squared pdist matrix
     i, j : int
         Indices in squared pdist matrix
 
@@ -86,9 +92,7 @@ def to_condensed(i, j):
     k : int
         Index in condensed pdist matrix
     """
-
-    assert i != j, "no diagonal elements in condensed matrix"
-    if i < j:
-        i, j = j, i
-
-    return j + int(.5 * (i * (i - 1)))
+    if i == j:
+        raise ValueError('i and j should be different.')
+    i, j = min(i, j), max(i, j)
+    return int(i * n -i * i / 2 - 3 * i / 2 + j - 1)
