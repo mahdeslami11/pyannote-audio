@@ -383,20 +383,16 @@ class TripletLoss(object):
             negative = np.hstack(negative)
             writer.add_histogram(
                 'embedding/pairwise_distance/positive', positive,
-                global_step=i + epoch * batches_per_epoch,
-                bins='auto')
+                global_step=epoch, bins='auto')
             writer.add_histogram(
                 'embedding/pairwise_distance/negative', negative,
-                global_step=i + epoch * batches_per_epoch,
-                bins='auto')
+                global_step=epoch, bins='auto')
 
             if not model.normalize:
                 norms = np.hstack(norms)
                 writer.add_histogram(
                     'embedding/norm', norms,
-                    global_step=i + epoch * batches_per_epoch,
-                    bins='auto')
-
+                    global_step=epoch, bins='auto')
 
             logging_callback.model = model
             logging_callback.optimizer = optimizer
