@@ -36,6 +36,7 @@ from pyannote.database.util import FileFinder
 from pyannote.audio.util import mkdir_p
 from sortedcontainers import SortedDict
 from ..keras_utils import CUSTOM_OBJECTS
+import tensorboardX
 
 
 class Application(object):
@@ -212,6 +213,7 @@ class Application(object):
         validate_dir = self.VALIDATE_DIR.format(train_dir=self.train_dir_,
                                                 protocol=protocol_name)
         mkdir_p(validate_dir)
+        writer = tensorboardX.SummaryWriter(log_dir=validate_dir)
 
         validation_data = self.validate_init(protocol_name, subset=subset,
                                              **kwargs)
@@ -249,6 +251,9 @@ class Application(object):
                     epoch=epoch, value=values[metric][epoch])
                 validate_txt[metric].write(line)
                 validate_txt[metric].flush()
+
+                writer.add_scalar(
+                    metric, values[metric][epoch], global_step=epoch)
 
                 best_value, best_epoch = self.validate_plot(
                     metric, values[metric],
