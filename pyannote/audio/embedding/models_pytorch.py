@@ -137,7 +137,8 @@ class ClopiNet(nn.Module):
             input_dim = hidden_dim
         if input_dim > 1:
             attention_layer = nn.Linear(input_dim, 1, bias=True)
-            self.add_module('attention', attention_layer)
+            self.add_module('attention_{0}'.format(len(self.attention)),
+                            attention_layer)
             self.attention_layers_.append(attention_layer)
 
     @property
