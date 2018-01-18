@@ -211,13 +211,13 @@ class ClopiNet(nn.Module):
         if self.internal:
             return output
 
-        attn = sequence
         if self.attention_layers_:
-            for hidden_dim, layer in zip(self.attention,
-                                         self.attention_layers_):
+            attn = sequence
+            for layer, hidden_dim in zip(self.attention_layers_,
+                                         self.attention + [1]):
                 attn = layer(attn)
                 attn = F.tanh(attn)
-            attn = F.softmax(attn, dim=2)
+            attn = F.softmax(attn, dim=0)
             output = output * attn
 
         # average temporal pooling
