@@ -31,7 +31,7 @@ Speaker embedding
 
 Usage:
   pyannote-speaker-embedding train [--database=<db.yml> --subset=<subset> --from=<epoch> --for=<epochs> --gpu] <experiment_dir> <database.task.protocol>
-  pyannote-speaker-embedding validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch> --gpu] <train_dir> <database.task.protocol>
+  pyannote-speaker-embedding validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch> --chronological --gpu] <train_dir> <database.task.protocol>
   pyannote-speaker-embedding apply [--database=<db.yml> --step=<step> --internal] <validate.txt> <database.task.protocol> <output_dir>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
@@ -60,6 +60,7 @@ Common options:
 
 "validation" mode:
   --every=<epoch>            Validate model every <epoch> epochs [default: 1].
+  --chronological            Force validation in chronological order.
   <train_dir>                Path to the directory containing pre-trained
                              models (i.e. the output of "train" mode).
 
@@ -485,11 +486,14 @@ def main():
         # validate every that many epochs (defaults to 1)
         every = int(arguments['--every'])
 
+        in_order = arguments['--chronological']
+
         application = SpeakerEmbeddingPytorch.from_train_dir(
             train_dir, db_yml=db_yml)
         application.gpu = gpu
         application.validate(protocol_name, subset=subset,
-                             start=start, end=end, every=every)
+                             start=start, end=end, every=every,
+                             in_order=in_order)
 
     if arguments['apply']:
 

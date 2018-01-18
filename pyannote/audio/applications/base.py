@@ -204,7 +204,7 @@ class Application(object):
         return best_value, best_epoch
 
     def validate(self, protocol_name, subset='development',
-                 every=1, start=0, end=None, **kwargs):
+                 every=1, start=0, end=None, in_order=False, **kwargs):
 
 
         validate_txt, validate_png, validate_eps = {}, {}, {}
@@ -220,7 +220,9 @@ class Application(object):
 
         progress_bar = tqdm(unit='epoch')
 
-        for i, epoch in enumerate(self.validate_iter(start=start, end=end, step=every)):
+        for i, epoch in enumerate(
+            self.validate_iter(start=start, end=end, step=every,
+                               in_order=in_order)):
 
             # {'metric1': {'minimize': True, 'value': 0.2, 'baseline': 0.1},
             #  'metric2': {'minimize': False, 'value': 0.9}}
@@ -278,7 +280,8 @@ class Application(object):
             progress_bar.set_description(description)
             progress_bar.update(1)
 
-    def validate_iter(self, start=None, end=None, step=1, sleep=10):
+    def validate_iter(self, start=None, end=None, step=1, sleep=10,
+                      in_order=False):
         """Continuously watches `train_dir` for newly completed epochs
         and yields them for validation
 
@@ -293,8 +296,9 @@ class Application(object):
             Stop validating after epoch `end`. Defaults to never stop.
         step : int, optional
             Validate every `step`th epoch. Defaults to 1.
-
         sleep : int, optional
+        in_order : bool, optional
+            Force chronological validation.
 
         Usage
         -----
@@ -337,7 +341,7 @@ class Application(object):
 
             # if last completed epoch has not been processed yet,
             # always process it first
-            if last_completed_epoch not in validated_epochs:
+            if (not in_order) and (last_completed_epoch not in validated_epochs):
                 next_epoch_to_validate = last_completed_epoch
                 time.sleep(5)  # HACK give checkpoint time to save weights
 
