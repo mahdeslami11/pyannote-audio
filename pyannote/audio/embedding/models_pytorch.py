@@ -61,6 +61,10 @@ class ClopiNet(nn.Module):
         Return sequence of internal embeddings. Defaults to False.
     normalize : bool, optional
         Set to False to **not** unit-normalize embeddings.
+    attention : list of int, optional
+        List of hidden dimensions of attention linear layers (e.g. [16, ]).
+        Defaults to False (i.e. no attention).
+    return_attention : bool, optional
 
     Usage
     -----
@@ -71,7 +75,7 @@ class ClopiNet(nn.Module):
     def __init__(self, n_features,
                  rnn='LSTM', recurrent=[16,], bidirectional=False,
                  linear=[16, ], weighted=False, internal=False,
-                 normalize=True):
+                 normalize=True, attention=False, return_attention=False):
 
         super(ClopiNet, self).__init__()
 
@@ -83,6 +87,8 @@ class ClopiNet(nn.Module):
         self.weighted = weighted
         self.internal = internal
         self.normalize = normalize
+        self.attention = attention
+        self.return_attention = return_attention
 
         self.num_directions_ = 2 if self.bidirectional else 1
 
@@ -117,6 +123,22 @@ class ClopiNet(nn.Module):
 
         if self.weighted:
             self.alphas_ = nn.Parameter(torch.ones(input_dim))
+
+        # create attention layers
+        self.attention_layers_ = []
+        if not self.attention:
+            return
+
+        input_dim = self.n_features
+        for i, hidden_dim in enumerate(self.attention):
+            attention_layer = nn.Linear(input_dim, hidden_dim, bias=True)
+            self.add_module('attention_{0}'.format(i), attention_layer)
+            self.attention_layers_.append(attention_layer)
+            input_dim = hidden_dim
+        if input_dim > 1:
+            attention_layer = nn.Linear(input_dim, 1, bias=True)
+            self.add_module('attention', attention_layer)
+            self.attention_layers_.append(attention_layer)
 
     @property
     def output_dim(self):
@@ -188,11 +210,23 @@ class ClopiNet(nn.Module):
         if self.internal:
             return output
 
+        attn = sequence
+        if self.attention_layers_:
+            for hidden_dim, layer in zip(self.attention,
+                                         self.attention_layers_):
+                attn = layer(attn)
+                attn = F.tanh(attn)
+            attn = F.softmax(attn, dim=2)
+            output = output * attn
+
         # average temporal pooling
         output = output.sum(dim=0)
 
         # L2 normalization
         if self.normalize:
             output = output / torch.norm(output, 2, 0)
+
+        if self.return_attention:
+            return output, attn
 
         return output
