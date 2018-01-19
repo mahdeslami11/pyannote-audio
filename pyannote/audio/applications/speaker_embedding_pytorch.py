@@ -513,5 +513,6 @@ def main():
         internal = arguments['--internal']
 
         application = SpeakerEmbeddingPytorch.from_validate_txt(validate_txt)
+        application.gpu = gpu
         application.apply(protocol_name, output_dir, step=step,
                           internal=internal)
