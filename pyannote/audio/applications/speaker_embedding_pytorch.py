@@ -382,6 +382,10 @@ class SpeakerEmbeddingPytorch(Application):
         best_epoch = int(eers.iloc[np.argmin(eers.values())])
         model = self.load_model(best_epoch)
 
+        if self.gpu:
+            model = model.cuda()
+        model.eval()
+
         # guess sequence duration from path (.../3.2+0.8/...)
         directory = basename(dirname(self.experiment_dir))
         duration = self.approach_.duration
@@ -398,7 +402,7 @@ class SpeakerEmbeddingPytorch(Application):
         sequence_embedding = SequenceEmbedding(
             model, self.feature_extraction_, duration,
             step=step, batch_size=batch_size,
-            internal=internal)
+            internal=internal, gpu=self.gpu)
         sliding_window = sequence_embedding.sliding_window
         dimension = sequence_embedding.dimension
 
