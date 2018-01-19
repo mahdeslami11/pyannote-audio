@@ -32,7 +32,7 @@ Speaker embedding
 Usage:
   pyannote-speaker-embedding train [--database=<db.yml> --subset=<subset> --from=<epoch> --for=<epochs> --gpu] <experiment_dir> <database.task.protocol>
   pyannote-speaker-embedding validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch> --chronological --gpu] <train_dir> <database.task.protocol>
-  pyannote-speaker-embedding apply [--database=<db.yml> --step=<step> --internal] <validate.txt> <database.task.protocol> <output_dir>
+  pyannote-speaker-embedding apply [--database=<db.yml> --step=<step> --internal --gpu] <validate.txt> <database.task.protocol> <output_dir>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
 
