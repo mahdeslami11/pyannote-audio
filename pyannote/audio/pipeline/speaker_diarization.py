@@ -61,6 +61,8 @@ class SpeakerDiarization(object):
         See pyannote.audio.signal.Peak.apply(). Defaults to 1.
     cls__min_cluster_size, cls__min_samples, cls__metric : optional
         See pyannote.audio.embedding.clustering.Clustering
+    normalize : boolean, optional
+        Normalize embeddings before clustering. Defaults to not normalize.
     long_first : boolean, optional
         Start by clustering longer speech turns, then associate each smaller
         speech turns to the closest cluster. Defaults to cluster all speech
@@ -71,7 +73,7 @@ class SpeakerDiarization(object):
                  sad__onset=0.7, sad__offset=0.7, sad__dimension=1,
                  scd__alpha=0.5, scd__min_duration=1., scd__dimension=1,
                  cls__min_cluster_size=5, cls__min_samples=None,
-                 cls__metric='cosine', long_first=False):
+                 cls__metric='cosine', long_first=False, normalize=False):
 
         super(SpeakerDiarization, self).__init__()
 
@@ -95,6 +97,7 @@ class SpeakerDiarization(object):
         self.cls__min_samples = cls__min_samples
         self.cls__metric = cls__metric
         self.long_first = long_first
+        self.normalize = normalize
 
         # initialize speech activity detection module
         self.sad_binarize_ = Binarize(onset=self.sad__onset,
@@ -149,6 +152,10 @@ class SpeakerDiarization(object):
         # speech turns embedding
         emb = self.emb(current_file)
 
+        # normalize speech turns embeddings
+        if self.normalize:
+            emb.data = l2_normalize(emb.data)
+
         # long speech turns = those with at least one embedding fully included
         # shrt speech turns = all the other speech turns
         long_speech_turns, long_fX = [], []
@@ -173,6 +180,8 @@ class SpeakerDiarization(object):
             shrt_fX = np.vstack(shrt_fX)
 
         # cluster long speech turns based on their normalized embeddings
+        # TODO: make sure it makes sense for embeddings trained with the
+        # euclidean distance and not normalized
         long_clusters = self.cls_.apply(l2_normalize(long_fX))
 
         # get a unique embedding for each cluster by summing the embedding of
@@ -194,4 +203,5 @@ class SpeakerDiarization(object):
         clusters = list(long_clusters) + list(shrt_clusters)
         for speech_turn, cluster in zip(speech_turns, clusters):
             hypothesis[speech_turn] = cluster
+
         return hypothesis
