@@ -340,7 +340,7 @@ class TripletLoss(object):
                         fX_ = fX.data.cpu().numpy()
                     else:
                         fX_ = fX.data.numpy()
-                    norms.append(np.linalg.norm(fX_, axis=0))
+                    norms.append(np.linalg.norm(fX_, axis=1))
 
                 # pre-compute pairwise distances
                 distances = self.pdist(fX)
