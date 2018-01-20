@@ -87,7 +87,12 @@ class SequenceLabeling(PeriodicFeaturesMixin, FileBasedBatchGenerator):
     @property
     def dimension(self):
         if isinstance(self.model, nn.Module):
-            return self.model.n_classes
+            if hasattr(self.model, 'n_classes'):
+                return self.model.n_classes
+            elif hasattr(self.model, 'output_dim'):
+                return self.model.output_dim
+            else:
+                raise ValueError('Model has no n_classes nor output_dim attribute.')
         else:
             return self.model.output_shape[-1]
 
