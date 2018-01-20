@@ -36,6 +36,7 @@ from pyannote.audio.generators.speaker import SpeechTurnGenerator
 from pyannote.audio.callback import LoggingCallbackPytorch
 from torch.optim import Adam
 from .triplet_loss import TripletLoss
+from scipy.spatial.distance import pdist, squareform
 
 
 class GradReverse(Function):
@@ -59,14 +60,14 @@ class DomainClassifier(nn.Module):
         n_hidden = 100
         self.fc1 = nn.Linear(n_dimensions, n_hidden)
         self.fc2 = nn.Linear(n_hidden, n_domains)
-        self.drop = nn.Dropout2d(0.25)
+        # self.drop = nn.Dropout2d(0.25)
         self.alpha = alpha
 
     def forward(self, x):
         x = grad_reverse(x, self.alpha)
-        x = F.leaky_relu(self.drop(self.fc1(x)))
-        x = self.fc2(x)
-        return F.softmax(x, dim=0)
+        # x = F.leaky_relu(self.drop(self.fc1(x)))
+        x = F.leaky_relu(self.fc1(x))
+        return self.fc2(x)
 
 class DomainAdversarialTripletLoss(TripletLoss):
     """
@@ -111,9 +112,11 @@ class DomainAdversarialTripletLoss(TripletLoss):
     def fit(self, model, feature_extraction, protocol, log_dir, subset='train',
             epochs=1000, restart=None, gpu=False):
 
+        import tensorboardX
+        writer = tensorboardX.SummaryWriter(log_dir=log_dir)
+
         logging_callback = LoggingCallbackPytorch(
             log_dir=log_dir, restart=(False if restart is None else True))
-
         try:
             batch_generator = SpeechTurnGenerator(
                 feature_extraction,
@@ -169,106 +172,153 @@ class DomainAdversarialTripletLoss(TripletLoss):
         restart = 0 if restart is None else restart + 1
         for epoch in range(restart, restart + epochs):
 
-            loss_min = np.inf
-            loss_max = -np.inf
+            tloss_avg = 0.
+            dloss_avg = 0.
             loss_avg = 0.
-
-            nonzero_min = 1.
-            nonzero_max = 0.
-            nonzero_avg = 0.
-
-            distances_avg = 0.
-            norm_avg = 0.
+            dacc_avg = 0.
+            positive, negative = [], []
+            if not model.normalize:
+                norms = []
 
             desc = 'Epoch #{0}'.format(epoch)
-            for _ in tqdm(range(batches_per_epoch), desc=desc):
+            for i in tqdm(range(batches_per_epoch), desc=desc):
 
                 model.zero_grad()
 
                 batch = next(batches)
-
-                X = Variable(torch.from_numpy(
-                    np.array(np.rollaxis(batch['X'], 0, 2),
-                             dtype=np.float32)))
-
-                y_domain = batch['y_{domain}'.format(domain=self.domain)])
-                y_domain = Variable(torch.from_numpy(np.array(y_domain))
+                X = np.array(np.rollaxis(batch['X'], 0, 2), dtype=np.float32)
+                X = Variable(torch.from_numpy(X))
+                y = batch['y']
+                y_domain = batch['y_{domain}'.format(domain=self.domain)]
 
                 if gpu:
                     X = X.cuda()
-                    y_domain = y_domain.cuda()
-
                 fX = model(X)
+
+                if not model.normalize:
+                    if gpu:
+                        fX_ = fX.data.cpu().numpy()
+                    else:
+                        fX_ = fX.data.numpy()
+                    norms.append(np.linalg.norm(fX_, axis=0))
+
+                triplet_losses = []
+                for d, domain in enumerate(np.unique(y_domain)):
+
+                    this_domain = np.where(y_domain == domain)[0]
+
+                    domain_y = y[this_domain]
+
+                    # if there is less than 2 speakers in this domain, skip it
+                    if len(np.unique(domain_y)) < 2:
+                        continue
+
+                    # pre-compute within-domain pairwise distances
+                    domain_fX = fX[this_domain, :]
+                    domain_pdist = self.pdist(domain_fX)
+
+                    if gpu:
+                        domain_pdist_ = domain_pdist.data.cpu().numpy()
+                    else:
+                        domain_pdist_ = domain_pdist.data.numpy()
+                    is_positive = pdist(domain_y.reshape((-1, 1)), metric='chebyshev') < 1
+                    positive.append(domain_pdist_[np.where(is_positive)])
+                    negative.append(domain_pdist_[np.where(~is_positive)])
+
+                    # sample triplets
+                    if self.sampling == 'all':
+                        anchors, positives, negatives = self.batch_all(
+                            domain_y, domain_pdist)
+
+                    elif self.sampling == 'hard':
+                        anchors, positives, negatives = self.batch_hard(
+                            domain_y, domain_pdist)
+
+                    # compute triplet loss
+                    triplet_losses.append(
+                        self.triplet_loss(domain_pdist, anchors,
+                                          positives, negatives))
+
+                tloss = 0.
+                for tl in triplet_losses:
+                    tloss += torch.mean(tl)
+                tloss /= len(triplet_losses)
+
                 if gpu:
-                    fX_ = fX.data.cpu().numpy()
+                    tloss_ = float(tloss.data.cpu().numpy())
                 else:
-                    fX_ = fX.data.numpy()
-                norm_avg += np.mean(np.linalg.norm(fX_, axis=0))
-                # TODO. percentile
+                    tloss_ = float(tloss.data.numpy())
+                tloss_avg += tloss_
 
-                # pre-compute pairwise distances
-                distances = self.pdist(fX)
-
+                # domain-adversarial
+                y_domain = Variable(torch.from_numpy(np.array(y_domain)))
                 if gpu:
-                    distances_ = distances.data.cpu().numpy()
-                else:
-                    distances_ = distances.data.numpy()
-                distances_avg += np.mean(distances_)
-                # TODO. percentile
-
-                # sample triplets
-                if self.sampling == 'all':
-                    anchors, positives, negatives = self.batch_all(
-                        batch['y'], distances)
-
-                elif self.sampling == 'hard':
-                    anchors, positives, negatives = self.batch_hard(
-                        batch['y'], distances)
-
-                # compute triplet loss
-                triplet_losses = self.triplet_loss(
-                    distances, anchors, positives, negatives)
+                    y_domain = y_domain.cuda()
 
                 domain_score = domain_clf(fX)
                 dloss = domain_loss(domain_score, y_domain)
 
-                # log ratio of non-zero triplets
                 if gpu:
-                    nonzero_ = np.mean(triplet_losses.data.cpu().numpy() > 0)
+                    dloss_ = float(dloss.data.cpu().numpy())
                 else:
-                    nonzero_ = np.mean(triplet_losses.data.numpy() > 0)
-                nonzero_avg += nonzero_
-                nonzero_min = min(nonzero_min, nonzero_)
-                nonzero_max = max(nonzero_max, nonzero_)
+                    dloss_ = float(dloss.data.numpy())
+                dloss_avg += dloss_
 
-                loss = torch.mean(triplet_losses) + dloss
+                # log domain classification accuracy
+                if gpu:
+                    domain_score_ = domain_score.data.cpu().numpy()
+                    y_domain_ = y_domain.data.cpu().numpy()
+                else:
+                    domain_score_ = domain_score.data.numpy()
+                    y_domain_ = y_domain.data.numpy()
+                dacc_ = np.mean(np.argmax(domain_score_, axis=1) == y_domain_)
+                dacc_avg += dacc_
 
-                # log batch loss
+                loss = tloss + dloss
+
                 if gpu:
                     loss_ = float(loss.data.cpu().numpy())
                 else:
                     loss_ = float(loss.data.numpy())
                 loss_avg += loss_
-                loss_min = min(loss_min, loss_)
-                loss_max = max(loss_max, loss_)
+                loss_avg += loss_
 
                 loss.backward()
                 optimizer.step()
 
-            loss_avg /= batches_per_epoch
-            nonzero_avg /= batches_per_epoch
-            distances_avg /= batches_per_epoch
-            norm_avg /= batches_per_epoch
+            # if gpu:
+            #     embeddings = fX.data.cpu()
+            # else:
+            #     embeddings = fX.data
+            # metadata = list(batch['extra'][self.domain])
+            #
+            # writer.add_embedding(embeddings, metadata=metadata,
+            #                      global_step=epoch)
 
-            logs = {'loss_avg': loss_avg,
-                    'loss_min': loss_min,
-                    'loss_max': loss_max,
-                    'nonzero_avg': nonzero_avg,
-                    'nonzero_max': nonzero_max,
-                    'nonzero_min': nonzero_min,
-                    'distances_avg': distances_avg,
-                    'norm_avg': norm_avg}
+            tloss_avg /= batches_per_epoch
+            writer.add_scalar('tloss', tloss_avg, global_step=epoch)
+            dloss_avg /= batches_per_epoch
+            writer.add_scalar('dloss', dloss_avg, global_step=epoch)
+            loss_avg /= batches_per_epoch
+            writer.add_scalar('loss', loss_avg, global_step=epoch)
+            dacc_avg /= batches_per_epoch
+            writer.add_scalar('dacc', dacc_avg, global_step=epoch)
+
+            positive = np.hstack(positive)
+            negative = np.hstack(negative)
+            writer.add_histogram(
+                'embedding/pairwise_distance/positive', positive,
+                global_step=epoch, bins='auto')
+            writer.add_histogram(
+                'embedding/pairwise_distance/negative', negative,
+                global_step=epoch, bins='auto')
+
+            if not model.normalize:
+                norms = np.hstack(norms)
+                writer.add_histogram(
+                    'embedding/norm', norms,
+                    global_step=epoch, bins='auto')
 
             logging_callback.model = model
             logging_callback.optimizer = optimizer
-            logging_callback.on_epoch_end(epoch, logs=logs)
+            logging_callback.on_epoch_end(epoch)

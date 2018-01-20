@@ -26,5 +26,7 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
+
 from .triplet_loss import TripletLoss
-from .domain_adversarial_triplet_loss import DomainAdversarialTripletLoss
+from .center_loss import CenterLoss
+from .center_loss import NearestCenterLoss

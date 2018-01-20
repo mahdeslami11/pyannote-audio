@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016-2017 CNRS
+# Copyright (c) 2016-2018 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -27,11 +27,9 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 import numpy as np
-import keras.backend as K
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from ..labeling.base import SequenceLabeling
 
-import torch.nn as nn
 from torch.autograd import Variable
 import torch
 
@@ -41,7 +39,7 @@ class SequenceEmbedding(SequenceLabeling):
 
     Parameters
     ----------
-    model : keras.Model or nn.Module
+    model : nn.Module
         Pre-trained sequence embedding model.
     feature_extraction : callable
         Feature extractor
@@ -49,73 +47,24 @@ class SequenceEmbedding(SequenceLabeling):
         Subsequence duration, in seconds.
     step : float, optional
         Subsequence step, in seconds. Defaults to 50% of `duration`.
-    internal : bool, optional
-        Extract internal representation.
     batch_size : int, optional
         Defaults to 32.
     gpu : boolean, optional
-        Run on GPU. Only works witht pytorch backend.
-
-    Usage
-    -----
-    >>> from pyannote.audio.keras_utils import load_model
-    >>> model = load_model('/path/to/model.h5')
-    >>> feature_extraction = YaafeMFCC(...)
-    >>> duration = 3.2
-    >>> sequence_embedding = SequenceEmbedding(model, feature_extraction, duration)
-    >>> sequence_embedding.apply(current_file)
+        Run on GPU. Only works with pytorch backend.
     """
 
     def __init__(self, model, feature_extraction, duration,
-                 step=None, batch_size=32, internal=False,
-                 source='audio', gpu=False):
+                 step=None, batch_size=32, source='audio',
+                 gpu=False):
 
-        super(SequenceEmbedding, self).__init__(model, feature_extraction, duration,
-                                        step=step, batch_size=batch_size,
-                                        source=source, gpu=gpu)
-
-        self.internal = internal
-
-        # build function that takes batch of sequences as input
-        # and returns their (internal) embedding
-
-        if isinstance(self.model, nn.Module):
-            self.model.internal = self.internal
-            def embed(X):
-                X = Variable(torch.from_numpy(np.rollaxis(np.array(X, dtype=np.float32), 0, 2)))
-
-                if self.gpu:
-                    emb = self.model(X.cuda()).data.cpu().numpy()
-                else:
-                    emb = self.model(X).data.numpy()
-
-                if self.internal:
-                    return np.rollaxis(emb, 1, 0)
-                else:
-                    return emb
-            self.embed_ = embed
-
-        else:
-
-            if self.internal:
-                # TODO add support for any internal layer
-                output_layer = self.model.get_layer(name='internal')
-                if output_layer is None:
-                    raise ValueError(
-                        'Model does not support extraction of internal embedding.')
-            else:
-                output_layer = self.model.get_layer(index=-1)
-
-            input_layer = self.model.get_layer(name='input')
-            K_func = K.function(
-                [input_layer.input, K.learning_phase()], [output_layer.output])
-            def embed(batch):
-                return K_func([batch, 0])[0]
-            self.embed_ = embed
+        super(SequenceEmbedding, self).__init__(
+            model, feature_extraction, duration,
+            step=step, source=source,
+            batch_size=batch_size, gpu=gpu)
 
     @property
     def sliding_window(self):
-        if self.internal:
+        if self.model.internal:
             return self.feature_extractor.sliding_window()
         else:
             return SlidingWindow(duration=self.duration, step=self.step)
@@ -132,10 +81,21 @@ class SequenceEmbedding(SequenceLabeling):
         -------
         fX : numpy array
             Batch of sequence embeddings.
-            (batch_size, n_samples, n_dimensions) if internal
-            (batch_size, n_dimensions) if not internal
+            (batch_size, n_samples, n_dimensions) if self.model.internal
+            (batch_size, n_dimensions) if not self.model.internal
         """
-        return self.embed_(X)
+
+        X = Variable(torch.from_numpy(np.rollaxis(np.array(X, dtype=np.float32), 0, 2)))
+
+        if self.gpu:
+            fX = self.model(X.cuda()).data.cpu().numpy()
+        else:
+            fX = self.model(X).data.numpy()
+
+        if fX.ndim == 3:
+            return np.rollaxis(fX, 1, 0)
+        else:
+            return fX
 
     def apply(self, current_file):
         """Extract embeddings
@@ -155,9 +115,10 @@ class SequenceEmbedding(SequenceLabeling):
         """
 
         if isinstance(current_file, np.ndarray):
-            return self.embed_(current_file)
+            # TODO. process batch per batch
+            return self.postprocess_ndarray(current_file)
 
-        if self.internal:
+        if self.model.internal:
             return super(SequenceEmbedding, self).apply(current_file)
 
         # compute embedding on sliding window
