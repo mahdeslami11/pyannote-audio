@@ -65,6 +65,8 @@ class ClopiNet(nn.Module):
         List of hidden dimensions of attention linear layers (e.g. [16, ]).
         Defaults to False (i.e. no attention).
     return_attention : bool, optional
+    batch_normalization : bool, optional
+        Defaults to False. Has not effect when internal is set to True.
 
     Usage
     -----
@@ -75,7 +77,8 @@ class ClopiNet(nn.Module):
     def __init__(self, n_features,
                  rnn='LSTM', recurrent=[16,], bidirectional=False,
                  linear=[16, ], weighted=False, internal=False,
-                 normalize=True, attention=False, return_attention=False):
+                 normalize=True, attention=False, return_attention=False,
+                 batch_normalization=False):
 
         super(ClopiNet, self).__init__()
 
@@ -89,6 +92,7 @@ class ClopiNet(nn.Module):
         self.normalize = normalize
         self.attention = attention
         self.return_attention = return_attention
+        self.batch_normalization = batch_normalization
 
         self.num_directions_ = 2 if self.bidirectional else 1
 
@@ -123,6 +127,10 @@ class ClopiNet(nn.Module):
 
         if self.weighted:
             self.alphas_ = nn.Parameter(torch.ones(input_dim))
+
+        if self.batch_normalization:
+            self.batch_norm_ = nn.BatchNorm1d(input_dim, eps=1e-5,
+                                              momentum=0.1, affine=True)
 
         # create attention layers
         self.attention_layers_ = []
@@ -193,6 +201,7 @@ class ClopiNet(nn.Module):
 
         # concatenate outputs
         output = torch.cat(outputs, dim=2)
+        # n_samples, batch_size, dimension
 
         # stack linear layers
         for hidden_dim, layer in zip(self.linear, self.linear_layers_):
@@ -203,6 +212,8 @@ class ClopiNet(nn.Module):
             # apply non-linear activation function
             output = F.tanh(output)
 
+        # n_samples, batch_size, dimension
+
         if self.weighted:
             if gpu:
                 self.alphas_ = self.alphas_.cuda()
@@ -211,6 +222,8 @@ class ClopiNet(nn.Module):
         if self.internal:
             if self.normalize:
                 output = output / torch.norm(output, 2, 2, keepdim=True)
+
+            # batch normalization
             return output
 
         if self.attention_layers_:
@@ -224,10 +237,16 @@ class ClopiNet(nn.Module):
 
         # average temporal pooling
         output = output.sum(dim=0)
+        # batch_size, dimension
 
         # L2 normalization
         if self.normalize:
             output = output / torch.norm(output, 2, 1, keepdim=True)
+            # batch_size, dimension
+
+        # batch normalization
+        if self.batch_normalization:
+            output = self.batch_norm_(output)
 
         if self.return_attention:
             return output, attn
