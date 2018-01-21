@@ -32,7 +32,7 @@ from tqdm import tqdm
 import torch
 from torch.autograd import Variable
 import torch.nn.functional as F
-from pyannote.audio.generators.speaker import SpeechTurnGenerator
+from pyannote.audio.generators.speaker import PureSpeechSegmentGenerator
 from pyannote.audio.callback import LoggingCallbackPytorch
 from torch.optim import Adam
 from pyannote.audio.embedding.utils import to_condensed
@@ -268,7 +268,7 @@ class TripletLoss(object):
             log_dir=log_dir, restart=(False if restart is None else True))
 
         try:
-            batch_generator = SpeechTurnGenerator(
+            batch_generator = PureSpeechSegmentGenerator(
                 feature_extraction,
                 per_label=self.per_label, per_fold=self.per_fold,
                 duration=self.duration)
@@ -276,7 +276,7 @@ class TripletLoss(object):
             batch = next(batches)
         except OSError as e:
             del batch_generator.data_
-            batch_generator = SpeechTurnGenerator(
+            batch_generator = PureSpeechSegmentGenerator(
                 feature_extraction,
                 per_label=self.per_label, per_fold=self.per_fold,
                 duration=self.duration, fast=False)

@@ -32,7 +32,7 @@ import torch
 from torch.autograd import Variable, Function
 import torch.nn.functional as F
 import torch.nn as nn
-from pyannote.audio.generators.speaker import SpeechTurnGenerator
+from pyannote.audio.generators.speaker import PureSpeechSegmentGenerator
 from pyannote.audio.callback import LoggingCallbackPytorch
 from torch.optim import Adam
 from .triplet_loss import TripletLoss
@@ -118,7 +118,7 @@ class DomainAdversarialTripletLoss(TripletLoss):
         logging_callback = LoggingCallbackPytorch(
             log_dir=log_dir, restart=(False if restart is None else True))
         try:
-            batch_generator = SpeechTurnGenerator(
+            batch_generator = PureSpeechSegmentGenerator(
                 feature_extraction,
                 per_label=self.per_label, per_fold=self.per_fold,
                 duration=self.duration)
@@ -126,7 +126,7 @@ class DomainAdversarialTripletLoss(TripletLoss):
             batch = next(batches)
         except OSError as e:
             del batch_generator.data_
-            batch_generator = SpeechTurnGenerator(
+            batch_generator = PureSpeechSegmentGenerator(
                 feature_extraction,
                 per_label=self.per_label, per_fold=self.per_fold,
                 duration=self.duration, fast=False)
