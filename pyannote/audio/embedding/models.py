@@ -130,7 +130,7 @@ class ClopiNet(nn.Module):
 
         if self.batch_normalization:
             self.batch_norm_ = nn.BatchNorm1d(input_dim, eps=1e-5,
-                                              momentum=0.1, affine=True)
+                                              momentum=0.1, affine=False)
 
         # create attention layers
         self.attention_layers_ = []
