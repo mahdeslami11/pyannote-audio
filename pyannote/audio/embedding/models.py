@@ -65,7 +65,7 @@ class ClopiNet(nn.Module):
         List of hidden dimensions of attention linear layers (e.g. [16, ]).
         Defaults to False (i.e. no attention).
     return_attention : bool, optional
-    batch_normalization : bool, optional
+    batch_norm : bool, optional
         Defaults to False. Has not effect when internal is set to True.
 
     Usage
@@ -78,7 +78,7 @@ class ClopiNet(nn.Module):
                  rnn='LSTM', recurrent=[16,], bidirectional=False,
                  linear=[16, ], weighted=False, internal=False,
                  normalize=True, attention=False, return_attention=False,
-                 batch_normalization=False):
+                 batch_norm=False):
 
         super(ClopiNet, self).__init__()
 
@@ -92,7 +92,7 @@ class ClopiNet(nn.Module):
         self.normalize = normalize
         self.attention = attention
         self.return_attention = return_attention
-        self.batch_normalization = batch_normalization
+        self.batch_norm = batch_norm
 
         self.num_directions_ = 2 if self.bidirectional else 1
 
@@ -128,7 +128,7 @@ class ClopiNet(nn.Module):
         if self.weighted:
             self.alphas_ = nn.Parameter(torch.ones(input_dim))
 
-        if self.batch_normalization:
+        if self.batch_norm:
             self.batch_norm_ = nn.BatchNorm1d(input_dim, eps=1e-5,
                                               momentum=0.1, affine=False)
 
@@ -223,7 +223,6 @@ class ClopiNet(nn.Module):
             if self.normalize:
                 output = output / torch.norm(output, 2, 2, keepdim=True)
 
-            # batch normalization
             return output
 
         if self.attention_layers_:
@@ -239,14 +238,14 @@ class ClopiNet(nn.Module):
         output = output.sum(dim=0)
         # batch_size, dimension
 
+        # batch normalization
+        if self.batch_norm:
+            output = self.batch_norm_(output)
+
         # L2 normalization
         if self.normalize:
             output = output / torch.norm(output, 2, 1, keepdim=True)
             # batch_size, dimension
-
-        # batch normalization
-        if self.batch_normalization:
-            output = self.batch_norm_(output)
 
         if self.return_attention:
             return output, attn
