@@ -48,25 +48,22 @@ class ClopiNet(nn.Module):
         Defaults to 'LSTM'.
     recurrent : list, optional
         List of hidden dimensions of stacked recurrent layers. Defaults to
-        [16, ], i.e. one recurrent layer with hidden dimension of 16.
+        [64, 64, 64], i.e. three recurrent layers with hidden dimension of 64.
     bidirectional : bool, optional
         Use bidirectional recurrent layers. Defaults to False, i.e. use
         mono-directional RNNs.
-    linear : list, optional
-        List of hidden dimensions of linear layers. Defaults to [16, ], i.e.
-        one linear layer with hidden dimension of 16.
+    normalize : bool, optional
+        Unit-normalize embeddings.
     weighted : bool, optional
         Add dimension-wise trainable weights. Defaults to False.
+    linear : list, optional
+        List of hidden dimensions of linear layers. Defaults to none.
     internal : bool, optional
         Return sequence of internal embeddings. Defaults to False.
-    normalize : bool, optional
-        Set to False to **not** unit-normalize embeddings.
     attention : list of int, optional
         List of hidden dimensions of attention linear layers (e.g. [16, ]).
-        Defaults to False (i.e. no attention).
+        Defaults to no attention.
     return_attention : bool, optional
-    batch_norm : bool, optional
-        Defaults to False. Has not effect when internal is set to True.
 
     Usage
     -----
@@ -75,10 +72,9 @@ class ClopiNet(nn.Module):
     """
 
     def __init__(self, n_features,
-                 rnn='LSTM', recurrent=[16,], bidirectional=False,
-                 linear=[16, ], weighted=False, internal=False,
-                 normalize=True, attention=False, return_attention=False,
-                 batch_norm=False):
+                 rnn='LSTM', recurrent=[64, 64, 64], bidirectional=False,
+                 normalize=False, weighted=False, linear=None,
+                 internal=False, attention=None, return_attention=False):
 
         super(ClopiNet, self).__init__()
 
@@ -86,13 +82,12 @@ class ClopiNet(nn.Module):
         self.rnn = rnn
         self.recurrent = recurrent
         self.bidirectional = bidirectional
-        self.linear = linear
-        self.weighted = weighted
-        self.internal = internal
         self.normalize = normalize
-        self.attention = attention
+        self.weighted = weighted
+        self.linear = [] if linear is None else linear
+        self.internal = internal
+        self.attention = [] if attention is None else attention
         self.return_attention = return_attention
-        self.batch_norm = batch_norm
 
         self.num_directions_ = 2 if self.bidirectional else 1
 
@@ -117,6 +112,9 @@ class ClopiNet(nn.Module):
         # dimension
         input_dim = sum(self.recurrent)
 
+        if self.weighted:
+            self.alphas_ = nn.Parameter(torch.ones(input_dim))
+
         # create list of linear layers
         self.linear_layers_ = []
         for i, hidden_dim in enumerate(self.linear):
@@ -125,12 +123,9 @@ class ClopiNet(nn.Module):
             self.linear_layers_.append(linear_layer)
             input_dim = hidden_dim
 
-        if self.weighted:
-            self.alphas_ = nn.Parameter(torch.ones(input_dim))
-
-        if self.batch_norm:
-            self.batch_norm_ = nn.BatchNorm1d(input_dim, eps=1e-5,
-                                              momentum=0.1, affine=False)
+        # batch normalization: embeddings will have "0" mean and "1" variance
+        self.batch_norm_ = nn.BatchNorm1d(input_dim, eps=1e-5,
+                                          momentum=0.1, affine=False)
 
         # create attention layers
         self.attention_layers_ = []
@@ -203,6 +198,11 @@ class ClopiNet(nn.Module):
         output = torch.cat(outputs, dim=2)
         # n_samples, batch_size, dimension
 
+        if self.weighted:
+            if gpu:
+                self.alphas_ = self.alphas_.cuda()
+            output = output * self.alphas_
+
         # stack linear layers
         for hidden_dim, layer in zip(self.linear, self.linear_layers_):
 
@@ -213,11 +213,6 @@ class ClopiNet(nn.Module):
             output = F.tanh(output)
 
         # n_samples, batch_size, dimension
-
-        if self.weighted:
-            if gpu:
-                self.alphas_ = self.alphas_.cuda()
-            output = output * self.alphas_
 
         if self.internal:
             if self.normalize:
@@ -239,8 +234,7 @@ class ClopiNet(nn.Module):
         # batch_size, dimension
 
         # batch normalization
-        if self.batch_norm:
-            output = self.batch_norm_(output)
+        output = self.batch_norm_(output)
 
         # L2 normalization
         if self.normalize:
