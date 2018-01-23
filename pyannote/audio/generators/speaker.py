@@ -35,14 +35,14 @@ from pyannote.generators.batch import batchify
 from pyannote.database import get_label_identifier
 
 
-class PureSpeechSegmentGenerator(object):
-    """Generate batch of speech turns with associated speaker labels
+class SpeechSegmentGenerator(object):
+    """Generate batch of pure speech segments with associated speaker labels
 
     Parameters
     ----------
     precomputed : pyannote.audio.features.utils.Precomputed
     per_label : int, optional
-        Number of speech turns per speaker in each batch
+        Number of segments per speaker in each batch
     per_fold : int, optional
     duration : float, optional
     min_duration : float, optional
@@ -55,7 +55,7 @@ class PureSpeechSegmentGenerator(object):
                  duration=None, min_duration=None, max_duration=None,
                  fast=True):
 
-        super(PureSpeechSegmentGenerator, self).__init__()
+        super(SpeechSegmentGenerator, self).__init__()
 
         self.precomputed = precomputed
         self.per_label = per_label

@@ -212,13 +212,13 @@ class SpeakerEmbedding(Application):
 
     def _validate_init_default(self, protocol_name, subset='development'):
 
-        from pyannote.audio.generators.speaker import PureSpeechSegmentGenerator
+        from pyannote.audio.generators.speaker import SpeechSegmentGenerator
         from pyannote.audio.embedding.utils import pdist
 
         import numpy as np
         np.random.seed(1337)
 
-        batch_generator = PureSpeechSegmentGenerator(
+        batch_generator = SpeechSegmentGenerator(
             self.feature_extraction_, per_label=10,
             duration=self.approach_.duration)
 
