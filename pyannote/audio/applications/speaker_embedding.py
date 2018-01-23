@@ -257,11 +257,14 @@ class SpeakerEmbedding(Application):
             model = model.cuda()
         model.eval()
 
+        # use final representation (not internal ones)
+        model.internal = False
+
         duration = self.approach_.duration
         step = .25 * duration
 
         protocol = get_protocol(
-        protocol_name, progress=False, preprocessors=self.preprocessors_)
+            protocol_name, progress=False, preprocessors=self.preprocessors_)
 
         # initialize embedding extraction
         #batch_size = self.approach_.batch_size
@@ -271,21 +274,9 @@ class SpeakerEmbedding(Application):
         if isinstance(self.feature_extraction_, Precomputed):
             self.feature_extraction_.use_memmap = False
 
-        try:
-            # use internal representation when available
-            internal = True
-            sequence_embedding = SequenceEmbedding(
-                model, self.feature_extraction_, duration,
-                step=step, batch_size=batch_size,
-                internal=internal, gpu=self.gpu)
-
-        except ValueError as e:
-            # else use final representation
-            internal = False
-            sequence_embedding = SequenceEmbedding(
-                model, self.feature_extraction_, duration,
-                step=step, batch_size=batch_size,
-                internal=internal, gpu=self.gpu)
+        sequence_embedding = SequenceEmbedding(
+            model, self.feature_extraction_, duration,
+            step=step, batch_size=batch_size, gpu=self.gpu)
 
         metrics = {}
         protocol = get_protocol(protocol_name, progress=False,
@@ -340,8 +331,7 @@ class SpeakerEmbedding(Application):
 
         _, _, _, eer = det_curve(np.array(y_true), np.array(y_pred),
                                  distances=True)
-        metrics['EER.internal' if internal else 'EER.final'] = \
-            {'minimize': True, 'value': eer}
+        metrics['EER'] = {'minimize': True, 'value': eer}
 
         return metrics
 
