@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2017 CNRS
+# Copyright (c) 2017-2018 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -28,10 +28,11 @@
 
 
 import numpy as np
+from pyannote.core import Segment
 from pyannote.audio.features import Precomputed
 from pyannote.generators.fragment import random_segment
 from pyannote.generators.fragment import random_subsegment
-from pyannote.generators.batch import batchify
+from pyannote.generators.batch import batchify, EndOfBatch
 from pyannote.database import get_label_identifier
 
 
@@ -72,6 +73,8 @@ class SpeechSegmentGenerator(object):
 
         self.min_duration_ = 0. if self.min_duration is None \
                                 else self.min_duration
+
+        self.weighted_ = True
 
     def initialize(self, protocol, subset='train'):
 
@@ -120,9 +123,12 @@ class SpeechSegmentGenerator(object):
 
                 # this generator will randomly (and infinitely) select one
                 # segment among remaining segments, with probability
-                # proportional to its duration. in other words, longer segments
+                # proportional to its duration in other words, longer segments
                 # are more likely to be selected.
-                segment_generator = random_segment(segments, weighted=True)
+                segment_generator = random_segment(
+                    segments, weighted=self.weighted_)
+                # note that subclasses may set self.weighted_ to False
+                # to select segments completely at random
 
                 # store all these in data_ dictionary
                 datum = (segment_generator, duration, current_file, features)
@@ -257,3 +263,98 @@ class SpeechSegmentGenerator(object):
     @property
     def n_labels(self):
         return len(self.data_)
+
+
+class SpeechTurnSubSegmentGenerator(SpeechSegmentGenerator):
+    """Generate batch of pure speech turn sub-segments with associated
+    speaker labels
+
+    Parameters
+    ----------
+    precomputed : pyannote.audio.features.utils.Precomputed
+    per_label : int, optional
+        Number of speech turns per speaker in each batch
+    per_fold : int, optional
+        Number of speakers in each batch.
+    duration : float, optional
+        Duration of sub-segments.
+    max_subsegments : int, optional
+        Maximum number of sub-segments per speech turn. Defaults to 10.
+    fast : bool, optional
+        Defaults to True.
+    """
+
+    def __init__(self, precomputed, sub_duration, per_label=3, per_fold=None,
+                 max_subsegments=10, fast=True):
+
+        super(SpeechTurnSubSegmentGenerator, self).__init__(
+            precomputed, fast=fast, per_label=per_label, per_fold=per_fold,
+            duration=None, min_duration=sub_duration, max_duration=None)
+
+        self.weighted_ = False
+        self.sub_duration = sub_duration
+        self.max_subsegments = max_subsegments
+
+        # estimate number of samples in each subsequence
+        sw = precomputed.sliding_window()
+        ranges = sw.crop(Segment(0, self.sub_duration), mode='center',
+                         fixed=self.sub_duration, return_ranges=True)
+        self.n_samples_ = ranges[0][1] - ranges[0][0]
+
+    def iter_subsegments(self, X):
+
+        n_samples = len(X)
+
+        indices = list(range(0, n_samples - self.n_samples_,
+                       self.n_samples_ // 2))
+
+        if len(indices) > self.max_subsegments:
+            # choose max_subsegments at random
+            indices = np.random.choice(indices, size=self.max_subsegments,
+                                      replace=False)
+
+        for i in indices:
+            yield X[i: i + self.n_samples_]
+
+
+    def generator(self):
+
+        endOfBatch = EndOfBatch()
+
+        segments = super(SpeechTurnSubSegmentGenerator, self).generator()
+
+        if self.per_fold is not None:
+            batch_size = self.per_label * self.per_fold
+        else:
+            batch_size = self.per_label * len(self.data_)
+
+        while True:
+
+            for z in range(batch_size):
+                segment = next(segments)
+
+                # split X in n_samples_-long sub-sequences
+                for sub_X in self.iter_subsegments(segment['X']):
+                    sub_segment = dict(segment)
+                    sub_segment['X'] = sub_X
+                    sub_segment['z'] = z
+                    yield sub_segment
+
+            yield endOfBatch
+
+    def __call__(self, protocol, subset='train'):
+
+        self.initialize(protocol, subset=subset)
+        generator = self.generator()
+
+        signature_extra = {'label': {'type': 'str'},
+                           'database': {'type': 'str'}}
+
+        signature = {'X': {'type': 'ndarray'},
+                     'y': {'type': 'scalar'},
+                     'z': {'type': 'scalar'},
+                     'y_database': {'type': 'scalar'},
+                     'extra': signature_extra}
+
+        for batch in batchify(generator, signature, batch_size=-1):
+            yield batch
