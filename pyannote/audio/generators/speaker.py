@@ -266,80 +266,105 @@ class SpeechSegmentGenerator(object):
 
 
 class SpeechTurnSubSegmentGenerator(SpeechSegmentGenerator):
-    """Generate batch of pure speech turn sub-segments with associated
-    speaker labels
+    """Generates batches of speech turn fixed-duration sub-segments
+
+    Usage
+    -----
+    >>> generator = SpeechTurnSubSegmentGenerator(precomputed, 3.2)
+    >>> batches = generator(protocol)
+    >>> batch = next(batches)
 
     Parameters
     ----------
-    precomputed : pyannote.audio.features.utils.Precomputed
+    precomputed : pyannote.audio.features.Precomputed
+        Precomputed features
     per_label : int, optional
-        Number of speech turns per speaker in each batch
+        Number of speech turns per speaker in each batch. Defaults to 3.
     per_fold : int, optional
-        Number of speakers in each batch.
+        Number of speakers in each batch. Defaults to all speakers.
+    per_turn : int, optional
+        Number of segments per speech turn. Defaults to 10.
+        For short speech turns, a heuristic adapts this number to reduce the
+        number of overlapping segments.
     duration : float, optional
         Duration of sub-segments.
-    max_subsegments : int, optional
-        Maximum number of sub-segments per speech turn. Defaults to 10.
     fast : bool, optional
         Defaults to True.
     """
 
-    def __init__(self, precomputed, sub_duration, per_label=3, per_fold=None,
-                 max_subsegments=10, fast=True):
+    def __init__(self, precomputed, duration, per_label=3, per_fold=None,
+                 per_turn=10, fast=True):
 
         super(SpeechTurnSubSegmentGenerator, self).__init__(
             precomputed, fast=fast, per_label=per_label, per_fold=per_fold,
-            duration=None, min_duration=sub_duration, max_duration=None)
+            duration=None, min_duration=duration, max_duration=None)
 
         self.weighted_ = False
-        self.sub_duration = sub_duration
-        self.max_subsegments = max_subsegments
+        self.duration_ = duration
+        self.per_turn = per_turn
 
         # estimate number of samples in each subsequence
         sw = precomputed.sliding_window()
-        ranges = sw.crop(Segment(0, self.sub_duration), mode='center',
-                         fixed=self.sub_duration, return_ranges=True)
+        ranges = sw.crop(Segment(0, self.duration_), mode='center',
+                         fixed=self.duration_, return_ranges=True)
         self.n_samples_ = ranges[0][1] - ranges[0][0]
 
-    def iter_subsegments(self, X):
+    def iter_segments_(self, X):
+        """Generate fixed length sub-segments of X
 
+        Parameters
+        ----------
+        X : np.array (n_samples, dimension)
+            Speech turn features.
+
+        Yields
+        ------
+        x : np.array (self.n_samples_, dimension)
+            Sub-segment features.
+        """
+
+        # heuristic that tries to avoid highly-overlapping sub-segments
+        # (i.e. with more than 50% overlap on average) for short speech turns
         n_samples = len(X)
+        n = (n_samples - self.n_samples_) // (self.n_samples_ // 2) + 1
+        n = min(n, self.per_turn)
 
-        indices = list(range(0, n_samples - self.n_samples_,
-                       self.n_samples_ // 2))
-
-        if len(indices) > self.max_subsegments:
-            # choose max_subsegments at random
-            indices = np.random.choice(indices, size=self.max_subsegments,
-                                      replace=False)
-
-        for i in indices:
+        # choose (and yield) n sub-segments at random
+        for i in np.random.randint(0, n_samples - self.n_samples_, n):
             yield X[i: i + self.n_samples_]
 
-
     def generator(self):
+        """Generate speech turn fixed-length sub-segments"""
+
+        # generates speech turns long enough to contain at least one segment
+        speech_turns = super(SpeechTurnSubSegmentGenerator, self).generator()
+
+        # number of speech turns per "speech turn batch"
+        if self.per_fold is not None:
+            n_speech_turns = self.per_label * self.per_fold
+        else:
+            n_speech_turns = self.per_label * len(self.data_)
 
         endOfBatch = EndOfBatch()
-
-        segments = super(SpeechTurnSubSegmentGenerator, self).generator()
-
-        if self.per_fold is not None:
-            batch_size = self.per_label * self.per_fold
-        else:
-            batch_size = self.per_label * len(self.data_)
-
         while True:
 
-            for z in range(batch_size):
-                segment = next(segments)
+            # for each speech turn in batch
+            for z in range(n_speech_turns):
+                speech_turn = next(speech_turns)
 
-                # split X in n_samples_-long sub-sequences
-                for sub_X in self.iter_subsegments(segment['X']):
-                    sub_segment = dict(segment)
-                    sub_segment['X'] = sub_X
-                    sub_segment['z'] = z
-                    yield sub_segment
+                # for each segment in speech turn
+                for X in self.iter_segments_(speech_turn['X']):
 
+                    # all but 'X' fields are left unchanged
+                    segment = dict(speech_turn)
+                    segment['X'] = X
+
+                    # remember that this segment belongs to this speech turn
+                    segment['z'] = z
+
+                    yield segment
+
+            # let `batchify` know that the "segment batch" is complete
             yield endOfBatch
 
     def __call__(self, protocol, subset='train'):
