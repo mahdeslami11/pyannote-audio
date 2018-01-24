@@ -28,10 +28,7 @@
 
 
 import numpy as np
-from pyannote.audio.keras_utils import load_model
-from pyannote.audio.labeling.base import SequenceLabeling
 from pyannote.audio.signal import Binarize, Peak
-from pyannote.audio.embedding.extraction import SequenceEmbedding
 from pyannote.audio.embedding.clustering import Clustering
 from pyannote.core import Annotation
 from pyannote.audio.embedding.utils import l2_normalize, cdist
