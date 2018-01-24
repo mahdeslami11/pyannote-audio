@@ -278,6 +278,8 @@ class SpeechTurnSubSegmentGenerator(SpeechSegmentGenerator):
     ----------
     precomputed : pyannote.audio.features.Precomputed
         Precomputed features
+    duration : float
+        Duration of sub-segments.
     per_label : int, optional
         Number of speech turns per speaker in each batch. Defaults to 3.
     per_fold : int, optional
@@ -286,8 +288,6 @@ class SpeechTurnSubSegmentGenerator(SpeechSegmentGenerator):
         Number of segments per speech turn. Defaults to 10.
         For short speech turns, a heuristic adapts this number to reduce the
         number of overlapping segments.
-    duration : float, optional
-        Duration of sub-segments.
     fast : bool, optional
         Defaults to True.
     """
