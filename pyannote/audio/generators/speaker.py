@@ -251,7 +251,7 @@ class SpeechSegmentGenerator(object):
             batch_size = self.per_label * len(self.data_)
 
         for batch in batchify(generator, signature, batch_size=batch_size,
-                              prefetch=1):
+                              prefetch=2):
             yield batch
 
 
@@ -383,7 +383,7 @@ class SpeechTurnSubSegmentGenerator(SpeechSegmentGenerator):
                      'extra': signature_extra}
 
         for batch in batchify(generator, signature, batch_size=-1,
-                              prefetch=1):
+                              prefetch=2):
             yield batch
 
     @property
