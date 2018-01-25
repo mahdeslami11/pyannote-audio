@@ -349,11 +349,9 @@ class SpeakerEmbedding(Application):
             model = model.cuda()
         model.eval()
 
-        X = Variable(torch.from_numpy(
-            np.array(np.rollaxis(validation_data['X'], 0, 2),
-                     dtype=np.float32)))
-
-        # TODO. batchify if X is too big
+        X = np.rollaxis(validation_data['X'], 0, 2)
+        X = torch.from_numpy(np.array(X, dtype=np.float32))
+        X = Variable(X, volatile=True)
 
         if self.gpu:
             fX = model(X.cuda()).data.cpu().numpy()
