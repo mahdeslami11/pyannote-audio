@@ -31,7 +31,7 @@ Speaker embedding
 
 Usage:
   pyannote-speaker-embedding train [--database=<db.yml> --subset=<subset> --from=<epoch> --for=<epochs> --gpu] <experiment_dir> <database.task.protocol>
-  pyannote-speaker-embedding validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch> --chronological --gpu] <train_dir> <database.task.protocol>
+  pyannote-speaker-embedding validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch> --chronological --gpu --turn] <train_dir> <database.task.protocol>
   pyannote-speaker-embedding apply [--database=<db.yml> --step=<step> --internal --normalize --gpu] <validate.txt> <database.task.protocol> <output_dir>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
@@ -61,6 +61,8 @@ Common options:
 "validation" mode:
   --every=<epoch>            Validate model every <epoch> epochs [default: 1].
   --chronological            Force validation in chronological order.
+  --turn                     Perform same/different validation at speech turn
+                             level. Default is to use fixed duration segments.
   <train_dir>                Path to the directory containing pre-trained
                              models (i.e. the output of "train" mode).
 
@@ -135,6 +137,7 @@ Configuration file:
 
 import io
 import yaml
+import itertools
 from os.path import expanduser, dirname, basename
 
 from docopt import docopt
@@ -205,12 +208,61 @@ class SpeakerEmbedding(Application):
             return self._validate_init_verification(protocol_name,
                                                     subset=subset)
 
-        return self._validate_init_default(protocol_name, subset=subset)
+        elif task == 'SpeakerDiarization':
+            if self.turn:
+                return self._validate_init_turn(protocol_name,
+                                                subset=subset)
+            else:
+                return self._validate_init_segment(protocol_name,
+                                                   subset=subset)
+
+        else:
+            msg = ('Only SpeakerVerification or SpeakerDiarization tasks are'
+                   'supported in "validation" mode.')
+            raise ValueError(msg)
 
     def _validate_init_verification(self, protocol_name, subset='development'):
         return {}
 
-    def _validate_init_default(self, protocol_name, subset='development'):
+    def _validate_init_turn(self, protocol_name, subset='development'):
+
+        from pyannote.audio.generators.speaker import SpeechTurnSubSegmentGenerator
+        from pyannote.audio.embedding.utils import pdist
+
+        import numpy as np
+        np.random.seed(1337)
+
+        protocol = get_protocol(protocol_name, progress=False,
+                                preprocessors=self.preprocessors_)
+
+        batch_generator = SpeechTurnSubSegmentGenerator(
+            self.feature_extraction_, self.approach_.duration,
+            per_label=10, per_turn=5)
+        batch = next(batch_generator(protocol, subset=subset))
+
+        X = batch['X']
+        y = batch['y']
+        z = batch['z']
+
+        # get list of labels from list of repeated labels:
+        # z 0 0 0 1 1 1 2 2 2 2 3 3 3 3
+        # y A A A A A A B B B B B B B B
+        # becomes
+        # z 0 0 0 1 1 1 2 2 2 2 3 3 3 3
+        # y A B
+        yz = np.vstack([y, z]).T
+        y = []
+        for _, yz_ in itertools.groupby(yz, lambda t: t[1]):
+            yz_ = np.stack(yz_)
+            y.append(yz_[0, 0])
+        y = np.array(y).reshape((-1, 1))
+
+        # precompute same/different groundtruth
+        y = pdist(y, metric='chebyshev') < 1
+
+        return {'X': X, 'y': y, 'z': z}
+
+    def _validate_init_segment(self, protocol_name, subset='development'):
 
         from pyannote.audio.generators.speaker import SpeechSegmentGenerator
         from pyannote.audio.embedding.utils import pdist
@@ -218,19 +270,21 @@ class SpeakerEmbedding(Application):
         import numpy as np
         np.random.seed(1337)
 
+        protocol = get_protocol(protocol_name, progress=False,
+                                preprocessors=self.preprocessors_)
+
+        # gather 10 (fixed-duration) segments per speaker
         batch_generator = SpeechSegmentGenerator(
             self.feature_extraction_, per_label=10,
             duration=self.approach_.duration)
-
-        protocol = get_protocol(
-            protocol_name, progress=False, preprocessors=self.preprocessors_)
-
         batch = next(batch_generator(protocol, subset=subset))
 
-        _, y = np.unique(batch['y'], return_inverse=True)
-        y = pdist(y.reshape((-1, 1)), metric='chebyshev') < 1
+        X = batch['X']
+        y = batch['y'].reshape((-1, 1))
 
-        return {'X': batch['X'], 'y': y}
+        # precompute same/different groundtruth
+        y = pdist(y, metric='chebyshev') < 1
+        return {'X': X, 'y': y}
 
     def validate_epoch(self, epoch, protocol_name, subset='development',
                        validation_data=None):
@@ -241,8 +295,20 @@ class SpeakerEmbedding(Application):
                 epoch, protocol_name, subset=subset,
                 validation_data=validation_data)
 
-        return self._validate_epoch_default(epoch, protocol_name, subset=subset,
-                                           validation_data=validation_data)
+        elif task == 'SpeakerDiarization':
+            if self.turn:
+                return self._validate_epoch_turn(
+                    epoch, protocol_name, subset=subset,
+                    validation_data=validation_data)
+            else:
+                return self._validate_epoch_segment(
+                    epoch, protocol_name, subset=subset,
+                    validation_data=validation_data)
+
+        else:
+            msg = ('Only SpeakerVerification or SpeakerDiarization tasks are'
+                   'supported in "validation" mode.')
+            raise ValueError(msg)
 
     def _validate_epoch_verification(self, epoch, protocol_name,
                                      subset='development',
@@ -335,8 +401,9 @@ class SpeakerEmbedding(Application):
 
         return metrics
 
-    def _validate_epoch_default(self, epoch, protocol_name,
-                                subset='development', validation_data=None):
+    def _validate_epoch_segment(self, epoch, protocol_name,
+                                subset='development',
+                                validation_data=None):
 
         import numpy as np
         import torch
@@ -351,7 +418,7 @@ class SpeakerEmbedding(Application):
 
         X = np.rollaxis(validation_data['X'], 0, 2)
         X = torch.from_numpy(np.array(X, dtype=np.float32))
-        X = Variable(X, volatile=True)
+        X = Variable(X, requires_grad=False)
 
         if self.gpu:
             fX = model(X.cuda()).data.cpu().numpy()
@@ -364,7 +431,56 @@ class SpeakerEmbedding(Application):
                                  distances=True)
 
         metrics = {}
+        # TODO. rename to EER.segment (as opposed to EER.turn)
         metrics['EER.1seq'] = {'minimize': True, 'value': eer}
+        return metrics
+
+    def _validate_epoch_turn(self, epoch, protocol_name,
+                             subset='development',
+                             validation_data=None):
+
+        import numpy as np
+        import torch
+        from torch.autograd import Variable
+        from pyannote.metrics.binary_classification import det_curve
+        from pyannote.audio.embedding.utils import pdist
+
+        model = self.load_model(epoch)
+        if self.gpu:
+            model = model.cuda()
+        model.eval()
+
+        X = np.rollaxis(validation_data['X'], 0, 2)
+        X = torch.from_numpy(np.array(X, dtype=np.float32))
+        X = Variable(X, requires_grad=False)
+        fX = model(X).data.numpy()
+
+        z = validation_data['z']
+
+        # iterate over segments, speech turn by speech turn
+
+        fX_avg = []
+        nz = np.vstack([np.arange(len(z)), z]).T
+        for _, nz_ in itertools.groupby(nz, lambda t: t[1]):
+
+            # (n, 2) numpy array where
+            # * n is the number of segments in current speech turn
+            # * dim #0 is the index of segment in original batch
+            # * dim #1 is the index of speech turn (used for grouping)
+            nz_ = np.stack(nz_)
+
+            # compute (and stack) average embedding over all segments
+            # of current speech turn
+            indices = nz_[:, 0]
+
+            fX_avg.append(np.mean(fX[indices], axis=0))
+
+        fX = np.vstack(fX_avg)
+        y_pred = pdist(fX, metric=self.approach_.metric)
+        _, _, _, eer = det_curve(validation_data['y'], y_pred,
+                                 distances=True)
+        metrics = {}
+        metrics['EER.turn'] = {'minimize': True, 'value': eer}
         return metrics
 
     def apply(self, protocol_name, output_dir, step=None,
@@ -489,11 +605,16 @@ def main():
         # validate every that many epochs (defaults to 1)
         every = int(arguments['--every'])
 
+        # validate epochs in chronological order
         in_order = arguments['--chronological']
+
+        # validate at speech turn level
+        turn = arguments['--turn']
 
         application = SpeakerEmbedding.from_train_dir(
             train_dir, db_yml=db_yml)
         application.gpu = gpu
+        application.turn = turn
         application.validate(protocol_name, subset=subset,
                              start=start, end=end, every=every,
                              in_order=in_order)
