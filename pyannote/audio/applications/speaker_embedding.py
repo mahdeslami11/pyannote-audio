@@ -327,7 +327,7 @@ class SpeakerEmbedding(Application):
         model.internal = False
 
         duration = self.approach_.duration
-        step = .25 * duration
+        step = .5 * duration
 
         protocol = get_protocol(
             protocol_name, progress=False, preprocessors=self.preprocessors_)
