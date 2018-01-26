@@ -70,6 +70,7 @@ class AggTripletLoss(TripletLoss):
         Number of segments per speech turn. Defaults to 10.
         For short speech turns, a heuristic adapts this number to reduce the
         number of overlapping segments.
+
     """
 
     def __init__(self, duration=3.2,
@@ -152,23 +153,13 @@ class AggTripletLoss(TripletLoss):
 
                 n_segments = len(batch['X'])
 
-                X = Variable(torch.from_numpy(
-                    np.array(np.rollaxis(batch['X'], 0, 2),
-                             dtype=np.float32)))
+                X = torch.from_numpy(np.array(np.rollaxis(batch['X'], 0, 2),
+                                              dtype=np.float32))
 
+                X = Variable(X, requires_grad=False)
                 if gpu:
                     X = X.cuda()
-
-                # if batch is too large, process it sub-batch by sub-batch
-
                 fX = model(X)
-
-                # if not model.normalize:
-                #     if gpu:
-                #         fX_ = fX.data.cpu().numpy()
-                #     else:
-                #         fX_ = fX.data.numpy()
-                #     norms.append(np.linalg.norm(fX_, axis=1))
 
                 fX_avg = []
                 y = []
@@ -248,12 +239,6 @@ class AggTripletLoss(TripletLoss):
                 'embedding/pairwise_distance/negative', negative,
                 global_step=epoch, bins='auto')
 
-            # if not model.normalize:
-            #     norms = np.hstack(norms)
-            #     writer.add_histogram(
-            #         'embedding/norm', norms,
-            #         global_step=epoch, bins='auto')
-            #
             logging_callback.model = model
             logging_callback.optimizer = optimizer
             logging_callback.on_epoch_end(epoch)
