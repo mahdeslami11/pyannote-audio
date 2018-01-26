@@ -313,6 +313,22 @@ class SpeakerEmbedding(Application):
     def _validate_epoch_verification(self, epoch, protocol_name,
                                      subset='development',
                                      validation_data=None):
+        """Perform a speaker verification experiment using model at `epoch`
+
+        Parameters
+        ----------
+        epoch : int
+            Epoch to validate.
+        protocol_name : str
+            Name of speaker verification protocol
+        subset : {'train', 'development', 'test'}, optional
+            Name of subset.
+        validation_data : provided by `validate_init`
+
+        Returns
+        -------
+        metrics : dict
+        """
 
         from pyannote.metrics.binary_classification import det_curve
         from pyannote.audio.embedding.utils import cdist
