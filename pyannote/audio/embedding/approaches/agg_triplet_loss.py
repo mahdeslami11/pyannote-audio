@@ -70,18 +70,21 @@ class AggTripletLoss(TripletLoss):
         Number of segments per speech turn. Defaults to 10.
         For short speech turns, a heuristic adapts this number to reduce the
         number of overlapping segments.
-
+    normalize : boolean, optional
+        Normalize between aggregation and distance computation.
     """
 
     def __init__(self, duration=3.2,
                  metric='cosine', margin=0.2, clamp='positive',
-                 sampling='all', per_label=3, per_fold=None, per_turn=10):
+                 sampling='all', per_label=3, per_fold=None, per_turn=10,
+                 normalize=False):
 
         super(AggTripletLoss, self).__init__(
             duration=duration, metric=metric, margin=margin, clamp=clamp,
             sampling=sampling, per_label=per_label, per_fold=per_fold)
 
         self.per_turn = per_turn
+        self.normalize = normalize
 
     def fit(self, model, feature_extraction, protocol, log_dir, subset='train',
             epochs=1000, restart=None, gpu=False):
@@ -186,6 +189,10 @@ class AggTripletLoss(TripletLoss):
                     y.append(nyz_[0, 1])
 
                 fX_avg = torch.cat(fX_avg, dim=0)
+
+                if self.normalize:
+                    fX_avg = fX_avg / torch.norm(fX_avg, 2, 1, keepdim=True)
+
                 y = np.array(y)
 
                 # pre-compute pairwise distances
