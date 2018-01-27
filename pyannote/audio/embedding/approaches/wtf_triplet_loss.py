@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2017 CNRS
+# Copyright (c) 2018 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -26,20 +26,18 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-import itertools
 import numpy as np
 from tqdm import tqdm
 import torch
 from torch.autograd import Variable
-import torch.nn.functional as F
 from pyannote.audio.generators.speaker import SpeechSegmentGenerator
 from pyannote.audio.callback import LoggingCallbackPytorch
 from torch.optim import Adam
-from pyannote.audio.embedding.utils import to_condensed
-from scipy.spatial.distance import pdist, squareform
+from scipy.spatial.distance import pdist
+from .triplet_loss import TripletLoss
 
 
-class TripletLoss(object):
+class WTFTripletLoss(TripletLoss):
     """
 
     delta = d(anchor, positive) - d(anchor, negative)
@@ -55,12 +53,8 @@ class TripletLoss(object):
     ----------
     duration : float, optional
         Defautls to 3.2 seconds.
-    metric : {'euclidean', 'cosine', 'angular'}, optional
-        Defaults to 'cosine'.
     margin: float, optional
         Margin factor. Defaults to 0.2.
-    clamp : {'positive', 'sigmoid', 'softmargin'}, optional
-        Defaults to 'positive'.
     sampling : {'all', 'hard'}, optional
         Triplet sampling strategy.
     per_label : int, optional
@@ -70,201 +64,12 @@ class TripletLoss(object):
         time. Defaults to sample triplets from the whole speaker set.
     """
 
-    def __init__(self, duration=3.2,
-                 metric='cosine', margin=0.2, clamp='positive',
-                 sampling='all', per_label=3, per_fold=None):
+    def __init__(self, duration=3.2, sampling='all',
+                 per_label=3, per_fold=None):
 
-        super(TripletLoss, self).__init__()
-
-        self.metric = metric
-        self.margin = margin
-
-        if self.metric == 'cosine':
-            self.margin_ = self.margin * 2.
-        elif self.metric == 'angular':
-            self.margin_ = self.margin * np.pi
-        elif self.metric == 'euclidean':
-            self.margin_ = self.margin * 2.
-        else:
-            msg = "'metric' must be one of {'euclidean', 'cosine', 'angular'}."
-            raise ValueError(msg)
-
-        if clamp not in {'positive', 'sigmoid', 'softmargin'}:
-            msg = "'clamp' must be one of {'positive', 'sigmoid', 'softmargin'}."
-            raise ValueError(msg)
-        self.clamp = clamp
-
-        if sampling not in {'all', 'hard'}:
-            msg = "'sampling' must be one of {'all', 'hard'}."
-            raise ValueError(msg)
-        self.sampling = sampling
-
-        self.per_fold = per_fold
-        self.per_label = per_label
-        self.duration = duration
-
-    def pdist(self, fX):
-        """Compute pdist à-la scipy.spatial.distance.pdist
-
-        Parameters
-        ----------
-        fX : (n, d) torch.autograd.Variable
-            Embeddings.
-
-        Returns
-        -------
-        distances : (n * (n-1) / 2,) torch.autograd.Variable
-            Condensed pairwise distance matrix
-        """
-
-        n_sequences, _ = fX.size()
-        distances = []
-
-        for i in range(n_sequences - 1):
-
-            if self.metric in ('cosine', 'angular'):
-                d = 1. - F.cosine_similarity(
-                    fX[i, :].expand(n_sequences - 1 - i, -1),
-                    fX[i+1:, :], dim=1, eps=1e-8)
-
-                if self.metric == 'angular':
-                    d = torch.acos(torch.clamp(1. - d, -1 + 1e-6, 1 - 1e-6))
-
-            elif self.metric == 'euclidean':
-                d = F.pairwise_distance(
-                    fX[i, :].expand(n_sequences - 1 - i, -1),
-                    fX[i+1:, :], p=2, eps=1e-06).view(-1)
-
-            distances.append(d)
-
-        return torch.cat(distances)
-
-    def batch_hard(self, y, distances):
-        """
-
-        Parameters
-        ----------
-        y : list
-            Sequence labels.
-        distances : (n * (n-1) / 2,) torch.autograd.Variable
-            Condensed pairwise distance matrix
-
-        Returns
-        -------
-        anchors, positives, negatives : list of int
-            Triplets indices.
-        """
-
-        anchors, positives, negatives = [], [], []
-
-        if distances.is_cuda:
-            distances = squareform(distances.data.cpu().numpy())
-        else:
-            distances = squareform(distances.data.numpy())
-        y = np.array(y)
-
-        for anchor, y_anchor in enumerate(y):
-
-            d = distances[anchor]
-
-            # hardest positive
-            pos = np.where(y == y_anchor)[0]
-            # pos = [p for p in pos if p != anchor]
-            positive = int(pos[np.argmax(d[pos])])
-
-            # hardest negative
-            neg = np.where(y != y_anchor)[0]
-            negative = int(neg[np.argmin(d[neg])])
-
-            anchors.append(anchor)
-            positives.append(positive)
-            negatives.append(negative)
-
-        return anchors, positives, negatives
-
-    def batch_all(self, y, distances):
-        """
-
-        Parameters
-        ----------
-        y : list
-            Sequence labels.
-        distances : (n * (n-1) / 2,) torch.autograd.Variable
-            Condensed pairwise distance matrix
-
-        Returns
-        -------
-        anchors, positives, negatives : list of int
-            Triplets indices.
-        """
-
-        anchors, positives, negatives = [], [], []
-
-        for anchor, y_anchor in enumerate(y):
-            for positive, y_positive in enumerate(y):
-
-                # if same embedding or different labels, skip
-                if (anchor == positive) or (y_anchor != y_positive):
-                    continue
-
-                for negative, y_negative in enumerate(y):
-
-                    if y_negative == y_anchor:
-                        continue
-
-                    anchors.append(anchor)
-                    positives.append(positive)
-                    negatives.append(negative)
-
-        return anchors, positives, negatives
-
-    def triplet_loss(self, distances, anchors, positives, negatives,
-                     return_delta=False):
-        """Compute triplet loss
-
-        Parameters
-        ----------
-        distances : torch.autograd.Variable
-            Condensed matrix of pairwise distances.
-        anchors, positives, negatives : list of int
-            Triplets indices.
-        return_delta : bool, optional
-            Return delta before clamping.
-
-        Returns
-        -------
-        loss : torch.autograd.Variable
-            Triplet loss.
-        """
-
-        # estimate total number of embeddings from pdist shape
-        n = int(.5 * (1 + np.sqrt(1 + 8 * len(distances))))
-        n = [n] * len(anchors)
-
-        # convert indices from squared matrix
-        # to condensed matrix referential
-        pos = list(map(to_condensed, n, anchors, positives))
-        neg = list(map(to_condensed, n, anchors, negatives))
-
-        # compute raw triplet loss (no margin, no clamping)
-        # the lower, the better
-        delta = distances[pos] - distances[neg]
-
-        # clamp triplet loss
-        if self.clamp == 'positive':
-            loss = torch.clamp(delta + self.margin_, min=0)
-
-        elif self.clamp == 'softmargin':
-            loss = torch.log1p(torch.exp(delta))
-
-        elif self.clamp == 'sigmoid':
-            loss = F.sigmoid(10 * delta)
-
-        # return triplet losses
-        if return_delta:
-            return loss, delta.view((-1, 1))
-        else:
-            return loss
+        super(WTFTripletLoss, self).__init__(
+            duration=duration, metric='angular', clamp='sigmoid',
+            sampling=sampling, per_label=per_label, per_fold=per_fold)
 
     def fit(self, model, feature_extraction, protocol, log_dir, subset='train',
             epochs=1000, restart=None, gpu=False):
@@ -322,7 +127,7 @@ class TripletLoss(object):
         restart = 0 if restart is None else restart + 1
         for epoch in range(restart, restart + epochs):
 
-            loss_avg = 0.
+            tloss_avg, closs_avg = 0., 0.
             positive, negative = [], []
             norms = []
 
@@ -369,26 +174,41 @@ class TripletLoss(object):
                         batch['y'], distances)
 
                 # compute triplet loss
-                losses = self.triplet_loss(
-                    distances, anchors, positives, negatives)
+                tlosses, deltas = self.triplet_loss(
+                    distances, anchors, positives, negatives,
+                    return_delta=True)
+                tloss = torch.mean(tlosses)
 
-                loss = torch.mean(losses)
+                # compute wtf loss
+                closses = torch.norm(fX[anchors], 2, 1, keepdim=True) * deltas
+                closs = torch.mean(closses)
 
                 # log batch loss
                 if gpu:
-                    loss_ = float(loss.data.cpu().numpy())
+                    tloss_ = float(tloss.data.cpu().numpy())
+                    closs_ = float(closs.data.cpu().numpy())
                 else:
-                    loss_ = float(loss.data.numpy())
-                loss_avg += loss_
+                    tloss_ = float(tloss.data.numpy())
+                    closs_ = float(closs.data.numpy())
+                tloss_avg += tloss_
+                closs_avg += closs_
                 writer.add_scalar(
-                    'loss/batch', loss_,
+                    'tloss/batch', tloss_,
                     global_step=i + epoch * batches_per_epoch)
+                writer.add_scalar(
+                    'closs/batch', closs_,
+                    global_step=i + epoch * batches_per_epoch)
+
+                loss = tloss + closs
 
                 loss.backward()
                 optimizer.step()
 
-            loss_avg /= batches_per_epoch
-            writer.add_scalar('loss', loss_avg, global_step=epoch)
+            tloss_avg /= batches_per_epoch
+            writer.add_scalar('tloss', tloss_avg, global_step=epoch)
+
+            closs_avg /= batches_per_epoch
+            writer.add_scalar('closs', closs_avg, global_step=epoch)
 
             positive = np.hstack(positive)
             negative = np.hstack(negative)
