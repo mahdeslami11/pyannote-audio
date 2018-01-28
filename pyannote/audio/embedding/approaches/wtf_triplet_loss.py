@@ -30,6 +30,7 @@ import numpy as np
 from tqdm import tqdm
 import torch
 from torch.autograd import Variable
+import torch.nn.functional as F
 from pyannote.audio.generators.speaker import SpeechSegmentGenerator
 from pyannote.audio.callback import LoggingCallbackPytorch
 from torch.optim import Adam
