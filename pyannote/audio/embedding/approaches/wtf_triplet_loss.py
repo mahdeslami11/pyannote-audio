@@ -180,7 +180,8 @@ class WTFTripletLoss(TripletLoss):
                 tloss = torch.mean(tlosses)
 
                 # compute wtf loss
-                closses = torch.norm(fX[anchors], 2, 1, keepdim=True) * deltas
+                closses = F.sigmoid(
+                    torch.norm(fX[anchors], 2, 1, keepdim=True) * deltas)
                 closs = torch.mean(closses)
 
                 # log batch loss
