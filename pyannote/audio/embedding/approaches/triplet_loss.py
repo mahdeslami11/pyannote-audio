@@ -169,7 +169,7 @@ class TripletLoss(object):
 
             # hardest positive
             pos = np.where(y == y_anchor)[0]
-            # pos = [p for p in pos if p != anchor]
+            pos = [p for p in pos if p != anchor]
             positive = int(pos[np.argmax(d[pos])])
 
             # hardest negative
