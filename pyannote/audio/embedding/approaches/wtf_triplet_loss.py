@@ -181,8 +181,10 @@ class WTFTripletLoss(TripletLoss):
                 tloss = torch.mean(tlosses)
 
                 # compute wtf loss
+                # closses = F.sigmoid(
+                #     torch.norm(fX[anchors], 2, 1, keepdim=True) * deltas)
                 closses = F.sigmoid(
-                    torch.norm(fX[anchors], 2, 1, keepdim=True) * deltas)
+                    F.softsign(deltas) * torch.norm(fX[anchors], 2, 1, keepdim=True))
                 closs = torch.mean(closses)
 
                 # log batch loss
