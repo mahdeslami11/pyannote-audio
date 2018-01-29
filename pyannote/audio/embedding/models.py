@@ -31,6 +31,9 @@ import torch
 from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
+import warnings
+
+
 
 
 class ClopiNet(nn.Module):
@@ -52,8 +55,8 @@ class ClopiNet(nn.Module):
     bidirectional : bool, optional
         Use bidirectional recurrent layers. Defaults to False, i.e. use
         mono-directional RNNs.
-    normalize : bool, optional
-        Unit-normalize embeddings.
+    normalize : {False, 'sphere', 'ball', 'ring'}, optional
+        Normalize embeddings.
     weighted : bool, optional
         Add dimension-wise trainable weights. Defaults to False.
     linear : list, optional
@@ -123,9 +126,13 @@ class ClopiNet(nn.Module):
             self.linear_layers_.append(linear_layer)
             input_dim = hidden_dim
 
-        # batch normalization: embeddings will have "0" mean and "1" variance
+        # batch normalization ~= embeddings whitening.
         self.batch_norm_ = nn.BatchNorm1d(input_dim, eps=1e-5,
                                           momentum=0.1, affine=False)
+
+        if self.normalize in {'ball', 'ring'}:
+            self.norm_batch_norm_ = nn.BatchNorm1d(1, eps=1e-5, momentum=0.1,
+                                                   affine=False)
 
         # create attention layers
         self.attention_layers_ = []
@@ -216,8 +223,8 @@ class ClopiNet(nn.Module):
 
         if self.internal:
             if self.normalize:
-                output = output / torch.norm(output, 2, 2, keepdim=True)
-
+                msg = 'did not normalize internal embeddings.'
+                warnings.warn(msg, UserWarning)
             return output
 
         if self.attention_layers_:
@@ -236,10 +243,20 @@ class ClopiNet(nn.Module):
         # batch normalization
         output = self.batch_norm_(output)
 
-        # L2 normalization
         if self.normalize:
-            output = output / torch.norm(output, 2, 1, keepdim=True)
-            # batch_size, dimension
+            norm = torch.norm(output, 2, 1, keepdim=True)
+
+        if self.normalize == 'sphere':
+            output = output / norm
+
+        elif self.normalize == 'ball':
+            output = output / norm * F.sigmoid(self.norm_batch_norm_(norm))
+
+        elif self.normalize == 'ring':
+            norm_ = self.norm_batch_norm_(norm)
+            output = output / norm * (1 + F.sigmoid(self.norm_batch_norm_(norm)))
+
+        # batch_size, dimension
 
         if self.return_attention:
             return output, attn
