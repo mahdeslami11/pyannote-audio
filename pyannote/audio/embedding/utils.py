@@ -95,4 +95,30 @@ def to_condensed(n, i, j):
     if i == j:
         raise ValueError('i and j should be different.')
     i, j = min(i, j), max(i, j)
-    return int(i * n -i * i / 2 - 3 * i / 2 + j - 1)
+    return int(i * n - i * i / 2 - 3 * i / 2 + j - 1)
+
+
+def to_squared(n, k):
+    """Compute indices in squared matrix
+
+    Parameters
+    ----------
+    n : int
+        Number of inputs in squared pdist matrix
+    k : int
+        Index in condensed pdist matrix
+
+    Returns
+    -------
+    i, j : int
+        Indices in squared pdist matrix
+
+    """
+    i = int(n - np.sqrt(-8*k + 4*n**2 - 4*n + 1)/2 - 1/2)
+    j = int(i**2/2 - i*n + 3*i/2 + k + 1)
+    return i, j
+
+
+# for n in range(2, 10):
+#     for k in range(int(n*(n-1)/2)):
+#         assert to_condensed(n, *to_squared(n, k)) == k
