@@ -113,7 +113,7 @@ class WTFTripletLoss(TripletLoss):
 
             tloss_avg, closs_avg = 0., 0.
 
-            if epoch % 10:
+            if epoch % 10 == 0:
                 positive, negative = [], []
                 norms = []
 
