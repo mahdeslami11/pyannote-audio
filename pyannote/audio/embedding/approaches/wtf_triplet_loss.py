@@ -41,15 +41,6 @@ from .triplet_loss import TripletLoss
 class WTFTripletLoss(TripletLoss):
     """
 
-    delta = d(anchor, positive) - d(anchor, negative)
-
-    * with 'positive' clamping:
-        loss = max(0, delta + margin x D)
-    * with 'sigmoid' clamping:
-        loss = sigmoid(10 * delta)
-
-    where d(., .) varies in range [0, D] (e.g. D=2 for euclidean distance).
-
     Parameters
     ----------
     duration : float, optional
@@ -63,14 +54,19 @@ class WTFTripletLoss(TripletLoss):
     per_fold : int, optional
         If provided, sample triplets from groups of `per_fold` speakers at a
         time. Defaults to sample triplets from the whole speaker set.
+    parallel : int, optional
+        Number of prefetching background generators. Defaults to 1.
+        Each generator will prefetch enough batches to cover a whole epoch.
+        Set `parallel` to 0 to not use background generators.
     """
 
     def __init__(self, duration=3.2, sampling='all',
-                 per_label=3, per_fold=None):
+                 per_label=3, per_fold=None, parallel=1):
 
         super(WTFTripletLoss, self).__init__(
             duration=duration, metric='angular', clamp='sigmoid',
-            sampling=sampling, per_label=per_label, per_fold=per_fold)
+            sampling=sampling, per_label=per_label, per_fold=per_fold,
+            parallel=parallel)
 
     def fit(self, model, feature_extraction, protocol, log_dir, subset='train',
             epochs=1000, restart=None, gpu=False):
@@ -81,28 +77,15 @@ class WTFTripletLoss(TripletLoss):
         logging_callback = LoggingCallbackPytorch(
             log_dir=log_dir, restart=(False if restart is None else True))
 
-        try:
-            batch_generator = SpeechSegmentGenerator(
-                feature_extraction,
-                per_label=self.per_label, per_fold=self.per_fold,
-                duration=self.duration)
-            batches = batch_generator(protocol, subset=subset)
-            batch = next(batches)
-        except OSError as e:
-            del batch_generator.data_
-            batch_generator = SpeechSegmentGenerator(
-                feature_extraction,
-                per_label=self.per_label, per_fold=self.per_fold,
-                duration=self.duration, fast=False)
-            batches = batch_generator(protocol, subset=subset)
-            batch = next(batches)
+        batch_generator = SpeechSegmentGenerator(
+            feature_extraction,
+            per_label=self.per_label, per_fold=self.per_fold,
+            duration=self.duration, parallel=self.parallel)
+        batches = batch_generator(protocol, subset=subset)
+        batch = next(batches)
 
-        # TODO. learn feature normalization and store it as a layer in the model
 
-        # one minute per speaker
-        duration_per_epoch = 60. * batch_generator.n_labels
-        duration_per_batch = self.duration * batch_generator.n_sequences_per_batch
-        batches_per_epoch = int(np.ceil(duration_per_epoch / duration_per_batch))
+        batches_per_epoch = batch_generator.batches_per_epoch
 
         if restart is not None:
             weights_pt = logging_callback.WEIGHTS_PT.format(
@@ -129,8 +112,10 @@ class WTFTripletLoss(TripletLoss):
         for epoch in range(restart, restart + epochs):
 
             tloss_avg, closs_avg = 0., 0.
-            positive, negative = [], []
-            norms = []
+
+            if epoch % 10:
+                positive, negative = [], []
+                norms = []
 
             desc = 'Epoch #{0}'.format(epoch)
             for i in tqdm(range(batches_per_epoch), desc=desc):
@@ -148,22 +133,24 @@ class WTFTripletLoss(TripletLoss):
 
                 fX = model(X)
 
-                if gpu:
-                    fX_ = fX.data.cpu().numpy()
-                else:
-                    fX_ = fX.data.numpy()
-                norms.append(np.linalg.norm(fX_, axis=1))
+                if epoch % 10 == 0:
+                    if gpu:
+                        fX_ = fX.data.cpu().numpy()
+                    else:
+                        fX_ = fX.data.numpy()
+                    norms.append(np.linalg.norm(fX_, axis=1))
 
                 # pre-compute pairwise distances
                 distances = self.pdist(fX)
 
-                if gpu:
-                    distances_ = distances.data.cpu().numpy()
-                else:
-                    distances_ = distances.data.numpy()
-                is_positive = pdist(batch['y'].reshape((-1, 1)), metric='chebyshev') < 1
-                positive.append(distances_[np.where(is_positive)])
-                negative.append(distances_[np.where(~is_positive)])
+                if epoch % 10 == 0:
+                    if gpu:
+                        distances_ = distances.data.cpu().numpy()
+                    else:
+                        distances_ = distances.data.numpy()
+                    is_positive = pdist(batch['y'].reshape((-1, 1)), metric='chebyshev') < 1
+                    positive.append(distances_[np.where(is_positive)])
+                    negative.append(distances_[np.where(~is_positive)])
 
                 # sample triplets
                 if self.sampling == 'all':
@@ -178,16 +165,15 @@ class WTFTripletLoss(TripletLoss):
                 tlosses, deltas = self.triplet_loss(
                     distances, anchors, positives, negatives,
                     return_delta=True)
+
                 tloss = torch.mean(tlosses)
 
                 # compute wtf loss
-                # closses = F.sigmoid(
-                #     torch.norm(fX[anchors], 2, 1, keepdim=True) * deltas)
                 closses = F.sigmoid(
                     F.softsign(deltas) * torch.norm(fX[anchors], 2, 1, keepdim=True))
                 closs = torch.mean(closses)
 
-                # log batch loss
+                # log loss
                 if gpu:
                     tloss_ = float(tloss.data.cpu().numpy())
                     closs_ = float(closs.data.cpu().numpy())
@@ -196,15 +182,8 @@ class WTFTripletLoss(TripletLoss):
                     closs_ = float(closs.data.numpy())
                 tloss_avg += tloss_
                 closs_avg += closs_
-                writer.add_scalar(
-                    'tloss/batch', tloss_,
-                    global_step=i + epoch * batches_per_epoch)
-                writer.add_scalar(
-                    'closs/batch', closs_,
-                    global_step=i + epoch * batches_per_epoch)
 
                 loss = tloss + closs
-
                 loss.backward()
                 optimizer.step()
 
@@ -214,19 +193,20 @@ class WTFTripletLoss(TripletLoss):
             closs_avg /= batches_per_epoch
             writer.add_scalar('closs', closs_avg, global_step=epoch)
 
-            positive = np.hstack(positive)
-            negative = np.hstack(negative)
-            writer.add_histogram(
-                'embedding/pairwise_distance/positive', positive,
-                global_step=epoch, bins='auto')
-            writer.add_histogram(
-                'embedding/pairwise_distance/negative', negative,
-                global_step=epoch, bins='auto')
+            if epoch % 10 == 0:
+                positive = np.hstack(positive)
+                negative = np.hstack(negative)
+                writer.add_histogram(
+                    'embedding/pairwise_distance/positive', positive,
+                    global_step=epoch, bins='auto')
+                writer.add_histogram(
+                    'embedding/pairwise_distance/negative', negative,
+                    global_step=epoch, bins='auto')
 
-            norms = np.hstack(norms)
-            writer.add_histogram(
-                'embedding/norm', norms,
-                global_step=epoch, bins='auto')
+                norms = np.hstack(norms)
+                writer.add_histogram(
+                    'embedding/norm', norms,
+                    global_step=epoch, bins='auto')
 
             logging_callback.model = model
             logging_callback.optimizer = optimizer
