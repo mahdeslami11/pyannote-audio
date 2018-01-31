@@ -48,13 +48,15 @@ class SpeechSegmentGenerator(object):
     duration : float, optional
     min_duration : float, optional
     max_duration : float, optional
-    fast : bool, optional
-        Defaults to True.
+    parallel : int, optional
+        Number of prefetching background generators. Defaults to 1.
+        Each generator will prefetch enough batches to cover a whole epoch.
+        Set `parallel` to 0 to not use background generators.
     """
 
     def __init__(self, precomputed, per_label=3, per_fold=None,
                  duration=None, min_duration=None, max_duration=None,
-                 fast=True):
+                 parallel=1):
 
         super(SpeechSegmentGenerator, self).__init__()
 
@@ -62,7 +64,7 @@ class SpeechSegmentGenerator(object):
         self.per_label = per_label
         self.per_fold = per_fold
         self.duration = duration
-        self.fast = fast
+        self.parallel = parallel
 
         if self.duration is None:
             self.min_duration = min_duration
@@ -97,11 +99,6 @@ class SpeechSegmentGenerator(object):
                        'Set "use_memmap" to True if you run out of memory.')
                 warnings.warn(msg)
 
-            if self.fast:
-                features = self.precomputed(current_file)
-            else:
-                features = None
-
             # loop on each label in current file
             for label in annotation.labels():
 
@@ -121,17 +118,9 @@ class SpeechSegmentGenerator(object):
                 # short segments).
                 duration = sum(s.duration for s in segments)
 
-                # this generator will randomly (and infinitely) select one
-                # segment among remaining segments, with probability
-                # proportional to its duration in other words, longer segments
-                # are more likely to be selected.
-                segment_generator = random_segment(
-                    segments, weighted=self.weighted_)
-                # note that subclasses may set self.weighted_ to False
-                # to select segments completely at random
-
                 # store all these in data_ dictionary
-                datum = (segment_generator, duration, current_file, features)
+                # datum = (segment_generator, duration, current_file, features)
+                datum = (segments, duration, current_file)
                 l = get_label_identifier(label, current_file)
                 self.data_.setdefault(l, []).append(datum)
 
@@ -153,8 +142,9 @@ class SpeechSegmentGenerator(object):
             for label in labels:
 
                 # load data for this label
-                segment_generators, durations, files, features = \
-                    zip(*self.data_[label])
+                # segment_generators, durations, files, features = \
+                #     zip(*self.data_[label])
+                segments, durations, files = zip(*self.data_[label])
 
                 # choose 'per_label' files at random with probability
                 # proportional to the total duration of 'label' in those files
@@ -165,14 +155,11 @@ class SpeechSegmentGenerator(object):
                 # loop on (randomly) chosen files
                 for i in chosen:
 
-                    if features[i] is None:
-                        features_ = self.precomputed(files[i])
-                    else:
-                        features_ = features[i]
-
                     # choose one segment at random with
                     # probability proportional to duration
-                    segment = next(segment_generators[i])
+                    # segment = next(segment_generators[i])
+                    segment = next(
+                        random_segment(segments[i], weighted=self.weighted_))
 
                     if self.duration is None:
 
@@ -211,7 +198,8 @@ class SpeechSegmentGenerator(object):
                                     segment, self.max_duration,
                                     min_duration=self.min_duration))
 
-                        X = features_.crop(sub_segment, mode='center')
+                        X = self.precomputed.crop(
+                            files[i], sub_segment, mode='center')
 
                     else:
 
@@ -219,8 +207,9 @@ class SpeechSegmentGenerator(object):
                         sub_segment = next(random_subsegment(
                             segment, self.duration))
 
-                        X = features_.crop(
-                            sub_segment, mode='center', fixed=self.duration)
+                        X = self.precomputed.crop(
+                            files[i], sub_segment, mode='center',
+                            fixed=self.duration)
 
                     database = files[i]['database']
                     extra = {'label': label,
@@ -250,21 +239,45 @@ class SpeechSegmentGenerator(object):
         else:
             batch_size = self.per_label * len(self.data_)
 
-        for batch in batchify(generator, signature, batch_size=batch_size,
-                              prefetch=1):
-            yield batch
+        batches_per_epoch = self.batches_per_epoch
 
+        generators = []
+        if self.parallel:
+
+            for i in range(self.parallel):
+                generator = self.generator()
+                batches = batchify(generator, signature, batch_size=batch_size,
+                                   prefetch=batches_per_epoch)
+                generators.append(batches)
+        else:
+            generator = self.generator()
+            batches = batchify(generator, signature, batch_size=batch_size,
+                               prefetch=0)
+            generators.append(batches)
+
+        while True:
+            # get `batches_per_epoch` batches from each generator
+            for batches in generators:
+                for _ in range(batches_per_epoch):
+                    yield next(batches)
 
     @property
-    def n_sequences_per_batch(self):
+    def batches_per_epoch(self):
+
+        # one minute per speaker
+        duration_per_epoch = 60 * len(self.data_)
+
+        # number of segments per batch
         if self.per_fold is None:
-            return self.per_label * len(self.data_)
-        return self.per_label * self.per_fold
+            segments_per_batch = self.per_label * len(self.data_)
+        else:
+            segments_per_batch = self.per_label * self.per_fold
 
-    @property
-    def n_labels(self):
-        return len(self.data_)
+        # duration per batch
+        # FIXME: won't work when self.duration is not set
+        duration_per_batch = self.duration * segments_per_batch
 
+        return int(np.ceil(duration_per_epoch / duration_per_batch))
 
 class SpeechTurnSubSegmentGenerator(SpeechSegmentGenerator):
     """Generates batches of speech turn fixed-duration sub-segments

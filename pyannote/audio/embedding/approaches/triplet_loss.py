@@ -68,11 +68,16 @@ class TripletLoss(object):
     per_fold : int, optional
         If provided, sample triplets from groups of `per_fold` speakers at a
         time. Defaults to sample triplets from the whole speaker set.
+    parallel : int, optional
+        Number of prefetching background generators. Defaults to 1.
+        Each generator will prefetch enough batches to cover a whole epoch.
+        Set `parallel` to 0 to not use background generators.
     """
 
     def __init__(self, duration=3.2,
                  metric='cosine', margin=0.2, clamp='positive',
-                 sampling='all', per_label=3, per_fold=None):
+                 sampling='all', per_label=3, per_fold=None,
+                 parallel=1):
 
         super(TripletLoss, self).__init__()
 
@@ -102,6 +107,7 @@ class TripletLoss(object):
         self.per_fold = per_fold
         self.per_label = per_label
         self.duration = duration
+        self.parallel = parallel
 
     def pdist(self, fX):
         """Compute pdist à-la scipy.spatial.distance.pdist
@@ -275,28 +281,14 @@ class TripletLoss(object):
         logging_callback = LoggingCallbackPytorch(
             log_dir=log_dir, restart=(False if restart is None else True))
 
-        try:
-            batch_generator = SpeechSegmentGenerator(
-                feature_extraction,
-                per_label=self.per_label, per_fold=self.per_fold,
-                duration=self.duration)
-            batches = batch_generator(protocol, subset=subset)
-            batch = next(batches)
-        except OSError as e:
-            del batch_generator.data_
-            batch_generator = SpeechSegmentGenerator(
-                feature_extraction,
-                per_label=self.per_label, per_fold=self.per_fold,
-                duration=self.duration, fast=False)
-            batches = batch_generator(protocol, subset=subset)
-            batch = next(batches)
+        batch_generator = SpeechSegmentGenerator(
+            feature_extraction,
+            per_label=self.per_label, per_fold=self.per_fold,
+            duration=self.duration, parallel=self.parallel)
+        batches = batch_generator(protocol, subset=subset)
+        batch = next(batches)
 
-        # TODO. learn feature normalization and store it as a layer in the model
-
-        # one minute per speaker
-        duration_per_epoch = 60. * batch_generator.n_labels
-        duration_per_batch = self.duration * batch_generator.n_sequences_per_batch
-        batches_per_epoch = int(np.ceil(duration_per_epoch / duration_per_batch))
+        batches_per_epoch = batch_generator.batches_per_epoch
 
         if restart is not None:
             weights_pt = logging_callback.WEIGHTS_PT.format(
