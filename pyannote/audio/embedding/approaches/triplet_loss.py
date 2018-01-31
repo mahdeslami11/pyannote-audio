@@ -323,8 +323,10 @@ class TripletLoss(object):
         for epoch in range(restart, restart + epochs):
 
             loss_avg = 0.
-            positive, negative = [], []
-            norms = []
+
+            if epoch % 10 == 0:
+                positive, negative = [], []
+                norms = []
 
             desc = 'Epoch #{0}'.format(epoch)
             for i in tqdm(range(batches_per_epoch), desc=desc):
@@ -342,22 +344,24 @@ class TripletLoss(object):
 
                 fX = model(X)
 
-                if gpu:
-                    fX_ = fX.data.cpu().numpy()
-                else:
-                    fX_ = fX.data.numpy()
-                norms.append(np.linalg.norm(fX_, axis=1))
+                if epoch % 10 == 0:
+                    if gpu:
+                        fX_ = fX.data.cpu().numpy()
+                    else:
+                        fX_ = fX.data.numpy()
+                    norms.append(np.linalg.norm(fX_, axis=1))
 
                 # pre-compute pairwise distances
                 distances = self.pdist(fX)
 
-                if gpu:
-                    distances_ = distances.data.cpu().numpy()
-                else:
-                    distances_ = distances.data.numpy()
-                is_positive = pdist(batch['y'].reshape((-1, 1)), metric='chebyshev') < 1
-                positive.append(distances_[np.where(is_positive)])
-                negative.append(distances_[np.where(~is_positive)])
+                if epoch % 10 == 0:
+                    if gpu:
+                        distances_ = distances.data.cpu().numpy()
+                    else:
+                        distances_ = distances.data.numpy()
+                    is_positive = pdist(batch['y'].reshape((-1, 1)), metric='chebyshev') < 1
+                    positive.append(distances_[np.where(is_positive)])
+                    negative.append(distances_[np.where(~is_positive)])
 
                 # sample triplets
                 if self.sampling == 'all':
@@ -385,21 +389,22 @@ class TripletLoss(object):
                 optimizer.step()
 
             loss_avg /= batches_per_epoch
-
-            positive = np.hstack(positive)
-            negative = np.hstack(negative)
-            writer.add_histogram(
-                'embedding/pairwise_distance/positive', positive,
-                global_step=epoch, bins='auto')
-            writer.add_histogram(
-                'embedding/pairwise_distance/negative', negative,
-                global_step=epoch, bins='auto')
-
-            norms = np.hstack(norms)
-            writer.add_histogram(
-                'embedding/norm', norms,
-                global_step=epoch, bins='auto')
             writer.add_scalar('tloss', loss_avg, global_step=epoch)
+
+            if epoch % 10 == 0:
+                positive = np.hstack(positive)
+                negative = np.hstack(negative)
+                writer.add_histogram(
+                    'embedding/pairwise_distance/positive', positive,
+                    global_step=epoch, bins='auto')
+                writer.add_histogram(
+                    'embedding/pairwise_distance/negative', negative,
+                    global_step=epoch, bins='auto')
+
+                norms = np.hstack(norms)
+                writer.add_histogram(
+                    'embedding/norm', norms,
+                    global_step=epoch, bins='auto')
 
             logging_callback.model = model
             logging_callback.optimizer = optimizer
