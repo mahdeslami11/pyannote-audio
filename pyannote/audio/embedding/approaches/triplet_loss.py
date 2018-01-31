@@ -374,15 +374,12 @@ class TripletLoss(object):
 
                 loss = torch.mean(losses)
 
-                # log batch loss
+                # log loss
                 if gpu:
                     loss_ = float(loss.data.cpu().numpy())
                 else:
                     loss_ = float(loss.data.numpy())
                 loss_avg += loss_
-                writer.add_scalar(
-                    'loss/batch', loss_,
-                    global_step=i + epoch * batches_per_epoch)
 
                 loss.backward()
                 optimizer.step()
