@@ -385,7 +385,6 @@ class TripletLoss(object):
                 optimizer.step()
 
             loss_avg /= batches_per_epoch
-            writer.add_scalar('loss', loss_avg, global_step=epoch)
 
             positive = np.hstack(positive)
             negative = np.hstack(negative)
@@ -400,6 +399,7 @@ class TripletLoss(object):
             writer.add_histogram(
                 'embedding/norm', norms,
                 global_step=epoch, bins='auto')
+            writer.add_scalar('tloss', loss_avg, global_step=epoch)
 
             logging_callback.model = model
             logging_callback.optimizer = optimizer
