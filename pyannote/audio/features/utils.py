@@ -35,6 +35,7 @@ import os.path
 import warnings
 from glob import glob
 import numpy as np
+from numpy.lib.format import open_memmap
 from struct import unpack
 import audioread
 import librosa
@@ -273,6 +274,15 @@ class Precomputed(object):
 
         return SlidingWindowFeature((data - self.mu) / self.sigma,
                                     self.sliding_window_)
+
+    def crop(self, item, focus, mode='loose', fixed=None, return_data=True):
+        """Faster version of precomputed(item).crop(...)"""
+        memmap = open_memmap(self.get_path(item), mode='r')
+        swf = SlidingWindowFeature(memmap, self.sliding_window_)
+        result = swf.crop(focus, mode=mode, fixed=fixed,
+                          return_data=return_data)
+        del memmap
+        return result
 
     def dump(self, item, features):
         path = self.get_path(item)
