@@ -36,6 +36,7 @@ from pyannote.audio.callback import LoggingCallbackPytorch
 from torch.optim import Adam
 from scipy.spatial.distance import pdist
 from .triplet_loss import TripletLoss
+from pyannote.metrics.binary_classification import det_curve
 
 
 class WTFTripletLoss(TripletLoss):
@@ -194,6 +195,7 @@ class WTFTripletLoss(TripletLoss):
             writer.add_scalar('closs', closs_avg, global_step=epoch)
 
             if epoch % 10 == 0:
+
                 positive = np.hstack(positive)
                 negative = np.hstack(negative)
                 writer.add_histogram(
@@ -202,6 +204,11 @@ class WTFTripletLoss(TripletLoss):
                 writer.add_histogram(
                     'embedding/pairwise_distance/negative', negative,
                     global_step=epoch, bins='auto')
+
+                _, _, _, eer = det_curve(
+                    np.hstack([np.ones(len(positive)), np.zeros(len(negative))]),
+                    np.hstack([positive, negative]), distances=True)
+                writer.add_scalar('eer', eer, global_step=epoch)
 
                 norms = np.hstack(norms)
                 writer.add_histogram(

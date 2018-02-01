@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2017 CNRS
+# Copyright (c) 2018 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -37,6 +37,7 @@ from pyannote.audio.callback import LoggingCallbackPytorch
 from torch.optim import Adam
 from pyannote.audio.embedding.utils import to_condensed
 from scipy.spatial.distance import pdist, squareform
+from pyannote.metrics.binary_classification import det_curve
 
 
 class TripletLoss(object):
@@ -314,7 +315,7 @@ class TripletLoss(object):
         restart = 0 if restart is None else restart + 1
         for epoch in range(restart, restart + epochs):
 
-            loss_avg = 0.
+            tloss_avg = 0.
 
             if epoch % 10 == 0:
                 positive, negative = [], []
@@ -375,15 +376,16 @@ class TripletLoss(object):
                     loss_ = float(loss.data.cpu().numpy())
                 else:
                     loss_ = float(loss.data.numpy())
-                loss_avg += loss_
+                tloss_avg += loss_
 
                 loss.backward()
                 optimizer.step()
 
-            loss_avg /= batches_per_epoch
-            writer.add_scalar('tloss', loss_avg, global_step=epoch)
+            tloss_avg /= batches_per_epoch
+            writer.add_scalar('tloss', tloss_avg, global_step=epoch)
 
             if epoch % 10 == 0:
+
                 positive = np.hstack(positive)
                 negative = np.hstack(negative)
                 writer.add_histogram(
@@ -392,6 +394,11 @@ class TripletLoss(object):
                 writer.add_histogram(
                     'embedding/pairwise_distance/negative', negative,
                     global_step=epoch, bins='auto')
+
+                _, _, _, eer = det_curve(
+                    np.hstack([np.ones(len(positive)), np.zeros(len(negative))]),
+                    np.hstack([positive, negative]), distances=True)
+                writer.add_scalar('eer', eer, global_step=epoch)
 
                 norms = np.hstack(norms)
                 writer.add_histogram(
