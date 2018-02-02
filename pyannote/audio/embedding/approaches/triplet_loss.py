@@ -62,7 +62,7 @@ class TripletLoss(object):
         Margin factor. Defaults to 0.2.
     clamp : {'positive', 'sigmoid', 'softmargin'}, optional
         Defaults to 'positive'.
-    sampling : {'all', 'hard'}, optional
+    sampling : {'all', 'hard', 'negative'}, optional
         Triplet sampling strategy.
     per_label : int, optional
         Number of sequences per speaker in each batch. Defaults to 3.
@@ -100,8 +100,8 @@ class TripletLoss(object):
             raise ValueError(msg)
         self.clamp = clamp
 
-        if sampling not in {'all', 'hard'}:
-            msg = "'sampling' must be one of {'all', 'hard'}."
+        if sampling not in {'all', 'hard', 'negative'}:
+            msg = "'sampling' must be one of {'all', 'hard', 'negative'}."
             raise ValueError(msg)
         self.sampling = sampling
 
@@ -147,7 +147,7 @@ class TripletLoss(object):
         return torch.cat(distances)
 
     def batch_hard(self, y, distances):
-        """
+        """Build triplet with both hardest positive and hardest negative
 
         Parameters
         ----------
@@ -189,8 +189,49 @@ class TripletLoss(object):
 
         return anchors, positives, negatives
 
-    def batch_all(self, y, distances):
+    def batch_negative(self, y, distances):
+        """Build triplet with hardest negative
+
+        Parameters
+        ----------
+        y : list
+            Sequence labels.
+        distances : (n * (n-1) / 2,) torch.autograd.Variable
+            Condensed pairwise distance matrix
+
+        Returns
+        -------
+        anchors, positives, negatives : list of int
+            Triplets indices.
         """
+
+        anchors, positives, negatives = [], [], []
+
+        if distances.is_cuda:
+            distances = squareform(distances.data.cpu().numpy())
+        else:
+            distances = squareform(distances.data.numpy())
+        y = np.array(y)
+
+        for anchor, y_anchor in enumerate(y):
+
+            # hardest negative
+            d = distances[anchor]
+            neg = np.where(y != y_anchor)[0]
+            negative = int(neg[np.argmin(d[neg])])
+
+            for positive in np.where(y == y_anchor)[0]:
+                if positive == anchor:
+                    continue
+
+                anchors.append(anchor)
+                positives.append(positive)
+                negatives.append(negative)
+
+        return anchors, positives, negatives
+
+    def batch_all(self, y, distances):
+        """Build all possible triplet
 
         Parameters
         ----------
@@ -357,13 +398,8 @@ class TripletLoss(object):
                     negative.append(distances_[np.where(~is_positive)])
 
                 # sample triplets
-                if self.sampling == 'all':
-                    anchors, positives, negatives = self.batch_all(
-                        batch['y'], distances)
-
-                elif self.sampling == 'hard':
-                    anchors, positives, negatives = self.batch_hard(
-                        batch['y'], distances)
+                triplets = getattr(self, 'batch_{0}'.format(self.sampling))
+                anchors, positives, negatives = triplets(batch['y'], distances)
 
                 # compute triplet loss
                 losses = self.triplet_loss(

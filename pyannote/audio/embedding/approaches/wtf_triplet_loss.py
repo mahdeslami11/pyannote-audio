@@ -48,7 +48,7 @@ class WTFTripletLoss(TripletLoss):
         Defautls to 3.2 seconds.
     margin: float, optional
         Margin factor. Defaults to 0.2.
-    sampling : {'all', 'hard'}, optional
+    sampling : {'all', 'hard', 'negative'}, optional
         Triplet sampling strategy.
     per_label : int, optional
         Number of sequences per speaker in each batch. Defaults to 3.
@@ -154,13 +154,8 @@ class WTFTripletLoss(TripletLoss):
                     negative.append(distances_[np.where(~is_positive)])
 
                 # sample triplets
-                if self.sampling == 'all':
-                    anchors, positives, negatives = self.batch_all(
-                        batch['y'], distances)
-
-                elif self.sampling == 'hard':
-                    anchors, positives, negatives = self.batch_hard(
-                        batch['y'], distances)
+                triplets = getattr(self, 'batch_{0}'.format(self.sampling))
+                anchors, positives, negatives = triplets(batch['y'], distances)
 
                 # compute triplet loss
                 tlosses, deltas = self.triplet_loss(
