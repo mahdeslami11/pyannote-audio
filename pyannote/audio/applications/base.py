@@ -66,6 +66,13 @@ class Application(object):
         app.validate_txt_ = validate_txt
         return app
 
+    @classmethod
+    def from_model_pt(cls, model_pt, db_yml=None):
+        train_dir = dirname(dirname(model_pt))
+        app = cls.from_train_dir(train_dir, db_yml=db_yml)
+        app.model_pt_ = model_pt
+        return app
+
     def __init__(self, experiment_dir, db_yml=None, backend='keras'):
         super(Application, self).__init__()
 
@@ -96,6 +103,17 @@ class Application(object):
             self.cache_preprocessed_ = 'Precomputed' not in extraction_name
 
     def load_model(self, epoch, train_dir=None, compile=True):
+        """Load pretrained model
+
+        Parameters
+        ----------
+        epoch : int
+            Which epoch to load.
+        train_dir : str, optional
+            Path to train directory. Defaults to self.train_dir_.
+        compile : bool, optional
+            For `keras` backend only.
+        """
 
         if train_dir is None:
             train_dir = self.train_dir_

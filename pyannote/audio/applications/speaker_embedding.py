@@ -32,7 +32,7 @@ Speaker embedding
 Usage:
   pyannote-speaker-embedding train [--database=<db.yml> --subset=<subset> --from=<epoch> --for=<epochs> --gpu] <experiment_dir> <database.task.protocol>
   pyannote-speaker-embedding validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch> --chronological --gpu --turn] <train_dir> <database.task.protocol>
-  pyannote-speaker-embedding apply [--database=<db.yml> --step=<step> --internal --normalize --gpu] <validate.txt> <database.task.protocol> <output_dir>
+  pyannote-speaker-embedding apply [--database=<db.yml> --step=<step> --internal --normalize --gpu] <model.pt> <database.task.protocol> <output_dir>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
 
@@ -67,10 +67,9 @@ Common options:
                              models (i.e. the output of "train" mode).
 
 "apply" mode:
-  <tune_dir>                 Path to the directory containing optimal
-                             hyper-parameters (i.e. the output of "tune" mode).
-  --internal                 Blah blah
-  --normalize                Blah blah
+  <model.pt>                 Path to the pretrained model.
+  --internal                 Extract internal embeddings.
+  --normalize                Extract normalized embeddings.
   -h --help                  Show this screen.
   --version                  Show version.
 
@@ -503,11 +502,8 @@ class SpeakerEmbedding(Application):
     def apply(self, protocol_name, output_dir, step=None,
               internal=False, normalize=False):
 
-        # load best performing model
-        with open(self.validate_txt_, 'r') as fp:
-            eers = SortedDict(np.loadtxt(fp))
-        best_epoch = int(eers.iloc[np.argmin(eers.values())])
-        model = self.load_model(best_epoch)
+        chosen_epoch = int(basename(self.model_pt_)[:-3])
+        model = self.load_model(chosen_epoch)
 
         if self.gpu:
             model = model.cuda()
@@ -618,7 +614,7 @@ def main():
 
     if arguments['apply']:
 
-        validate_txt = arguments['<validate.txt>']
+        model_pt = arguments['<model.pt>']
         output_dir = arguments['<output_dir>']
         if subset is None:
             subset = 'test'
@@ -630,7 +626,7 @@ def main():
         internal = arguments['--internal']
         normalize = arguments['--normalize']
 
-        application = SpeakerEmbedding.from_validate_txt(validate_txt)
+        application = SpeakerEmbedding.from_model_pt(model_pt)
         application.gpu = gpu
         application.apply(protocol_name, output_dir, step=step,
                           internal=internal, normalize=normalize)
