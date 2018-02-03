@@ -147,9 +147,10 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from pyannote.database.util import get_annotated
+from pyannote.database import get_annotated
 from pyannote.database import get_protocol
 from pyannote.database import get_unique_identifier
+from pyannote.database import FileFinder
 
 from pyannote.audio.util import mkdir_p
 
@@ -548,29 +549,9 @@ class SpeakerEmbedding(Application):
         protocol = get_protocol(protocol_name, progress=True,
                                 preprocessors=self.preprocessors_)
 
-        processed_uris = set()
-
-        for subset in ['development', 'test', 'train']:
-
-            try:
-                file_generator = getattr(protocol, subset)()
-                first_item = next(file_generator)
-            except NotImplementedError as e:
-                continue
-
-            file_generator = getattr(protocol, subset)()
-
-            for current_file in file_generator:
-
-                # corner case when the same file is iterated several times
-                uri = get_unique_identifier(current_file)
-                if uri in processed_uris:
-                    continue
-
-                fX = sequence_embedding.apply(current_file)
-
-                precomputed.dump(current_file, fX)
-                processed_uris.add(uri)
+        for current_file in FileFinder.protocol_file_iter(protocol):
+            fX = sequence_embedding.apply(current_file_)
+            precomputed.dump(current_file_, fX)
 
 def main():
 
