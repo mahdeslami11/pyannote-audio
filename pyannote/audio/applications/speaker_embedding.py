@@ -550,8 +550,8 @@ class SpeakerEmbedding(Application):
                                 preprocessors=self.preprocessors_)
 
         for current_file in FileFinder.protocol_file_iter(protocol):
-            fX = sequence_embedding.apply(current_file_)
-            precomputed.dump(current_file_, fX)
+            fX = sequence_embedding.apply(current_file)
+            precomputed.dump(current_file, fX)
 
 def main():
 
