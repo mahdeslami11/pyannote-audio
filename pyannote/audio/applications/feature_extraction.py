@@ -204,22 +204,11 @@ def extract(protocol_name, file_finder, experiment_dir,
                                         robust=robust)
         imap = map
 
-    for subset in ['development', 'test', 'train']:
 
-        try:
-            protocol.progress = False
-            file_generator = getattr(protocol, subset)()
-            first_item = next(file_generator)
-        except NotImplementedError as e:
+    for result in imap(extract_one, FileFinder.protocol_file_iter(protocol)):
+        if result is None:
             continue
-
-        protocol.progress = True
-        file_generator = getattr(protocol, subset)()
-
-        for result in imap(extract_one, file_generator):
-            if result is None:
-                continue
-            print(result)
+        print(result)
 
 def check(protocol_name, file_finder, experiment_dir):
 
