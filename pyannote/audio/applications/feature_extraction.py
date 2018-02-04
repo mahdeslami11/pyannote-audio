@@ -205,7 +205,8 @@ def extract(protocol_name, file_finder, experiment_dir,
         imap = map
 
 
-    for result in imap(extract_one, FileFinder.protocol_file_iter(protocol)):
+    for result in imap(extract_one, FileFinder.protocol_file_iter(
+        protocol, extra_keys=['audio'])):
         if result is None:
             continue
         print(result)

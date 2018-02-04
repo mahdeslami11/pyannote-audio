@@ -545,7 +545,9 @@ class SpeakerEmbedding(Application):
         protocol = get_protocol(protocol_name, progress=True,
                                 preprocessors=self.preprocessors_)
 
-        for current_file in FileFinder.protocol_file_iter(protocol):
+        for current_file in FileFinder.protocol_file_iter(
+            protocol, extra_keys=['audio']):
+
             fX = sequence_embedding.apply(current_file)
             precomputed.dump(current_file, fX)
 
