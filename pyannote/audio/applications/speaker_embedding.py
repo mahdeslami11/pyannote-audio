@@ -31,7 +31,7 @@ Speaker embedding
 
 Usage:
   pyannote-speaker-embedding train [--database=<db.yml> --subset=<subset> --from=<epoch> --for=<epochs> --gpu] <experiment_dir> <database.task.protocol>
-  pyannote-speaker-embedding validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch> --chronological --gpu --turn] <train_dir> <database.task.protocol>
+  pyannote-speaker-embedding validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch> --chronological --gpu --turn --batch=<size>] <train_dir> <database.task.protocol>
   pyannote-speaker-embedding apply [--database=<db.yml> --step=<step> --internal --normalize --gpu] <model.pt> <database.task.protocol> <output_dir>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
@@ -63,6 +63,7 @@ Common options:
   --chronological            Force validation in chronological order.
   --turn                     Perform same/different validation at speech turn
                              level. Default is to use fixed duration segments.
+  --batch=<size>             Batch size. [default: 32].
   <train_dir>                Path to the directory containing pre-trained
                              models (i.e. the output of "train" mode).
 
@@ -520,17 +521,15 @@ class SpeakerEmbedding(Application):
         if step is None:
             step = 0.5 * duration
 
-        # initialize embedding extraction
-        batch_size = 32
-
         # do not use memmap as this would lead to too many open files
         if isinstance(self.feature_extraction_, Precomputed):
             self.feature_extraction_.use_memmap = False
 
+        # initialize embedding extraction
         sequence_embedding = SequenceEmbedding(
             model, self.feature_extraction_, duration,
             step=step,
-            batch_size=batch_size, gpu=self.gpu)
+            batch_size=self.batch_size, gpu=self.gpu)
         sliding_window = sequence_embedding.sliding_window
         dimension = sequence_embedding.dimension
 
@@ -606,10 +605,14 @@ def main():
         # validate at speech turn level
         turn = arguments['--turn']
 
+        # batch size
+        batch_size = int(arguments['--batch'])
+
         application = SpeakerEmbedding.from_train_dir(
             train_dir, db_yml=db_yml)
         application.gpu = gpu
         application.turn = turn
+        application.batch_size = batch_size
         application.validate(protocol_name, subset=subset,
                              start=start, end=end, every=every,
                              in_order=in_order)
