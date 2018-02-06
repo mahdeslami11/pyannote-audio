@@ -110,7 +110,7 @@ def init_feature_extraction(experiment_dir):
     return feature_extraction
 
 def process_current_file(current_file, file_finder=None, precomputed=None,
-                         feature_extraction=None):
+                         feature_extraction=None, normalization=None):
 
     try:
         current_file['audio'] = file_finder(current_file)
@@ -139,13 +139,17 @@ def process_current_file(current_file, file_finder=None, precomputed=None,
         msg = 'Feature extraction returned NaNs for file "{uri}".'
         return msg.format(uri=uri)
 
+    if normalization is not None:
+        features = normalization(features)
+
     precomputed.dump(current_file, features)
 
     return
 
 
 def helper_extract(current_file, file_finder=None, experiment_dir=None,
-                   config_yml=None, feature_extraction=None, robust=False):
+                   config_yml=None, feature_extraction=None,
+                   normalization=None, robust=False):
 
     if feature_extraction is None:
         feature_extraction = init_feature_extraction(experiment_dir)
@@ -153,7 +157,8 @@ def helper_extract(current_file, file_finder=None, experiment_dir=None,
     precomputed = Precomputed(root_dir=experiment_dir)
     return process_current_file(current_file, file_finder=file_finder,
                                 precomputed=precomputed,
-                                feature_extraction=feature_extraction)
+                                feature_extraction=feature_extraction,
+                                normalization=normalization)
 
 def extract(protocol_name, file_finder, experiment_dir,
             robust=False, parallel=False):
@@ -175,6 +180,16 @@ def extract(protocol_name, file_finder, experiment_dir,
     sliding_window = feature_extraction.sliding_window()
     dimension = feature_extraction.dimension()
 
+    if 'normalization' in config:
+        normalization_name = config['normalization']['name']
+        normalization_module = __import__('pyannote.audio.features.normalization',
+                                   fromlist=[normalization_name])
+        Normalization = getattr(normalization_module, normalization_name)
+        normalization = Normalization(
+            **config['normalization'].get('params', {}))
+    else:
+        normalization = None
+
     # create metadata file at root that contains
     # sliding window and dimension information
 
@@ -188,6 +203,7 @@ def extract(protocol_name, file_finder, experiment_dir,
                                         file_finder=file_finder,
                                         experiment_dir=experiment_dir,
                                         config_yml=config_yml,
+                                        normalization=normalization,
                                         robust=robust)
 
         n_jobs = cpu_count()
@@ -201,6 +217,7 @@ def extract(protocol_name, file_finder, experiment_dir,
                                         file_finder=file_finder,
                                         experiment_dir=experiment_dir,
                                         feature_extraction=feature_extraction,
+                                        normalization=normalization,
                                         robust=robust)
         imap = map
 
