@@ -47,9 +47,6 @@ class ClopiNet(nn.Module):
     ----------
     n_features : int
         Input feature dimension.
-    normalize_input : boolean, optional
-        Apply mean and variance normalization on each input sequence.
-        Defaults to False (no normalization).
     rnn : {'LSTM', 'GRU'}, optional
         Defaults to 'LSTM'.
     recurrent : list, optional
@@ -77,7 +74,7 @@ class ClopiNet(nn.Module):
     >>> embedding = model(sequence)
     """
 
-    def __init__(self, n_features, normalize_input=False,
+    def __init__(self, n_features,
                  rnn='LSTM', recurrent=[64, 64, 64], bidirectional=False,
                  normalize=False, weighted=False, linear=None,
                  internal=False, attention=None, return_attention=False):
@@ -85,7 +82,6 @@ class ClopiNet(nn.Module):
         super(ClopiNet, self).__init__()
 
         self.n_features = n_features
-        self.normalize_input = normalize_input
         self.rnn = rnn
         self.recurrent = recurrent
         self.bidirectional = bidirectional
@@ -172,12 +168,7 @@ class ClopiNet(nn.Module):
         output = sequence
         # n_samples, batch_size, n_features
         gpu = sequence.is_cuda
-
-        if self.normalize_input:
-            mean = torch.mean(output, 0, keepdim=True)
-            var = torch.var(output, 0, keepdim=True, unbiased=True)
-            output = (output - mean) / var
-
+        
         outputs = []
         # stack recurrent layers
         for hidden_dim, layer in zip(self.recurrent, self.recurrent_layers_):
