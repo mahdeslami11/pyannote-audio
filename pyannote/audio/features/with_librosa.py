@@ -54,20 +54,15 @@ class LibrosaFeatureExtractor(object):
         Defaults to 512.
     step_size : int, optional
         Defaults to 256.
-    mu, sigma : np.array, optional
-        Apply mu/sigma feature normalization.
     """
 
-    def __init__(self, sample_rate=16000, duration=0.025, step=0.01,
-                 mu=0., sigma=1.):
+    def __init__(self, sample_rate=16000, duration=0.025, step=0.01):
 
         super(LibrosaFeatureExtractor, self).__init__()
 
         self.sample_rate = sample_rate
         self.duration = duration
         self.step = step
-        self.mu = 0.
-        self.sigma = 1.
 
         self.sliding_window_ = SlidingWindow(start=-.5*self.duration,
                                              duration=self.duration,
@@ -104,8 +99,7 @@ class LibrosaFeatureExtractor(object):
             msg = 'Features extracted from "{uri}" contain NaNs.'
             warnings.warn(msg.format(uri=uri))
 
-        return SlidingWindowFeature((data.T - self.mu) / self.sigma,
-                                    self.sliding_window_)
+        return SlidingWindowFeature(data.T, self.sliding_window_)
 
 
 class LibrosaRMSE(LibrosaFeatureExtractor):
@@ -184,12 +178,10 @@ class LibrosaMFCC(LibrosaFeatureExtractor):
     def __init__(self, sample_rate=16000, duration=0.025, step=0.01,
                  e=False, De=True, DDe=True,
                  coefs=19, D=True, DD=True,
-                 fmin=0.0, fmax=None, n_mels=40,
-                 mu=0., sigma=1.):
+                 fmin=0.0, fmax=None, n_mels=40):
 
         super(LibrosaMFCC, self).__init__(sample_rate=sample_rate,
-                                          duration=duration, step=step,
-                                          mu=mu, sigma=sigma)
+                                          duration=duration, step=step)
 
         self.e = e
         self.coefs = coefs

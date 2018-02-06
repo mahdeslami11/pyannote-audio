@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016-2017 CNRS
+# Copyright (c) 2016-2018 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -160,12 +160,10 @@ class RawAudio(object):
 
     """
 
-    def __init__(self, sample_rate=None, mono=True, mu=0., sigma=1.):
+    def __init__(self, sample_rate=None, mono=True):
         super(RawAudio, self).__init__()
         self.sample_rate = sample_rate
         self.mono = mono
-        self.mu = mu
-        self.sigma = sigma
 
     def __call__(self, current_file):
 
@@ -177,8 +175,7 @@ class RawAudio(object):
                                        duration=1./sample_rate,
                                        step=1./sample_rate)
 
-        return SlidingWindowFeature((y - self.mu) / self.sigma,
-                                    sliding_window)
+        return SlidingWindowFeature(y, sliding_window)
 
 
 class Precomputed(object):
@@ -188,8 +185,6 @@ class Precomputed(object):
     ----------
     root_dir :
     use_memmap : bool, optional
-    mu, sigma : np.array, optional
-        Apply mu/sigma normalization.
     """
 
     def get_path(self, item):
@@ -198,14 +193,11 @@ class Precomputed(object):
         return path
 
     def __init__(self, root_dir=None, use_memmap=True,
-                 sliding_window=None, dimension=None,
-                 mu=None, sigma=None):
+                 sliding_window=None, dimension=None):
 
         super(Precomputed, self).__init__()
         self.root_dir = root_dir
         self.use_memmap = use_memmap
-        self.mu = mu
-        self.sigma = sigma
 
         path = '{root_dir}/metadata.yml'.format(root_dir=self.root_dir)
 
@@ -269,11 +261,7 @@ class Precomputed(object):
         else:
             data = np.load(path)
 
-        if self.mu is None and self.sigma is None:
-            return SlidingWindowFeature(data, self.sliding_window_)
-
-        return SlidingWindowFeature((data - self.mu) / self.sigma,
-                                    self.sliding_window_)
+        return SlidingWindowFeature(data, self.sliding_window_)
 
     def crop(self, item, focus, mode='loose', fixed=None, return_data=True):
         """Faster version of precomputed(item).crop(...)"""
@@ -292,13 +280,10 @@ class Precomputed(object):
 
 class PrecomputedHTK(object):
 
-    def __init__(self, root_dir=None, duration=0.025, step=None,
-                 mu=0., sigma=1.):
+    def __init__(self, root_dir=None, duration=0.025, step=None):
         super(PrecomputedHTK, self).__init__()
         self.root_dir = root_dir
         self.duration = duration
-        self.mu = mu
-        self.sigma = sigma
 
         # load any htk file in root_dir/database
         path = '{root_dir}/*/*.htk'.format(root_dir=root_dir)
@@ -357,5 +342,4 @@ class PrecomputedHTK(object):
     def __call__(self, item):
         file_htk = self.get_path(self.root_dir, item)
         X, _ = self.load_htk(file_htk)
-        return SlidingWindowFeature((X - self.mu) / self.sigma,
-                                    self.sliding_window_)
+        return SlidingWindowFeature(X, self.sliding_window_)
