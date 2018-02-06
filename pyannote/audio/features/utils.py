@@ -137,8 +137,8 @@ def read_audio(current_file, sample_rate=None, mono=True):
         y = y.reshape(1, -1)
 
     # extract specific channel if requested
-    if 'channel' in current_file:
-        channel = current_file['channel']
+    channel = current_file.get('channel', None)
+    if channel is not None:
         y = y[channel - 1, :]
 
     # convert to mono
