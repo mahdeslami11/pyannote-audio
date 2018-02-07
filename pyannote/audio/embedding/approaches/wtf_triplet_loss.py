@@ -108,14 +108,22 @@ class WTFTripletLoss(TripletLoss):
 
         model.internal = False
 
+        parameters = list(model.parameters())
+
         if self.variant == 2:
 
             # rolling estimate of embedding norm distribution
-            self.norm_batch_norm_ = nn.BatchNorm1d(1, eps=1e-5,
-                                                   momentum=0.1,
-                                                   affine=False)
+            self.normalize_norm_ = nn.BatchNorm1d(
+                1, eps=1e-5, momentum=0.1, affine=False)
+            self.normalize_delta_ = nn.BatchNorm1d(
+                1, eps=1e-5, momentum=0.1, affine=True)
+            if gpu:
+                self.normalize_norm_ = self.normalize_norm_.cuda()
+                self.normalize_delta_ = self.normalize_delta_.cuda()
+            parameters += list(self.normalize_norm_.parameters()) + \
+                          list(self.normalize_delta_.parameters())
 
-        optimizer = Adam(model.parameters())
+        optimizer = Adam(parameters)
         if restart is not None:
             optimizer_pt = logging_callback.OPTIMIZER_PT.format(
                 log_dir=log_dir, epoch=restart)
@@ -189,10 +197,11 @@ class WTFTripletLoss(TripletLoss):
                 elif self.variant == 2:
 
                     anchor_norms = torch.norm(fX[anchors], 2, 1, keepdim=True)
-                    anchor_norms = self.norm_batch_norm_(anchor_norms)
+                    anchor_norms = self.normalize_norm_(anchor_norms)
                     confidence = F.sigmoid(anchor_norms)
 
-                    correctness = 2 * F.sigmoid(F.relu(-deltas)) - 1
+                    deltas = self.normalize_delta_(deltas)
+                    correctness = F.sigmoid(-deltas)
 
                     closses = torch.abs(confidence - correctness)
 
