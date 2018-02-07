@@ -27,6 +27,7 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 
+import warnings
 import numpy as np
 from pyannote.core import Segment
 from pyannote.audio.features import Precomputed
