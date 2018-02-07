@@ -34,6 +34,7 @@ from pyannote.generators.fragment import random_segment
 from pyannote.generators.fragment import random_subsegment
 from pyannote.generators.batch import batchify, EndOfBatch
 from pyannote.database import get_label_identifier
+from pyannote.database import get_annotated
 
 
 class SpeechSegmentGenerator(object):
@@ -48,6 +49,11 @@ class SpeechSegmentGenerator(object):
     duration : float, optional
     min_duration : float, optional
     max_duration : float, optional
+    trim : float, optional
+        Do not use speech segments that are that close to the beginning/end of
+        the annotated region. Useful when features are short-term normalized,
+        as this can result in weird feature distribution at the boundaries.
+        Defaults to 0s (i.e. do no trim).
     parallel : int, optional
         Number of prefetching background generators. Defaults to 1.
         Each generator will prefetch enough batches to cover a whole epoch.
@@ -56,7 +62,7 @@ class SpeechSegmentGenerator(object):
 
     def __init__(self, precomputed, per_label=3, per_fold=None,
                  duration=None, min_duration=None, max_duration=None,
-                 parallel=1):
+                 trim=0., parallel=1):
 
         super(SpeechSegmentGenerator, self).__init__()
 
@@ -64,6 +70,7 @@ class SpeechSegmentGenerator(object):
         self.per_label = per_label
         self.per_fold = per_fold
         self.duration = duration
+        self.trim = trim
         self.parallel = parallel
 
         if self.duration is None:
@@ -92,6 +99,17 @@ class SpeechSegmentGenerator(object):
 
             # get annotation for current file
             annotation = current_file['annotation']
+
+            if self.trim:
+                annotated = get_annotated(current_file).extent()
+                trim = Segment(start=annotated.start + self.trim,
+                               end=annotated.end - self.trim)
+
+                # if the whole file has been trimmed, skip it completely
+                if not trim:
+                    continue
+
+                annotation = annotation.crop(trim)
 
             # pre-load features.
             if not self.precomputed.use_memmap:
@@ -279,6 +297,7 @@ class SpeechSegmentGenerator(object):
 
         return int(np.ceil(duration_per_epoch / duration_per_batch))
 
+
 class SpeechTurnSubSegmentGenerator(SpeechSegmentGenerator):
     """Generates batches of speech turn fixed-duration sub-segments
 
@@ -302,16 +321,22 @@ class SpeechTurnSubSegmentGenerator(SpeechSegmentGenerator):
         Number of segments per speech turn. Defaults to 10.
         For short speech turns, a heuristic adapts this number to reduce the
         number of overlapping segments.
+    trim : float, optional
+        Do not use speech segments that are that close to the beginning/end of
+        the annotated region. Useful when features are short-term normalized,
+        as this can result in weird feature distribution at the boundaries.
+        Defaults to 0s (i.e. do no trim).
     fast : bool, optional
         Defaults to True.
     """
 
     def __init__(self, precomputed, duration, per_label=3, per_fold=None,
-                 per_turn=10, fast=True):
+                 per_turn=10, trim=0., fast=True):
 
         super(SpeechTurnSubSegmentGenerator, self).__init__(
             precomputed, fast=fast, per_label=per_label, per_fold=per_fold,
-            duration=None, min_duration=duration, max_duration=None)
+            duration=None, min_duration=duration, max_duration=None,
+            trim=trim)
 
         self.weighted_ = False
         self.duration_ = duration

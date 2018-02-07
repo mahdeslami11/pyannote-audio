@@ -55,6 +55,11 @@ class WTFTripletLoss(TripletLoss):
     per_fold : int, optional
         If provided, sample triplets from groups of `per_fold` speakers at a
         time. Defaults to sample triplets from the whole speaker set.
+    trim : float, optional
+        Do not use speech segments that are that close to the beginning/end of
+        the annotated region. Useful when features are short-term normalized,
+        as this can result in weird feature distribution at the boundaries.
+        Defaults to 0s (i.e. do no trim).
     parallel : int, optional
         Number of prefetching background generators. Defaults to 1.
         Each generator will prefetch enough batches to cover a whole epoch.
@@ -62,12 +67,12 @@ class WTFTripletLoss(TripletLoss):
     """
 
     def __init__(self, duration=3.2, sampling='all',
-                 per_label=3, per_fold=None, parallel=1):
+                 per_label=3, per_fold=None, trim=0, parallel=1):
 
         super(WTFTripletLoss, self).__init__(
             duration=duration, metric='angular', clamp='sigmoid',
             sampling=sampling, per_label=per_label, per_fold=per_fold,
-            parallel=parallel)
+            trim=trim, parallel=parallel)
 
     def fit(self, model, feature_extraction, protocol, log_dir, subset='train',
             epochs=1000, restart=None, gpu=False):
@@ -81,10 +86,9 @@ class WTFTripletLoss(TripletLoss):
         batch_generator = SpeechSegmentGenerator(
             feature_extraction,
             per_label=self.per_label, per_fold=self.per_fold,
-            duration=self.duration, parallel=self.parallel)
+            duration=self.duration, trim=self.trim, parallel=self.parallel)
         batches = batch_generator(protocol, subset=subset)
         batch = next(batches)
-
 
         batches_per_epoch = batch_generator.batches_per_epoch
 
