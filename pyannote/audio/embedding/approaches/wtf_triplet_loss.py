@@ -30,6 +30,7 @@ import numpy as np
 from tqdm import tqdm
 import torch
 from torch.autograd import Variable
+import torch.nn as nn
 import torch.nn.functional as F
 from pyannote.audio.generators.speaker import SpeechSegmentGenerator
 from pyannote.audio.callback import LoggingCallbackPytorch
@@ -44,6 +45,8 @@ class WTFTripletLoss(TripletLoss):
 
     Parameters
     ----------
+    variant : int, optional
+        Loss variants. Defaults to 1.
     duration : float, optional
         Defautls to 3.2 seconds.
     margin: float, optional
@@ -66,13 +69,16 @@ class WTFTripletLoss(TripletLoss):
         Set `parallel` to 0 to not use background generators.
     """
 
-    def __init__(self, duration=3.2, sampling='all',
+    def __init__(self, variant=1, duration=3.2, sampling='all',
                  per_label=3, per_fold=None, trim=0, parallel=1):
 
         super(WTFTripletLoss, self).__init__(
             duration=duration, metric='angular', clamp='sigmoid',
             sampling=sampling, per_label=per_label, per_fold=per_fold,
             trim=trim, parallel=parallel)
+
+        self.variant = variant
+
 
     def fit(self, model, feature_extraction, protocol, log_dir, subset='train',
             epochs=1000, restart=None, gpu=False):
@@ -101,6 +107,13 @@ class WTFTripletLoss(TripletLoss):
             model = model.cuda()
 
         model.internal = False
+
+        if self.variant == 2:
+
+            # rolling estimate of embedding norm distribution
+            self.norm_batch_norm_ = nn.BatchNorm1d(1, eps=1e-5,
+                                                   momentum=0.1,
+                                                   affine=False)
 
         optimizer = Adam(model.parameters())
         if restart is not None:
@@ -168,9 +181,21 @@ class WTFTripletLoss(TripletLoss):
 
                 tloss = torch.mean(tlosses)
 
-                # compute wtf loss
-                closses = F.sigmoid(
-                    F.softsign(deltas) * torch.norm(fX[anchors], 2, 1, keepdim=True))
+                if self.variant == 1:
+                    # compute wtf loss
+                    closses = F.sigmoid(
+                        F.softsign(deltas) * torch.norm(fX[anchors], 2, 1, keepdim=True))
+
+                elif self.variant == 2:
+
+                    anchor_norms = torch.norm(fX[anchors], 2, 1, keepdim=True)
+                    anchor_norms = self.norm_batch_norm_(anchor_norms)
+                    confidence = F.sigmoid(anchor_norms)
+
+                    correctness = 2 * F.sigmoid(F.relu(-deltas)) - 1
+
+                    closses = torch.abs(confidence - correctness)
+
                 closs = torch.mean(closses)
 
                 # log loss
