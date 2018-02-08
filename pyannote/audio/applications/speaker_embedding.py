@@ -32,7 +32,7 @@ Speaker embedding
 Usage:
   pyannote-speaker-embedding train [--database=<db.yml> --subset=<subset> --from=<epoch> --for=<epochs> --gpu] <experiment_dir> <database.task.protocol>
   pyannote-speaker-embedding validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch> --chronological --gpu --turn --batch=<size>] <train_dir> <database.task.protocol>
-  pyannote-speaker-embedding apply [--database=<db.yml> --step=<step> --internal --normalize --gpu] <model.pt> <database.task.protocol> <output_dir>
+  pyannote-speaker-embedding apply [--database=<db.yml> --step=<step> --internal --normalize --gpu --batch=<size>] <model.pt> <database.task.protocol> <output_dir>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
 
@@ -71,6 +71,7 @@ Common options:
   <model.pt>                 Path to the pretrained model.
   --internal                 Extract internal embeddings.
   --normalize                Extract normalized embeddings.
+  --batch=<size>             Batch size. [default: 32].
   -h --help                  Show this screen.
   --version                  Show version.
 
@@ -520,8 +521,7 @@ class SpeakerEmbedding(Application):
         # initialize embedding extraction
         sequence_embedding = SequenceEmbedding(
             model, self.feature_extraction_, duration,
-            step=step,
-            batch_size=self.batch_size, gpu=self.gpu)
+            step=step, batch_size=self.batch_size, gpu=self.gpu)
         sliding_window = sequence_embedding.sliding_window
         dimension = sequence_embedding.dimension
 
@@ -622,8 +622,10 @@ def main():
 
         internal = arguments['--internal']
         normalize = arguments['--normalize']
+        batch_size = int(arguments['--batch'])
 
         application = SpeakerEmbedding.from_model_pt(model_pt)
         application.gpu = gpu
+        application.batch_size = batch_size
         application.apply(protocol_name, output_dir, step=step,
                           internal=internal, normalize=normalize)
