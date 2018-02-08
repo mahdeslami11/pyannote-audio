@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016-2017 CNRS
+# Copyright (c) 2016-2018 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -39,7 +39,7 @@ setup(
     install_requires=[
         'pyannote.core >= 1.3.1',
         'pyannote.metrics >= 1.3',
-        'pyannote.generators >= 0.17',
+        'pyannote.generators >= 0.17.1',
         'pyannote.database >= 1.3',
         'pyannote.parser >= 0.7',
         'pyannote.algorithms >= 0.7.3',

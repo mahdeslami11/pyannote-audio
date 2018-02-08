@@ -29,6 +29,7 @@
 import numpy as np
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from ..labeling.base import SequenceLabeling
+from pyannote.generators.batch import batchify
 
 from torch.autograd import Variable
 import torch
@@ -85,17 +86,25 @@ class SequenceEmbedding(SequenceLabeling):
             (batch_size, n_dimensions) if not self.model.internal
         """
 
-        X = Variable(torch.from_numpy(np.rollaxis(np.array(X, dtype=np.float32), 0, 2)))
+        batch_size, n_samples, n_features = X.shape
 
-        if self.gpu:
-            fX = self.model(X.cuda()).data.cpu().numpy()
-        else:
-            fX = self.model(X).data.numpy()
+        if batch_size <= self.batch_size:
+            X = Variable(torch.from_numpy(np.rollaxis(np.array(X, dtype=np.float32), 0, 2)))
 
-        if fX.ndim == 3:
-            return np.rollaxis(fX, 1, 0)
-        else:
-            return fX
+            if self.gpu:
+                fX = self.model(X.cuda()).data.cpu().numpy()
+            else:
+                fX = self.model(X).data.numpy()
+
+            if fX.ndim == 3:
+                return np.rollaxis(fX, 1, 0)
+            else:
+                return fX
+
+        batches = batchify(iter(X), {'type': 'ndarray'},
+                           batch_size=self.batch_size,
+                           incomplete=True, prefetch=0)
+        return np.vstack(self.postprocess_ndarray(x) for x in batches)
 
     def apply(self, current_file):
         """Extract embeddings
@@ -115,7 +124,6 @@ class SequenceEmbedding(SequenceLabeling):
         """
 
         if isinstance(current_file, np.ndarray):
-            # TODO. process batch per batch
             return self.postprocess_ndarray(current_file)
 
         if self.model.internal:
