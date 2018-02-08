@@ -349,17 +349,15 @@ class SpeakerEmbedding(Application):
         protocol = get_protocol(
             protocol_name, progress=False, preprocessors=self.preprocessors_)
 
-        # initialize embedding extraction
-        #batch_size = self.approach_.batch_size
-        batch_size = 32
+        batch_size = self.batch_size
 
-        # do not use memmap as this would lead to too many open files
         if isinstance(self.feature_extraction_, Precomputed):
             self.feature_extraction_.use_memmap = False
 
+        # initialize embedding extraction
         sequence_embedding = SequenceEmbedding(
             model, self.feature_extraction_, duration,
-            step=step, batch_size=batch_size, gpu=self.gpu)
+            step=step, batch_size=self.batch_size, gpu=self.gpu)
 
         metrics = {}
         protocol = get_protocol(protocol_name, progress=False,
@@ -433,24 +431,18 @@ class SpeakerEmbedding(Application):
             model = model.cuda()
         model.eval()
 
-        X = np.rollaxis(validation_data['X'], 0, 2)
-        X = torch.from_numpy(np.array(X, dtype=np.float32))
-        X = Variable(X, requires_grad=False)
+        duration = self.approach_.duration
+        sequence_embedding = SequenceEmbedding(
+            model, self.feature_extraction_, duration,
+            batch_size=self.batch_size, gpu=self.gpu)
 
-        if self.gpu:
-            fX = model(X.cuda()).data.cpu().numpy()
-        else:
-            fX = model(X).data.numpy()
-
+        fX = sequence_embedding.apply(validation_data['X'])
         y_pred = pdist(fX, metric=self.approach_.metric)
-
         _, _, _, eer = det_curve(validation_data['y'], y_pred,
                                  distances=True)
 
-        metrics = {}
-        # TODO. rename to EER.segment (as opposed to EER.turn)
-        metrics['EER.1seq'] = {'minimize': True, 'value': eer}
-        return metrics
+        return {'EER.{0:g}s'.format(duration): {'minimize': True,
+                                                'value': eer}}
 
     def _validate_epoch_turn(self, epoch, protocol_name,
                              subset='development',
