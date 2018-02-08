@@ -140,7 +140,7 @@ class WTFTripletLoss(TripletLoss):
             if epoch > epochs:
                 break
 
-            tloss_avg, closs_avg = 0., 0.
+            loss_avg, tloss_avg, closs_avg = 0., 0., 0.
 
             if epoch % 10 == 0:
                 positive, negative = [], []
@@ -219,6 +219,7 @@ class WTFTripletLoss(TripletLoss):
                     closs_ = float(closs.data.numpy())
                 tloss_avg += tloss_
                 closs_avg += closs_
+                loss_avg += tloss_ + closs_
 
                 loss = tloss + closs
                 loss.backward()
@@ -229,6 +230,9 @@ class WTFTripletLoss(TripletLoss):
 
             closs_avg /= batches_per_epoch
             writer.add_scalar('closs', closs_avg, global_step=epoch)
+
+            loss_avg /= batches_per_epoch
+            writer.add_scalar('loss', loss_avg, global_step=epoch)
 
             if epoch % 10 == 0:
 
