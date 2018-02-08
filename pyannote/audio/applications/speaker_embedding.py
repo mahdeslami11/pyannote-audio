@@ -30,9 +30,9 @@
 Speaker embedding
 
 Usage:
-  pyannote-speaker-embedding train [--database=<db.yml> --subset=<subset> --from=<epoch> --for=<epochs> --gpu] <experiment_dir> <database.task.protocol>
-  pyannote-speaker-embedding validate [--database=<db.yml> --subset=<subset> --from=<epoch> --to=<epoch> --every=<epoch> --chronological --gpu --turn --batch=<size>] <train_dir> <database.task.protocol>
-  pyannote-speaker-embedding apply [--database=<db.yml> --step=<step> --internal --normalize --gpu --batch=<size>] <model.pt> <database.task.protocol> <output_dir>
+  pyannote-speaker-embedding train [options] <experiment_dir> <database.task.protocol>
+  pyannote-speaker-embedding validate [options] [--every=<epoch> --chronological --turn] <train_dir> <database.task.protocol>
+  pyannote-speaker-embedding apply [options] [--step=<step> --internal --normalize] <model.pt> <database.task.protocol> <output_dir>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
 
@@ -41,16 +41,16 @@ Common options:
   --database=<db.yml>        Path to database configuration file.
                              [default: ~/.pyannote/db.yml]
   --subset=<subset>          Set subset (train|developement|test).
-                             In "train" mode, default subset is "train".
-                             In "validate" mode, defaults to "development".
-                             In "tune" mode, defaults to "development".
-                             In "apply" mode, defaults to "test".
-  --from=<epoch>             Start {train|validat}ing at epoch <epoch>.
-  --for=<epochs>             Train during that many epochs [default: 1000].
-  --to=<epoch>               End validation at epoch <epoch>.
-                             In "validate" mode, defaults to never stop.
-                             In "tune" mode, defaults to last available epoch at launch time.
+                             Defaults to "train" in "train" mode. Defaults to
+                             "development" in "validate" mode. Not used in
+                             "apply" mode.
   --gpu                      Run on GPUs. Defaults to using CPUs.
+  --batch=<size>             Set batch size. Has no effect in "train" mode.
+                             [default: 32]
+  --from=<epoch>             Start {train|validat}ing at epoch <epoch>. Has no
+                             effect in "apply" mode. [default: 0]
+  --to=<epochs>              End {train|validat}ing at epoch <epoch>.
+                             Defaults to keep going forever.
 
 "train" mode:
   <experiment_dir>           Set experiment root directory. This script expects
@@ -63,7 +63,6 @@ Common options:
   --chronological            Force validation in chronological order.
   --turn                     Perform same/different validation at speech turn
                              level. Default is to use fixed duration segments.
-  --batch=<size>             Batch size. [default: 32].
   <train_dir>                Path to the directory containing pre-trained
                              models (i.e. the output of "train" mode).
 
@@ -71,7 +70,6 @@ Common options:
   <model.pt>                 Path to the pretrained model.
   --internal                 Extract internal embeddings.
   --normalize                Extract normalized embeddings.
-  --batch=<size>             Batch size. [default: 32].
   -h --help                  Show this screen.
   --version                  Show version.
 
@@ -557,14 +555,14 @@ def main():
         if subset is None:
             subset = 'train'
 
-        # start training at this epoch (defaults to None)
-        restart = arguments['--from']
-        if restart is not None:
-            restart = int(restart)
+        # start training at this epoch (defaults to 0)
+        restart = int(arguments['--from'])
 
-        # train for that many epochs (defaults to 1000)
-        epochs = arguments['--for']
-        if epochs is not None:
+        # stop training at this epoch (defaults to never stop)
+        epochs = arguments['--to']
+        if epochs is None:
+            epochs = np.inf
+        else:
             epochs = int(epochs)
 
         application = SpeakerEmbedding(experiment_dir, db_yml=db_yml)
@@ -578,14 +576,14 @@ def main():
         if subset is None:
             subset = 'development'
 
-        # start validating at this epoch (defaults to None)
-        start = arguments['--from']
-        if start is not None:
-            start = int(start)
+        # start validating at this epoch (defaults to 0)
+        start = int(arguments['--from'])
 
-        # stop validating at this epoch (defaults to None)
+        # stop validating at this epoch (defaults to np.inf)
         end = arguments['--to']
-        if end is not None:
+        if end is None:
+            end = np.inf
+        else:
             end = int(end)
 
         # validate every that many epochs (defaults to 1)

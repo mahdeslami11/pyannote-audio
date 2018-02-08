@@ -321,13 +321,13 @@ class TripletLoss(object):
             return loss
 
     def fit(self, model, feature_extraction, protocol, log_dir, subset='train',
-            epochs=1000, restart=None, gpu=False):
+            epochs=1000, restart=0, gpu=False):
 
         import tensorboardX
         writer = tensorboardX.SummaryWriter(log_dir=log_dir)
 
-        logging_callback = LoggingCallbackPytorch(
-            log_dir=log_dir, restart=(False if restart is None else True))
+        logging_callback = LoggingCallbackPytorch(log_dir=log_dir,
+                                                  restart=restart > 0)
 
         batch_generator = SpeechSegmentGenerator(
             feature_extraction,
@@ -339,7 +339,7 @@ class TripletLoss(object):
 
         batches_per_epoch = batch_generator.batches_per_epoch
 
-        if restart is not None:
+        if restart > 0:
             weights_pt = logging_callback.WEIGHTS_PT.format(
                 log_dir=log_dir, epoch=restart)
             model.load_state_dict(torch.load(weights_pt))
@@ -350,7 +350,7 @@ class TripletLoss(object):
         model.internal = False
 
         optimizer = Adam(model.parameters())
-        if restart is not None:
+        if restart > 0:
             optimizer_pt = logging_callback.OPTIMIZER_PT.format(
                 log_dir=log_dir, epoch=restart)
             optimizer.load_state_dict(torch.load(optimizer_pt))
@@ -360,8 +360,11 @@ class TripletLoss(object):
                         if torch.is_tensor(v):
                             state[k] = v.cuda()
 
-        restart = 0 if restart is None else restart + 1
-        for epoch in range(restart, restart + epochs):
+        epoch = restart if restart > 0 else -1
+        while True:
+            epoch += 1
+            if epoch > epochs:
+                break
 
             tloss_avg = 0.
 
