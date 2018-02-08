@@ -69,6 +69,8 @@ class WTFTripletLoss(TripletLoss):
         Set `parallel` to 0 to not use background generators.
     """
 
+    CONFIDENCE_PT = '{log_dir}/weights/{epoch:04d}.confidence.pt'
+
     def __init__(self, variant=1, duration=3.2, sampling='all',
                  per_label=3, per_fold=None, trim=0, parallel=1):
 
@@ -114,14 +116,10 @@ class WTFTripletLoss(TripletLoss):
 
             # rolling estimate of embedding norm distribution
             self.normalize_norm_ = nn.BatchNorm1d(
-                1, eps=1e-5, momentum=0.1, affine=False)
-            self.normalize_delta_ = nn.BatchNorm1d(
                 1, eps=1e-5, momentum=0.1, affine=True)
             if gpu:
                 self.normalize_norm_ = self.normalize_norm_.cuda()
-                self.normalize_delta_ = self.normalize_delta_.cuda()
-            parameters += list(self.normalize_norm_.parameters()) + \
-                          list(self.normalize_delta_.parameters())
+            parameters += list(self.normalize_norm_.parameters())
 
         optimizer = Adam(parameters)
         if restart > 0:
@@ -193,20 +191,53 @@ class WTFTripletLoss(TripletLoss):
                 tloss = torch.mean(tlosses)
 
                 if self.variant == 1:
-                    # compute wtf loss
+
                     closses = F.sigmoid(
                         F.softsign(deltas) * torch.norm(fX[anchors], 2, 1, keepdim=True))
 
+                    # if d(a, p) < d(a, n) (i.e. good case)
+                    #   --> sign(delta) < 0
+                    #   --> loss decreases when norm increases.
+                    #       i.e. encourages longer anchor
+
+                    # if d(a, p) > d(a, n) (i.e. bad case)
+                    #   --> sign(delta) > 0
+                    #   --> loss increases when norm increases
+                    #       i.e. encourages shorter anchor
+
                 elif self.variant == 2:
 
-                    anchor_norms = torch.norm(fX[anchors], 2, 1, keepdim=True)
-                    anchor_norms = self.normalize_norm_(anchor_norms)
-                    confidence = F.sigmoid(anchor_norms)
+                    norms_ = torch.norm(fX, 2, 1, keepdim=True)
+                    norms_ = self.normalize_norm_(norms_)
+                    norms_a = norms_[anchors]
+                    norms_p = norms_[positives]
+                    norms_n = norms_[negatives]
 
-                    deltas = self.normalize_delta_(deltas)
-                    correctness = F.sigmoid(-deltas)
+                    confidence = (F.sigmoid(norms_a) + F.sigmoid(norms_p) + F.sigmoid(norms_n)) / 3
+                    # if |x| is average
+                    #    --> normalized |x| = 0
+                    #    --> confidence = 0.5
+
+                    # if |x| is bigger than average
+                    #    --> normalized |x| >> 0
+                    #    --> confidence = 1
+
+                    # if |x| is smaller than average
+                    #    --> normalized |x| << 0
+                    #    --> confidence = 0
+
+                    correctness = F.sigmoid(-deltas / np.pi * 6)
+                    # if d(a, p) = d(a, n) (i.e. uncertain case)
+                    #    --> correctness = 0.5
+
+                    # if d(a, p) - d(a, n) = -𝛑 (i.e. best possible case)
+                    #    --> correctness = 1
+
+                    # if d(a, p) - d(a, n) = +𝛑 (i.e. worst possible case)
+                    #    --> correctness = 0
 
                     closses = torch.abs(confidence - correctness)
+                    # small if (and only if) confidence & correctness agree
 
                 closs = torch.mean(closses)
 
@@ -258,3 +289,28 @@ class WTFTripletLoss(TripletLoss):
             logging_callback.model = model
             logging_callback.optimizer = optimizer
             logging_callback.on_epoch_end(epoch)
+
+            # dump self.normalize_norm_ weights
+            confidence_pt = self.CONFIDENCE_PT.format(
+                log_dir=log_dir, epoch=epoch)
+            torch.save(self.normalize_norm_.state_dict(), confidence_pt)
+
+    @staticmethod
+    def confidence(params, norms):
+        """Compute estimated confidence from norm
+
+        Usage
+        -----
+        >>> params = torch.load('confidence.pt')
+        >>> confidence = WTFTripletLoss.confidence(params, norm)
+        """
+
+        mu = float(params['running_mean'])
+        var = float(params['running_var'])
+        eps = 1e-5
+        gamma = float(params['weight'])
+        beta = float(params['bias'])
+
+        before_sigmoid = (norms - mu) / np.sqrt(var + eps) * gamma + beta
+
+        return 1 / (1 + np.exp(-before_sigmoid))
