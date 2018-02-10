@@ -316,7 +316,7 @@ class TripletLoss(object):
 
         # return triplet losses
         if return_delta:
-            return loss, delta.view((-1, 1))
+            return loss, delta.view((-1, 1)), pos, neg
         else:
             return loss
 
