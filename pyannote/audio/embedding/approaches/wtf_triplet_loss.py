@@ -112,7 +112,7 @@ class WTFTripletLoss(TripletLoss):
 
         parameters = list(model.parameters())
 
-        if self.variant == 2:
+        if self.variant in [2, 3, 4]:
 
             # rolling estimate of embedding norm distribution
             self.normalize_norm_ = nn.BatchNorm1d(
@@ -208,12 +208,9 @@ class WTFTripletLoss(TripletLoss):
                 elif self.variant == 2:
 
                     norms_ = torch.norm(fX, 2, 1, keepdim=True)
-                    norms_ = self.normalize_norm_(norms_)
-                    norms_a = norms_[anchors]
-                    norms_p = norms_[positives]
-                    norms_n = norms_[negatives]
+                    norms_ = F.sigmoid(self.normalize_norm_(norms_))
 
-                    confidence = (F.sigmoid(norms_a) + F.sigmoid(norms_p) + F.sigmoid(norms_n)) / 3
+                    confidence = (norms_[anchors] + norms_[positives] + norms_[negatives]) / 3
                     # if |x| is average
                     #    --> normalized |x| = 0
                     #    --> confidence = 0.5
@@ -238,6 +235,33 @@ class WTFTripletLoss(TripletLoss):
 
                     closses = torch.abs(confidence - correctness)
                     # small if (and only if) confidence & correctness agree
+
+                elif self.variant == 3:
+
+                    norms_ = torch.norm(fX, 2, 1, keepdim=True)
+                    norms_ = F.sigmoid(self.normalize_norm_(norms_))
+                    confidence = (norms_[anchors] * norms_[positives] * norms_[negatives]) / 3
+
+                    correctness = F.sigmoid(-(deltas + np.pi / 4) / np.pi * 6)
+                    # correctness = 0.5 at delta == pi/4
+                    # correctness = 1 for delta == pi
+                    # correctness = 0 for delta < 0
+
+                    closses = torch.abs(confidence - correctness)
+
+                elif self.variant == 4:
+
+                    norms_ = torch.norm(fX, 2, 1, keepdim=True)
+                    norms_ = F.sigmoid(self.normalize_norm_(norms_))
+                    confidence = (norms_[anchors] * norms_[positives] * norms_[negatives]) ** 1/3
+
+                    correctness = F.sigmoid(-(deltas + np.pi / 4) / np.pi * 6)
+                    # correctness = 0.5 at delta == pi/4
+                    # correctness = 1 for delta == pi
+                    # correctness = 0 for delta < 0
+
+                    closses = torch.abs(confidence - correctness)
+
 
                 closs = torch.mean(closses)
 
