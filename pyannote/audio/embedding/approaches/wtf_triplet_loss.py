@@ -349,10 +349,10 @@ class WTFTripletLoss(TripletLoss):
                 negative = np.hstack(negative)
                 writer.add_histogram(
                     'embedding/pairwise_distance/positive', positive,
-                    global_step=epoch, bins='auto')
+                    global_step=epoch, bins=np.linspace(0, np.pi, 50))
                 writer.add_histogram(
                     'embedding/pairwise_distance/negative', negative,
-                    global_step=epoch, bins='auto')
+                    global_step=epoch, bins=np.linspace(0, np.pi, 50))
 
                 _, _, _, eer = det_curve(
                     np.hstack([np.ones(len(positive)), np.zeros(len(negative))]),
@@ -360,9 +360,10 @@ class WTFTripletLoss(TripletLoss):
                 writer.add_scalar('eer', eer, global_step=epoch)
 
                 norms = np.hstack(norms)
+                bins = np.linspace(*np.percentile(norms, [1, 99]), 50)
                 writer.add_histogram(
                     'embedding/norm', norms,
-                    global_step=epoch, bins='auto')
+                    global_step=epoch, bins=bins)
 
             logging_callback.model = model
             logging_callback.optimizer = optimizer
