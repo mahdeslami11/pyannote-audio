@@ -112,7 +112,7 @@ class WTFTripletLoss(TripletLoss):
 
         parameters = list(model.parameters())
 
-        if self.variant in [2, 3, 4, 5]:
+        if self.variant in [2, 3, 4, 5, 6, 7]:
 
             # norm batch-normalization
             self.norm_bn = nn.BatchNorm1d(
@@ -121,7 +121,7 @@ class WTFTripletLoss(TripletLoss):
                 self.norm_bn = self.norm_bn.cuda()
             parameters += list(self.norm_bn.parameters())
 
-        if self.variant in [5]:
+        if self.variant in [5, 6, 7]:
             self.positive_bn = nn.BatchNorm1d(
                 1, eps=1e-5, momentum=0.1, affine=False)
             self.negative_bn = nn.BatchNorm1d(
@@ -292,6 +292,30 @@ class WTFTripletLoss(TripletLoss):
 
                     closses = .5 * (torch.abs(confidence_pos - correctness_pos) \
                                   + torch.abs(confidence_neg - correctness_neg))
+
+                elif self.variant == 6:
+
+                    norms_ = torch.norm(fX, 2, 1, keepdim=True)
+                    confidence = F.sigmoid(self.norm_bn(norms_))
+
+                    confidence_pos = .5 * (confidence[anchors] + confidence[positives])
+                    # low positive distance == high correctness
+                    correctness_pos = F.sigmoid(
+                        -self.positive_bn(distances[pos_index].view(-1, 1)))
+
+                    closses = torch.abs(confidence_pos - correctness_pos)
+
+                elif self.variant == 7:
+
+                    norms_ = torch.norm(fX, 2, 1, keepdim=True)
+                    confidence = F.sigmoid(self.norm_bn(norms_))
+
+                    confidence_neg = .5 * (confidence[anchors] + confidence[negatives])
+                    # high negative distance == high correctness
+                    correctness_neg = F.sigmoid(
+                        self.negative_bn(distances[neg_index].view(-1, 1)))
+
+                    closses = torch.abs(confidence_neg - correctness_neg)
 
                 closs = torch.mean(closses)
 
