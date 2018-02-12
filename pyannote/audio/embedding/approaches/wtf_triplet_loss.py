@@ -121,6 +121,14 @@ class WTFTripletLoss(TripletLoss):
                 self.norm_bn = self.norm_bn.cuda()
             parameters += list(self.norm_bn.parameters())
 
+        if self.variant in [9]:
+            # norm batch-normalization
+            self.norm_bn = nn.BatchNorm1d(
+                1, eps=1e-5, momentum=0.1, affine=False)
+            if gpu:
+                self.norm_bn = self.norm_bn.cuda()
+            parameters += list(self.norm_bn.parameters())
+
         if self.variant in [5, 6, 7]:
             self.positive_bn = nn.BatchNorm1d(
                 1, eps=1e-5, momentum=0.1, affine=False)
@@ -132,7 +140,7 @@ class WTFTripletLoss(TripletLoss):
             parameters += list(self.positive_bn.parameters())
             parameters += list(self.negative_bn.parameters())
 
-        if self.variant in [8]:
+        if self.variant in [8, 9]:
 
             self.delta_bn = nn.BatchNorm1d(
                 1, eps=1e-5, momentum=0.1, affine=False)
@@ -311,7 +319,7 @@ class WTFTripletLoss(TripletLoss):
 
                     closses = torch.abs(confidence_neg - correctness_neg)
 
-                elif self.variant == 8:
+                elif self.variant in [8, 9]:
 
                     norms_ = torch.norm(fX, 2, 1, keepdim=True)
                     norms_ = F.sigmoid(self.norm_bn(norms_))
@@ -340,8 +348,6 @@ class WTFTripletLoss(TripletLoss):
                     log_negative.append(pdist_npy[np.where(~same_speaker)])
 
                     log_delta.append(delta_npy)
-
-
 
                 # log loss
                 if gpu:
