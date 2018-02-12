@@ -112,7 +112,7 @@ class WTFTripletLoss(TripletLoss):
 
         parameters = list(model.parameters())
 
-        if self.variant in [2, 3, 4, 5, 6, 7]:
+        if self.variant in [2, 3, 4, 5, 6, 7, 8]:
 
             # norm batch-normalization
             self.norm_bn = nn.BatchNorm1d(
@@ -131,6 +131,14 @@ class WTFTripletLoss(TripletLoss):
                 self.negative_bn = self.negative_bn.cuda()
             parameters += list(self.positive_bn.parameters())
             parameters += list(self.negative_bn.parameters())
+
+        if self.variant in [8]:
+
+            self.delta_bn = nn.BatchNorm1d(
+                1, eps=1e-5, momentum=0.1, affine=False)
+            if gpu:
+                self.delta_bn = self.delta_bn.cuda()
+            parameters += list(self.delta_bn.parameters())
 
         optimizer = Adam(parameters)
         if restart > 0:
@@ -151,9 +159,11 @@ class WTFTripletLoss(TripletLoss):
 
             loss_avg, tloss_avg, closs_avg = 0., 0., 0.
 
-            if epoch % 10 == 0:
-                positive, negative = [], []
-                norms = []
+            if epoch % 5 == 0:
+                log_positive = []
+                log_negative = []
+                log_delta = []
+                log_norm = []
 
             desc = 'Epoch #{0}'.format(epoch)
             for i in tqdm(range(batches_per_epoch), desc=desc):
@@ -171,24 +181,8 @@ class WTFTripletLoss(TripletLoss):
 
                 fX = model(X)
 
-                if epoch % 10 == 0:
-                    if gpu:
-                        fX_ = fX.data.cpu().numpy()
-                    else:
-                        fX_ = fX.data.numpy()
-                    norms.append(np.linalg.norm(fX_, axis=1))
-
                 # pre-compute pairwise distances
                 distances = self.pdist(fX)
-
-                if epoch % 10 == 0:
-                    if gpu:
-                        distances_ = distances.data.cpu().numpy()
-                    else:
-                        distances_ = distances.data.numpy()
-                    is_positive = pdist(batch['y'].reshape((-1, 1)), metric='chebyshev') < 1
-                    positive.append(distances_[np.where(is_positive)])
-                    negative.append(distances_[np.where(~is_positive)])
 
                 # sample triplets
                 triplets = getattr(self, 'batch_{0}'.format(self.sampling))
@@ -317,7 +311,37 @@ class WTFTripletLoss(TripletLoss):
 
                     closses = torch.abs(confidence_neg - correctness_neg)
 
+                elif self.variant == 8:
+
+                    norms_ = torch.norm(fX, 2, 1, keepdim=True)
+                    norms_ = F.sigmoid(self.norm_bn(norms_))
+                    confidence = (norms_[anchors] * norms_[positives] * norms_[negatives]) / 3
+
+                    correctness = F.sigmoid(-self.delta_bn(deltas))
+                    closses = torch.abs(confidence - correctness)
+
                 closs = torch.mean(closses)
+
+                if epoch % 5 == 0:
+
+                    if gpu:
+                        fX_npy = fX.data.cpu().numpy()
+                        pdist_npy = distances.data.cpu().numpy()
+                        delta_npy = deltas.data.cpu().numpy()
+                    else:
+                        fX_npy = fX.data.numpy()
+                        pdist_npy = distances.data.numpy()
+                        delta_npy = deltas.data.numpy()
+
+                    log_norm.append(np.linalg.norm(fX_npy, axis=1))
+
+                    same_speaker = pdist(batch['y'].reshape((-1, 1)), metric='chebyshev') < 1
+                    log_positive.append(pdist_npy[np.where(same_speaker)])
+                    log_negative.append(pdist_npy[np.where(~same_speaker)])
+
+                    log_delta.append(delta_npy)
+
+
 
                 # log loss
                 if gpu:
@@ -343,27 +367,32 @@ class WTFTripletLoss(TripletLoss):
             loss_avg /= batches_per_epoch
             writer.add_scalar('loss', loss_avg, global_step=epoch)
 
-            if epoch % 10 == 0:
+            if epoch % 5 == 0:
 
-                positive = np.hstack(positive)
-                negative = np.hstack(negative)
+                log_positive = np.hstack(log_positive)
                 writer.add_histogram(
-                    'embedding/pairwise_distance/positive', positive,
+                    'embedding/pairwise_distance/positive', log_positive,
                     global_step=epoch, bins=np.linspace(0, np.pi, 50))
+                log_negative = np.hstack(log_negative)
+
                 writer.add_histogram(
-                    'embedding/pairwise_distance/negative', negative,
+                    'embedding/pairwise_distance/negative', log_negative,
                     global_step=epoch, bins=np.linspace(0, np.pi, 50))
 
                 _, _, _, eer = det_curve(
-                    np.hstack([np.ones(len(positive)), np.zeros(len(negative))]),
-                    np.hstack([positive, negative]), distances=True)
+                    np.hstack([np.ones(len(log_positive)), np.zeros(len(log_negative))]),
+                    np.hstack([log_positive, log_negative]), distances=True)
                 writer.add_scalar('eer', eer, global_step=epoch)
 
-                norms = np.hstack(norms)
-                bins = np.linspace(*np.percentile(norms, [1, 99]), 50)
+                log_norm = np.hstack(log_norm)
                 writer.add_histogram(
-                    'embedding/norm', norms,
-                    global_step=epoch, bins=bins)
+                    'norm', log_norm,
+                    global_step=epoch, bins='doane')
+
+                log_delta = np.vstack(log_delta)
+                writer.add_histogram(
+                    'delta', log_delta,
+                    global_step=epoch, bins='doane')
 
             logging_callback.model = model
             logging_callback.optimizer = optimizer
