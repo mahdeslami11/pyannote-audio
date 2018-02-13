@@ -63,10 +63,20 @@ class ShortTermStandardization(object):
         if not window % 2:
             window += 1
 
-        rolling_data = pd.DataFrame(features.data).rolling(
-            window=window, center=True, min_periods=0)
-        mu = rolling_data.mean()
-        sigma = rolling_data.std(ddof=1)
+        rolling = pd.DataFrame(features.data).rolling(
+            window=window, center=True, min_periods=window)
+        mu = np.array(rolling.mean())
+        sigma = np.array(rolling.std(ddof=1))
+
+        for i in range(window // 2):
+
+            data = features.data[:i + window // 2 + 1, :]
+            mu[i] = np.mean(data, axis=0)
+            sigma[i] = np.std(data, axis=0, ddof=1)
+
+            data = features.data[-i - window // 2 - 1:, :]
+            mu[-i - 1] = np.mean(data, axis=0)
+            sigma[-i - 1] = np.std(data, axis=0, ddof=1)
 
         # return standardized data
         return SlidingWindowFeature((features.data - mu) / sigma,
