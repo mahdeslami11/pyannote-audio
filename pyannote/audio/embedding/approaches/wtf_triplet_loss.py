@@ -422,8 +422,8 @@ class WTFTripletLoss(TripletLoss):
         mu = float(params['running_mean'])
         var = float(params['running_var'])
         eps = 1e-5
-        gamma = float(params['weight'])
-        beta = float(params['bias'])
+        gamma = float(params.get('weight', 1.))
+        beta = float(params.get('bias', 0.))
 
         before_sigmoid = (norms - mu) / np.sqrt(var + eps) * gamma + beta
 
