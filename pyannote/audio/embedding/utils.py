@@ -47,14 +47,50 @@ def get_range(metric='euclidean'):
     }.get(metric, None)
 
 
+def _pdist_func_1D(X, func):
+    """Helper function for pdist"""
+
+    X = X.squeeze()
+    n_items, = X.shape
+
+    distances = []
+
+    for i in range(n_items - 1):
+        distance = func(X[i], X[i+1:])
+        distances.append(distance)
+
+    return np.hstack(distances)
+
+
 def pdist(fX, metric='euclidean', **kwargs):
+    """Same as scipy.spatial.distance with support for additional metrics
+
+    * 'angular': pairwise angular distance
+    * 'equal':   pairwise equality check (only for 1-dimensional fX)
+    * 'minimum': pairwise minimum (only for 1-dimensional fX)
+    * 'maximum': pairwise maximum (only for 1-dimensional fX)
+    * 'average': pairwise average (only for 1-dimensional fX)
+    """
 
     if metric == 'angular':
         cosine = scipy.spatial.distance.pdist(
             fX, metric='cosine', **kwargs)
         return np.arccos(np.clip(1.0 - cosine, -1.0, 1.0))
 
-    return scipy.spatial.distance.pdist(fX, metric=metric, **kwargs)
+    elif metric == 'equal':
+        return _pdist_func_1D(fX, lambda x, X: x == X)
+
+    elif metric == 'minimum':
+        return _pdist_func_1D(fX, np.minimum)
+
+    elif metric == 'maximum':
+        return _pdist_func_1D(fX, np.maximum)
+
+    elif metric == 'average':
+        return _pdist_func_1D(fX, lambda x, X: .5 * (x + X))
+
+    else:
+        return scipy.spatial.distance.pdist(fX, metric=metric, **kwargs)
 
 
 def cdist(fX_trn, fX_tst, metric='euclidean', **kwargs):
