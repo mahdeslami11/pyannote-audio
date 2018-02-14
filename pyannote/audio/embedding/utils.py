@@ -129,8 +129,9 @@ def cdist(fX_trn, fX_tst, metric='euclidean', **kwargs):
         return _cdist_func_1D(fX_trn, fX_tst,
                               lambda x_trn, X_tst: .5 * (x_trn + X_tst))
 
-    return scipy.spatial.distance.cdist(
-        fX_trn, fX_tst, metric=metric, **kwargs)
+    else:
+        return scipy.spatial.distance.cdist(
+            fX_trn, fX_tst, metric=metric, **kwargs)
 
 
 def to_condensed(n, i, j):
