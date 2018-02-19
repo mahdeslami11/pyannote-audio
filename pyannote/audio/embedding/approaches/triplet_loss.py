@@ -312,7 +312,8 @@ class TripletLoss(object):
             loss = torch.log1p(torch.exp(delta))
 
         elif self.clamp == 'sigmoid':
-            loss = F.sigmoid(10 * delta)
+            # TODO. tune this "10" hyperparameter
+            loss = F.sigmoid(10 * (delta + self.margin_))
 
         # return triplet losses
         if return_delta:
