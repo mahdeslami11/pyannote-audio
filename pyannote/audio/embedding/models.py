@@ -55,6 +55,9 @@ class ClopiNet(nn.Module):
     bidirectional : bool, optional
         Use bidirectional recurrent layers. Defaults to False, i.e. use
         mono-directional RNNs.
+    batch_normalize : boolean, optional
+        Set to False to not apply batch normalization before embedding
+        normalization. Defaults to True.
     normalize : {False, 'sphere', 'ball', 'ring'}, optional
         Normalize embeddings.
     weighted : bool, optional
@@ -76,8 +79,9 @@ class ClopiNet(nn.Module):
 
     def __init__(self, n_features,
                  rnn='LSTM', recurrent=[64, 64, 64], bidirectional=False,
-                 normalize=False, weighted=False, linear=None,
-                 internal=False, attention=None, return_attention=False):
+                 batch_normalize=True, normalize=False, weighted=False,
+                 linear=None, internal=False, attention=None,
+                 return_attention=False):
 
         super(ClopiNet, self).__init__()
 
@@ -85,6 +89,7 @@ class ClopiNet(nn.Module):
         self.rnn = rnn
         self.recurrent = recurrent
         self.bidirectional = bidirectional
+        self.batch_normalize = batch_normalize
         self.normalize = normalize
         self.weighted = weighted
         self.linear = [] if linear is None else linear
@@ -127,8 +132,9 @@ class ClopiNet(nn.Module):
             input_dim = hidden_dim
 
         # batch normalization ~= embeddings whitening.
-        self.batch_norm_ = nn.BatchNorm1d(input_dim, eps=1e-5,
-                                          momentum=0.1, affine=False)
+        if self.batch_normalize:
+            self.batch_norm_ = nn.BatchNorm1d(input_dim, eps=1e-5,
+                                              momentum=0.1, affine=False)
 
         if self.normalize in {'ball', 'ring'}:
             self.norm_batch_norm_ = nn.BatchNorm1d(1, eps=1e-5, momentum=0.1,
@@ -168,7 +174,7 @@ class ClopiNet(nn.Module):
         output = sequence
         # n_samples, batch_size, n_features
         gpu = sequence.is_cuda
-        
+
         outputs = []
         # stack recurrent layers
         for hidden_dim, layer in zip(self.recurrent, self.recurrent_layers_):
@@ -241,7 +247,8 @@ class ClopiNet(nn.Module):
         # batch_size, dimension
 
         # batch normalization
-        output = self.batch_norm_(output)
+        if self.batch_normalize:
+            output = self.batch_norm_(output)
 
         if self.normalize:
             norm = torch.norm(output, 2, 1, keepdim=True)
