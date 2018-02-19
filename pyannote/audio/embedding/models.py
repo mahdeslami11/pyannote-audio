@@ -252,7 +252,7 @@ class ClopiNet(nn.Module):
         if self.pooling == 'sum':
             output = output.sum(dim=0)
         elif self.pooling == 'max':
-            output = output.max(dim=0)
+            output, _ = output.max(dim=0)
 
         # batch_size, dimension
 
