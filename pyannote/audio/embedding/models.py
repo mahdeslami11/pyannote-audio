@@ -55,6 +55,8 @@ class ClopiNet(nn.Module):
     bidirectional : bool, optional
         Use bidirectional recurrent layers. Defaults to False, i.e. use
         mono-directional RNNs.
+    pooling : {'sum', 'max'}
+        Temporal pooling strategy. Defaults to 'sum'.
     batch_normalize : boolean, optional
         Set to False to not apply batch normalization before embedding
         normalization. Defaults to True.
@@ -79,8 +81,8 @@ class ClopiNet(nn.Module):
 
     def __init__(self, n_features,
                  rnn='LSTM', recurrent=[64, 64, 64], bidirectional=False,
-                 batch_normalize=True, normalize=False, weighted=False,
-                 linear=None, internal=False, attention=None,
+                 pooling='sum', batch_normalize=True, normalize=False,
+                 weighted=False, linear=None, internal=False, attention=None,
                  return_attention=False):
 
         super(ClopiNet, self).__init__()
@@ -89,6 +91,7 @@ class ClopiNet(nn.Module):
         self.rnn = rnn
         self.recurrent = recurrent
         self.bidirectional = bidirectional
+        self.pooling = pooling
         self.batch_normalize = batch_normalize
         self.normalize = normalize
         self.weighted = weighted
@@ -98,6 +101,9 @@ class ClopiNet(nn.Module):
         self.return_attention = return_attention
 
         self.num_directions_ = 2 if self.bidirectional else 1
+
+        if self.pooling not in {'sum', 'max'}:
+            raise ValueError('"pooling" must be one of {"sum", "max"}')
 
         # create list of recurrent layers
         self.recurrent_layers_ = []
@@ -243,7 +249,11 @@ class ClopiNet(nn.Module):
             output = output * attn
 
         # average temporal pooling
-        output = output.sum(dim=0)
+        if self.pooling == 'sum':
+            output = output.sum(dim=0)
+        elif self.pooling == 'max':
+            output = output.max(dim=0)
+
         # batch_size, dimension
 
         # batch normalization
