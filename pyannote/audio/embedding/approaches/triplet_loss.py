@@ -35,8 +35,8 @@ import torch.nn.functional as F
 from pyannote.audio.generators.speaker import SpeechSegmentGenerator
 from pyannote.audio.callback import LoggingCallbackPytorch
 from torch.optim import Adam
-from pyannote.audio.embedding.utils import to_condensed
-from scipy.spatial.distance import pdist, squareform
+from pyannote.audio.embedding.utils import to_condensed, pdist
+from scipy.spatial.distance import squareform
 from pyannote.metrics.binary_classification import det_curve
 
 
@@ -415,7 +415,7 @@ class TripletLoss(object):
                         distances_ = distances.data.cpu().numpy()
                     else:
                         distances_ = distances.data.numpy()
-                    is_positive = pdist(batch['y'].reshape((-1, 1)), metric='chebyshev') < 1
+                    is_positive = pdist(y.reshape((-1, 1)), metric='equal')
                     positive.append(distances_[np.where(is_positive)])
                     negative.append(distances_[np.where(~is_positive)])
 
