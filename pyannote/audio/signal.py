@@ -281,6 +281,10 @@ class Binarize(object):
     offset : float, optional
         Defaults to 0.5.
 
+    Reference
+    ---------
+    Gregory Gelly and Jean-Luc Gauvain. "Minimum Word Error Training of
+    RNN-based Voice Activity Detection", InterSpeech 2015.
     """
 
     def __init__(self, onset=0.7, offset=0.7):
