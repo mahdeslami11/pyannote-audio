@@ -43,18 +43,19 @@ class SpeechSegmentGenerator(object):
 
     Parameters
     ----------
-    precomputed : pyannote.audio.features.utils.Precomputed
+    precomputed : pyannote.audio.features.Precomputed
+        Precomputed features
     per_label : int, optional
-        Number of segments per speaker in each batch
+        Number of speech turns per speaker in each batch. Defaults to 3.
     per_fold : int, optional
+        Number of speakers in each batch. Defaults to all speakers.
     duration : float, optional
+        Use fixed duration segments with this `duration`.
+        Defaults (None) to using variable duration segments.
     min_duration : float, optional
+        In case `duration` is None, set segment minimum duration.
     max_duration : float, optional
-    trim : float, optional
-        Do not use speech segments that are that close to the beginning/end of
-        the annotated region. Useful when features are short-term normalized,
-        as this can result in weird feature distribution at the boundaries.
-        Defaults to 0s (i.e. do no trim).
+        In case `duration` is None, set segment maximum duration.
     parallel : int, optional
         Number of prefetching background generators. Defaults to 1.
         Each generator will prefetch enough batches to cover a whole epoch.
@@ -63,7 +64,7 @@ class SpeechSegmentGenerator(object):
 
     def __init__(self, precomputed, per_label=3, per_fold=None,
                  duration=None, min_duration=None, max_duration=None,
-                 trim=0., parallel=1):
+                 parallel=1):
 
         super(SpeechSegmentGenerator, self).__init__()
 
@@ -71,7 +72,6 @@ class SpeechSegmentGenerator(object):
         self.per_label = per_label
         self.per_fold = per_fold
         self.duration = duration
-        self.trim = trim
         self.parallel = parallel
 
         if self.duration is None:
@@ -100,17 +100,6 @@ class SpeechSegmentGenerator(object):
 
             # get annotation for current file
             annotation = current_file['annotation']
-
-            if self.trim:
-                annotated = get_annotated(current_file).extent()
-                trim = Segment(start=annotated.start + self.trim,
-                               end=annotated.end - self.trim)
-
-                # if the whole file has been trimmed, skip it completely
-                if not trim:
-                    continue
-
-                annotation = annotation.crop(trim)
 
             # pre-load features.
             if not self.precomputed.use_memmap:
@@ -239,10 +228,14 @@ class SpeechSegmentGenerator(object):
                            'y_database': self.domains_['database'][database],
                            'extra': extra}
 
-    def __call__(self, protocol, subset='train'):
+    @property
+    def batch_size(self):
+        if self.per_fold is not None:
+            return self.per_label * self.per_fold
+        return self.per_label * len(self.data_)
 
-        self.initialize(protocol, subset=subset)
-        generator = self.generator()
+    @property
+    def signature(self):
 
         signature_extra = {'label': {'type': 'str'},
                            'database': {'type': 'str'}}
@@ -252,12 +245,33 @@ class SpeechSegmentGenerator(object):
                      'y_database': {'type': 'scalar'},
                      'extra': signature_extra}
 
-        if self.per_fold is not None:
-            batch_size = self.per_label * self.per_fold
+        return signature
 
+    @property
+    def batches_per_epoch(self):
+
+        # one minute per speaker
+        duration_per_epoch = 60 * len(self.data_)
+
+        # number of segments per batch
+        if self.per_fold is None:
+            segments_per_batch = self.per_label * len(self.data_)
         else:
-            batch_size = self.per_label * len(self.data_)
+            segments_per_batch = self.per_label * self.per_fold
 
+        # duration per batch
+        # FIXME: won't work when self.duration is not set
+        duration_per_batch = self.duration * segments_per_batch
+
+        return int(np.ceil(duration_per_epoch / duration_per_batch))
+
+
+    def __call__(self, protocol, subset='train'):
+
+        self.initialize(protocol, subset=subset)
+
+        batch_size = self.batch_size
+        signature = self.signature
         batches_per_epoch = self.batches_per_epoch
 
         generators = []
@@ -279,24 +293,6 @@ class SpeechSegmentGenerator(object):
             for batches in generators:
                 for _ in range(batches_per_epoch):
                     yield next(batches)
-
-    @property
-    def batches_per_epoch(self):
-
-        # one minute per speaker
-        duration_per_epoch = 60 * len(self.data_)
-
-        # number of segments per batch
-        if self.per_fold is None:
-            segments_per_batch = self.per_label * len(self.data_)
-        else:
-            segments_per_batch = self.per_label * self.per_fold
-
-        # duration per batch
-        # FIXME: won't work when self.duration is not set
-        duration_per_batch = self.duration * segments_per_batch
-
-        return int(np.ceil(duration_per_epoch / duration_per_batch))
 
 
 class SpeechTurnSubSegmentGenerator(SpeechSegmentGenerator):
