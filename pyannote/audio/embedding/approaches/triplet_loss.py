@@ -361,7 +361,7 @@ class TripletLoss(object):
 
             tloss_avg = 0.
 
-            if epoch % 10 == 0:
+            if epoch % 5 == 0:
                 positive, negative = [], []
                 norms = []
 
@@ -381,7 +381,7 @@ class TripletLoss(object):
 
                 fX = model(X)
 
-                if epoch % 10 == 0:
+                if epoch % 5 == 0:
                     if gpu:
                         fX_ = fX.data.cpu().numpy()
                     else:
@@ -391,7 +391,7 @@ class TripletLoss(object):
                 # pre-compute pairwise distances
                 distances = self.pdist(fX)
 
-                if epoch % 10 == 0:
+                if epoch % 5 == 0:
                     if gpu:
                         distances_ = distances.data.cpu().numpy()
                     else:
@@ -423,7 +423,7 @@ class TripletLoss(object):
             tloss_avg /= batches_per_epoch
             writer.add_scalar('tloss', tloss_avg, global_step=epoch)
 
-            if epoch % 10 == 0:
+            if epoch % 5 == 0:
 
                 positive = np.hstack(positive)
                 negative = np.hstack(negative)
