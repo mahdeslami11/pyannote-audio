@@ -300,7 +300,7 @@ class SpeechTurnSubSegmentGenerator(SpeechSegmentGenerator):
 
     Usage
     -----
-    >>> generator = SpeechTurnSubSegmentGenerator(precomputed, 3.2)
+    >>> generator = SpeechTurnSubSegmentGenerator(precomputed, 3.)
     >>> batches = generator(protocol)
     >>> batch = next(batches)
 
@@ -309,32 +309,29 @@ class SpeechTurnSubSegmentGenerator(SpeechSegmentGenerator):
     precomputed : pyannote.audio.features.Precomputed
         Precomputed features
     duration : float
-        Duration of sub-segments.
-    per_label : int, optional
-        Number of speech turns per speaker in each batch. Defaults to 3.
-    per_fold : int, optional
-        Number of speakers in each batch. Defaults to all speakers.
+        Fixed segment duration.
     per_turn : int, optional
         Number of segments per speech turn. Defaults to 10.
         For short speech turns, a heuristic adapts this number to reduce the
         number of overlapping segments.
-    trim : float, optional
-        Do not use speech segments that are that close to the beginning/end of
-        the annotated region. Useful when features are short-term normalized,
-        as this can result in weird feature distribution at the boundaries.
-        Defaults to 0s (i.e. do no trim).
-    fast : bool, optional
-        Defaults to True.
+    per_label : int, optional
+        Number of speech turns per speaker in each batch. Defaults to 3.
+    per_fold : int, optional
+        Number of speakers in each batch. Defaults to all speakers.
+    parallel : int, optional
+        Number of prefetching background generators. Defaults to 1.
+        Each generator will prefetch enough batches to cover a whole epoch.
+        Set `parallel` to 0 to not use background generators.
     """
 
     def __init__(self, precomputed, duration, per_label=3, per_fold=None,
-                 per_turn=10, trim=0., fast=True):
+                 per_turn=10, parallel=1):
 
         super(SpeechTurnSubSegmentGenerator, self).__init__(
-            precomputed, fast=fast, per_label=per_label, per_fold=per_fold,
-            duration=None, min_duration=duration, max_duration=None,
-            trim=trim)
+            precomputed, per_label=per_label, per_fold=per_fold,
+            duration=None, min_duration=duration, max_duration=None)
 
+        # this is to make sure speech turns are selected at random
         self.weighted_ = False
         self.duration_ = duration
         self.per_turn = per_turn
@@ -403,10 +400,12 @@ class SpeechTurnSubSegmentGenerator(SpeechSegmentGenerator):
             # let `batchify` know that the "segment batch" is complete
             yield endOfBatch
 
-    def __call__(self, protocol, subset='train'):
+    @property
+    def batch_size(self):
+        return -1
 
-        self.initialize(protocol, subset=subset)
-        generator = self.generator()
+    @property
+    def signature(self):
 
         signature_extra = {'label': {'type': 'str'},
                            'database': {'type': 'str'}}
@@ -417,12 +416,20 @@ class SpeechTurnSubSegmentGenerator(SpeechSegmentGenerator):
                      'y_database': {'type': 'scalar'},
                      'extra': signature_extra}
 
-        for batch in batchify(generator, signature, batch_size=-1,
-                              prefetch=1):
-            yield batch
+        return signature
 
     @property
-    def n_sequences_per_batch(self):
+    def batches_per_epoch(self):
+
+        # one minute per speaker
+        duration_per_epoch = 60 * len(self.data_)
+
+        # number of segments per batch
         if self.per_fold is None:
-            return self.per_label * len(self.data_) * self.per_turn
-        return self.per_label * self.per_fold * self.per_turn
+            segments_per_batch = self.per_label * len(self.data_) * self.per_turn
+        else:
+            segments_per_batch = self.per_label * self.per_fold * self.per_turn
+
+        duration_per_batch = self.duration_ * segments_per_batch
+
+        return int(np.ceil(duration_per_epoch / duration_per_batch))
