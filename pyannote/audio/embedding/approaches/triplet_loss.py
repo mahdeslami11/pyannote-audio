@@ -59,7 +59,7 @@ class TripletLoss(object):
     metric : {'euclidean', 'cosine', 'angular'}, optional
         Defaults to 'cosine'.
     margin: float, optional
-        Margin factor. Defaults to 0.2.
+        Margin multiplicative factor. Defaults to 0.2.
     clamp : {'positive', 'sigmoid', 'softmargin'}, optional
         Defaults to 'positive'.
     sampling : {'all', 'hard', 'negative'}, optional
@@ -316,6 +316,25 @@ class TripletLoss(object):
 
     def fit(self, model, feature_extraction, protocol, log_dir, subset='train',
             epochs=1000, restart=0, gpu=False):
+        """Train model
+
+        Parameters
+        ----------
+        model : nn.Module
+            Embedding model
+        feature_extraction :
+            Feature extraction.
+        protocol : pyannote.database.Protocol
+        log_dir : str
+            Directory where models and other log files are stored.
+        subset : {'train', 'development', 'test'}, optional
+            Defaults to 'train'.
+        epochs : int, optional
+            Train model for that many epochs.
+        restart : int, optional
+            Restart training at this epoch. Defaults to train from scratch.
+        gpu : bool, optional
+        """
 
         import tensorboardX
         writer = tensorboardX.SummaryWriter(log_dir=log_dir)
