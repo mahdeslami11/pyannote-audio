@@ -314,6 +314,15 @@ class TripletLoss(object):
         else:
             return loss
 
+    def get_batch_generator(self, feature_extraction):
+        return SpeechSegmentGenerator(
+            feature_extraction,
+            per_label=self.per_label, per_fold=self.per_fold,
+            duration=self.duration, parallel=self.parallel)
+
+    def aggregate(self, batch):
+        return batch
+
     def fit(self, model, feature_extraction, protocol, log_dir, subset='train',
             epochs=1000, restart=0, gpu=False):
         """Train model
@@ -342,10 +351,7 @@ class TripletLoss(object):
         logging_callback = LoggingCallbackPytorch(log_dir=log_dir,
                                                   restart=restart > 0)
 
-        batch_generator = SpeechSegmentGenerator(
-            feature_extraction,
-            per_label=self.per_label, per_fold=self.per_fold,
-            duration=self.duration, parallel=self.parallel)
+        batch_generator = self.get_batch_generator(feature_extraction)
         batches = batch_generator(protocol, subset=subset)
         batch = next(batches)
 
@@ -394,11 +400,15 @@ class TripletLoss(object):
                 X = Variable(torch.from_numpy(
                     np.array(np.rollaxis(batch['X'], 0, 2),
                              dtype=np.float32)))
-
                 if gpu:
                     X = X.cuda()
+                batch['X'] = X
 
-                fX = model(X)
+                batch['fX'] = model(batch['X'])
+                batch = self.aggregate(batch)
+
+                fX = batch['fX']
+                y = batch['y']
 
                 if epoch % 5 == 0:
                     if gpu:
@@ -421,7 +431,7 @@ class TripletLoss(object):
 
                 # sample triplets
                 triplets = getattr(self, 'batch_{0}'.format(self.sampling))
-                anchors, positives, negatives = triplets(batch['y'], distances)
+                anchors, positives, negatives = triplets(y, distances)
 
                 # compute triplet loss
                 losses = self.triplet_loss(
