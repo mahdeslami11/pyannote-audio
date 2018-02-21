@@ -84,15 +84,7 @@ class TripletLoss(object):
         self.metric = metric
         self.margin = margin
 
-        if self.metric == 'cosine':
-            self.margin_ = self.margin * 2.
-        elif self.metric == 'angular':
-            self.margin_ = self.margin * np.pi
-        elif self.metric == 'euclidean':
-            self.margin_ = self.margin * 2.
-        else:
-            msg = "'metric' must be one of {'euclidean', 'cosine', 'angular'}."
-            raise ValueError(msg)
+        self.margin_ = self.margin * self.max_distance
 
         if clamp not in {'positive', 'sigmoid', 'softmargin'}:
             msg = "'clamp' must be one of {'positive', 'sigmoid', 'softmargin'}."
@@ -108,6 +100,19 @@ class TripletLoss(object):
         self.per_label = per_label
         self.duration = duration
         self.parallel = parallel
+
+    @property
+    def max_distance(self):
+        if self.metric == 'cosine':
+            return 2.
+        elif self.metric == 'angular':
+            return np.pi
+        elif self.metric == 'euclidean':
+            # FIXME. incorrect if embedding are not unit-normalized
+            return 2.
+        else:
+            msg = "'metric' must be one of {'euclidean', 'cosine', 'angular'}."
+            raise ValueError(msg)
 
     def pdist(self, fX):
         """Compute pdist à-la scipy.spatial.distance.pdist
