@@ -35,7 +35,7 @@ import torch.nn.functional as F
 from pyannote.audio.generators.speaker import SpeechSegmentGenerator
 from pyannote.audio.callback import LoggingCallbackPytorch
 from torch.optim import Adam
-from pyannote.audio.embedding.utils import to_condensed, pdist
+from pyannote.audio.embedding.utils import to_condensed, pdist, l2_normalize
 from scipy.spatial.distance import squareform
 from pyannote.metrics.binary_classification import det_curve
 
@@ -415,7 +415,23 @@ class TripletLoss(object):
                     X = X.cuda()
                 batch['X'] = X
 
-                batch['fX'] = model(batch['X'])
+                fX = model(batch['X'])
+
+                if log_epoch:
+                    if gpu:
+                        fX_npy = fX.data.cpu().numpy()
+                    else:
+                        fX_npy = fX.data.numpy()
+
+                    # log embedding norms
+                    norm_npy = np.linalg.norm(fX_npy, axis=1)
+                    log_norm.append(norm_npy)
+
+                    # log l2_normalized embeddings
+                    log_embedding_X.append(l2_normalize(fX_npy))
+                    log_embedding_y.append(batch['y'])
+
+                batch['fX'] = fX
                 batch = self.aggregate(batch)
 
                 fX = batch['fX']
@@ -437,24 +453,15 @@ class TripletLoss(object):
 
                 if log_epoch:
                     if gpu:
-                        fX_npy = fX.data.cpu().numpy()
                         pdist_npy = distances.data.cpu().numpy()
                         delta_npy = deltas.data.cpu().numpy()
                     else:
-                        fX_npy = fX.data.numpy()
                         pdist_npy = distances.data.numpy()
                         delta_npy = deltas.data.numpy()
-
-                    norm_npy = np.linalg.norm(fX_npy, axis=1)
-                    log_norm.append(norm_npy)
-
                     same_speaker = pdist(y.reshape((-1, 1)), metric='equal')
                     log_positive.append(pdist_npy[np.where(same_speaker)])
                     log_negative.append(pdist_npy[np.where(~same_speaker)])
-
                     log_delta.append(delta_npy)
-                    log_embedding_X.append(fX.data / torch.Tensor(norm_npy.reshape((-1, 1))))
-                    log_embedding_y.append(y)
 
                 # log loss
                 if gpu:
@@ -500,9 +507,10 @@ class TripletLoss(object):
                     'train/embedding/norm', log_norm,
                     global_step=epoch, bins='doane')
 
-                log_embedding_X = torch.cat(log_embedding_X)
+                log_embedding_X = np.vstack(log_embedding_X)
                 log_embedding_y = np.hstack(log_embedding_y)
-                writer.add_embedding(log_embedding_X, metadata=log_embedding_y,
+                writer.add_embedding(torch.from_numpy(log_embedding_X),
+                                     metadata=log_embedding_y,
                                      global_step=epoch,
                                      tag='train/embedding/samples')
 
