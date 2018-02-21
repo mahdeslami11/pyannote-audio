@@ -391,9 +391,15 @@ class TripletLoss(object):
 
             tloss_avg = 0.
 
-            if epoch % 5 == 0:
-                positive, negative = [], []
-                norms = []
+            log_epoch = (epoch < 10) or (epoch % 5 == 0)
+
+            if log_epoch:
+                log_positive = []
+                log_negative = []
+                log_delta = []
+                log_norm = []
+                log_embedding_X = []
+                log_embedding_y = []
 
             desc = 'Epoch #{0}'.format(epoch)
             for i in tqdm(range(batches_per_epoch), desc=desc):
@@ -415,34 +421,40 @@ class TripletLoss(object):
                 fX = batch['fX']
                 y = batch['y']
 
-                if epoch % 5 == 0:
-                    if gpu:
-                        fX_ = fX.data.cpu().numpy()
-                    else:
-                        fX_ = fX.data.numpy()
-                    norms.append(np.linalg.norm(fX_, axis=1))
-
                 # pre-compute pairwise distances
                 distances = self.pdist(fX)
-
-                if epoch % 5 == 0:
-                    if gpu:
-                        distances_ = distances.data.cpu().numpy()
-                    else:
-                        distances_ = distances.data.numpy()
-                    is_positive = pdist(y.reshape((-1, 1)), metric='equal')
-                    positive.append(distances_[np.where(is_positive)])
-                    negative.append(distances_[np.where(~is_positive)])
 
                 # sample triplets
                 triplets = getattr(self, 'batch_{0}'.format(self.sampling))
                 anchors, positives, negatives = triplets(y, distances)
 
                 # compute triplet loss
-                losses = self.triplet_loss(
-                    distances, anchors, positives, negatives)
+                losses, deltas, _, _ = self.triplet_loss(
+                    distances, anchors, positives, negatives,
+                    return_delta=True)
 
                 loss = torch.mean(losses)
+
+                if log_epoch:
+                    if gpu:
+                        fX_npy = fX.data.cpu().numpy()
+                        pdist_npy = distances.data.cpu().numpy()
+                        delta_npy = deltas.data.cpu().numpy()
+                    else:
+                        fX_npy = fX.data.numpy()
+                        pdist_npy = distances.data.numpy()
+                        delta_npy = deltas.data.numpy()
+
+                    norm_npy = np.linalg.norm(fX_npy, axis=1)
+                    log_norm.append(norm_npy)
+
+                    same_speaker = pdist(y.reshape((-1, 1)), metric='equal')
+                    log_positive.append(pdist_npy[np.where(same_speaker)])
+                    log_negative.append(pdist_npy[np.where(~same_speaker)])
+
+                    log_delta.append(delta_npy)
+                    log_embedding_X.append(fX.data / torch.Tensor(norm_npy.reshape((-1, 1))))
+                    log_embedding_y.append(y)
 
                 # log loss
                 if gpu:
@@ -455,28 +467,44 @@ class TripletLoss(object):
                 optimizer.step()
 
             tloss_avg /= batches_per_epoch
-            writer.add_scalar('tloss', tloss_avg, global_step=epoch)
+            writer.add_scalar('train/triplet/loss', tloss_avg,
+                              global_step=epoch)
 
-            if epoch % 5 == 0:
+            if log_epoch:
 
-                positive = np.hstack(positive)
-                negative = np.hstack(negative)
+                log_positive = np.hstack(log_positive)
+                log_negative = np.hstack(log_negative)
+                bins = np.linspace(0, self.max_distance, 50)
                 writer.add_histogram(
-                    'embedding/pairwise_distance/positive', positive,
-                    global_step=epoch, bins='auto')
+                    'train/distance/intra_class', log_positive,
+                    global_step=epoch, bins=bins)
                 writer.add_histogram(
-                    'embedding/pairwise_distance/negative', negative,
-                    global_step=epoch, bins='auto')
+                    'train/distance/inter_class', log_negative,
+                    global_step=epoch, bins=bins)
 
                 _, _, _, eer = det_curve(
-                    np.hstack([np.ones(len(positive)), np.zeros(len(negative))]),
-                    np.hstack([positive, negative]), distances=True)
-                writer.add_scalar('eer', eer, global_step=epoch)
+                    np.hstack([np.ones(len(log_positive)),
+                               np.zeros(len(log_negative))]),
+                    np.hstack([log_positive, log_negative]),
+                    distances=True)
+                writer.add_scalar('train/estimate/eer', eer, global_step=epoch)
 
-                norms = np.hstack(norms)
+                log_delta = np.vstack(log_delta)
+                bins = np.linspace(-self.max_distance, self.max_distance, 50)
                 writer.add_histogram(
-                    'embedding/norm', norms,
-                    global_step=epoch, bins='auto')
+                    'train/triplet/delta', log_delta,
+                    global_step=epoch, bins=bins)
+
+                log_norm = np.hstack(log_norm)
+                writer.add_histogram(
+                    'train/embedding/norm', log_norm,
+                    global_step=epoch, bins='doane')
+
+                log_embedding_X = torch.cat(log_embedding_X)
+                log_embedding_y = np.hstack(log_embedding_y)
+                writer.add_embedding(log_embedding_X, metadata=log_embedding_y,
+                                     global_step=epoch,
+                                     tag='train/embedding/samples')
 
             logging_callback.model = model
             logging_callback.optimizer = optimizer
