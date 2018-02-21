@@ -29,6 +29,7 @@
 import itertools
 import numpy as np
 import torch
+import torch.nn.functional as F
 from pyannote.audio.generators.speaker import SpeechTurnSubSegmentGenerator
 from .triplet_loss import TripletLoss
 
@@ -42,11 +43,15 @@ class AggTripletLoss(TripletLoss):
         Number of segments per speech turn. A heuristic may use a lower value
         to reduce the number of overlapping segments in case of short speech
         turns. Defaults to 2.
+    rescale : {'softmax'}, optional
+        Rescale embeddings before aggregation. Defaults to **not** rescale.
+
     """
 
     def __init__(self, metric='angular', margin=0.2, clamp='positive',
                  duration=3., sampling='all', parallel=1,
-                 per_label=3, per_fold=None, per_turn=2):
+                 per_label=3, per_fold=None, per_turn=2,
+                 rescale=None):
 
         super(AggTripletLoss, self).__init__(
             duration=duration, metric=metric, margin=margin, clamp=clamp,
@@ -54,6 +59,7 @@ class AggTripletLoss(TripletLoss):
             parallel=parallel)
 
         self.per_turn = per_turn
+        self.rescale = rescale
 
     def aggregate(self, batch):
 
@@ -76,8 +82,17 @@ class AggTripletLoss(TripletLoss):
             # compute (and stack) average embedding over all segments
             # of current speech turn
             indices = nyz_[:, 0]
-            fX_avg.append(
-                torch.mean(fX[indices], dim=0, keepdim=True))
+
+            fX_ = fX[indices]
+            if self.rescale == 'softmax':
+                old_norm = torch.norm(fX_, 2, 1, keepdim=True)
+                new_norm = F.softmax(old_norm, dim=0)
+                rescaled = new_norm / old_norm * fX_
+
+            else:
+                rescaled = fX_
+
+            fX_avg.append(torch.mean(rescaled, dim=0, keepdim=True))
 
             # stack label of current speech turn
             # (for later triplet sampling)
