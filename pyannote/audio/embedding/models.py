@@ -162,6 +162,9 @@ class ClopiNet(nn.Module):
             self.add_module('attention_{0}'.format(len(self.attention)),
                             attention_layer)
             self.attention_layers_.append(attention_layer)
+    @property
+    def batch_first(self):
+        return False
 
     @property
     def output_dim(self):

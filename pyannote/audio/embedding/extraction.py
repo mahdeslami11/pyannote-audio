@@ -89,7 +89,10 @@ class SequenceEmbedding(SequenceLabeling):
         batch_size, n_samples, n_features = X.shape
 
         if batch_size <= self.batch_size:
-            X = Variable(torch.from_numpy(np.rollaxis(np.array(X, dtype=np.float32), 0, 2)))
+            if not getattr(self.model, 'batch_first', True):
+                X = np.rollaxis(X, 0, 2)
+            X = np.array(X, dtype=np.float32)
+            X = Variable(torch.from_numpy(X))
 
             if self.gpu:
                 fX = self.model(X.cuda()).data.cpu().numpy()
@@ -97,10 +100,10 @@ class SequenceEmbedding(SequenceLabeling):
                 fX = self.model(X).data.numpy()
 
             if fX.ndim == 3:
-                return np.rollaxis(fX, 1, 0)
-            else:
-                return fX
-
+                if not getattr(self.model, 'batch_first', True):
+                    fX = np.rollaxis(fX, 1, 0)
+            return fX
+            
         batches = batchify(iter(X), {'type': 'ndarray'},
                            batch_size=self.batch_size,
                            incomplete=True, prefetch=0)

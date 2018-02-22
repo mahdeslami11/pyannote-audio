@@ -458,7 +458,9 @@ class SpeakerEmbedding(Application):
             model = model.cuda()
         model.eval()
 
-        X = np.rollaxis(validation_data['X'], 0, 2)
+        X = validation_data['X']
+        if not getattr(model, 'batch_first', True):
+            X = np.rollaxis(X, 0, 2)
         X = torch.from_numpy(np.array(X, dtype=np.float32))
         X = Variable(X, requires_grad=False)
         fX = model(X).data.numpy()

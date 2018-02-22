@@ -408,9 +408,12 @@ class TripletLoss(object):
 
                 batch = next(batches)
 
-                X = Variable(torch.from_numpy(
-                    np.array(np.rollaxis(batch['X'], 0, 2),
-                             dtype=np.float32)))
+                X = batch['X']
+                if not getattr(model, 'batch_first', True):
+                    X = np.rollaxis(X, 0, 2)
+                X = np.array(X, dtype=np.float32)
+                X = Variable(torch.from_numpy(X))
+
                 if gpu:
                     X = X.cuda()
                 batch['X'] = X

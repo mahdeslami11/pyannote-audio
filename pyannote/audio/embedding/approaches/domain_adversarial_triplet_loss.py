@@ -186,8 +186,13 @@ class DomainAdversarialTripletLoss(TripletLoss):
                 model.zero_grad()
 
                 batch = next(batches)
-                X = np.array(np.rollaxis(batch['X'], 0, 2), dtype=np.float32)
+
+                X = batch['X']
+                if not getattr(model, 'batch_first', True):
+                    X = np.rollaxis(X, 0, 2)
+                X = np.array(X, dtype=np.float32)
                 X = Variable(torch.from_numpy(X))
+
                 y = batch['y']
                 y_domain = batch['y_{domain}'.format(domain=self.domain)]
 

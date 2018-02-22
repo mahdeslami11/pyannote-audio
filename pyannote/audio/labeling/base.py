@@ -118,7 +118,11 @@ class SequenceLabeling(PeriodicFeaturesMixin, FileBasedBatchGenerator):
             Batch of sequence labelings.
         """
         if isinstance(self.model, nn.Module):
-            X = Variable(torch.from_numpy(np.rollaxis(np.array(X, dtype=np.float32), 0, 2)))
+            if not getattr(self.model, 'batch_first', True):
+                X = np.rollaxis(X, 0, 2)
+            X = np.array(X, dtype=np.float32)
+            X = Variable(torch.from_numpy(X))
+
             if self.gpu:
                 prediction = self.model(X.cuda()).data.cpu().numpy()
             else:
