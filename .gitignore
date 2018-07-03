@@ -65,3 +65,5 @@ notebooks
 models
 experiments
 *~
+
+tutorials/feature-extraction/*/*npy
