@@ -29,6 +29,7 @@
 """Resegmentation"""
 
 import torch
+import tempfile
 import collections
 import numpy as np
 from .base import LabelingTask
@@ -39,9 +40,26 @@ from pyannote.audio.util import from_numpy
 from pyannote.database import get_unique_identifier
 from pyannote.database import get_annotated
 from pyannote.audio.labeling.extraction import SequenceLabeling
+from pyannote.audio.train.schedulers import ConstantScheduler
+from torch.optim import SGD
 
 
 class ResegmentationGenerator(LabelingTaskGenerator):
+    """Batch generator for resegmentation self-training
+
+    Parameters
+    ----------
+    precomputed : `pyannote.audio.features.Precomputed`
+        Precomputed features
+    duration : float, optional
+        Duration of sub-sequences. Defaults to 3.2s.
+    batch_size : int, optional
+        Batch size. Defaults to 32.
+    parallel : int, optional
+        Number of prefetching background generators. Defaults to 1.
+        Each generator will prefetch enough batches to cover a whole epoch.
+        Set `parallel` to 0 to not use background generators.
+    """
 
     def __init__(self, precomputed, **kwargs):
         super(ResegmentationGenerator, self).__init__(
@@ -75,17 +93,28 @@ class ResegmentationGenerator(LabelingTaskGenerator):
 
 
 class Resegmentation(LabelingTask):
-    """
+    """Resegmentation based on stacked recurrent neural network
 
     Parameters
     ----------
+    precomputed : `pyannote.audio.features.Precomputed`
+        Precomputed features
     epochs : int, optional
         (Self-)train for that many epochs. Defaults to 10.
     ensemble : int, optional
-
+        Average output of last `ensemble` epochs. Defaults to no ensembling.
+    rnn : {'LSTM', 'GRU'}, optional
+        Defaults to 'LSTM'.
+    recurrent : list, optional
+        List of hidden dimensions of stacked recurrent layers. Defaults to
+        [16, ], i.e. one recurrent layer with hidden dimension of 16.
+    bidirectional : bool, optional
+        Use bidirectional recurrent layers. Defaults to False, i.e. use
+        mono-directional RNNs.
+    linear : list, optional
+        List of hidden dimensions of linear layers. Defaults to [16, ], i.e.
+        one linear layer with hidden dimension of 16.
     """
-
-    # TODO -- ensemble of last K epochs
 
     def __init__(self, precomputed, epochs=10, ensemble=1, rnn='LSTM',
                  recurrent=[16, ], bidirectional=True, linear=[16, ], **kwargs):
@@ -230,15 +259,18 @@ class Resegmentation(LabelingTask):
         # initialize dummy protocol that has only one file
         protocol = self.get_dummy_protocol(current_file)
 
-        if log_dir is not None:
-            uri = get_unique_identifier(current_file)
-            log_dir = 'f{log_dir}/{uri}'
+        if log_dir is None:
+            log_dir = tempfile.mkdtemp()
+        uri = get_unique_identifier(current_file)
+        log_dir = 'f{log_dir}/{uri}'
 
         self.scores_ = collections.deque([], maxlen=self.ensemble)
 
-        iterations = self.fit_iter(model, self.precomputed, protocol,
-                                   log_dir=log_dir, epochs=self.epochs,
-                                   device=device, quiet=True)
+        iterations = self.fit_iter(
+            model, self.precomputed, protocol, subset='train',
+            restart=0, epochs=self.epochs, learning_rate='auto',
+            get_optimizer=SGD, get_scheduler=ConstantScheduler,
+            log_dir=log_dir, device=device)
 
         for i, iteration in enumerate(iterations):
 
@@ -254,12 +286,31 @@ class Resegmentation(LabelingTask):
                 hypothesis = self._decode(self.scores_)
                 yield hypothesis
 
-        # generate (and yield) hypothesis in case it's not already
+        # generate (and yield) final hypothesis in case it's not already
         if not partial:
             hypothesis = self._decode(self.scores_)
             yield hypothesis
 
     def apply(self, current_file, hypothesis, device=None, log_dir=None):
+        """Apply re-segmentation
+
+        Parameters
+        ----------
+        current_file : pyannote.database dict
+            Currently processed file
+        hypothesis : pyannote.core.Annotation
+            Input segmentation
+        device : torch.device, optional
+            Defaults to torch.device('cpu')
+        log_dir : str, optional
+            Path to log directory.
+
+        Returns
+        -------
+        resegmented : pyannote.core.Annotation
+            Resegmentation result
+        """
+
         for hypothesis in self.apply_iter(current_file, hypothesis,
                                           partial=False, device=device):
             pass
