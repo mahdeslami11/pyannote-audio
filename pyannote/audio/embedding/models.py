@@ -288,7 +288,6 @@ class ClopiNet(nn.Module):
     attention : list of int, optional
         List of hidden dimensions of attention linear layers (e.g. [16, ]).
         Defaults to no attention.
-    return_attention : bool, optional
 
     Usage
     -----
@@ -299,8 +298,7 @@ class ClopiNet(nn.Module):
     def __init__(self, n_features,
                  rnn='LSTM', recurrent=[64, 64, 64], bidirectional=False,
                  pooling='sum', batch_normalize=True, normalize=False,
-                 weighted=False, linear=None, attention=None,
-                 return_attention=False):
+                 weighted=False, linear=None, attention=None):
 
         super(ClopiNet, self).__init__()
 
@@ -314,7 +312,6 @@ class ClopiNet(nn.Module):
         self.weighted = weighted
         self.linear = [] if linear is None else linear
         self.attention = [] if attention is None else attention
-        self.return_attention = return_attention
 
         self.num_directions_ = 2 if self.bidirectional else 1
 
@@ -498,8 +495,5 @@ class ClopiNet(nn.Module):
             output = output / norm * (1 + F.sigmoid(self.norm_batch_norm_(norm)))
 
         # batch_size, dimension
-
-        if self.return_attention:
-            return output, attn
 
         return output
