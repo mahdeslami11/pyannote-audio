@@ -232,6 +232,7 @@ class Trainer:
         ---------
         https://gist.github.com/hbredin/1d617586017837acb35b090f50f7a22b
         https://sgugger.github.io/how-do-you-find-a-good-learning-rate.html
+        http://brandonlmorris.com/2018/06/24/mastering-the-learning-rate
         """
 
         if device is None:
