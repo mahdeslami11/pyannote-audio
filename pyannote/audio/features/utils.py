@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016-2017 CNRS
+# Copyright (c) 2016-2018 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -29,49 +29,148 @@
 
 from __future__ import division
 
-import h5py
-import os.path
+import yaml
+import io
+from pathlib import Path
 from glob import glob
 import numpy as np
+from numpy.lib.format import open_memmap
 from struct import unpack
-try:
-    import pysndfile.sndio
-except ImportError as e:
-    pass
+import audioread
+import librosa
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.database.util import get_unique_identifier
+from pyannote.audio.util import mkdir_p
+import tempfile
+
 
 class PyannoteFeatureExtractionError(Exception):
     pass
 
 
-def get_wav_duration(wav):
-    y, sample_rate, _ = pysndfile.sndio.read(wav)
-    n_samples = y.shape[0]
-    return n_samples / sample_rate
+def get_audio_duration(current_file):
+    """Return audio file duration
+
+    Parameters
+    ----------
+    current_file : dict
+        Dictionary given by pyannote.database.
+
+    Returns
+    -------
+    duration : float
+        Audio file duration.
+    """
+    path = current_file['audio']
+
+    with audioread.audio_open(path) as f:
+        duration = f.duration
+
+    return duration
+
+
+def get_audio_sample_rate(current_file):
+    """Return audio file sampling rate
+
+    Parameters
+    ----------
+    current_file : dict
+        Dictionary given by pyannote.database.
+
+    Returns
+    -------
+    sample_rate : int
+        Sampling rate
+    """
+    path = current_file['audio']
+
+    with audioread.audio_open(path) as f:
+        sample_rate = f.samplerate
+
+    return sample_rate
+
+
+def read_audio(current_file, sample_rate=None, mono=True):
+    """Read audio file
+
+    Parameters
+    ----------
+    current_file : dict
+        Dictionary given by pyannote.database.
+    sample_rate: int, optional
+        Target sampling rate. Defaults to using native sampling rate.
+    mono : int, optional
+        Convert multi-channel to mono. Defaults to True.
+
+    Returns
+    -------
+    y : (n_samples, n_channels) np.array
+        Audio samples.
+    sample_rate : int
+        Sampling rate.
+
+    Notes
+    -----
+    In case `current_file` contains a `channel` key, data of this (1-indexed)
+    channel will be returned.
+
+    """
+
+    # sphere files
+    if current_file['audio'][-4:] == '.sph':
+
+        # dump sphere file to a temporary wav file
+        # and load it from here...
+        from sphfile import SPHFile
+        sph = SPHFile(current_file['audio'])
+        with tempfile.NamedTemporaryFile() as f:
+            sph.write_wav(f.name)
+            y, sample_rate = librosa.load(f.name, sr=sample_rate, mono=False)
+
+    # all other files
+    else:
+        y, sample_rate = librosa.load(current_file['audio'],
+                                      sr=sample_rate,
+                                      mono=False)
+
+    # reshape mono files to (1, n) [was (n, )]
+    if y.ndim == 1:
+        y = y.reshape(1, -1)
+
+    # extract specific channel if requested
+    channel = current_file.get('channel', None)
+    if channel is not None:
+        y = y[channel - 1, :]
+
+    # convert to mono
+    if mono:
+        y = librosa.to_mono(y)
+
+    return y.T, sample_rate
 
 
 class RawAudio(object):
+    """
 
-    def __call__(self, item):
+    Parameters
+    ----------
+    sample_rate: int, optional
+        Target sampling rate. Defaults to using native sampling rate.
+    mono : int, optional
+        Convert multi-channel to mono. Defaults to True.
 
-        try:
-            wav = item['wav']
-            y, sample_rate, encoding = pysndfile.sndio.read(wav)
-        except IOError as e:
-            raise PyannoteFeatureExtractionError(e.message)
+    """
 
-        if np.any(np.isnan(y)):
-            uri = get_unique_identifier(item)
-            msg = 'pysndfile output contains NaNs for file "{uri}".'
-            raise PyannoteFeatureExtractionError(msg.format(uri=uri))
+    def __init__(self, sample_rate=None, mono=True):
+        super(RawAudio, self).__init__()
+        self.sample_rate = sample_rate
+        self.mono = mono
 
-        # reshape before selecting channel
-        if len(y.shape) < 2:
-            y = y.reshape(-1, 1)
+    def __call__(self, current_file):
 
-        channel = item.get('channel', 1)
-        y = y[:, channel - 1]
+        y, sample_rate = read_audio(current_file,
+                                    sample_rate=self.sample_rate,
+                                    mono=self.mono)
 
         sliding_window = SlidingWindow(start=0.,
                                        duration=1./sample_rate,
@@ -81,39 +180,85 @@ class RawAudio(object):
 
 
 class Precomputed(object):
-    """Load precomputed features from HDF5 file
+    """Precomputed features
 
     Parameters
     ----------
-    features_h5 : str
-        Path to HDF5 file generated by script 'feature_extraction.py'.
+    root_dir : `str`
+        Path to directory where precomputed features are stored.
+    use_memmap : `bool`, optional
+        Defaults to True.
+    sliding_window : `SlidingWindow`, optional
+        Sliding window used for feature extraction. This is not used when
+        `root_dir` already exists and contains `metadata.yml`.
+    dimension : `int`, optional
+        Dimension of feature vectors. This is not used when `root_dir` already
+        exists and contains `metadata.yml`.
+
+    Notes
+    -----
+    If `root_dir` directory does not exist, one must provide both
+    `sliding_window` and `dimension` parameters in order to create and
+    populate file `root_dir/metadata.yml` when instantiating.
+
     """
 
-    @staticmethod
-    def get_config_path(root_dir):
-        path = '{root_dir}/metadata.h5'.format(root_dir=root_dir)
-        return path
-
-    @staticmethod
-    def get_path(root_dir, item):
+    def get_path(self, item):
         uri = get_unique_identifier(item)
-        path = '{root_dir}/{uri}.h5'.format(root_dir=root_dir, uri=uri)
+        path = '{root_dir}/{uri}.npy'.format(root_dir=self.root_dir, uri=uri)
         return path
 
-    def __init__(self, root_dir=None):
+    def __init__(self, root_dir=None, use_memmap=True,
+                 sliding_window=None, dimension=None):
+
         super(Precomputed, self).__init__()
-        self.root_dir = root_dir
+        self.root_dir = Path(root_dir).expanduser().resolve(strict=False)
+        self.use_memmap = use_memmap
 
-        path = self.get_config_path(self.root_dir)
+        path = self.root_dir / 'metadata.yml'
+        if path.exists():
 
-        f = h5py.File(path)
-        start = f.attrs['start']
-        duration = f.attrs['duration']
-        step = f.attrs['step']
-        self.sliding_window_ = SlidingWindow(
-            start=start, duration=duration, step=step)
-        self.dimension_ = f.attrs['dimension']
-        f.close()
+            with io.open(path, 'r') as f:
+                params = yaml.load(f)
+
+            self.dimension_ = params.pop('dimension')
+            self.sliding_window_ = SlidingWindow(**params)
+
+            if dimension is not None and self.dimension_ != dimension:
+                msg = 'inconsistent "dimension" (is: {0}, should be: {1})'
+                raise ValueError(msg.format(dimension, self.dimensions_))
+
+            if ((sliding_window is not None) and
+                ((sliding_window.start != self.sliding_window_.start) or
+                 (sliding_window.duration != self.sliding_window_.duration) or
+                 (sliding_window.step != self.sliding_window_.step))):
+                msg = 'inconsistent "sliding_window"'
+                raise ValueError(msg)
+
+        else:
+
+            if sliding_window is None or dimension is None:
+                msg = (
+                    f'Either directory {self.root_dir} does not exist or it '
+                    f'does not contain precomputed features. In case it exists '
+                    f'and this was done on purpose, please provide both '
+                    f'`sliding_window` and `dimension` parameters when '
+                    f'instantianting `Precomputed`.')
+                raise ValueError(msg)
+
+            # create parent directory
+            mkdir_p(path.parent)
+
+            params = {'start': sliding_window.start,
+                      'duration': sliding_window.duration,
+                      'step': sliding_window.step,
+                      'dimension': dimension}
+
+            with io.open(path, 'w') as f:
+                yaml.dump(params, f, default_flow_style=False)
+
+            self.sliding_window_ = sliding_window
+            self.dimension_ = dimension
 
     def sliding_window(self):
         return self.sliding_window_
@@ -123,18 +268,40 @@ class Precomputed(object):
 
     def __call__(self, item):
 
-        path = self.get_path(self.root_dir, item)
+        path = Path(self.get_path(item))
 
-        if not os.path.exists(path):
+        if not path.exists():
             uri = get_unique_identifier(item)
-            msg = 'No precomputed features for "{uri}".'
-            raise PyannoteFeatureExtractionError(msg.format(uri=uri))
+            msg = f'No precomputed features for "{uri}".'
+            raise PyannoteFeatureExtractionError(msg)
 
-        f = h5py.File(path)
-        data = np.array(f['features'])
-        f.close()
+        if self.use_memmap:
+            data = np.load(path, mmap_mode='r')
+        else:
+            data = np.load(path)
 
         return SlidingWindowFeature(data, self.sliding_window_)
+
+    def crop(self, item, focus, mode='loose', fixed=None, return_data=True):
+        """Faster version of precomputed(item).crop(...)"""
+        memmap = open_memmap(self.get_path(item), mode='r')
+        swf = SlidingWindowFeature(memmap, self.sliding_window_)
+        result = swf.crop(focus, mode=mode, fixed=fixed,
+                          return_data=return_data)
+        del memmap
+        return result
+
+    def shape(self, item):
+        """Faster version of precomputed(item).data.shape"""
+        memmap = open_memmap(self.get_path(item), mode='r')
+        shape = memmap.shape
+        del memmap
+        return shape
+
+    def dump(self, item, features):
+        path = Path(self.get_path(item))
+        mkdir_p(path.parent)
+        np.save(path, features.data)
 
 
 class PrecomputedHTK(object):

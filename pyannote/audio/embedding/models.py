@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016-2017 CNRS
+# Copyright (c) 2017-2018 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -25,432 +25,475 @@
 
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
-# Grégory GELLY
-
-import keras.backend as K
-from keras.engine.topology import Layer, InputSpec
-from keras.models import Model
-
-from keras.layers import Input
-from keras.layers import Masking
-from keras.layers import Dense
-from keras.layers import Lambda
-from keras.layers.merge import Concatenate
-from keras.layers.wrappers import Bidirectional
-from keras.layers.wrappers import TimeDistributed
-import numpy as np
-
-from pyannote.audio.keras_utils import register_custom_object
 
 
-class EmbeddingAveragePooling(Layer):
-
-    def __init__(self, **kwargs):
-        super(EmbeddingAveragePooling, self).__init__(**kwargs)
-        self.input_spec = [InputSpec(ndim=3)]
-        self.supports_masking = True
-
-    def call(self, x, mask=None):
-        # thanks to L2 normalization, mask actually has no effect
-        return K.l2_normalize(K.sum(x, axis=1), axis=-1)
-
-    def compute_output_shape(self, input_shape):
-        return (input_shape[0], input_shape[2])
-
-    def compute_mask(self, input, input_mask=None):
-        return None
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import warnings
+from torch.nn.utils.rnn import PackedSequence
+from torch.nn.utils.rnn import pad_packed_sequence
 
 
-# register user-defined Keras layer
-register_custom_object('EmbeddingAveragePooling', EmbeddingAveragePooling)
-
-
-class TristouNet(object):
+class TristouNet(nn.Module):
     """TristouNet sequence embedding
 
-    RNN ( » ... » RNN ) » pooling › ( MLP › ... › ) MLP › normalize
+    RNN ( » ... » RNN ) » temporal pooling › ( MLP › ... › ) MLP › normalize
+
+    Parameters
+    ----------
+    n_features : int
+        Input feature dimension
+    rnn : {'LSTM', 'GRU'}, optional
+        Defaults to 'LSTM'.
+    recurrent: list, optional
+        List of output dimension of stacked RNNs.
+        Defaults to [16, ] (i.e. one RNN with output dimension 16)
+    bidirectional : bool, optional
+        Use bidirectional recurrent layers. Defaults to False.
+    pooling : {'sum', 'max'}
+        Temporal pooling strategy. Defaults to 'sum'.
+    linear : list, optional
+        List of hidden dimensions of linear layers. Defaults to [16, 16].
 
     Reference
     ---------
-    Hervé Bredin, "TristouNet: Triplet Loss for Speaker Turn Embedding"
-    Submitted to ICASSP 2017.
-    https://arxiv.org/abs/1609.04301
-
-    Parameters
-    ----------
-    rnn : {'LSTM', 'GRU'}, optional
-        Defaults to 'LSTM'.
-    recurrent: list, optional
-        List of output dimension of stacked RNNs.
-        Defaults to [16, ] (i.e. one RNN with output dimension 16)
-    bidirectional: {False, 'ave', 'concat'}, optional
-        Defines how the output of forward and backward RNNs are merged.
-        'ave' stands for 'average', 'concat' (default) for concatenation.
-        See keras.layers.wrappers.Bidirectional for more information.
-        Use False to only use forward RNNs.
-    mlp: list, optional
-        Number of units in additionnal stacked dense MLP layers.
-        Defaults to [16, 16] (i.e. two dense MLP layers with 16 units)
+    Hervé Bredin. "TristouNet: Triplet Loss for Speaker Turn Embedding."
+    ICASSP 2017 (https://arxiv.org/abs/1609.04301)
     """
 
-    def __init__(self, rnn='LSTM', recurrent=[16,], bidirectional='concat', mlp=[16, 16]):
+    def __init__(self, n_features,
+                 rnn='LSTM', recurrent=[16], bidirectional=False,
+                 pooling='sum', linear=[16, 16]):
 
         super(TristouNet, self).__init__()
+
+        self.n_features = n_features
         self.rnn = rnn
         self.recurrent = recurrent
         self.bidirectional = bidirectional
-        self.mlp = mlp
+        self.pooling = pooling
+        self.linear = [] if linear is None else linear
 
-        rnns = __import__('keras.layers.recurrent', fromlist=[self.rnn])
-        self.RNN_ = getattr(rnns, self.rnn)
+        self.num_directions_ = 2 if self.bidirectional else 1
 
+        if self.pooling not in {'sum', 'max'}:
+            raise ValueError('"pooling" must be one of {"sum", "max"}')
 
-    def __call__(self, input_shape):
-        """Design embedding
+        # create list of recurrent layers
+        self.recurrent_layers_ = []
+        input_dim = self.n_features
+        for i, hidden_dim in enumerate(self.recurrent):
+            if self.rnn == 'LSTM':
+                recurrent_layer = nn.LSTM(input_dim, hidden_dim,
+                                          bidirectional=self.bidirectional,
+                                          batch_first=True)
+            elif self.rnn == 'GRU':
+                recurrent_layer = nn.GRU(input_dim, hidden_dim,
+                                         bidirectional=self.bidirectional,
+                                         batch_first=True)
+            else:
+                raise ValueError('"rnn" must be one of {"LSTM", "GRU"}.')
+            self.add_module('recurrent_{0}'.format(i), recurrent_layer)
+            self.recurrent_layers_.append(recurrent_layer)
+            input_dim = hidden_dim * (2 if self.bidirectional else 1)
 
-        Parameters
-        ----------
-        input_shape : (n_frames, n_features) tuple
-            Shape of input sequence.
-
-        Returns
-        -------
-        model : Keras model
-        """
-
-        inputs = Input(shape=input_shape,
-                       name="input")
-
-        masking = Masking(mask_value=0.)
-        x = masking(inputs)
-
-        # stack RNN layers
-        for i, output_dim in enumerate(self.recurrent):
-
-            params = {
-                'name': 'rnn_{i:d}'.format(i=i),
-                'return_sequences': True,
-                # 'go_backwards': False,
-                # 'stateful': False,
-                # 'unroll': False,
-                # 'implementation': 0,
-                'activation': 'tanh',
-                # 'recurrent_activation': 'hard_sigmoid',
-                # 'use_bias': True,
-                # 'kernel_initializer': 'glorot_uniform',
-                # 'recurrent_initializer': 'orthogonal',
-                # 'bias_initializer': 'zeros',
-                # 'unit_forget_bias': True,
-                # 'kernel_regularizer': None,
-                # 'recurrent_regularizer': None,
-                # 'bias_regularizer': None,
-                # 'activity_regularizer': None,
-                # 'kernel_constraint': None,
-                # 'recurrent_constraint': None,
-                # 'bias_constraint': None,
-                # 'dropout': 0.0,
-                # 'recurrent_dropout': 0.0,
-            }
-
-            # first RNN needs to be given the input shape
-            if i == 0:
-                params['input_shape'] = input_shape
-
-            recurrent = self.RNN_(output_dim, **params)
-
-            if self.bidirectional:
-                recurrent = Bidirectional(recurrent, merge_mode=self.bidirectional)
-
-            x = recurrent(x)
-
-        pooling = EmbeddingAveragePooling(name='pooling')
-        x = pooling(x)
-
-        # stack dense MLP layers
-        for i, output_dim in enumerate(self.mlp):
-
-            mlp = Dense(output_dim,
-                        activation='tanh',
-                        name='mlp_{i:d}'.format(i=i))
-            x = mlp(x)
-
-        normalize = Lambda(lambda x: K.l2_normalize(x, axis=-1),
-                           output_shape=(output_dim, ),
-                           name='normalize')
-        embeddings = normalize(x)
-
-        return Model(inputs=inputs, outputs=embeddings)
+        # create list of linear layers
+        self.linear_layers_ = []
+        for i, hidden_dim in enumerate(self.linear):
+            linear_layer = nn.Linear(input_dim, hidden_dim, bias=True)
+            self.add_module('linear_{0}'.format(i), linear_layer)
+            self.linear_layers_.append(linear_layer)
+            input_dim = hidden_dim
 
     @property
     def output_dim(self):
-        return self.mlp[-1]
+        if self.linear:
+            return self.linear[-1]
+        return self.recurrent[-1] * (2 if self.bidirectional else 1)
 
-
-class TrottiNet(object):
-    """TrottiNet sequence embedding
-
-    RNN ( » ... » RNN ) » ( MLP » ... » ) MLP » pooling › normalize
-
-    Parameters
-    ----------
-    rnn : {'LSTM', 'GRU'}, optional
-        Defaults to 'LSTM'.
-    recurrent: list, optional
-        List of output dimension of stacked RNNs.
-        Defaults to [16, ] (i.e. one RNN with output dimension 16)
-    bidirectional: {False, 'ave', 'concat'}, optional
-        Defines how the output of forward and backward RNNs are merged.
-        'ave' (default) stands for 'average', 'concat' for concatenation.
-        See keras.layers.wrappers.Bidirectional for more information.
-        Use False to only use forward RNNs.
-    mlp: list, optional
-        Number of units of additionnal stacked dense MLP layers.
-        Defaults to [16, 16] (i.e. add one dense MLP layer with 16 units)
-    """
-
-    def __init__(self, rnn='LSTM', recurrent=[16,], bidirectional='ave', mlp=[16, 16]):
-
-        super(TrottiNet, self).__init__()
-        self.rnn = rnn
-        self.recurrent = recurrent
-        self.bidirectional = bidirectional
-        self.mlp = mlp
-
-        rnns = __import__('keras.layers.recurrent', fromlist=[self.rnn])
-        self.RNN_ = getattr(rnns, self.rnn)
-
-    def __call__(self, input_shape):
-        """Design embedding
+    def forward(self, sequence):
+        """
 
         Parameters
         ----------
-        input_shape : (n_frames, n_features) tuple
-            Shape of input sequence.
+        sequence : (batch_size, n_samples, n_features) torch.Tensor
+
+        """
+
+        packed_sequences = isinstance(sequence, PackedSequence)
+
+        if packed_sequences:
+            _, n_features = sequence.data.size()
+            batch_size = sequence.batch_sizes[0].item()
+            device = sequence.data.device
+        else:
+            # check input feature dimension
+            batch_size, _, n_features = sequence.size()
+            device = sequence.device
+
+        if n_features != self.n_features:
+            msg = 'Wrong feature dimension. Found {0}, should be {1}'
+            raise ValueError(msg.format(n_features, self.n_features))
+
+        output = sequence
+
+        # recurrent layers
+        for hidden_dim, layer in zip(self.recurrent, self.recurrent_layers_):
+
+            if self.rnn == 'LSTM':
+                # initial hidden and cell states
+                h = torch.zeros(self.num_directions_, batch_size, hidden_dim,
+                                device=device, requires_grad=False)
+                c = torch.zeros(self.num_directions_, batch_size, hidden_dim,
+                                device=device, requires_grad=False)
+                hidden = (h, c)
+
+            elif self.rnn == 'GRU':
+                # initial hidden state
+                hidden = torch.zeros(
+                    self.num_directions_, batch_size, hidden_dim,
+                    device=device, requires_grad=False)
+
+            # apply current recurrent layer and get output sequence
+            output, _ = layer(output, hidden)
+
+        if packed_sequences:
+            output, lengths = pad_packed_sequence(output, batch_first=True)
+
+        # batch_size, n_samples, dimension
+
+        # average temporal pooling
+        if self.pooling == 'sum':
+            output = output.sum(dim=1)
+        elif self.pooling == 'max':
+            if packed_sequences:
+                msg = ('"max" pooling is not yet implemented '
+                       'for variable length sequences.')
+                raise NotImplementedError(msg)
+            output, _ = output.max(dim=1)
+
+        # batch_size, dimension
+
+        # stack linear layers
+        for hidden_dim, layer in zip(self.linear, self.linear_layers_):
+
+            # apply current linear layer
+            output = layer(output)
+
+            # apply non-linear activation function
+            output = F.tanh(output)
+
+        # batch_size, dimension
+
+        # unit-normalize
+        norm = torch.norm(output, 2, 1, keepdim=True)
+        output = output / norm
+
+        return output
+
+
+class VGGVox(nn.Module):
+
+    def __init__(self, n_features, output_dim=128):
+
+        super(VGGVox, self).__init__()
+        self.n_features = n_features
+        self.output_dim = output_dim
+
+        self.conv1_ = nn.Conv2d(1, 96, (7, 7), stride=(2, 2), padding=1)
+        self.bn1_ = nn.BatchNorm2d(96)
+        self.mpool1_ = nn.MaxPool2d((3, 3), stride=(2, 2))
+        self.conv2_ = nn.Conv2d(96, 256, (5, 5), stride=(2, 2), padding=1)
+        self.bn2_ = nn.BatchNorm2d(256)
+        self.mpool2_ = nn.MaxPool2d((3, 3), stride=(2, 2))
+        self.conv3_ = nn.Conv2d(256, 256, (3, 3), stride=(1, 1), padding=1)
+        self.bn3_ = nn.BatchNorm2d(256)
+        self.conv4_ = nn.Conv2d(256, 256, (3, 3), stride=(1, 1), padding=1)
+        self.bn4_ = nn.BatchNorm2d(256)
+        self.conv5_ = nn.Conv2d(256, 256, (3, 3), stride=(1, 1), padding=1)
+        self.bn5_ = nn.BatchNorm2d(256)
+        self.mpool5_ = nn.MaxPool2d((5, 3), stride=(3, 2))
+        self.fc6_ = nn.Conv2d(256, 4096, (9, 1), stride=(1, 1))
+        self.bn6_ = nn.BatchNorm2d(4096)
+        self.fc7_ = nn.Conv2d(4096, 1024, (1, 1), stride=(1, 1))
+        self.bn7_ = nn.BatchNorm2d(1024)
+        self.fc8_ = nn.Conv2d(1024, self.output_dim, (1, 1), stride=(1, 1))
+        self.bn8_ = nn.BatchNorm2d(self.output_dim)
+
+    def forward(self, sequences):
+        """Embed sequences
+
+        Parameters
+        ----------
+        sequences : torch.autograd.Variable (batch_size, n_samples, n_features)
+            Batch of sequences.
 
         Returns
         -------
-        model : Keras model
+        embeddings : torch.autograd.Variable (batch_size, output_dim)
+            Batch of embeddings.
+
         """
 
-        inputs = Input(shape=input_shape,
-                       name="input")
+        batch_size, n_samples, n_features = sequences.size()
+        x = torch.transpose(sequences, 1, 2).view(
+            batch_size, 1, n_features, n_samples)
+        x = F.relu(self.bn1_(self.conv1_(x)))
+        x = self.mpool1_(x)
+        x = F.relu(self.bn2_(self.conv2_(x)))
+        x = self.mpool2_(x)
+        x = F.relu(self.bn3_(self.conv3_(x)))
+        x = F.relu(self.bn4_(self.conv4_(x)))
+        x = F.relu(self.bn5_(self.conv5_(x)))
+        x = self.mpool5_(x)
+        x = F.relu(self.bn6_(self.fc6_(x)))
+        x = torch.mean(x, dim=-1, keepdim=True)
+        x = F.relu(self.bn7_(self.fc7_(x)))
+        x = F.relu(self.bn8_(self.fc8_(x))).view(-1, self.output_dim)
 
-        masking = Masking(mask_value=0.)
-        x = masking(inputs)
-
-        # stack (bidirectional) RNN layers
-        for i, output_dim in enumerate(self.recurrent):
-
-            last_internal_layer = not self.mlp and i + 1 == len(self.recurrent)
-
-            params = {
-                'name': 'rnn_{i:d}'.format(i=i),
-                'return_sequences': True,
-                # 'go_backwards': False,
-                # 'stateful': False,
-                # 'unroll': False,
-                # 'implementation': 0,
-                'activation': 'tanh',
-                # 'recurrent_activation': 'hard_sigmoid',
-                # 'use_bias': True,
-                # 'kernel_initializer': 'glorot_uniform',
-                # 'recurrent_initializer': 'orthogonal',
-                # 'bias_initializer': 'zeros',
-                # 'unit_forget_bias': True,
-                # 'kernel_regularizer': None,
-                # 'recurrent_regularizer': None,
-                # 'bias_regularizer': None,
-                # 'activity_regularizer': None,
-                # 'kernel_constraint': None,
-                # 'recurrent_constraint': None,
-                # 'bias_constraint': None,
-                # 'dropout': 0.0,
-                # 'recurrent_dropout': 0.0,
-            }
-
-            # first RNN needs to be given the input shape
-            if i == 0:
-                params['input_shape'] = input_shape
-
-            if last_internal_layer and not self.bidirectional:
-                params['name'] = 'internal'
-
-            recurrent = self.RNN_(output_dim, **params)
-
-            if self.bidirectional:
-                name = 'internal' if last_internal_layer else None
-                recurrent = Bidirectional(recurrent,
-                                     merge_mode=self.bidirectional,
-                                     name=name)
-
-            x = recurrent(x)
-
-        # stack dense MLP layers
-        for i, output_dim in enumerate(self.mlp):
-
-            last_internal_layer = i + 1 == len(self.mlp)
-
-            mlp = Dense(output_dim,
-                        activation='tanh',
-                        name='mlp_{i:d}'.format(i=i))
-
-            name = 'internal' if last_internal_layer else None
-            x = TimeDistributed(mlp, name=name)(x)
-
-        # average pooling and L2 normalization
-        pooling = EmbeddingAveragePooling(name='pooling')
-        embeddings = pooling(x)
-
-        return Model(inputs=inputs, outputs=embeddings)
-
-    @property
-    def output_dim(self):
-        return self.mlp[-1]
+        return x
 
 
-class ClopiNet(object):
+class ClopiNet(nn.Module):
     """ClopiNet sequence embedding
 
     RNN          ⎤
-      » RNN      ⎥ ( » MLP » ... » MLP ) » pooling › normalize
+      » RNN      ⎥ » MLP » Weight » temporal pooling › normalize
            » RNN ⎦
 
     Parameters
     ----------
-    rnn: {'LSTM', 'GRU'}, optional
+    n_features : int
+        Input feature dimension.
+    rnn : {'LSTM', 'GRU'}, optional
         Defaults to 'LSTM'.
-    recurrent: list, optional
-        List of output dimension of stacked RNNs.
-        Defaults to [16, ] (i.e. one RNN with output dimension 16)
-    bidirectional: {False, 'ave', 'concat'}, optional
-        Defines how the output of forward and backward RNNs are merged.
-        'ave' (default) stands for 'average', 'concat' for concatenation.
-        See keras.layers.wrappers.Bidirectional for more information.
-        Use False to only use forward RNNs.
-    mlp: list, optional
-        Number of units in additionnal stacked dense MLP layers.
-        Defaults to [] (i.e. do not stack any dense MLP layer)
-    linear: bool, optional
-        Make final dense layer use linear activation. Has no effect
-        when `mlp` is empty.
+    recurrent : list, optional
+        List of hidden dimensions of stacked recurrent layers. Defaults to
+        [64, 64, 64], i.e. three recurrent layers with hidden dimension of 64.
+    bidirectional : bool, optional
+        Use bidirectional recurrent layers. Defaults to False, i.e. use
+        mono-directional RNNs.
+    pooling : {'sum', 'max'}
+        Temporal pooling strategy. Defaults to 'sum'.
+    batch_normalize : boolean, optional
+        Set to False to not apply batch normalization before embedding
+        normalization. Defaults to True.
+    normalize : {False, 'sphere', 'ball', 'ring'}, optional
+        Normalize embeddings.
+    weighted : bool, optional
+        Add dimension-wise trainable weights. Defaults to False.
+    linear : list, optional
+        List of hidden dimensions of linear layers. Defaults to none.
+    attention : list of int, optional
+        List of hidden dimensions of attention linear layers (e.g. [16, ]).
+        Defaults to no attention.
+
+    Usage
+    -----
+    >>> model = ClopiNet(n_features)
+    >>> embedding = model(sequence)
     """
 
-    def __init__(self, rnn='LSTM', recurrent=[16, 8, 8], bidirectional='ave',
-                 mlp=[], linear=False):
+    def __init__(self, n_features,
+                 rnn='LSTM', recurrent=[64, 64, 64], bidirectional=False,
+                 pooling='sum', batch_normalize=True, normalize=False,
+                 weighted=False, linear=None, attention=None):
+
         super(ClopiNet, self).__init__()
+
+        self.n_features = n_features
         self.rnn = rnn
         self.recurrent = recurrent
         self.bidirectional = bidirectional
-        self.mlp = mlp
-        self.linear = linear
+        self.pooling = pooling
+        self.batch_normalize = batch_normalize
+        self.normalize = normalize
+        self.weighted = weighted
+        self.linear = [] if linear is None else linear
+        self.attention = [] if attention is None else attention
 
-        rnns = __import__('keras.layers.recurrent', fromlist=[self.rnn])
-        self.RNN_ = getattr(rnns, self.rnn)
+        self.num_directions_ = 2 if self.bidirectional else 1
 
-    def __call__(self, input_shape):
-        """Design embedding
+        if self.pooling not in {'sum', 'max'}:
+            raise ValueError('"pooling" must be one of {"sum", "max"}')
 
-        Parameters
-        ----------
-        input_shape : (n_frames, n_features) tuple
-            Shape of input sequence.
-
-        Returns
-        -------
-        model : Keras model
-        """
-
-        inputs = Input(shape=input_shape,
-                       name="input")
-
-        masking = Masking(mask_value=0.)
-        x = masking(inputs)
-
-        # stack (bidirectional) recurrent layers
-        for i, output_dim in enumerate(self.recurrent):
-
-            sole_layer = not self.mlp and len(self.recurrent) == 1
-            last_internal_layer = not self.mlp and i + 1 == len(self.recurrent)
-
-            params = {
-                'name': 'rnn_{i:d}'.format(i=i),
-                'return_sequences': True,
-                # 'go_backwards': False,
-                # 'stateful': False,
-                # 'unroll': False,
-                # 'implementation': 0,
-                'activation': 'tanh',
-                # 'recurrent_activation': 'hard_sigmoid',
-                # 'use_bias': True,
-                # 'kernel_initializer': 'glorot_uniform',
-                # 'recurrent_initializer': 'orthogonal',
-                # 'bias_initializer': 'zeros',
-                # 'unit_forget_bias': True,
-                # 'kernel_regularizer': None,
-                # 'recurrent_regularizer': None,
-                # 'bias_regularizer': None,
-                # 'activity_regularizer': None,
-                # 'kernel_constraint': None,
-                # 'recurrent_constraint': None,
-                # 'bias_constraint': None,
-                # 'dropout': 0.0,
-                # 'recurrent_dropout': 0.0,
-            }
-
-            # first RNN needs to be given the input shape
-            if i == 0:
-                params['input_shape'] = input_shape
-
-            if sole_layer and not self.bidirectional:
-                params['name'] = 'internal'
-
-            recurrent = self.RNN_(output_dim, **params)
-
-            # bi-directional RNN
-            if self.bidirectional:
-                recurrent = Bidirectional(recurrent,
-                                     merge_mode=self.bidirectional,
-                                     name='internal' if sole_layer else None)
-
-            # (actually) stack RNN
-            x = recurrent(x)
-
-            # concatenate output of all levels
-            if i > 0:
-                name = 'internal' if last_internal_layer else None
-                concat_x = Concatenate(axis=-1, name=name)([concat_x, x])
+        # create list of recurrent layers
+        self.recurrent_layers_ = []
+        input_dim = self.n_features
+        for i, hidden_dim in enumerate(self.recurrent):
+            if self.rnn == 'LSTM':
+                recurrent_layer = nn.LSTM(input_dim, hidden_dim,
+                                          bidirectional=self.bidirectional,
+                                          batch_first=True)
+            elif self.rnn == 'GRU':
+                recurrent_layer = nn.GRU(input_dim, hidden_dim,
+                                         bidirectional=self.bidirectional,
+                                         batch_first=True)
             else:
-                # corner case for 1st level (i=0)
-                # as concat_x does not yet exist
-                concat_x = x
+                raise ValueError('"rnn" must be one of {"LSTM", "GRU"}.')
+            self.add_module('recurrent_{0}'.format(i), recurrent_layer)
+            self.recurrent_layers_.append(recurrent_layer)
+            input_dim = hidden_dim * (2 if self.bidirectional else 1)
 
-        # just rename the concatenated output variable to x
-        x = concat_x
+        # the output of recurrent layers are concatenated so the input
+        # dimension of subsequent linear layers is the sum of their output
+        # dimension
+        input_dim = sum(self.recurrent) * (2 if self.bidirectional else 1)
 
-        # (optionally) stack dense MLP layers
-        for i, output_dim in enumerate(self.mlp):
+        if self.weighted:
+            self.alphas_ = nn.Parameter(torch.ones(input_dim))
 
-            last_internal_layer = i + 1 == len(self.mlp)
+        # create list of linear layers
+        self.linear_layers_ = []
+        for i, hidden_dim in enumerate(self.linear):
+            linear_layer = nn.Linear(input_dim, hidden_dim, bias=True)
+            self.add_module('linear_{0}'.format(i), linear_layer)
+            self.linear_layers_.append(linear_layer)
+            input_dim = hidden_dim
 
-            activation = 'tanh'
-            if last_internal_layer and self.linear:
-                activation = 'linear'
+        # batch normalization ~= embeddings whitening.
+        if self.batch_normalize:
+            self.batch_norm_ = nn.BatchNorm1d(input_dim, eps=1e-5,
+                                              momentum=0.1, affine=False)
 
-            mlp = Dense(output_dim,
-                        name='mlp_{i:d}'.format(i=i),
-                        activation=activation)
+        if self.normalize in {'ball', 'ring'}:
+            self.norm_batch_norm_ = nn.BatchNorm1d(1, eps=1e-5, momentum=0.1,
+                                                   affine=False)
 
-            name = 'internal' if last_internal_layer else None
-            x = TimeDistributed(mlp, name=name)(x)
+        # create attention layers
+        self.attention_layers_ = []
+        if not self.attention:
+            return
 
-        # average pooling and L2 normalization
-        pooling = EmbeddingAveragePooling(name='pooling')
-        embeddings = pooling(x)
-
-        return Model(inputs=[inputs], outputs=embeddings)
+        input_dim = self.n_features
+        for i, hidden_dim in enumerate(self.attention):
+            attention_layer = nn.Linear(input_dim, hidden_dim, bias=True)
+            self.add_module('attention_{0}'.format(i), attention_layer)
+            self.attention_layers_.append(attention_layer)
+            input_dim = hidden_dim
+        if input_dim > 1:
+            attention_layer = nn.Linear(input_dim, 1, bias=True)
+            self.add_module('attention_{0}'.format(len(self.attention)),
+                            attention_layer)
+            self.attention_layers_.append(attention_layer)
 
     @property
     def output_dim(self):
-        if self.mlp:
-            return self.mlp[-1]
-        return np.sum(self.recurrent)
+        if self.linear:
+            return self.linear[-1]
+        return sum(self.recurrent) * (2 if self.bidirectional else 1)
+
+    def forward(self, sequence):
+
+        packed_sequences = isinstance(sequence, PackedSequence)
+
+        if packed_sequences:
+            _, n_features = sequence.data.size()
+            batch_size = sequence.batch_sizes[0].item()
+            device = sequence.data.device
+        else:
+            # check input feature dimension
+            batch_size, _, n_features = sequence.size()
+            device = sequence.device
+
+        if n_features != self.n_features:
+            msg = 'Wrong feature dimension. Found {0}, should be {1}'
+            raise ValueError(msg.format(n_features, self.n_features))
+
+        output = sequence
+
+        if self.weighted:
+            self.alphas_ = self.alphas_.to(device)
+
+        outputs = []
+        # stack recurrent layers
+        for hidden_dim, layer in zip(self.recurrent, self.recurrent_layers_):
+
+            if self.rnn == 'LSTM':
+                # initial hidden and cell states
+                h = torch.zeros(self.num_directions_, batch_size, hidden_dim,
+                                device=device, requires_grad=False)
+                c = torch.zeros(self.num_directions_, batch_size, hidden_dim,
+                                device=device, requires_grad=False)
+                hidden = (h, c)
+
+            elif self.rnn == 'GRU':
+                # initial hidden state
+                hidden = torch.zeros(
+                    self.num_directions_, batch_size, hidden_dim,
+                    device=device, requires_grad=False)
+
+            # apply current recurrent layer and get output sequence
+            output, _ = layer(output, hidden)
+
+            outputs.append(output)
+
+        if packed_sequences:
+            outputs, lengths = zip(*[pad_packed_sequence(o, batch_first=True)
+                                     for o in outputs])
+
+        # concatenate outputs
+        output = torch.cat(outputs, dim=2)
+        # batch_size, n_samples, dimension
+
+        if self.weighted:
+            output = output * self.alphas_
+
+        # stack linear layers
+        for hidden_dim, layer in zip(self.linear, self.linear_layers_):
+
+            # apply current linear layer
+            output = layer(output)
+
+            # apply non-linear activation function
+            output = F.tanh(output)
+
+        # n_samples, batch_size, dimension
+
+        if self.attention_layers_:
+            attn = sequence
+            for layer, hidden_dim in zip(self.attention_layers_,
+                                         self.attention + [1]):
+                attn = layer(attn)
+                attn = F.tanh(attn)
+
+            if packed_sequences:
+                msg = ('attention is not yet implemented '
+                       'for variable length sequences.')
+                raise NotImplementedError(msg)
+            attn = F.softmax(attn, dim=1)
+            output = output * attn
+
+        # average temporal pooling
+        if self.pooling == 'sum':
+            output = output.sum(dim=1)
+        elif self.pooling == 'max':
+            if packed_sequences:
+                msg = ('"max" pooling is not yet implemented '
+                       'for variable length sequences.')
+                raise NotImplementedError(msg)
+            output, _ = output.max(dim=1)
+
+        # batch_size, dimension
+
+        # batch normalization
+        if self.batch_normalize:
+            output = self.batch_norm_(output)
+
+        if self.normalize:
+            norm = torch.norm(output, 2, 1, keepdim=True)
+
+        if self.normalize == 'sphere':
+            output = output / norm
+
+        elif self.normalize == 'ball':
+            output = output / norm * F.sigmoid(self.norm_batch_norm_(norm))
+
+        elif self.normalize == 'ring':
+            norm_ = self.norm_batch_norm_(norm)
+            output = output / norm * (1 + F.sigmoid(self.norm_batch_norm_(norm)))
+
+        # batch_size, dimension
+
+        return output

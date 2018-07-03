@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016-2017 CNRS
+# Copyright (c) 2016-2018 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -26,89 +26,82 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-import warnings
 import numpy as np
-import keras.backend as K
 from pyannote.core import SlidingWindow, SlidingWindowFeature
-from pyannote.generators.batch import FileBasedBatchGenerator
-from pyannote.generators.fragment import SlidingSegments
-from pyannote.audio.generators.periodic import PeriodicFeaturesMixin
-from pyannote.database.util import get_unique_identifier
+from pyannote.audio.labeling.extraction import SequenceLabeling
+from pyannote.generators.batch import batchify
+import torch
+from torch.nn.utils.rnn import pad_sequence
+from torch.nn.utils.rnn import pack_padded_sequence
 
 
-class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
-    """Embedding extraction
+class SequenceEmbedding(SequenceLabeling):
+    """Sequence embedding
 
     Parameters
     ----------
-    embedding : keras.Model
-        Pre-trained embedding.
+    model : nn.Module
+        Pre-trained sequence embedding model.
     feature_extraction : callable
         Feature extractor
-    duration : float
-        Subsequence duration, in seconds.
+    duration : float, optional
+        Subsequence duration, in seconds. Defaults to 1s.
+    min_duration : float, optional
+        When provided, will do its best to yield segments of length `duration`,
+        but shortest segments are also permitted (as long as they are longer
+        than `min_duration`).
     step : float, optional
-        Subsequence step, in seconds. Defaults to 25% of `duration`.
-    internal : bool, optional
-        Extract internal representation.
-
-    Usage
-    -----
-    >>> epoch = 1000
-    >>> embedding = SequenceEmbeddingAutograd.load(train_dir, epoch)
-    >>> feature_extraction = YaafeMFCC(...)
-    >>> duration = 3.2
-    >>> extraction = Extraction(embedding, feature_extraction, duration)
-
+        Subsequence step, in seconds. Defaults to 50% of `duration`.
+    batch_size : int, optional
+        Defaults to 32.
+    device : torch.device, optional
+        Defaults to CPU.
     """
-    def __init__(self, embedding, feature_extraction, duration,
-                 step=None, batch_size=32, internal=False):
 
-        self.embedding = embedding
-        self.feature_extractor = feature_extraction
-        self.duration = duration
-        self.batch_size = batch_size
-        self.internal = internal
+    def __init__(self, model, feature_extraction, duration=1,
+                 min_duration=None, step=None, batch_size=32, source='audio',
+                 device=None):
 
-        generator = SlidingSegments(duration=duration, step=step, source='wav')
-        self.step = generator.step if step is None else step
-
-        # build function that takes batch of sequences as input
-        # and returns their (internal) embedding
-        if self.internal:
-            output_layer = self.embedding.get_layer(name='internal')
-            if output_layer is None:
-                raise ValueError(
-                    'Model does not support extraction of internal representation.')
-        else:
-            output_layer = self.embedding.get_layer(index=-1)
-
-        input_layer = self.embedding.get_layer(name='input')
-        K_func = K.function(
-            [input_layer.input, K.learning_phase()], [output_layer.output])
-        def embed(batch):
-            return K_func([batch, 0])[0]
-        self.embed_ = embed
-
-        super(Extraction, self).__init__(generator, batch_size=self.batch_size)
-
-    @property
-    def dimension(self):
-        return self.embedding.output_shape[-1]
+        super(SequenceEmbedding, self).__init__(
+            model, feature_extraction, duration=duration,
+            min_duration=min_duration, step=step, source=source,
+            batch_size=batch_size, device=device)
 
     @property
     def sliding_window(self):
-        if self.internal:
-            return self.feature_extractor.sliding_window()
-        else:
-            return SlidingWindow(duration=self.duration, step=self.step)
+        return SlidingWindow(duration=self.duration, step=self.step)
 
-    def signature(self):
-        shape = self.shape
-        return {'type': 'ndarray', 'shape': shape}
+    def postprocess_sequence(self, X):
+        """Embed (variable-length) sequences
+
+        Parameters
+        ----------
+        X : list
+            List of input sequences
+
+        Returns
+        -------
+        fX : numpy array
+            Batch of sequence embeddings.
+        """
+
+        lengths = torch.tensor([len(x) for x in X])
+        sorted_lengths, sort = torch.sort(lengths, descending=True)
+        _, unsort = torch.sort(sort)
+
+        sequences = [torch.tensor(X[i],
+                                  dtype=torch.float32,
+                                  device=self.device) for i in sort]
+        padded = pad_sequence(sequences, batch_first=True, padding_value=0)
+        packed = pack_padded_sequence(padded, sorted_lengths,
+                                      batch_first=True)
+
+        cpu = torch.device('cpu')
+        fX = self.model(packed).detach().to(cpu).numpy()
+        return fX[unsort]
 
     def postprocess_ndarray(self, X):
-        """Embed sequences
+        """Embed (fixed-length) sequences
 
         Parameters
         ----------
@@ -117,62 +110,73 @@ class Extraction(PeriodicFeaturesMixin, FileBasedBatchGenerator):
 
         Returns
         -------
-        fX : (batch_size, n_samples, n_dimensions) numpy array
+        fX : (batch_size, n_dimensions) numpy array
             Batch of sequence embeddings.
-
         """
-        return self.embed_(X)
 
-    def apply(self, current_file):
-        """Compute embeddings on a sliding window
+        batch_size, n_samples, n_features = X.shape
 
-        Parameter
-        ---------
-        current_file : dict
+        # this test is needed because .apply() may be called
+        # with a ndarray of arbitrary size as input
+        if batch_size <= self.batch_size:
+            X = torch.tensor(X, dtype=torch.float32, device=self.device)
+            cpu = torch.device('cpu')
+            return self.model(X).detach().to(cpu).numpy()
+
+        # if X contains too large a batch, split it in smaller batches...
+        batches = batchify(iter(X), {'@': (None, np.stack)},
+                           batch_size=self.batch_size,
+                           incomplete=True, prefetch=0)
+
+        # ... and process them in order, before re-concatenating them
+        return np.vstack([self.postprocess_ndarray(x) for x in batches])
+
+    def apply(self, current_file, crop=None):
+        """Extract embeddings
+
+        Can process either pyannote.database protocol items (as dict) or
+        batch of precomputed feature sequences (as numpy array).
+
+        Parameters
+        ----------
+        current_file : dict or numpy array
+            File (from pyannote.database protocol) or batch of precomputed
+            feature sequences.
+        crop : Segment or Timeline, optional
+            When provided, only extract corresponding embeddings.
 
         Returns
         -------
-        embedding : SlidingWindowFeature
+        embedding : SlidingWindowFeature or numpy array
         """
 
+        # if current_file is in fact a batch of feature sequences
+        # use postprocess_ndarray directly.
+        if isinstance(current_file, np.ndarray):
+            return self.postprocess_ndarray(current_file)
+
+        # HACK: change internal SlidingSegment's source to only extract
+        # embeddings on provided "crop". keep track of original source
+        # to set it back before the function returns
+        source = self.generator.source
+        if crop is not None:
+            self.generator.source = crop
+
         # compute embedding on sliding window
-        # over the whole duration of the file
-        fX = np.vstack(
-            [batch for batch in self.from_file(current_file,
-                                               incomplete=True)])
+        # over the whole duration of the source
+        batches = [batch for batch in self.from_file(current_file,
+                                                     incomplete=True)]
 
-        subsequences = SlidingWindow(duration=self.duration, step=self.step)
+        self.generator.source = source
 
-        if not self.internal:
-            return SlidingWindowFeature(fX, subsequences)
+        if not batches:
+            fX = np.zeros((0, self.dimension))
+        else:
+            fX = np.vstack(batches)
 
-        # get total number of frames
-        identifier = get_unique_identifier(current_file)
-        n_frames = self.preprocessed_['X'][identifier].data.shape[0]
+        if crop is not None:
+            return fX
 
-        # data[i] is the sum of all embeddings for frame #i
-        data = np.zeros((n_frames, self.dimension), dtype=np.float32)
-
-        # k[i] is the number of sequences that overlap with frame #i
-        k = np.zeros((n_frames, 1), dtype=np.int8)
-
-        # frame and sub-sequence sliding windows
-        frames = self.feature_extractor.sliding_window()
-
-        for subsequence, fX_ in zip(subsequences, fX):
-
-            # indices of frames overlapped by subsequence
-            indices = frames.crop(subsequence,
-                                  mode='center',
-                                  fixed=self.duration)
-
-            # accumulate their embedding
-            data[indices] += fX_
-
-            # keep track of the number of overlapping sequence
-            k[indices] += 1
-
-        # compute average embedding of each frame
-        data = data / np.maximum(k, 1)
-
-        return SlidingWindowFeature(data, frames)
+        subsequences = SlidingWindow(duration=self.duration,
+                                     step=self.step)
+        return SlidingWindowFeature(fX, subsequences)

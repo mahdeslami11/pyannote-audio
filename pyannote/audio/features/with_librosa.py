@@ -34,11 +34,8 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import librosa
+from pyannote.audio.features.utils import read_audio
 
-try:
-    import pysndfile.sndio
-except ImportError as e:
-    pass
 
 from pyannote.core.segment import SlidingWindow
 from pyannote.core.feature import SlidingWindowFeature
@@ -57,13 +54,13 @@ class LibrosaFeatureExtractor(object):
         Defaults to 512.
     step_size : int, optional
         Defaults to 256.
-
     """
 
-    def __init__(self, duration=0.025, step=0.01):
+    def __init__(self, sample_rate=16000, duration=0.025, step=0.01):
 
         super(LibrosaFeatureExtractor, self).__init__()
 
+        self.sample_rate = sample_rate
         self.duration = duration
         self.step = step
 
@@ -90,23 +87,10 @@ class LibrosaFeatureExtractor(object):
 
         """
 
-        try:
-            wav = item['wav']
-            y, sample_rate, encoding = pysndfile.sndio.read(wav)
-        except IOError as e:
-            raise PyannoteFeatureExtractionError(e.message)
-
-        if np.any(np.isnan(y)):
-            uri = get_unique_identifier(item)
-            msg = 'pysndfile output contains NaNs for file "{uri}".'
-            raise PyannoteFeatureExtractionError(msg.format(uri=uri))
-
-        # reshape before selecting channel
-        if len(y.shape) < 2:
-            y = y.reshape(-1, 1)
-
-        channel = item.get('channel', 1)
-        y = y[:, channel - 1]
+        # --- load audio file
+        y, sample_rate = read_audio(item,
+                                    sample_rate=self.sample_rate,
+                                    mono=True)
 
         data = self.process(y, sample_rate)
 
@@ -118,11 +102,62 @@ class LibrosaFeatureExtractor(object):
         return SlidingWindowFeature(data.T, self.sliding_window_)
 
 
+class LibrosaSpectrogram(LibrosaFeatureExtractor):
+
+    def __init__(self, sample_rate=16000, duration=0.025, step=0.010):
+
+        super(LibrosaSpectrogram, self).__init__(
+            sample_rate=sample_rate,
+            duration=duration,
+            step=step)
+
+        self.n_fft_ = int(self.duration * self.sample_rate)
+        self.hop_length_ = int(self.step * self.sample_rate)
+
+    def process(self, y, sample_rate):
+
+        fft = librosa.core.stft(y=y, n_fft=self.n_fft_,
+                                hop_length=self.hop_length_,
+                                center=True, window='hamming')
+        return np.abs(fft)
+
+    def dimension(self):
+        return self.n_fft_ // 2 + 1
+
+
+class LibrosaMelSpectrogram(LibrosaFeatureExtractor):
+
+    def __init__(self, sample_rate=16000, duration=0.025, step=0.010,
+                 n_mels=96):
+
+        super(LibrosaMelSpectrogram, self).__init__(
+            sample_rate=sample_rate,
+            duration=duration,
+            step=step)
+
+        self.n_mels = n_mels
+        self.n_fft_ = int(self.duration * self.sample_rate)
+        self.hop_length_ = int(self.step * self.sample_rate)
+
+    def process(self, y, sample_rate):
+
+        X = librosa.feature.melspectrogram(
+            y, sr=sample_rate, n_mels=self.n_mels,
+            n_fft=self.n_fft_, hop_length=self.hop_length_,
+            power=2.0)
+
+        return librosa.amplitude_to_db(X, ref=1.0, amin=1e-5, top_db=80.0)
+
+    def dimension(self):
+        return self.n_mels
+
 class LibrosaRMSE(LibrosaFeatureExtractor):
     """
 
     Parameters
     ----------
+    sample_rate : int, optional
+        Sampling rate.
     duration : float, optional
         Defaults to 0.025 (25ms)
     step : float, optional
@@ -141,26 +176,29 @@ class LibrosaRMSE(LibrosaFeatureExtractor):
 
 class LibrosaMFCC(LibrosaFeatureExtractor):
     """
-        | e    |  energy
-        | c1   |
-        | c2   |  coefficients
-        | c3   |
-        | ...  |
-        | Δe   |  energy first derivative
-        | Δc1  |
-    x = | Δc2  |  coefficients first derivatives
-        | Δc3  |
-        | ...  |
-        | ΔΔe  |  energy second derivative
-        | ΔΔc1 |
-        | ΔΔc2 |  coefficients second derivatives
-        | ΔΔc3 |
-        | ...  |
 
+    ::
+
+            | e    |  energy
+            | c1   |
+            | c2   |  coefficients
+            | c3   |
+            | ...  |
+            | Δe   |  energy first derivative
+            | Δc1  |
+        x = | Δc2  |  coefficients first derivatives
+            | Δc3  |
+            | ...  |
+            | ΔΔe  |  energy second derivative
+            | ΔΔc1 |
+            | ΔΔc2 |  coefficients second derivatives
+            | ΔΔc3 |
+            | ...  |
 
     Parameters
     ----------
-
+    sample_rate : int, optional
+        Sampling rate.
     duration : float, optional
         Defaults to 0.025 (25ms)
     step : float, optional
@@ -188,12 +226,13 @@ class LibrosaMFCC(LibrosaFeatureExtractor):
 
     """
 
-    def __init__(self, duration=0.025, step=0.01,
+    def __init__(self, sample_rate=16000, duration=0.025, step=0.01,
                  e=False, De=True, DDe=True,
                  coefs=19, D=True, DD=True,
                  fmin=0.0, fmax=None, n_mels=40):
 
-        super(LibrosaMFCC, self).__init__(duration=duration, step=step)
+        super(LibrosaMFCC, self).__init__(sample_rate=sample_rate,
+                                          duration=duration, step=step)
 
         self.e = e
         self.coefs = coefs

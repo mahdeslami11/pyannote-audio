@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016-2017 CNRS
+# Copyright (c) 2016-2018 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -26,152 +26,268 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
+
 import itertools
 import numpy as np
+import networkx as nx
+from sortedcontainers import SortedSet
 from sortedcollections import ValueSortedDict
-from pyannote.algorithms.clustering.hac import \
-    HierarchicalAgglomerativeClustering
-from pyannote.algorithms.clustering.hac.model import HACModel
-from pyannote.algorithms.clustering.hac.stop import DistanceThreshold
+from pyannote.audio.embedding.utils import pdist, cdist
 from scipy.spatial.distance import squareform
-from pyannote.audio.embedding.utils import pdist, cdist, l2_normalize
 
 
-class EmbeddingModel(HACModel):
-    """
-
-    Parameters
-    ----------
-    distance : str
-        Defaults to 'angular'.
-    mode : {'loose', 'strict'}
-
-    """
-
-    def __init__(self, distance='angular', mode='strict'):
-        super(EmbeddingModel, self).__init__(is_symmetric=True)
-        self.distance = distance
-        self.mode = mode
-
-    def compute_model(self, cluster, parent=None):
-
-        # extract all embeddings for requested cluster
-        support = parent.current_state.label_timeline(cluster).support()
-        X = parent.features.crop(support, mode=self.mode)
-
-        # average them all
-        x = np.average(X, axis=0)
-        n = len(X)
-
-        return (x, n)
-
-    def compute_merged_model(self, clusters, parent=None):
-
-        # merge all embeddings by computing their weighted average
-        X, N = zip(*[self[cluster] for cluster in clusters])
-        x = np.average(X, axis=0, weights=N)
-        n = np.sum(N)
-
-        return (x, n)
-
-    def compute_similarity_matrix(self, parent=None):
-
-        clusters = list(self._models)
-        n_clusters = len(clusters)
-
-        X = np.vstack([self[cluster][0] for cluster in clusters])
-
-        nX = l2_normalize(X)
-        similarities = -squareform(pdist(nX, metric=self.distance))
-
-        matrix = ValueSortedDict()
-        for i, j in itertools.combinations(range(n_clusters), 2):
-            matrix[clusters[i], clusters[j]] = similarities[i, j]
-            matrix[clusters[j], clusters[i]] = similarities[j, i]
-
-        return matrix
-
-    def compute_similarities(self, cluster, clusters, parent=None):
-
-        x = self[cluster][0].reshape((1, -1))
-        X = np.vstack([self[c][0] for c in clusters])
-
-        # L2 normalization
-        nx = l2_normalize(x)
-        nX = l2_normalize(X)
-
-        similarities = -cdist(nx, nX, metric=self.distance)
-
-        matrix = ValueSortedDict()
-        for i, cluster_ in enumerate(clusters):
-            matrix[cluster, cluster_] = similarities[0, i]
-            matrix[cluster_, cluster] = similarities[0, i]
-
-        return matrix
-
-    def compute_similarity(self, cluster1, cluster2, parent=None):
-
-        x1, _ = self[cluster1]
-        x2, _ = self[cluster2]
-
-        nx1 = l2_normalize(x1)
-        nx2 = l2_normalize(x2)
-
-        similarities = -cdist([nx1], [nx2], metric=self.distance)
-        return similarities[0, 0]
-
-# from pyannote.audio.features import Precomputed
-# feature_extraction = Precomputed(
-#     '/Users/bredin/Development/pyannote/pyannote-audio/experiments/precomputed/')
-# from pyannote.audio.embedding.clustering import EmbeddingClustering
-# clustering = EmbeddingClustering(force=True, distance='cosine', mode='strict')
-#
-# from pyannote.database import get_protocol
-# protocol = get_protocol('Etape.SpeakerDiarization.Debug')
-# current_file = next(protocol.train())
-#
-# starting_point = current_file['annotation'].anonymize_tracks()
-# features = feature_extraction(current_file)
-# result = clustering(starting_point, features=features)
-#
-# from pyannote.metrics.diarization import DiarizationPurity, DiarizationCoverage, GreedyDiarizationErrorRate
-# Purity, Coverage, Error = DiarizationPurity(parallel=False), DiarizationCoverage(parallel=False), GreedyDiarizationErrorRate(parallel=False)
-#
-# reference, uem = current_file['annotation'], current_file['annotated']
-# for i, hypothesis in enumerate(clustering.history):
-#     threshold = -clustering.history.iterations[i].similarity
-#     if abs(threshold - 0.2) > 0.1:
-#         continue
-#     purity = Purity(reference, hypothesis, uem=uem)
-#     coverage = Coverage(reference, hypothesis, uem=uem)
-#     error = Error(reference, hypothesis, uem=uem)
-#     print(f'{i:04d} {threshold:.4f} {100*purity:.2f} {100*coverage:.2f} {100*error:.2f}')
-
-class EmbeddingClustering(HierarchicalAgglomerativeClustering):
-    """Audio sequence clustering based on embeddings
+class HierarchicalPoolingClustering(object):
+    """Embedding clustering
 
     Parameters
     ----------
-    distance : str, optional
+    metric : {'euclidean', 'cosine', 'angular'}, optional
         Defaults to 'angular'.
-    threshold : float, optional
-        Defaults to 1.0.
+    pooling_func : callable
+        Callable that returns one embedding out of multiple embeddings.
+        Defaults to "lambda fX: np.mean(fX, axis=0)"."
 
     Usage
     -----
-    >>> embedding = Precomputed(...)
-    >>> clustering = EmbeddingClustering()
-    >>> result = clustering(starting_point, features=embedding)
-
+    >>> clustering = HierarchicalPoolingClustering()
+    >>> annotation = clustering.fit(segmentation, embedding).apply(threshold)
     """
 
-    def __init__(self, threshold=1.0, force=False, distance='cosine',
-                 mode='loose', constraint=None, logger=None):
-        model = EmbeddingModel(distance=distance, mode=mode)
-        stopping_criterion = DistanceThreshold(threshold=threshold,
-                                               force=force)
-        super(EmbeddingClustering, self).__init__(
-            model,
-            stopping_criterion=stopping_criterion,
-            constraint=constraint,
-            logger=logger)
+    def __init__(self, metric='angular', pooling_func=None):
+        super(HierarchicalPoolingClustering, self).__init__()
+        self.metric = metric
+
+        if pooling_func is None:
+            pooling_func = lambda fX: np.mean(fX, axis=0)
+        self.pooling_func = pooling_func
+
+    def fit(self, segmentation, embeddings):
+        """Precompute complete dendrogram
+
+        Parameters
+        ----------
+        segmentation : pyannote.core.Annotation
+            Input segmentation.
+        embeddings : pyannote.core.SlidingWindowFeature
+            Precomputed embeddings.
+
+        Returns
+        -------
+        clustering : HierarchicalPoolingClustering
+        """
+
+        # extract one embedding per label
+        fX = self.initialize_(segmentation, embeddings)
+
+        # compute complete dendrogram (all the way up to one cluster)
+        self.dendrogram_ = self.cluster_(fX)
+
+        return self
+
+    def apply(self, threshold):
+        """Flatten dendrogram at given threshold
+
+        Parameters
+        ----------
+        threshold : float
+            Stopping criterion.
+
+        Returns
+        -------
+        annotation : pyannote.core.Annotation
+            Clustering result.
+
+        """
+
+        # flatten dendrogram at given threshold
+        y = self.flatten_(self.dendrogram_, threshold)
+
+        # rename labels to their cluster ID
+        mapping = {i: k for i, k in enumerate(y)}
+        return self.annotation_.rename_labels(mapping=mapping)
+
+    def initialize_(self, annotation, features):
+        """Compute one embedding per label
+
+        Parameters
+        ----------
+        annotation : pyannote.core.Annotation
+            Input segmentation.
+        features : pyannote.core.SlidingWindowFeature
+            Precomputed embeddings.
+
+        Returns
+        -------
+        fX : (n_labels, dimension) numpy array
+            One embedding per initial label.
+        """
+
+        # rename labels to 0, 1, 2, 3, ...
+        self.annotation_ = annotation.rename_labels(generator='int')
+
+        # sorted labels
+        labels = sorted(self.annotation_.labels(), key=int)
+
+        # one embedding per label
+        n = len(labels)
+        _, dimension = features.data.shape
+        fX = np.zeros((n, dimension))
+
+        for l, label in enumerate(labels):
+            fX_ = features.crop(self.annotation_.label_timeline(label),
+                                mode='center')
+            fX[l] = self.pooling_func(fX_)
+
+        return fX
+
+    def cluster_(self, fX):
+        """Compute complete dendrogram
+
+        Parameters
+        ----------
+        fX : (n_items, dimension) np.array
+            Embeddings.
+
+        Returns
+        -------
+        dendrogram : list of (i, j, distance) tuples
+            Dendrogram.
+        """
+
+        N = len(fX)
+
+        # clusters contain the identifier of each cluster
+        clusters = SortedSet(np.arange(N))
+
+        # labels[i] = c means ith item belongs to cluster c
+        labels = np.array(np.arange(N))
+
+        squared = squareform(pdist(fX, metric=self.metric))
+        distances = ValueSortedDict()
+        for i, j in itertools.combinations(range(N), 2):
+            distances[i, j] = squared[i, j]
+
+        dendrogram = []
+
+        for _ in range(N-1):
+
+            # find most similar clusters
+            (c_i, c_j), d = distances.peekitem(index=0)
+
+            # keep track of this iteration
+            dendrogram.append((c_i, c_j, d))
+
+            # index of clusters in 'clusters' and 'fX'
+            i = clusters.index(c_i)
+            j = clusters.index(c_j)
+
+            # merge items of cluster c_j into cluster c_i
+            labels[labels == c_j] = c_i
+
+            # update c_i representative
+            fX[i] += fX[j]
+
+            # remove c_j cluster
+            fX[j:-1, :] = fX[j+1:, :]
+            fX = fX[:-1]
+
+            # remove distances to c_j cluster
+            for c in clusters[:j]:
+                distances.pop((c, c_j))
+            for c in clusters[j+1:]:
+                distances.pop((c_j, c))
+
+            clusters.remove(c_j)
+
+            if len(clusters) < 2:
+                continue
+
+            # compute distance to new c_i cluster
+            new_d = cdist(fX[i, :].reshape((1, -1)), fX, metric=self.metric).squeeze()
+            for c_k, d in zip(clusters, new_d):
+
+                if c_k < c_i:
+                    distances[c_k, c_i] = d
+                elif c_k > c_i:
+                    distances[c_i, c_k] = d
+
+        return dendrogram
+
+    def flatten_(self, dendrogram, threshold):
+        """
+        Parameters
+        ----------
+        dendrogram : list of (i, j, distance) tuples
+            Dendrogram.
+        threshold : float
+            Stopping criterion.
+
+        Returns
+        -------
+        y : (n_items, ) np.array
+            Cluster assignments of each item.
+        """
+
+        # dendrogram is expected to go all the way down to just one cluster.
+        # therefore, we can infer the initial number of items from its length.
+        n_items = len(dendrogram) + 1
+
+        # initialize graph with one node per item
+        G = nx.Graph()
+        G.add_nodes_from(range(n_items))
+
+        # connect items that belong to the same cluster
+        # as long as they are less than "threshold" apart from each other
+        for c_i, c_j, d in dendrogram:
+            if d > threshold:
+                break
+            G.add_edge(c_i, c_j)
+
+        # clusters are connected components in the result graph
+        y = np.zeros((n_items), dtype=np.int8)
+        # clusters = nx.connected_components(G, key=len, reverse=True)
+        clusters = nx.connected_components(G)
+        for k, cluster in enumerate(clusters):
+            for c_i in cluster:
+                y[c_i] = k
+
+        return y
+
+
+class HDBSCANClustering(object):
+
+    def __init__(self, min_cluster_size=5, min_samples=None,
+                 metric='euclidean'):
+        super(HDBSCANClustering, self).__init__()
+
+        self.min_cluster_size = min_cluster_size
+        self.min_samples = min_samples
+        self.metric = metric
+
+    def apply(self, fX):
+        from hdbscan import HDBSCAN
+        clusterer = HDBSCAN(min_cluster_size=self.min_cluster_size,
+                            min_samples=self.min_samples,
+                            metric='precomputed')
+        distance_matrix = squareform(pdist(fX, metric=self.metric))
+
+        # apply clustering
+        cluster_labels = clusterer.fit_predict(distance_matrix)
+
+        # cluster embedding
+        n_clusters = np.max(cluster_labels) + 1
+
+        if n_clusters < 2:
+            return np.zeros(fX.shape[0], dtype=np.int)
+
+        fC = l2_normalize(
+            np.vstack([np.sum(fX[cluster_labels == k, :], axis=0)
+                       for k in range(n_clusters)]))
+
+        # tag each undefined embedding to closest cluster
+        undefined = cluster_labels == -1
+        closest_cluster = np.argmin(
+            cdist(fC, fX[undefined, :], metric=self.metric), axis=0)
+        cluster_labels[undefined] = closest_cluster
+
+        return cluster_labels

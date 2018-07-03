@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2017 CNRS
+# Copyright (c) 2017-2018 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -30,107 +30,115 @@
 Speaker embedding
 
 Usage:
-  pyannote-speaker-embedding data [--database=<db.yml> --duration=<duration> --step=<step> --heterogeneous] <root_dir> <database.task.protocol>
-  pyannote-speaker-embedding train [--subset=<subset> --start=<epoch> --end=<epoch>] <experiment_dir> <database.task.protocol>
-  pyannote-speaker-embedding validate [--subset=<subset> --aggregate --every=<epoch> --from=<epoch>] <train_dir> <database.task.protocol>
-  pyannote-speaker-embedding apply [--database=<db.yml> --step=<step> --internal] <validate.txt> <database.task.protocol> <output_dir>
+  pyannote-speaker-embedding train [options] <experiment_dir> <database.task.protocol>
+  pyannote-speaker-embedding validate [options] [--duration=<duration> --every=<epoch> --chronological --turn --metric=<metric>] <train_dir> <database.task.protocol>
+  pyannote-speaker-embedding apply [options] [--duration=<duration> --step=<step>] <model.pt> <database.task.protocol> <output_dir>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
 
-Options:
-  <root_dir>                 Set root directory. This script expects a
-                             configuration file called "config.yml" to live in
-                             this directory. See '"data" mode' section below
-                             for more details.
-  <database.task.protocol>   Set evaluation protocol (e.g. "Etape.SpeakerDiarization.TV")
+Common options:
+  <database.task.protocol>   Experimental protocol (e.g. "AMI.SpeakerDiarization.MixHeadset")
   --database=<db.yml>        Path to database configuration file.
                              [default: ~/.pyannote/db.yml]
-  --duration=<duration>      Set duration of embedded sequences [default: 3.2]
-  --step=<step>              Set step between sequences, in seconds.
-                             Defaults to 0.5 x <duration>.
-  --heterogeneous            Allow heterogeneous sequences. In this case, the
-                             label given to heterogeneous sequences is the most
-                             overlapping one.
-  --start=<epoch>            Restart training after that many epochs.
-  --end=<epoch>              Stop training after than many epochs [default: 1000]
-  <experiment_dir>           Set experiment directory. This script expects a
-                             configuration file called "config.yml" to live
-                             in this directory. See '"train" mode' section
-                             for more details.
   --subset=<subset>          Set subset (train|developement|test).
-                             In "train" mode, defaults subset is "train".
-                             In "validate" mode, defaults to "development".
-  --aggregate                Aggregate
-  --every=<epoch>            Defaults to every epoch [default: 1].
-  --from=<epoch>             Start at this epoch [default: 0].
-  <train_dir>                Path to directory created by "train" mode.
-  --internal                 Extract internal representation.
-  -h --help                  Show this screen.
-  --version                  Show version.
-
-
-Database configuration file:
-    The database configuration provides details as to where actual files are
-    stored. See `pyannote.audio.util.FileFinder` docstring for more information
-    on the expected format.
-
-"data" mode:
-
-    A file called <root_dir>/config.yml should exist, that describes the
-    feature extraction process (e.g. MFCCs):
-
-    ................... <root_dir>/config.yml .........................
-    feature_extraction:
-       name: YaafeMFCC
-       params:
-          e: False                   # this experiments relies
-          De: True                   # on 11 MFCC coefficients
-          DDe: True                  # with 1st and 2nd derivatives
-          D: True                    # without energy, but with
-          DD: True                   # energy derivatives
-    ...................................................................
-
-    Using "data" mode will create the following directory that contains
-    the pre-computed sequences for train, development, and test subsets:
-
-        <root_dir>/<duration>+<step>/sequences/<database.task.protocol>.{train|development|test}.h5
-
-    This means that <duration>-long sequences were generated with a step of
-    <step> seconds, from the <database.task.protocol> protocol. This directory
-    is called <data_dir> in the subsequent modes.
+                             Defaults to "train" in "train" mode. Defaults to
+                             "development" in "validate" mode. Not used in
+                             "apply" mode.
+  --gpu                      Run on GPUs. Defaults to using CPUs.
+  --batch=<size>             Set batch size. Has no effect in "train" mode.
+                             [default: 32]
+  --from=<epoch>             Start {train|validat}ing at epoch <epoch>. Has no
+                             effect in "apply" mode. [default: 0]
+  --to=<epochs>              End {train|validat}ing at epoch <epoch>.
+                             Defaults to keep going forever.
+  --duration=<duration>      {Validate|apply} using subsequences with that
+                             duration. Defaults to embedding fixed duration
+                             when available.
 
 "train" mode:
+  <experiment_dir>           Set experiment root directory. This script expects
+                             a configuration file called "config.yml" to live
+                             in this directory. See "Configuration file"
+                             section below for more details.
 
+"validation" mode:
+  --every=<epoch>            Validate model every <epoch> epochs [default: 1].
+  --chronological            Force validation in chronological order.
+  --turn                     Perform same/different validation at speech turn
+                             level. Default is to use fixed duration segments.
+  <train_dir>                Path to the directory containing pre-trained
+                             models (i.e. the output of "train" mode).
+  --metric=<metric>          Use this metric (e.g. "cosine" or "euclidean") to
+                             compare embeddings. Defaults to the metric defined
+                             in "config.yml" configuration file.
+
+"apply" mode:
+  <model.pt>                 Path to the pretrained model.
+  --step=<step>              Sliding window step, in seconds.
+                             Defaults to 25% of window duration.
+
+Database configuration file <db.yml>:
+    The database configuration provides details as to where actual files are
+    stored. See `pyannote.database.util.FileFinder` docstring for more
+    information on the expected format.
+
+Configuration file:
     The configuration of each experiment is described in a file called
-    <data_dir>/<xp_id>/config.yml, that describes the architecture of the
-    neural network, and the approach (e.g. triplet loss) used for training the
-    network:
+    <experiment_dir>/config.yml, that describes the feature extraction process,
+    the neural network the architecture, and the approach used for training.
 
-    ................... <train_dir>/config.yml ...................
-    architecture:
-       name: TristouNet
-       params:
-         lstm: [16]
-         mlp: [16, 16]
-         bidirectional: concat
-
+    ................... <experiment_dir>/config.yml ...................
+    # train the network using triplet loss
+    # see pyannote.audio.embedding.approaches for more details
     approach:
-       name: TripletLoss
-       params:
-         per_label: 2
-         per_fold: 10
+      name: TripletLoss
+      params:
+        metric: cosine    # embeddings are optimized for cosine metric
+        clamp: positive   # triplet loss variant
+        margin: 0.2       # triplet loss margin
+        duration: 2       # sequence duration
+        sampling: all     # triplet sampling strategy
+        per_fold: 40      # number of speakers per fold
+        per_label: 3      # number of sequences per speaker
+
+    # use precomputed features (see feature extraction tutorial)
+    feature_extraction:
+      name: Precomputed
+      params:
+         root_dir: tutorials/feature-extraction
+
+    # use the TristouNet architecture.
+    # see pyannote.audio.embedding.models for more details
+    architecture:
+      name: TristouNet
+      params:
+        rnn: LSTM
+        recurrent: [16]
+        bidirectional: True
+        pooling: sum
+        linear: [16, 16]
+
+    # use cyclic learning rate scheduler
+    scheduler:
+      name: CyclicScheduler
+      params:
+          learning_rate: auto
     ...................................................................
 
-    Using "train" mode will create the following directory that contains a
-    bunch of files including the pre-trained neural network weights after each
-    epoch:
+"train" mode:
+    This will create the following directory that contains the pre-trained
+    neural network weights after each epoch:
 
-        <data_dir>/<xp_id>/train/<database.task.protocol>.<subset>
+        <experiment_dir>/train/<database.task.protocol>.<subset>
 
-    This means that the network was trained using the <subset> subset of the
-    <database.task.protocol> protocol, using the configuration described in
-    <data_dir>/<xp_id>/config.yml. This directory  is called <train_dir> in the
-    subsequent modes.
+    This means that the network was trained on the <subset> subset of the
+    <database.task.protocol> protocol. By default, <subset> is "train".
+    This directory is called <train_dir> in the subsequent "validate" mode.
+
+    A bunch of values (loss, learning rate, ...) are sent to and can be
+    visualized with tensorboard with the following command:
+
+        $ tensorboard --logdir=<experiment_dir>
 
 "validate" mode:
     Use the "validate" mode to run validation in parallel to training.
@@ -138,102 +146,52 @@ Database configuration file:
     experiments every time a new epoch has ended. This will create the
     following directory that contains validation results:
 
-        <train_dir>/validate/<database.task.protocol>
+        <train_dir>/validate/<database.task.protocol>.<subset>
 
     You can run multiple "validate" in parallel (e.g. for every subset,
     protocol, task, or database).
+
+    In practice, for each epoch, "validate" mode will run a "same/different"
+    experiment for SpeakerDiarization protocols (and actual verification
+    experiment for SpeakerVerification protocols) and send the corresponding
+    equal error rate to tensorboard.
+
+"apply" mode:
+    Use the "apply" mode to extract speaker embeddings on a sliding window.
+    Resulting files can then be used in the following way:
+
+    >>> from pyannote.audio.features import Precomputed
+    >>> precomputed = Precomputed('<output_dir>')
+
+    >>> from pyannote.database import get_protocol
+    >>> protocol = get_protocol('<database.task.protocol>')
+    >>> first_test_file = next(protocol.test())
+
+    >>> embeddings = precomputed(first_test_file)
+    >>> for window, embedding in embeddings:
+    ...     # do something with embedding
+
 """
 
-from os.path import dirname, basename, isfile, expanduser
+import torch
+import itertools
 import numpy as np
-import pandas as pd
-import time
-import yaml
-from tqdm import tqdm
-
+from pathlib import Path
 from docopt import docopt
-
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-
-from pyannote.database import get_protocol
-from pyannote.audio.util import mkdir_p
-import h5py
-
 from .base import Application
-
-from pyannote.generators.fragment import SlidingLabeledSegments
-from pyannote.audio.optimizers import SSMORMS3
-
-import keras.models
-from pyannote.audio.keras_utils import CUSTOM_OBJECTS
-from pyannote.audio.embedding.utils import pdist, cdist, l2_normalize
+from pyannote.database import FileFinder
+from pyannote.database import get_protocol
+from pyannote.audio.embedding.utils import pdist
+from pyannote.audio.embedding.utils import cdist
+from pyannote.database import get_unique_identifier
+from pyannote.audio.features.utils import Precomputed
 from pyannote.metrics.binary_classification import det_curve
+from pyannote.audio.embedding.extraction import SequenceEmbedding
+from pyannote.audio.generators.speaker import SpeechSegmentGenerator
+from pyannote.audio.generators.speaker import SpeechTurnSubSegmentGenerator
 
-from pyannote.audio.callback import LoggingCallback
-
-from pyannote.core.util import pairwise
-import keras.backend as K
-
-from sortedcontainers import SortedDict
-from pyannote.audio.features import Precomputed
-from pyannote.audio.embedding.base_autograd import SequenceEmbeddingAutograd
-from pyannote.audio.embedding.extraction import Extraction
 
 class SpeakerEmbedding(Application):
-
-    # created by "data" mode
-    DATA_DIR = '{root_dir}/{params}'
-    DATA_H5 = '{data_dir}/sequences/{protocol}.{subset}.h5'
-
-    # created by "train" mode
-    TRAIN_DIR = '{experiment_dir}/train/{protocol}.{subset}'
-
-    # created by "validate" mode
-    VALIDATE_DIR = '{train_dir}/validate/{protocol}'
-    VALIDATE_TXT = '{validate_dir}/{subset}.{aggregate}eer.txt'
-    VALIDATE_TXT_TEMPLATE = '{epoch:04d} {eer:5f}\n'
-
-    VALIDATE_PNG = '{validate_dir}/{subset}.{aggregate}eer.png'
-    VALIDATE_EPS = '{validate_dir}/{subset}.{aggregate}eer.eps'
-
-    @classmethod
-    def from_root_dir(cls, root_dir, db_yml=None):
-        speaker_embedding = cls(root_dir, db_yml=db_yml)
-        speaker_embedding.root_dir_ = root_dir
-        return speaker_embedding
-
-    @classmethod
-    def from_train_dir(cls, train_dir, db_yml=None):
-        """Initialize application from <train_dir>"""
-        experiment_dir = dirname(dirname(train_dir))
-        speaker_embedding = cls(experiment_dir, db_yml=db_yml)
-        speaker_embedding.train_dir_ = train_dir
-        return speaker_embedding
-
-    @classmethod
-    def from_validate_txt(cls, validate_txt, db_yml=None):
-        train_dir = dirname(dirname(dirname(validate_txt)))
-        speaker_embedding = cls.from_train_dir(train_dir, db_yml=db_yml)
-        speaker_embedding.validate_txt_ = validate_txt
-
-        root_dir = dirname(dirname(dirname(dirname(train_dir))))
-        with open(root_dir + '/config.yml', 'r') as fp:
-            config = yaml.load(fp)
-            extraction_name = config['feature_extraction']['name']
-            features = __import__('pyannote.audio.features',
-                                  fromlist=[extraction_name])
-            FeatureExtraction = getattr(features, extraction_name)
-            speaker_embedding.feature_extraction_ = FeatureExtraction(
-                **config['feature_extraction'].get('params', {}))
-
-            # do not cache features in memory when they are precomputed on disk
-            # as this does not bring any significant speed-up
-            # but does consume (potentially) a LOT of memory
-            speaker_embedding.cache_preprocessed_ = 'Precomputed' not in extraction_name
-
-        return speaker_embedding
 
     def __init__(self, experiment_dir, db_yml=None):
 
@@ -241,551 +199,453 @@ class SpeakerEmbedding(Application):
             experiment_dir, db_yml=db_yml)
 
         # architecture
-        if 'architecture' in self.config_:
-            architecture_name = self.config_['architecture']['name']
-            models = __import__('pyannote.audio.embedding.models',
-                                fromlist=[architecture_name])
-            Architecture = getattr(models, architecture_name)
-            self.architecture_ = Architecture(
-                **self.config_['architecture'].get('params', {}))
+        architecture_name = self.config_['architecture']['name']
+        models = __import__('pyannote.audio.embedding.models',
+                            fromlist=[architecture_name])
+        Architecture = getattr(models, architecture_name)
+        self.model_ = Architecture(
+            int(self.feature_extraction_.dimension()),
+            **self.config_['architecture'].get('params', {}))
 
-        # approach
-        if 'approach' in self.config_:
-            approach_name = self.config_['approach']['name']
-            approaches = __import__('pyannote.audio.embedding.approaches',
-                                    fromlist=[approach_name])
-            Approach = getattr(approaches, approach_name)
-            self.approach_ = Approach(
-                **self.config_['approach'].get('params', {}))
+        approach_name = self.config_['approach']['name']
+        approaches = __import__('pyannote.audio.embedding.approaches',
+                                fromlist=[approach_name])
+        Approach = getattr(approaches, approach_name)
+        self.task_ = Approach(
+            **self.config_['approach'].get('params', {}))
 
-    # (5, None, None, False) ==> '5'
-    # (5, 1, None, False) ==> '1-5'
-    # (5, None, 2, False) ==> '5+2'
-    # (5, 1, 2, False) ==> '1-5+2'
-    # (5, None, None, True) ==> '5x'
-    @staticmethod
-    def _params_to_directory(duration=5.0, min_duration=None, step=None,
-                            heterogeneous=False, skip_unlabeled=True,
-                            **kwargs):
-        if not skip_unlabeled:
-            raise NotImplementedError('skip_unlabeled not supported yet.')
 
-        DIRECTORY = '' if min_duration is None else '{min_duration:g}-'
-        DIRECTORY += '{duration:g}'
-        if step is not None:
-            DIRECTORY += '+{step:g}'
-        if heterogeneous:
-            DIRECTORY += 'x'
-        return DIRECTORY.format(duration=duration,
-                                min_duration=min_duration,
-                                step=step)
+    def validate_init(self, protocol_name, subset='development'):
 
-    # (5, None, None, False) <== '5'
-    # (5, 1, None, False) <== '1-5'
-    # (5, None, 2, False) <== '5+2'
-    # (5, 1, 2, False) <== '1-5+2'
-    @staticmethod
-    def _directory_to_params(directory):
-        heterogeneous = False
-        if directory[-1] == 'x':
-            heterogeneous = True
-            directory = directory[:-1]
-        tokens = directory.split('+')
-        step = float(tokens[1]) if len(tokens) == 2 else None
-        tokens = tokens[0].split('-')
-        min_duration = float(tokens[0]) if len(tokens) == 2 else None
-        duration = float(tokens[0]) if len(tokens) == 1 else float(tokens[1])
-        return duration, min_duration, step, heterogeneous
+        task = protocol_name.split('.')[1]
+        if task == 'SpeakerVerification':
+            return self._validate_init_verification(protocol_name,
+                                                    subset=subset)
 
-    def data(self, protocol_name, duration=3.2, min_duration=None, step=None,
-             heterogeneous=False):
+        elif task == 'SpeakerDiarization':
 
-        # labeled segment generator
-        generator = SlidingLabeledSegments(duration=duration,
-                                           min_duration=min_duration,
-                                           step=step,
-                                           heterogeneous=heterogeneous,
-                                           source='annotated')
+            if self.duration is None:
+                duration = getattr(self.task_, 'duration', None)
+                if duration is None:
+                    msg = ("Approach has no 'duration' defined. "
+                           "Use '--duration' option to provide one.")
+                    raise ValueError(msg)
+                self.duration = duration
 
-        data_dir = self.DATA_DIR.format(
-            root_dir=self.root_dir_,
-            params=self._params_to_directory(duration=duration,
-                                            min_duration=min_duration,
-                                            step=step,
-                                            heterogeneous=heterogeneous))
+            if self.turn:
+                return self._validate_init_turn(protocol_name,
+                                                subset=subset)
+            else:
+                return self._validate_init_segment(protocol_name,
+                                                   subset=subset)
 
-        # file generator
-        protocol = get_protocol(protocol_name, progress=True,
+        else:
+            msg = ('Only SpeakerVerification or SpeakerDiarization tasks are'
+                   'supported in "validation" mode.')
+            raise ValueError(msg)
+
+    def _validate_init_verification(self, protocol_name, subset='development'):
+        return {}
+
+    def _validate_init_turn(self, protocol_name, subset='development'):
+
+        np.random.seed(1337)
+
+        protocol = get_protocol(protocol_name, progress=False,
                                 preprocessors=self.preprocessors_)
 
-        for subset in ['train', 'development', 'test']:
+        batch_generator = SpeechTurnSubSegmentGenerator(
+            self.feature_extraction_, self.duration,
+            per_label=10, per_turn=5)
+        batch = next(batch_generator(protocol, subset=subset))
 
-            try:
-                file_generator = getattr(protocol, subset)()
-                first_item = next(file_generator)
-            except NotImplementedError as e:
-                continue
+        X = np.stack(batch['X'])
+        y = np.stack(batch['y'])
+        z = np.stack(batch['z'])
 
-            file_generator = getattr(protocol, subset)()
+        # get list of labels from list of repeated labels:
+        # z 0 0 0 1 1 1 2 2 2 2 3 3 3 3
+        # y A A A A A A B B B B B B B B
+        # becomes
+        # z 0 0 0 1 1 1 2 2 2 2 3 3 3 3
+        # y A B
+        yz = np.vstack([y, z]).T
+        y = []
+        for _, yz_ in itertools.groupby(yz, lambda t: t[1]):
+            yz_ = np.stack(yz_)
+            y.append(yz_[0, 0])
+        y = np.array(y).reshape((-1, 1))
 
-            data_h5 = self.DATA_H5.format(data_dir=data_dir,
-                                          protocol=protocol_name,
-                                          subset=subset)
-            mkdir_p(dirname(data_h5))
+        # precompute same/different groundtruth
+        y = pdist(y, metric='equal')
 
-            with h5py.File(data_h5, mode='w') as fp:
+        return {'X': X, 'y': y, 'z': z}
 
-                # initialize with a fixed number of sequences
-                n_sequences = 1000
+    def _validate_init_segment(self, protocol_name, subset='development'):
 
-                # dataset meant to store the speaker identifier
-                Y = fp.create_dataset(
-                    'y', shape=(n_sequences, ),
-                    dtype=h5py.special_dtype(vlen=bytes),
-                    maxshape=(None, ))
-
-                # dataset meant to store the speech turn unique ID
-                Z = fp.create_dataset(
-                    'z', shape=(n_sequences, ),
-                    dtype=np.int64,
-                    maxshape=(None, ))
-
-                i = 0  # number of sequences
-                z = 0  # speech turn identifier
-
-                for item in file_generator:
-
-                    # feature extraction
-                    features = self.feature_extraction_(item)
-
-                    for segment, y in generator.from_file(item):
-
-                        # extract feature sequence
-                        x = features.crop(segment,
-                                          mode='center',
-                                          fixed=duration)
-
-                        # create X dataset to store feature sequences
-                        # this cannot be done before because we need
-                        # the number of samples per sequence and the
-                        # dimension of feature vectors.
-                        if i == 0:
-                            # get number of samples and feature dimension
-                            # from the first sequence...
-                            n_samples, n_features = x.shape
-
-                            # create X dataset accordingly
-                            X = fp.create_dataset(
-                                'X', dtype=x.dtype, compression='gzip',
-                                shape=(n_sequences, n_samples, n_features),
-                                chunks=(1, n_samples, n_features),
-                                maxshape=(None, n_samples, n_features))
-
-                            # make sure the speech turn identifier
-                            # will not be erroneously incremented
-                            prev_y = y
-
-                        # increase the size of the datasets when full
-                        if i == n_sequences:
-                            n_sequences = int(n_sequences * 1.1)
-                            X.resize(n_sequences, axis=0)
-                            Y.resize(n_sequences, axis=0)
-                            Z.resize(n_sequences, axis=0)
-
-                        # save current feature sequence and its label
-                        X[i] = x
-                        Y[i] = y
-
-                        # a change of label indicates that a new speech turn has began.
-                        # increment speech turn identifier (z) accordingly
-                        if y != prev_y:
-                            prev_y = y
-                            z += 1
-
-                        # save speech turn identifier
-                        Z[i] = z
-
-                        # increment number of sequences
-                        i += 1
-
-                X.resize(i-1, axis=0)
-                Y.resize(i-1, axis=0)
-                Z.resize(i-1, axis=0)
-
-    def train(self, protocol_name, subset='train', start=None, end=1000):
-
-        data_dir = dirname(self.experiment_dir)
-        data_h5 = self.DATA_H5.format(data_dir=data_dir,
-                                      protocol=protocol_name,
-                                      subset=subset)
-
-        got = self.approach_.get_batch_generator(data_h5)
-        batch_generator = got['batch_generator']
-        batches_per_epoch = got['batches_per_epoch']
-        n_classes = got.get('n_classes', None)
-        classes = got.get('classes', None)
-
-        train_dir = self.TRAIN_DIR.format(experiment_dir=self.experiment_dir,
-                                          protocol=protocol_name,
-                                          subset=subset)
-
-        if start is None:
-            init_embedding = self.architecture_
-        else:
-            init_embedding = self.approach_.load(train_dir, start)
-
-        self.approach_.fit(init_embedding, batch_generator,
-                           batches_per_epoch=batches_per_epoch,
-                           n_classes=n_classes, classes=classes,
-                           epochs=end, log_dir=train_dir,
-                           optimizer=SSMORMS3())
-
-    def _validation_set_z(self, protocol_name, subset='development'):
-
-        # reproducibility
         np.random.seed(1337)
 
-        data_dir = dirname(dirname(dirname(self.train_dir_)))
-        data_h5 = self.DATA_H5.format(data_dir=data_dir,
-                                      protocol=protocol_name,
-                                      subset=subset)
+        protocol = get_protocol(protocol_name, progress=False,
+                                preprocessors=self.preprocessors_)
 
-        with h5py.File(data_h5, mode='r') as fp:
+        batch_generator = SpeechSegmentGenerator(
+            self.feature_extraction_, per_label=10, duration=self.duration)
+        batch = next(batch_generator(protocol, subset=subset))
 
-            h5_X = fp['X']
-            h5_y = fp['y']
-            h5_z = fp['z']
+        X = np.stack(batch['X'])
+        y = np.stack(batch['y']).reshape((-1, 1))
 
-            # group sequences by z
-            df = pd.DataFrame({'y': h5_y, 'z': h5_z})
-            z_groups = df.groupby('z')
+        # precompute same/different groundtruth
+        y = pdist(y, metric='equal')
+        return {'X': X, 'y': y}
 
-            # label of each group
-            y_groups = [group.y.iloc[0] for _, group in z_groups]
+    def validate_epoch(self, epoch, protocol_name, subset='development',
+                       validation_data=None):
 
-            # randomly select (at most) 10 groups from each speaker to ensure
-            # all speakers have the same importance in the evaluation
-            unique, y, counts = np.unique(y_groups, return_inverse=True,
-                                          return_counts=True)
-            n_speakers = len(unique)
-            X, N, Y = [], [], []
-            for speaker in range(n_speakers):
-                I = np.random.choice(np.where(y == speaker)[0],
-                                     size=min(10, counts[speaker]),
-                                     replace=False)
-                for i in I:
-                    selector = z_groups.get_group(i).index
-                    x = h5_X[selector]
-                    X.append(x)
-                    N.append(x.shape[0])
-                    Y.append(y[i])
+        task = protocol_name.split('.')[1]
+        if task == 'SpeakerVerification':
+            return self._validate_epoch_verification(
+                epoch, protocol_name, subset=subset,
+                validation_data=validation_data)
 
-        return np.vstack(X), np.array(N),  np.array(Y)[:, np.newaxis]
+        elif task == 'SpeakerDiarization':
+            if self.turn:
+                return self._validate_epoch_turn(
+                    epoch, protocol_name, subset=subset,
+                    validation_data=validation_data)
+            else:
+                return self._validate_epoch_segment(
+                    epoch, protocol_name, subset=subset,
+                    validation_data=validation_data)
 
-    def _validation_set_y(self, protocol_name, subset='development'):
-
-        # reproducibility
-        np.random.seed(1337)
-
-        data_dir = dirname(dirname(dirname(self.train_dir_)))
-        data_h5 = self.DATA_H5.format(data_dir=data_dir,
-                                      protocol=protocol_name,
-                                      subset=subset)
-
-        with h5py.File(data_h5, mode='r') as fp:
-
-            X = fp['X']
-            y = fp['y']
-
-            # randomly select (at most) 100 sequences from each speaker to ensure
-            # all speakers have the same importance in the evaluation
-            unique, y, counts = np.unique(y, return_inverse=True,
-                                          return_counts=True)
-            n_speakers = len(unique)
-            indices = []
-            for speaker in range(n_speakers):
-                i = np.random.choice(np.where(y == speaker)[0],
-                                     size=min(100, counts[speaker]),
-                                     replace=False)
-                indices.append(i)
-            # indices have to be sorted because of h5py indexing limitations
-            indices = sorted(np.hstack(indices))
-
-            X = np.array(X[indices])
-            y = np.array(y[indices, np.newaxis])
-
-        return X, y
-
-    def validate(self, protocol_name, subset='development',
-                 aggregate=False, every=1, start=0):
-
-        # prepare paths
-        validate_dir = self.VALIDATE_DIR.format(train_dir=self.train_dir_,
-                                                protocol=protocol_name)
-        validate_txt = self.VALIDATE_TXT.format(
-            validate_dir=validate_dir, subset=subset,
-            aggregate='aggregate.' if aggregate else '')
-        validate_png = self.VALIDATE_PNG.format(
-            validate_dir=validate_dir, subset=subset,
-            aggregate='aggregate.' if aggregate else '')
-        validate_eps = self.VALIDATE_EPS.format(
-            validate_dir=validate_dir, subset=subset,
-            aggregate='aggregate.' if aggregate else '')
-
-        # create validation directory
-        mkdir_p(validate_dir)
-
-        # Build validation set
-        if aggregate:
-            X, n, y = self._validation_set_z(protocol_name, subset=subset)
         else:
-            X, y = self._validation_set_y(protocol_name, subset=subset)
+            msg = ('Only SpeakerVerification or SpeakerDiarization tasks are'
+                   'supported in "validation" mode.')
+            raise ValueError(msg)
 
-        # list of equal error rates, and epoch to process
-        eers, epoch = SortedDict(), start
+    def _validate_epoch_verification(self, epoch, protocol_name,
+                                     subset='development',
+                                     validation_data=None):
+        """Perform a speaker verification experiment using model at `epoch`
 
-        desc_format = ('Best EER = {best_eer:.2f}% @ epoch #{best_epoch:d} ::'
-                       ' EER = {eer:.2f}% @ epoch #{epoch:d} :')
+        Parameters
+        ----------
+        epoch : int
+            Epoch to validate.
+        protocol_name : str
+            Name of speaker verification protocol
+        subset : {'train', 'development', 'test'}, optional
+            Name of subset.
+        validation_data : provided by `validate_init`
 
-        progress_bar = tqdm(unit='epoch')
+        Returns
+        -------
+        metrics : dict
+        """
 
-        with open(validate_txt, mode='w') as fp:
 
-            # watch and evaluate forever
-            while True:
+        # load current model
+        model = self.load_model(epoch).to(self.device)
+        model.eval()
 
-                # last completed epochs
-                completed_epochs = self.get_epochs(self.train_dir_) - 1
+        # use user-provided --duration when available
+        # otherwise use 'duration' used for training
+        if self.duration is None:
+            duration = self.task_.duration
+        else:
+            duration = self.duration
+        min_duration = None
 
-                if completed_epochs < epoch:
-                    time.sleep(60)
-                    continue
+        # if 'duration' is still None, it means that
+        # network was trained with variable lengths
+        if duration is None:
+            duration = self.task_.max_duration
+            min_duration = self.task_.min_duration
 
-                # if last completed epoch has already been processed
-                # go back to first epoch that hasn't been processed yet
-                process_epoch = epoch if completed_epochs in eers \
-                                      else completed_epochs
+        step = .5 * duration
 
-                # do not validate this epoch if it has been done before...
-                if process_epoch == epoch and epoch in eers:
-                    epoch += every
-                    progress_bar.update(every)
-                    continue
-
-                weights_h5 = LoggingCallback.WEIGHTS_H5.format(
-                    log_dir=self.train_dir_, epoch=process_epoch)
-
-                # this is needed for corner case when training is started from
-                # an epoch > 0
-                if not isfile(weights_h5):
-                    time.sleep(60)
-                    continue
-
-                # sleep 5 seconds to let the checkpoint callback finish
-                time.sleep(5)
-
-                embedding = keras.models.load_model(
-                    weights_h5, custom_objects=CUSTOM_OBJECTS,
-                    compile=False)
-
-                if aggregate:
-                    def embed(X):
-                        func = K.function(
-                            [embedding.get_layer(name='input').input, K.learning_phase()],
-                            [embedding.get_layer(name='internal').output])
-                        return func([X, 0])[0]
-                else:
-                    embed = embedding.predict
-
-                # embed all validation sequences
-                fX = embed(X)
-
-                if aggregate:
-                    indices = np.hstack([[0], np.cumsum(n)])
-                    fX = np.stack([np.sum(np.sum(fX[i:j], axis=0), axis=0)
-                                   for i, j in pairwise(indices)])
-                    fX = l2_normalize(fX)
-
-                # compute pairwise distances
-                y_pred = pdist(fX, metric=self.approach_.metric)
-                # compute pairwise groundtruth
-                y_true = pdist(y, metric='chebyshev') < 1
-                # estimate equal error rate
-                _, _, _, eer = det_curve(y_true, y_pred, distances=True)
-                eers[process_epoch] = eer
-
-                # save equal error rate to file
-                fp.write(self.VALIDATE_TXT_TEMPLATE.format(
-                    epoch=process_epoch, eer=eer))
-                fp.flush()
-
-                # keep track of best epoch so far
-                best_epoch = eers.iloc[np.argmin(eers.values())]
-                best_eer = eers[best_epoch]
-
-                progress_bar.set_description(
-                    desc_format.format(epoch=process_epoch, eer=100*eer,
-                                       best_epoch=best_epoch,
-                                       best_eer=100*best_eer))
-
-                # plot
-                fig = plt.figure()
-                plt.plot(eers.keys(), eers.values(), 'b')
-                plt.plot([best_epoch], [best_eer], 'bo')
-                plt.plot([eers.iloc[0], eers.iloc[-1]], [best_eer, best_eer], 'k--')
-                plt.grid(True)
-                plt.xlabel('epoch')
-                plt.ylabel('EER on {subset}'.format(subset=subset))
-                TITLE = '{best_eer:.5g} @ epoch #{best_epoch:d}'
-                title = TITLE.format(best_eer=best_eer,
-                                     best_epoch=best_epoch,
-                                     subset=subset)
-                plt.title(title)
-                plt.tight_layout()
-                plt.savefig(validate_png, dpi=75)
-                plt.savefig(validate_eps)
-                plt.close(fig)
-
-                # go to next epoch
-                if epoch == process_epoch:
-                    epoch += every
-                    progress_bar.update(every)
-                else:
-                    progress_bar.update(0)
-
-        progress_bar.close()
-
-    def apply(self, protocol_name, output_dir, step=None, internal=False):
-
-        # load best performing model
-        with open(self.validate_txt_, 'r') as fp:
-            eers = SortedDict(np.loadtxt(fp))
-        best_epoch = int(eers.iloc[np.argmin(eers.values())])
-        embedding = SequenceEmbeddingAutograd.load(
-            self.train_dir_, best_epoch)
-
-        # guess sequence duration from path (.../3.2+0.8/...)
-        directory = basename(dirname(self.experiment_dir))
-        duration, _, _, _ = self._directory_to_params(directory)
-        if step is None:
-            step = 0.5 * duration
+        if isinstance(self.feature_extraction_, Precomputed):
+            self.feature_extraction_.use_memmap = False
 
         # initialize embedding extraction
-        batch_size = self.approach_.batch_size
-        extraction = Extraction(embedding, self.feature_extraction_, duration,
-                                step=step, batch_size=batch_size,
-                                internal=internal)
-        sliding_window = extraction.sliding_window
-        dimension = extraction.dimension
+        sequence_embedding = SequenceEmbedding(
+            model, self.feature_extraction_, duration=duration,
+            step=step, min_duration=min_duration,
+            batch_size=self.batch_size, device=self.device)
+
+        metrics = {}
+        protocol = get_protocol(protocol_name, progress=False,
+                                preprocessors=self.preprocessors_)
+
+        enrolment_models, enrolment_khashes = {}, {}
+        enrolments = getattr(protocol, '{0}_enrolment'.format(subset))()
+        for i, enrolment in enumerate(enrolments):
+            data = sequence_embedding.apply(enrolment,
+                                            crop=enrolment['enrol_with'])
+            model_id = enrolment['model_id']
+            model = np.mean(np.stack(data), axis=0, keepdims=True)
+            enrolment_models[model_id] = model
+
+            # in some specific speaker verification protocols,
+            # enrolment data may be  used later as trial data.
+            # therefore, we cache information about enrolment data
+            # to speed things up by reusing the enrolment as trial
+            h = hash((get_unique_identifier(enrolment),
+                      tuple(enrolment['enrol_with'])))
+            enrolment_khashes[h] = model_id
+
+        trial_models = {}
+        trials = getattr(protocol, '{0}_trial'.format(subset))()
+        y_true, y_pred = [], []
+        for i, trial in enumerate(trials):
+            model_id = trial['model_id']
+
+            h = hash((get_unique_identifier(trial),
+                      tuple(trial['try_with'])))
+
+            # re-use enrolment model whenever possible
+            if h in enrolment_khashes:
+                model = enrolment_models[enrolment_khashes[h]]
+
+            # re-use trial model whenever possible
+            elif h in trial_models:
+                model = trial_models[h]
+
+            else:
+                data = sequence_embedding.apply(trial, crop=trial['try_with'])
+                model = np.mean(data, axis=0, keepdims=True)
+                # cache trial model for later re-use
+                trial_models[h] = model
+
+            distance = cdist(enrolment_models[model_id], model,
+                             metric=self.metric)[0, 0]
+            y_pred.append(distance)
+            y_true.append(trial['reference'])
+
+        _, _, _, eer = det_curve(np.array(y_true), np.array(y_pred),
+                                 distances=True)
+        metrics['EER'] = {'minimize': True, 'value': eer}
+
+        return metrics
+
+    def _validate_epoch_segment(self, epoch, protocol_name,
+                                subset='development',
+                                validation_data=None):
+
+        model = self.load_model(epoch).to(self.device)
+        model.eval()
+
+        sequence_embedding = SequenceEmbedding(
+            model, self.feature_extraction_,
+            batch_size=self.batch_size, device=self.device)
+
+
+        fX = sequence_embedding.apply(validation_data['X'])
+        y_pred = pdist(fX, metric=self.metric)
+        _, _, _, eer = det_curve(validation_data['y'], y_pred,
+                                 distances=True)
+
+        return {'EER.{0:g}s'.format(self.duration): {'minimize': True,
+                                                'value': eer}}
+
+    def _validate_epoch_turn(self, epoch, protocol_name,
+                             subset='development',
+                             validation_data=None):
+
+        model = self.load_model(epoch).to(self.device)
+        model.eval()
+
+        sequence_embedding = SequenceEmbedding(
+            model, self.feature_extraction_,
+            batch_size=self.batch_size, device=self.device)
+
+        fX = sequence_embedding.apply(validation_data['X'])
+
+        z = validation_data['z']
+
+        # iterate over segments, speech turn by speech turn
+
+        fX_avg = []
+        nz = np.vstack([np.arange(len(z)), z]).T
+        for _, nz_ in itertools.groupby(nz, lambda t: t[1]):
+
+            # (n, 2) numpy array where
+            # * n is the number of segments in current speech turn
+            # * dim #0 is the index of segment in original batch
+            # * dim #1 is the index of speech turn (used for grouping)
+            nz_ = np.stack(nz_)
+
+            # compute (and stack) average embedding over all segments
+            # of current speech turn
+            indices = nz_[:, 0]
+
+            fX_avg.append(np.mean(fX[indices], axis=0))
+
+        fX = np.vstack(fX_avg)
+        y_pred = pdist(fX, metric=self.metric)
+        _, _, _, eer = det_curve(validation_data['y'], y_pred,
+                                 distances=True)
+        metrics = {}
+        metrics['EER.turn'] = {'minimize': True, 'value': eer}
+        return metrics
+
+    def apply(self, protocol_name, output_dir, step=None):
+
+        model = self.model_.to(self.device)
+        model.eval()
+
+        duration = self.duration
+        if step is None:
+            step = 0.25 * duration
+
+        # do not use memmap as this would lead to too many open files
+        if isinstance(self.feature_extraction_, Precomputed):
+            self.feature_extraction_.use_memmap = False
+
+        # initialize embedding extraction
+        sequence_embedding = SequenceEmbedding(
+            model, self.feature_extraction_, duration=duration,
+            step=step, batch_size=self.batch_size, device=self.device)
+        sliding_window = sequence_embedding.sliding_window
+        dimension = sequence_embedding.dimension
 
         # create metadata file at root that contains
         # sliding window and dimension information
-        path = Precomputed.get_config_path(output_dir)
-        mkdir_p(dirname(path))
-        f = h5py.File(path)
-        f.attrs['start'] = sliding_window.start
-        f.attrs['duration'] = sliding_window.duration
-        f.attrs['step'] = sliding_window.step
-        f.attrs['dimension'] = dimension
-        f.close()
+        precomputed = Precomputed(
+            root_dir=output_dir,
+            sliding_window=sliding_window,
+            dimension=dimension)
 
         # file generator
         protocol = get_protocol(protocol_name, progress=True,
                                 preprocessors=self.preprocessors_)
 
-        for subset in ['development', 'test', 'train']:
+        for current_file in FileFinder.protocol_file_iter(
+            protocol, extra_keys=['audio']):
 
-            try:
-                file_generator = getattr(protocol, subset)()
-                first_item = next(file_generator)
-            except NotImplementedError as e:
-                continue
-
-            file_generator = getattr(protocol, subset)()
-
-            for current_file in file_generator:
-
-                fX = extraction.apply(current_file)
-
-                path = Precomputed.get_path(output_dir, current_file)
-                mkdir_p(dirname(path))
-
-                f = h5py.File(path)
-                f.attrs['start'] = sliding_window.start
-                f.attrs['duration'] = sliding_window.duration
-                f.attrs['step'] = sliding_window.step
-                f.attrs['dimension'] = dimension
-                f.create_dataset('features', data=fX.data)
-                f.close()
+            fX = sequence_embedding.apply(current_file)
+            precomputed.dump(current_file, fX)
 
 def main():
 
     arguments = docopt(__doc__, version='Speaker embedding')
 
-    db_yml = expanduser(arguments['--database'])
+    db_yml = Path(arguments['--database'])
+    db_yml = db_yml.expanduser().resolve(strict=True)
+
     protocol_name = arguments['<database.task.protocol>']
     subset = arguments['--subset']
 
-    if arguments['data']:
-
-        duration = float(arguments['--duration'])
-
-        step = arguments['--step']
-        if step is not None:
-            step = float(step)
-
-        heterogeneous = arguments['--heterogeneous']
-
-        root_dir = arguments['<root_dir>']
-        if subset is None:
-            subset = 'train'
-
-        application = SpeakerEmbedding.from_root_dir(root_dir, db_yml=db_yml)
-        application.data(protocol_name, duration=duration, step=step,
-                         heterogeneous=heterogeneous)
+    gpu = arguments['--gpu']
+    device = torch.device('cuda') if gpu else torch.device('cpu')
 
     if arguments['train']:
-        experiment_dir = arguments['<experiment_dir>']
+
+        experiment_dir = Path(arguments['<experiment_dir>'])
+        experiment_dir = experiment_dir.expanduser().resolve(strict=True)
 
         if subset is None:
             subset = 'train'
 
-        start = arguments['--start']
-        if start is not None:
-            start = int(start)
+        # start training at this epoch (defaults to 0)
+        restart = int(arguments['--from'])
 
-        end = int(arguments['--end'])
+        # stop training at this epoch (defaults to never stop)
+        epochs = arguments['--to']
+        if epochs is None:
+            epochs = np.inf
+        else:
+            epochs = int(epochs)
 
-        application = SpeakerEmbedding(experiment_dir)
-        application.train(protocol_name, subset=subset, start=start, end=end)
+        application = SpeakerEmbedding(experiment_dir, db_yml=db_yml)
+        application.device = device
+        application.train(protocol_name, subset=subset,
+                          restart=restart, epochs=epochs)
 
     if arguments['validate']:
-        train_dir = arguments['<train_dir>']
+
+        train_dir = Path(arguments['<train_dir>'])
+        train_dir = train_dir.expanduser().resolve(strict=True)
 
         if subset is None:
             subset = 'development'
 
-        aggregate = arguments['--aggregate']
-        every = int(arguments['--every'])
+        # start validating at this epoch (defaults to 0)
         start = int(arguments['--from'])
 
-        application = SpeakerEmbedding.from_train_dir(train_dir)
+        # stop validating at this epoch (defaults to np.inf)
+        end = arguments['--to']
+        if end is None:
+            end = np.inf
+        else:
+            end = int(end)
+
+        # validate every that many epochs (defaults to 1)
+        every = int(arguments['--every'])
+
+        # validate epochs in chronological order
+        in_order = arguments['--chronological']
+
+        # validate at speech turn level
+        turn = arguments['--turn']
+
+        # batch size
+        batch_size = int(arguments['--batch'])
+
+        application = SpeakerEmbedding.from_train_dir(
+            train_dir, db_yml=db_yml)
+        application.device = device
+        application.turn = turn
+        application.batch_size = batch_size
+
+        metric = arguments['--metric']
+        if metric is None:
+            metric = getattr(application.task_, 'metric', None)
+            if metric is None:
+                msg = ("Approach has no 'metric' defined. "
+                       "Use '--metric' option to provide one.")
+                raise ValueError(msg)
+        application.metric = metric
+
+        duration = arguments['--duration']
+        if duration is not None:
+            duration = float(duration)
+        application.duration = duration
+
         application.validate(protocol_name, subset=subset,
-                             aggregate=aggregate, every=every,
-                             start=start)
+                             start=start, end=end, every=every,
+                             in_order=in_order)
 
     if arguments['apply']:
-        validate_txt = arguments['<validate.txt>']
-        output_dir = arguments['<output_dir>']
-        if subset is None:
-            subset = 'test'
+
+        model_pt = Path(arguments['<model.pt>'])
+        model_pt = model_pt.expanduser().resolve(strict=True)
+
+        output_dir = Path(arguments['<output_dir>'])
+        output_dir = output_dir.expanduser().resolve(strict=False)
+
+        # TODO. create README file in <output_dir>
 
         step = arguments['--step']
         if step is not None:
             step = float(step)
 
-        internal = arguments['--internal']
+        batch_size = int(arguments['--batch'])
 
-        application = SpeakerEmbedding.from_validate_txt(validate_txt)
-        application.apply(protocol_name, output_dir, step=step,
-                          internal=internal)
+        application = SpeakerEmbedding.from_model_pt(
+            model_pt, db_yml=db_yml)
+        application.device = device
+        application.batch_size = batch_size
+
+        duration = arguments['--duration']
+        if duration is None:
+            duration = getattr(application.task_, 'duration', None)
+            if duration is None:
+                msg = ("Approach has no 'duration' defined. "
+                       "Use '--duration' option to provide one.")
+                raise ValueError(msg)
+        else:
+            duration = float(duration)
+        application.duration = duration
+
+        application.apply(protocol_name, output_dir, step=step)
