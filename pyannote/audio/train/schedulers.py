@@ -33,6 +33,57 @@ from dlib import count_steps_without_decrease
 from dlib import count_steps_without_decrease_robust
 
 
+class ConstantScheduler(object):
+    """Constant learning rate
+
+    Parameters
+    ----------
+    optimizer : Optimizer
+        Wrapped optimizer.
+    batches_per_epoch : int
+        Number of batches per epoch.
+    max_lr : {float, list}, optional
+        Initial learning rate. Defaults to using optimizer's own learning rate.
+    allow_backtrack : bool, optional
+        Defaults to False.
+
+    Example
+    -------
+    >>> optimizer = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9)
+    >>> batches_per_epoch = 1000
+    >>> scheduler = ConstantScheduler(optimizer, batches_per_epoch)
+    """
+
+    def __init__(self, optimizer, batches_per_epoch, max_lr=None,
+                 allow_backtrack=False, **kwargs):
+
+        super(ConstantScheduler, self).__init__()
+
+        self.optimizer = optimizer
+        self.batches_per_epoch = batches_per_epoch
+        self.max_lr = max_lr
+        self.allow_backtrack = allow_backtrack
+
+        # initialize optimizer learning rate
+        if max_lr is None:
+            lrs = [g['lr'] for g in self.optimizer.param_groups]
+        elif isinstance(max_lr, (list, tuple)):
+            lrs = max_lr
+        else:
+            lrs = [max_lr] * len(self.optimizer.param_groups)
+
+        for param_group, lr in zip(self.optimizer.param_groups, lrs):
+            param_group['lr'] = lr
+
+    def batch_step(self, batch_loss):
+
+        for param_group in self.optimizer.param_groups:
+            lr = param_group['lr']
+            break
+
+        return {'lr': lr}
+
+
 class DavisKingScheduler(object):
     """Automatic Learning Rate Scheduling That Really Works
 
