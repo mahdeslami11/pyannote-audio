@@ -1,3 +1,10 @@
+### Version 1.0 (2018-07-03)
+
+  - chore: switch from keras to pytorch (with tensorboard support)
+  - improve: faster & better traning (`AutoLR`, advanced learning rate schedulers, improved batch generators)
+  - feat: add tunable speaker diarization pipeline (with its own tutorial)
+  - chore: drop support for Python 2 (use Python 3.6 or later)
+
 ### Version 0.3.1 (2017-07-06)
 
   - feat: add python 3 support
