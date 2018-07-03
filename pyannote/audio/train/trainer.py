@@ -28,6 +28,7 @@
 
 
 import torch
+import tempfile
 import numpy as np
 from tqdm import tqdm
 from collections import deque
@@ -289,18 +290,14 @@ class Trainer:
                  get_optimizer=None, get_scheduler=None, learning_rate='auto',
                  log_dir=None, device=None):
 
-        if log_dir is None and restart > 0:
-            msg = ('One must provide `log_dir` when '
-                   'using `restart` option.')
-            raise ValueError(msg)
+        if log_dir is None:
+            log_dir = tempfile.mkdtemp()
 
         # initialize batch generator
         batch_generator = self.get_batch_generator(feature_extraction)
         batches = batch_generator(protocol, subset=subset)
         batch = next(batches)
         batches_per_epoch = getattr(batch_generator, 'batches_per_epoch', None)
-
-        # FIXME. log_dir = tmp directory
 
         checkpoint = Checkpoint(log_dir, restart=restart > 0)
         writer = SummaryWriter(log_dir=log_dir)
