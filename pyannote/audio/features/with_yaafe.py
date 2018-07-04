@@ -78,23 +78,34 @@ class YaafeFeatureExtractor(object):
     def sliding_window(self):
         return self.sliding_window_
 
-    def __call__(self, item):
+    def __call__(self, current_file):
         """Extract features
 
         Parameters
         ----------
-        item : dict
+        current_file : dict
 
         Returns
         -------
         features : SlidingWindowFeature
 
+        Notes
+        -----
+        If `current_file` contains `waveform` key, it is assumed to contain the
+        actual waveform at the right sample rate. In any other case,
+        `read_audio` is used to load (and resample if needed) from disk.
+
         """
 
-        # --- load audio file
-        y, sample_rate = read_audio(item,
-                                    sample_rate=self.sample_rate,
-                                    mono=True)
+        if 'waveform' in current_file:
+            # use preloaded
+            y = current_file['waveform']
+            sample_rate = self.sample_rate
+        else:
+            # load audio file
+            y, sample_rate = read_audio(current_file,
+                                        sample_rate=self.sample_rate,
+                                        mono=True)
 
         # --- update data_flow every time sample rate changes
         if not hasattr(self, 'sample_rate_') or self.sample_rate_ != sample_rate:
@@ -136,7 +147,7 @@ class YaafeFeatureExtractor(object):
 
         # --- return as SlidingWindowFeature
         if np.any(np.isnan(data)):
-            uri = get_unique_identifier(item)
+            uri = get_unique_identifier(current_file)
             msg = 'Features extracted from "{uri}" contain NaNs.'
             warnings.warn(msg.format(uri=uri))
 
