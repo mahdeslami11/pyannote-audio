@@ -162,7 +162,7 @@ class SequenceLabeling(FileBasedBatchGenerator):
 
         # use in-memory "features" whenever they are available
         if 'features' in current_file:
-            features = current_file['feature']
+            features = current_file['features']
             return features.crop(segment, mode='center', fixed=self.duration,
                                  return_data=True)
 
