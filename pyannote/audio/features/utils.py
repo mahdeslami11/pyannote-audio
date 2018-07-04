@@ -172,6 +172,9 @@ class RawAudio(object):
                                     sample_rate=self.sample_rate,
                                     mono=self.mono)
 
+        if len(y.shape) < 2:
+            y = y.reshape(-1, 1)
+
         sliding_window = SlidingWindow(start=0.,
                                        duration=1./sample_rate,
                                        step=1./sample_rate)
