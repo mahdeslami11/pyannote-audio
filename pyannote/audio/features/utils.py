@@ -42,6 +42,7 @@ from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.database.util import get_unique_identifier
 from pyannote.audio.util import mkdir_p
 import tempfile
+import scipy.io.wavfile
 
 
 class PyannoteFeatureExtractionError(Exception):
@@ -180,6 +181,74 @@ class RawAudio(object):
                                        step=1./sample_rate)
 
         return SlidingWindowFeature(y, sliding_window)
+
+    def crop(self, current_file, segment):
+        """Faster version of raw_audio(current_file).crop(segment)
+
+        Parameters
+        ----------
+        current_file : dict
+        segment : `pyannote.core.Segment`
+
+        Returns
+        -------
+        data : (n_samples, n_channels) numpy.array
+
+        Example
+        -------
+        >>> from pyannote.audio.features import RawAudio
+        >>> from pyannote.core import Segment
+        >>> raw_audio = RawAudio(sample_rate=16000, mono=True)
+        >>> current_file = {'audio': '/path/to/filename.wav'}
+        >>> data = raw_audio.crop(current_file, Segment(10, 20))
+        """
+
+        if self.sample_rate is None:
+            msg = ('`RawAudio` needs to be instantiated with an actual'
+                   '`sample_rate` if one wants to use the `crop` method.')
+            raise ValueError(msg)
+
+        # read data as memory mapped
+        sample_rate, y = scipy.io.wavfile.read(current_file['audio'],
+                                               mmap=True)
+
+        if sample_rate != self.sample_rate:
+            msg = (f'Mismatch between expected ({self.sample_rate:d}) and '
+                   f'actual ({sample_rate} sample rates)')
+            raise ValueError(msg)
+
+        # extract segment waveform
+        start = int(segment.start) * int(self.sample_rate)
+        end = int(segment.end) * int(self.sample_rate)
+        data = y[segment.start * sample_rate: segment.end * sample_rate]
+
+        # see https://docs.scipy.org/doc/scipy/reference/generated/scipy.io.wavfile.read.html
+        msg = f'Audio file was loaded using (unsupported) {data.dtype} data-type.'
+
+        if data.dtype == np.uint8:
+            raise NotImplementedError(msg)
+
+        elif data.dtype == np.int16:
+            data = data.astype(np.float32) / 32768.0
+
+        elif data.dtype == np.int32:
+            raise NotImplementedError(msg)
+
+        elif data.dtype == np.float32:
+            pass
+
+        else:
+            raise NotImplementedError(msg)
+
+        # add `n_channels` dimension
+        if len(data.shape) < 2:
+            data = data.reshape(-1, 1)
+
+        # convert to mono if needed
+        if self.mono and len(data.shape) > 1:
+            data = np.mean(data, axis=1, keepdims=True)
+
+        return data
 
 
 class Precomputed(object):
