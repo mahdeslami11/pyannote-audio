@@ -148,7 +148,8 @@ class Pipeline:
                 'params': best_params,
                 'n_trials': len(trials)}
 
-    def tune(self, tune_db, protocol, subset='development', n_calls=1):
+    def tune(self, tune_db, protocol, subset='development',
+             sampler=None, n_calls=1):
         """Tune pipeline
 
         Parameters

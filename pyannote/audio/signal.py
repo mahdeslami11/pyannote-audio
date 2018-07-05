@@ -94,12 +94,12 @@ class Peak(object):
             maxi = 1
 
         elif self.scale == 'relative':
-            mini = np.nanmin(data)
-            maxi = np.nanmax(data)
+            mini = np.nanmin(y)
+            maxi = np.nanmax(y)
 
         elif self.scale == 'percentile':
-            mini = np.nanpercentile(data, 1)
-            maxi = np.nanpercentile(data, 99)
+            mini = np.nanpercentile(y, 1)
+            maxi = np.nanpercentile(y, 99)
 
         threshold = mini + self.alpha * (maxi - mini)
 
