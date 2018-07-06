@@ -218,9 +218,9 @@ class RawAudio(object):
             raise ValueError(msg)
 
         # extract segment waveform
-        start = int(segment.start) * int(self.sample_rate)
-        end = int(segment.end) * int(self.sample_rate)
-        data = y[segment.start * sample_rate: segment.end * sample_rate]
+        start = int(segment.start * self.sample_rate)
+        end = int(segment.end * self.sample_rate)
+        data = y[start:end]
 
         # see https://docs.scipy.org/doc/scipy/reference/generated/scipy.io.wavfile.read.html
         msg = f'Audio file was loaded using (unsupported) {data.dtype} data-type.'
