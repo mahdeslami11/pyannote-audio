@@ -67,3 +67,4 @@ experiments
 *~
 
 tutorials/feature-extraction/*/*npy
+tutorials/*/train/*
