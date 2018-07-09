@@ -167,6 +167,11 @@ class RawAudio(object):
         self.sample_rate = sample_rate
         self.mono = mono
 
+        if sample_rate is not None:
+            self.sliding_window_ = SlidingWindow(start=-.5/sample_rate,
+                                                 duration=1./sample_rate,
+                                                 step=1./sample_rate)
+
     def __call__(self, current_file):
 
         y, sample_rate = read_audio(current_file,
@@ -176,14 +181,16 @@ class RawAudio(object):
         if len(y.shape) < 2:
             y = y.reshape(-1, 1)
 
-        sliding_window = SlidingWindow(start=0.,
-                                       duration=1./sample_rate,
-                                       step=1./sample_rate)
+        sliding_window = SlidingWindow(
+            start=-.5/sample_rate,
+            duration=1./sample_rate,
+            step=1./sample_rate)
 
         return SlidingWindowFeature(y, sliding_window)
 
     def crop(self, current_file, segment):
-        """Faster version of raw_audio(current_file).crop(segment)
+        """Fast version of self(current_file).crop(segment, mode='center',
+                                                   fixed=segment.duration)
 
         Parameters
         ----------
@@ -218,8 +225,8 @@ class RawAudio(object):
             raise ValueError(msg)
 
         # extract segment waveform
-        start = int(segment.start * self.sample_rate)
-        end = int(segment.end * self.sample_rate)
+        (start, end), = self.sliding_window_.crop(
+            segment, mode='center', fixed=segment.duration, return_ranges=True)
         data = y[start:end]
 
         # see https://docs.scipy.org/doc/scipy/reference/generated/scipy.io.wavfile.read.html
