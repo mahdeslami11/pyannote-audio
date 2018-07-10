@@ -35,7 +35,10 @@ import yaafelib
 import warnings
 import numpy as np
 
+from pyannote.core import Segment
 from pyannote.audio.features.utils import read_audio
+from pyannote.audio.features.utils import get_audio_duration
+from pyannote.audio.features.utils import RawAudio
 from pyannote.core.segment import SlidingWindow
 from pyannote.core.feature import SlidingWindowFeature
 from pyannote.database.util import get_unique_identifier
@@ -71,6 +74,8 @@ class YaafeFeatureExtractor(object):
                                              step=self.step)
 
         self.engine_ = yaafelib.Engine()
+        self.raw_audio_ = RawAudio(sample_rate=self.sample_rate,
+                                   mono=True)
 
     def dimension(self):
         raise NotImplementedError('')
@@ -171,6 +176,58 @@ class YaafeFeatureExtractor(object):
             warnings.warn(msg.format(uri=uri))
 
         return SlidingWindowFeature(data, self.sliding_window_)
+
+    def crop(self, current_file, segment):
+        """Faster version of feature_extraction(current_file).crop(segment)
+
+        Parameters
+        ----------
+        current_file : dict
+        segment : `pyannote.core.Segment`
+            Segment from which to extract features
+
+        Returns
+        -------
+        data : (n_features, n_dimensions) numpy array
+            Features
+
+        Examples
+        --------
+        >>> slow = extraction(current_file).crop(segment,
+        ...                                      mode='center',
+        ...                                      fixed=segment.duration)
+        >>> fast = extraction.crop(current_file, segment)
+        >>> assert np.all(slow == fast)
+        """
+
+        # in order to compute temporal derivative of features, Yaafe
+        # approximates it by an orthogonal polynomail fit over a finite length
+        # window of approximately 8 steps on both side:
+        # http://yaafe.sourceforge.net/features.html?highlight=derivate#yaafefeatures.Derivate
+        # therefore, we artifically extend `segment` by that many steps
+        # so that the above assertion is true.
+
+        duration = get_audio_duration(current_file)
+        xsegment = Segment(
+            max(0, segment.start - 8 * self.step),
+            min(duration, segment.end + 7 * self.step + self.duration))
+
+        if 'waveform' in current_file:
+            # use preloaded
+            y = current_file['waveform']
+        else:
+            y = self.raw_audio_.crop(current_file, xsegment)
+
+        data = self.process(y, self.sample_rate)
+
+        # since the segment was artifically extended, crop it after extraction
+        sw = SlidingWindow(start=xsegment.start - self.step,
+                           step=self.step,
+                           duration=self.duration)
+        (start, end), = sw.crop(segment, mode='center',
+                                fixed=segment.duration,
+                                return_ranges=True)
+        return data[start:end]
 
 
 class YaafeCompound(YaafeFeatureExtractor):
