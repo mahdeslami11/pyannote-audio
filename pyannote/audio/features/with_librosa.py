@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016-2017 CNRS
+# Copyright (c) 2016-2018 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -26,16 +26,11 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-from __future__ import unicode_literals
-
 import warnings
 import numpy as np
 
-import matplotlib
-matplotlib.use('Agg')
 import librosa
 from pyannote.audio.features.utils import read_audio
-
 
 from pyannote.core.segment import SlidingWindow
 from pyannote.core.feature import SlidingWindowFeature
@@ -261,11 +256,11 @@ class LibrosaMFCC(LibrosaFeatureExtractor):
 
         if self.De or self.D:
             mfcc_d = librosa.feature.delta(
-                mfcc, width=9, order=1, axis=-1, trim=True)
+                mfcc, width=9, order=1, axis=-1)
 
         if self.DDe or self.DD:
             mfcc_dd = librosa.feature.delta(
-                mfcc, width=9, order=2, axis=-1, trim=True)
+                mfcc, width=9, order=2, axis=-1)
 
         stack = []
 
