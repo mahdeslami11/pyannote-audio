@@ -151,7 +151,7 @@ def read_audio(current_file, sample_rate=None, mono=True):
 
 
 class RawAudio(object):
-    """
+    """Raw audio with on-the-fly data augmentation
 
     Parameters
     ----------
@@ -159,13 +159,17 @@ class RawAudio(object):
         Target sampling rate. Defaults to using native sampling rate.
     mono : int, optional
         Convert multi-channel to mono. Defaults to True.
-
+    augmentation : callable, optional
     """
 
-    def __init__(self, sample_rate=None, mono=True):
+    def __init__(self, sample_rate=None, mono=True, augmentation=None):
         super(RawAudio, self).__init__()
         self.sample_rate = sample_rate
         self.mono = mono
+
+        if augmentation is None:
+            augmentation = lambda y, sample_rate: y
+        self.augmentation = augmentation
 
         if sample_rate is not None:
             self.sliding_window_ = SlidingWindow(start=-.5/sample_rate,
@@ -180,6 +184,8 @@ class RawAudio(object):
 
         if len(y.shape) < 2:
             y = y.reshape(-1, 1)
+
+        y = self.augmentation(y, sample_rate)
 
         sliding_window = SlidingWindow(
             start=-.5/sample_rate,
@@ -254,6 +260,8 @@ class RawAudio(object):
         # convert to mono if needed
         if self.mono and len(data.shape) > 1:
             data = np.mean(data, axis=1, keepdims=True)
+
+        data = self.augmentation(data, sample_rate)
 
         return data
 
