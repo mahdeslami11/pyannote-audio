@@ -35,7 +35,6 @@ from pyannote.core import Annotation
 from pyannote.core import SlidingWindowFeature
 from pyannote.core.util import string_generator
 from pyannote.database import get_label_identifier
-from .features import Precomputed
 
 
 def mkdir_p(path):
@@ -94,6 +93,7 @@ def to_numpy(current_file, precomputed, labels=None):
     indices = {label: i for i, label in enumerate(labels)}
 
     # number of samples
+    from .features import Precomputed
     if isinstance(precomputed, Precomputed):
         N, _ = precomputed.shape(current_file)
     else:
