@@ -35,6 +35,7 @@ from pyannote.core import Annotation
 from pyannote.core import SlidingWindowFeature
 from pyannote.core.util import string_generator
 from pyannote.database import get_label_identifier
+from .features import Precomputed
 
 
 def mkdir_p(path):
@@ -67,7 +68,9 @@ def to_numpy(current_file, precomputed, labels=None):
     Parameters
     ----------
     current_file : dict
-    precomputed : Precomputed
+    precomputed : Precomputed or SlidingWindowFeature
+        Precomputed features. Both `pyannote.audio.features.Precomputed`
+        instance and `SlidingWindowFeature` instances are supported.
     labels : list, optional
         Predefined list of labels.  Defaults to using `annotation` labels.
 
@@ -91,7 +94,10 @@ def to_numpy(current_file, precomputed, labels=None):
     indices = {label: i for i, label in enumerate(labels)}
 
     # number of samples
-    N, _ = precomputed.shape(current_file)
+    if isinstance(precomputed, Precomputed):
+        N, _ = precomputed.shape(current_file)
+    else:
+        N, _ = precomputed.data.shape
     # number of classes
     K = len(labels)
     # one-hot encoding
