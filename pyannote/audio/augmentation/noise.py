@@ -32,6 +32,8 @@ from pyannote.core import Segment
 from pyannote.audio.features.utils import RawAudio
 from pyannote.audio.features.utils import get_audio_duration
 from pyannote.generators.fragment import random_subsegment
+from pyannote.database import get_protocol
+from pyannote.database import FileFinder
 from .base import Augmentation
 from glob import glob
 
@@ -41,26 +43,38 @@ class AddNoise(Augmentation):
 
     Parameters
     ----------
-    noise_dir : str
-        Path containing noise .wav files.
+    collection : str or list of str
+        `pyannote.database` collection(s) used for adding noise. Defaults to
+        'MUSAN.Collection.BackgroundNoise' available in `pyannote.db.musan`
+        package.
+    db_yml : str, optional
+        Path to `pyannote.database` configuration file.
     snr_min, snr_max : int, optional
         Defines Signal-to-Noise Ratio (SNR) range in dB. Defaults to [5, 20].
     """
 
-    def __init__(self, noise_dir, snr_min=5, snr_max=20):
+    def __init__(self, collection=None, db_yml=None, snr_min=5, snr_max=20):
         super().__init__()
+
+        if collection is None:
+            collection = 'MUSAN.Collection.BackgroundNoise'
+        if not isinstance(collection, (list, tuple)):
+            collection = [collection]
+        self.collection = collection
+        self.db_yml = db_yml
+
         self.snr_min = snr_min
         self.snr_max = snr_max
-        self.noise_dir = noise_dir
 
         # load noise database
         self.filenames_, self.durations_ = [], []
-        for filename in glob(f'{noise_dir}/**/*.wav', recursive=True):
-            self.filenames_.append(filename)
-            duration = get_audio_duration({'audio': filename})
-            self.durations_.append(duration)
+        preprocessors = {'audio': FileFinder(config_yml=db_yml)}
+        for c in self.collection:
+            protocol = get_protocol(c, preprocessors=preprocessors)
+            for current_file in protocol.files():
+                self.filenames_.append(current_file['audio'])
+                self.durations_.append(get_audio_duration(current_file))
         self.durations_ = np.array(self.durations_)
-        #self.probabilities_ = self.durations_ / np.sum(self.durations_)
 
     def normalize(self, waveform):
         return waveform / np.sqrt(np.mean(waveform ** 2))
