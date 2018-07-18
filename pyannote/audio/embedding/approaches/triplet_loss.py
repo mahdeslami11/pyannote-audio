@@ -80,20 +80,12 @@ class TripletLoss(Trainer):
         Number of prefetching background generators. Defaults to 1.
         Each generator will prefetch enough batches to cover a whole epoch.
         Set `parallel` to 0 to not use background generators.
-    optimizer : {'sgd', 'rmsprop', 'adam'}
-        Defaults to 'rmsprop'.
-    learning_rate : float, optional
-        Defaults to 1e-2.
-    enable_backtrack : bool, optional
-        Defaults to True.
     """
 
     def __init__(self, duration=None, min_duration=None, max_duration=None,
                  metric='cosine', margin=0.2, clamp='positive',
                  sampling='all', per_label=3, per_fold=None, parallel=1,
-                 label_min_duration=0.,
-                 optimizer='rmsprop', learning_rate=1e-2,
-                 enable_backtrack=True):
+                 label_min_duration=0.):
 
         super(TripletLoss, self).__init__()
 
@@ -121,9 +113,6 @@ class TripletLoss(Trainer):
         self.max_duration = max_duration
 
         self.parallel = parallel
-        self.optimizer = optimizer
-        self.learning_rate = learning_rate
-        self.enable_backtrack = enable_backtrack
 
     @property
     def max_distance(self):
@@ -339,6 +328,17 @@ class TripletLoss(Trainer):
             return loss
 
     def get_batch_generator(self, feature_extraction):
+        """Get batch generator
+
+        Parameters
+        ----------
+        feature_extraction : `pyannote.audio.features.FeatureExtraction`
+
+        Returns
+        -------
+        generator : `pyannote.audio.generators.speaker.SpeechSegmentGenerator`
+
+        """
         return SpeechSegmentGenerator(
             feature_extraction, label_min_duration=self.label_min_duration,
             per_label=self.per_label, per_fold=self.per_fold,
@@ -354,7 +354,26 @@ class TripletLoss(Trainer):
         self.log_delta_ = deque([], maxlen=batches_per_epoch)
         self.log_norm_ = deque([], maxlen=batches_per_epoch)
 
-    def batch_loss(self, batch, model, device, writer=None, **kwargs):
+    def batch_loss(self, batch, model, device, writer=None):
+        """Compute loss for current `batch`
+
+        Parameters
+        ----------
+        batch : `dict`
+            ['X'] (`numpy.ndarray`)
+            ['y'] (`numpy.ndarray`)
+        model : `torch.nn.Module`
+            Model currently being trained.
+        device : `torch.device`
+            Device used by model parameters.
+        writer : `tensorboardX.SummaryWriter`, optional
+            Tensorboard writer.
+
+        Returns
+        -------
+        loss : `torch.Tensor`
+            Triplet loss.
+        """
 
         lengths = torch.tensor([len(x) for x in batch['X']])
         variable_lengths = len(set(lengths)) > 1
@@ -416,7 +435,18 @@ class TripletLoss(Trainer):
         # average over all triplets
         return torch.mean(losses)
 
-    def on_epoch_end(self, iteration, writer=None, **kwargs):
+    def on_epoch_end(self, iteration, checkpoint, writer=None, **kwargs):
+        """Log a bunch of statistics at the end of current epoch
+
+        Parameters
+        ----------
+        iteration : `int`
+            Current epoch.
+        checkpoint : `pyannote.audio.train.checkpoint.Checkpoint`
+            Checkpoint.
+        writer : `tensorboardX.SummaryWriter`, optional
+            Tensorboard writer.
+        """
 
         if writer is None:
             return

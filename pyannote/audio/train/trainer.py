@@ -56,41 +56,117 @@ class Trainer:
         Parameters
         ----------
         feature_extraction : `pyannote.audio.features.FeatureExtraction`
+            Feature extraction.
 
         Returns
         -------
-        batch_generator : `LabelingTaskGenerator`
+        batch_generator : TODO
+            Batch generator.
         """
         pass
 
     @abstractmethod
-    def on_train_start(self, model, **kwargs):
-        """This method should be overriden by subclass"""
-        pass
+    def extra_init(self, model, device, labels=None,
+                   checkpoint=None):
+        """This method can be be overriden by subclass
 
-    @abstractmethod
-    def batch_loss(self, batch, model, device, writer=None, **kwargs):
-        """
+        It is called right before instantiating the optimizer.
+        It should define and return extra learnable parameters.
+        See `pyannote.audio.embedding.approaches.Softmax` for an example.
+
         Parameters
         ----------
-        batch :
-        model :
-        device :
-        writer : SummaryWriter, optional
+        model : `torch.nn.Module`
+            Model that will be trained.
+        device : `torch.device`
+            Device used by model parameters.
+        labels : `list` of `str`, optional
+            List of classes.
+        checkpoint : `pyannote.audio.train.checkpoint.Checkpoint`, optional
+            Checkpoint.
 
         Returns
         -------
-        loss :
+        parameters : list
+            List of extra parameters
+        """
+        return []
+
+    @abstractmethod
+    def extra_restart(self, checkpoint, restart):
+        """This method can be overriden by subclass
+
+        It is called when model is reloaded from an existing epoch.
+        This is where one can reload extra learnable parameters previously
+        defined in `extra_init`.
+
+        Parameters
+        ----------
+        checkpoint : `pyannote.audio.train.checkpoint.Checkpoint`
+            Checkpoint.
+        restart : `int`
+            Epoch used for warm restart.
         """
         pass
 
     @abstractmethod
-    def on_epoch_end(self, iteration, writer=None, **kwargs):
-        """
+    def on_train_start(self, model, batches_per_epoch=None,
+                       labels=None, device=None, **kwargs):
+        """This method should be overriden by subclass
+
+        It is called just before training starts.
+
         Parameters
         ----------
-        iteration : int
-        writer : SummaryWriter, optional
+        model : `torch.nn.Module`
+            Model that will be trained.
+        device : `torch.device`
+            Device used by model parameters.
+        batches_per_epoch : `int`, optional
+            Number of batches per epoch.
+        labels : list of `str`, optional
+            List of classes.
+        """
+        pass
+
+    @abstractmethod
+    def batch_loss(self, batch, model, device, writer=None):
+        """Compute loss for current `batch`
+
+        Parameters
+        ----------
+        batch : `dict`
+            ['X'] (`numpy.ndarray`)
+            ['y'] (`numpy.ndarray`)
+        model : `torch.nn.Module`
+            Model currently being trained.
+        device : `torch.device`
+            Device used by model parameters.
+        writer : `tensorboardX.SummaryWriter`, optional
+            Tensorboard writer.
+
+        Returns
+        -------
+        loss : `torch.Tensor`
+            Loss value.
+        """
+        pass
+
+    @abstractmethod
+    def on_epoch_end(self, iteration, checkpoint, writer=None, **kwargs):
+        """This method can be overriden by subclass
+
+        It is called at the end of each epoch.
+        It can be used to save extra parameters or send logs to tensorboard.
+
+        Parameters
+        ----------
+        iteration : `int`
+            Epoch.
+        checkpoint : `pyannote.audio.train.checkpoint.Checkpoint`
+            Checkpoint.
+        writer : `tensorboardX.SummaryWriter`, optional
+            Tensorboard writer.
         """
         pass
 
@@ -212,7 +288,7 @@ class Trainer:
                 'losses': losses,
                 'probability': probability}
 
-    def auto_lr(self, model, optimizer, batches,
+    def auto_lr(self, model, optimizer, batches, labels=None,
                 min_lr=1e-6, max_lr=1e3, n_batches=500,
                 device=None, writer=None):
         """Automagically find a "good" learning rate upper bound
@@ -252,7 +328,8 @@ class Trainer:
         if device is None:
             device = torch.device('cpu')
 
-        self.on_train_start(model, batches_per_epoch=n_batches)
+        self.on_train_start(model, batches_per_epoch=n_batches,
+                            labels=labels, device=device)
 
         # initialize optimizer with a low learning rate
         for param_group in optimizer.param_groups:
@@ -366,22 +443,35 @@ class Trainer:
         batch_generator = self.get_batch_generator(feature_extraction)
         batches = batch_generator(protocol, subset=subset)
         batch = next(batches)
-        batches_per_epoch = getattr(batch_generator, 'batches_per_epoch', None)
 
+        # get information about batches
+        batches_per_epoch = getattr(batch_generator, 'batches_per_epoch', None)
+        labels = getattr(batch_generator, 'labels', None)
+
+        # initialize loggers
         checkpoint = Checkpoint(log_dir, restart=restart > 0)
         writer = SummaryWriter(log_dir=log_dir)
 
+        # send model to device
         device = torch.device('cpu') if device is None else device
         model = model.to(device)
-        optimizer = get_optimizer(model.parameters(), lr=ARBITRARY_LR)
+
+        extra_parameters = self.extra_init(model, device, labels=labels,
+                                           checkpoint=checkpoint)
+
+        parameters = list(model.parameters()) + list(extra_parameters)
+        optimizer = get_optimizer(parameters, lr=ARBITRARY_LR)
 
         if restart > 0:
 
-            # load model
+            # load model parameters
             model_state = torch.load(
                 checkpoint.weights_pt(restart),
                 map_location=lambda storage, loc: storage)
             model.load_state_dict(model_state)
+
+            # load extra parameters
+            self.extra_restart(checkpoint, restart)
 
             # load optimizer
             optimizer_state = torch.load(
@@ -395,9 +485,11 @@ class Trainer:
             # save model and optimizer states before "auto_lr"
             if restart == 0:
                 checkpoint.on_epoch_end(0, model, optimizer)
+                self.on_epoch_end(0, checkpoint, writer=None)
 
             auto_lr = self.auto_lr(model, optimizer, batches,
-                                   writer=writer, device=device)
+                                   labels=labels, writer=writer,
+                                   device=device)
             min_lr = auto_lr['min_lr']
             max_lr = auto_lr['max_lr']
 
@@ -417,6 +509,8 @@ class Trainer:
                 map_location=lambda storage, loc: storage)
             optimizer.load_state_dict(optimizer_state)
 
+            self.extra_restart(checkpoint, restart)
+
         # ... or use the one provided by the user
         else:
             min_lr, max_lr = None, learning_rate
@@ -424,7 +518,8 @@ class Trainer:
         scheduler = get_scheduler(optimizer, batches_per_epoch,
                                   min_lr=min_lr, max_lr=max_lr)
 
-        self.on_train_start(model, batches_per_epoch=batches_per_epoch)
+        self.on_train_start(model,
+                            batches_per_epoch=batches_per_epoch)
 
         epoch = restart if restart > 0 else -1
         iteration = -1
@@ -502,7 +597,7 @@ class Trainer:
             checkpoint.on_epoch_end(epoch, model, optimizer)
             # TODO. save scheduler state as well
 
-            self.on_epoch_end(iteration,
+            self.on_epoch_end(iteration, checkpoint,
                               writer=writer if log else None)
 
             yield {'epoch': epoch, 'iteration': iteration, 'model': model}

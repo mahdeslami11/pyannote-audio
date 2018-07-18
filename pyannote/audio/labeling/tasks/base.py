@@ -378,7 +378,7 @@ class LabelingTask(Trainer):
         self.log_y_pred_ = deque([], maxlen=batches_per_epoch)
         self.log_y_true_ = deque([], maxlen=batches_per_epoch)
 
-    def batch_loss(self, batch, model, device, writer=None, **kwargs):
+    def batch_loss(self, batch, model, device, writer=None):
 
         X = torch.tensor(batch['X'], dtype=torch.float32, device=device)
         y = torch.tensor(batch['y'], dtype=torch.int64, device=device)
@@ -394,7 +394,7 @@ class LabelingTask(Trainer):
 
         return torch.mean(losses)
 
-    def on_epoch_end(self, iteration, writer=None, **kwargs):
+    def on_epoch_end(self, iteration, checkpoint, writer=None, **kwargs):
 
         if writer is None:
             return
