@@ -27,13 +27,12 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 import numpy as np
-from tqdm import tqdm
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
 from pyannote.audio.generators.speaker import SpeechSegmentGenerator
-from pyannote.audio.checkpoint import Checkpoint
-from torch.optim import Adam
+from pyannote.audio.train import Trainer
+from torch.nn.utils.rnn import pad_sequence
+from torch.nn.utils.rnn import pack_padded_sequence
 
 
 class Classifier(nn.Module):
@@ -45,62 +44,36 @@ class Classifier(nn.Module):
         Embedding dimension
     n_classes : int
         Number of classes.
-    linear : list, optional
-        By default, classifier is just a (n_dimension > n_classes) linear layer
-        followed by a softmax. Use this option to provide hidden dimensions of
-        (optional) additional linear layer (e.g. [100, 1000] to 3 layers:
-        n_dimension > 100 > 1000 > n_classes).
     """
 
-    def __init__(self, n_dimensions, n_classes, linear=[]):
+    def __init__(self, n_dimensions, n_classes):
         super(Classifier, self).__init__()
         self.n_dimensions = n_dimensions
         self.n_classes = n_classes
-        self.linear = linear
 
-        # create list of linear layers
-        self.linear_layers_ = []
-        input_dim = self.n_dimensions
-        for i, hidden_dim in enumerate(self.linear):
-            linear_layer = nn.Linear(input_dim, hidden_dim, bias=True)
-            self.add_module('linear_{0}'.format(i), linear_layer)
-            self.linear_layers_.append(linear_layer)
-            input_dim = hidden_dim
-
-        final_layer = nn.Linear(input_dim, self.n_classes, bias=True)
-        self.final_layer_ = final_layer
+        self.hidden = nn.Linear(n_dimensions, n_dimensions, bias=True)
+        self.output = nn.Linear(n_dimensions, n_classes, bias=True)
 
         self.tanh_ = nn.Tanh()
-        self.logsoftmax_ = nn.LogSoftmax(dim=1)
+        self.logsoftmax_ = nn.LogSoftmax(dim=-1)
 
     def forward(self, embedding):
-
-        output = embedding
-
-        # stack linear layers
-        for hidden_dim, layer in zip(self.linear, self.linear_layers_):
-
-            # apply current linear layer
-            output = layer(output)
-
-            # apply non-linear activation function
-            output = self.tanh_(output)
-
-        # apply final linear layer
-        output = self.final_layer_(output)
-        output = self.tanh_(output)
-        output = self.logsoftmax_(output)
-
-        return output
+        hidden = self.tanh_(self.hidden(embedding))
+        return self.logsoftmax_(self.output(hidden))
 
 
-class Softmax(object):
+class Softmax(Trainer):
     """Train embeddings in a supervised (classification) manner
 
     Parameters
     ----------
     duration : float, optional
-        Defautls to 3.2 seconds.
+        Use fixed duration segments with this `duration`.
+        Defaults (None) to using variable duration segments.
+    min_duration : float, optional
+        In case `duration` is None, set segment minimum duration.
+    max_duration : float, optional
+        In case `duration` is None, set segment maximum duration.
     per_fold : int, optional
         Number of speakers per batch. Defaults to the whole speaker set.
     per_label : int, optional
@@ -109,161 +82,164 @@ class Softmax(object):
         Number of prefetching background generators. Defaults to 1.
         Each generator will prefetch enough batches to cover a whole epoch.
         Set `parallel` to 0 to not use background generators.
-    linear : list, optional
-        By default, classifier is just a (n_dimension > n_classes) linear layer
-        followed by a softmax. Use this option to provide hidden dimensions of
-        (optional) additional linear layer (e.g. [100, 1000] to 3 layers:
-        n_dimension > 100 > 1000 > n_classes).
     """
 
     CLASSES_TXT = '{log_dir}/classes.txt'
     CLASSIFIER_PT = '{log_dir}/weights/{epoch:04d}.classifier.pt'
 
-    def __init__(self, duration=3.2, per_label=1,
-                 per_fold=None, parallel=1, linear=[]):
-        super(Softmax, self).__init__()
+    def __init__(self, duration=None, min_duration=None, max_duration=None,
+                 per_label=1, per_fold=None, parallel=1, label_min_duration=0.,
+                 linear=[]):
+        super().__init__()
+
         self.per_fold = per_fold
         self.per_label = per_label
+        self.label_min_duration = label_min_duration
+
         self.duration = duration
+        self.min_duration = min_duration
+        self.max_duration = max_duration
+
         self.parallel = parallel
-        self.linear = linear
+
         self.loss_ = nn.NLLLoss()
 
     def get_batch_generator(self, feature_extraction):
-        return SpeechSegmentGenerator(
-            feature_extraction,
-            per_label=self.per_label, per_fold=self.per_fold,
-            duration=self.duration, parallel=self.parallel)
-
-    def fit(self, model, feature_extraction, protocol, log_dir, subset='train',
-            epochs=1000, restart=0, gpu=False):
-        """Train model
+        """Get batch generator
 
         Parameters
         ----------
-        model : nn.Module
-            Embedding model
-        feature_extraction :
-            Feature extraction.
-        protocol : pyannote.database.Protocol
-        log_dir : str
-            Directory where models and other log files are stored.
-        subset : {'train', 'development', 'test'}, optional
-            Defaults to 'train'.
-        epochs : int, optional
-            Train model for that many epochs.
-        restart : int, optional
-            Restart training at this epoch. Defaults to train from scratch.
-        gpu : bool, optional
+        feature_extraction : `pyannote.audio.features.FeatureExtraction`
+
+        Returns
+        -------
+        generator : `pyannote.audio.generators.speaker.SpeechSegmentGenerator`
+        """
+        return SpeechSegmentGenerator(
+            feature_extraction, label_min_duration=self.label_min_duration,
+            per_label=self.per_label, per_fold=self.per_fold,
+            duration=self.duration, min_duration=self.min_duration,
+            max_duration=self.max_duration, parallel=self.parallel)
+
+    def extra_init(self, model, device, checkpoint=None,
+                   labels=None):
+        """Initialize final classifier layers
+
+        Parameters
+        ----------
+        model : `torch.nn.Module`
+            Embedding model.
+        device : `torch.device`
+            Device used by model parameters.
+        labels : `list` of `str`, optional
+            List of classes.
+        checkpoint : `pyannote.audio.train.checkpoint.Checkpoint`, optional
+            Checkpoint.
+
+        Returns
+        -------
+        parameters : list
+            Classifier parameters
         """
 
-        import tensorboardX
-        writer = tensorboardX.SummaryWriter(log_dir=log_dir)
+        # dimension of embedding space
+        n_dimensions = model.output_dim
 
-        checkpoint = Checkpoint(log_dir=log_dir,
-                                      restart=restart > 0)
+        # number of labels in training set
+        n_classes = len(labels)
 
-        batch_generator = self.get_batch_generator(feature_extraction)
-        batches = batch_generator(protocol, subset=subset)
-        batch = next(batches)
+        self.classifier_ = Classifier(n_dimensions, n_classes)
+        self.classifier_ = self.classifier_.to(device)
 
-        batches_per_epoch = batch_generator.batches_per_epoch
-
-        # save list of classes (one speaker per line)
-        labels = batch_generator.labels
+        # TODO. make sure classes_txt does not exist already
+        # or, if it does, that it is coherent with "labels"
+        log_dir = checkpoint.log_dir
         classes_txt = self.CLASSES_TXT.format(log_dir=log_dir)
         with open(classes_txt, mode='w') as fp:
             for label in labels:
                 fp.write(f'{label}\n')
 
-        # initialize classifier
-        n_classes = batch_generator.n_classes
-        classifier = Classifier(model.output_dim, n_classes,
-                                linear=self.linear)
+        return self.classifier_.parameters()
 
-        # load precomputed weights in case of restart
-        if restart > 0:
-            weights_pt = checkpoint.WEIGHTS_PT.format(
-                log_dir=log_dir, epoch=restart)
-            model.load_state_dict(torch.load(weights_pt))
-            classifier_pt = self.CLASSIFIER_PT.format(
-                log_dir=log_dir, epoch=restart)
+    def extra_restart(self, checkpoint, restart):
+        """Load classifier weights
 
-        # send models to GPU
-        if gpu:
-            model = model.cuda()
-            classifier = classifier.cuda(device=None)
+        Parameters
+        ----------
+        checkpoint : `pyannote.audio.train.checkpoint.Checkpoint`
+            Checkpoint.
+        restart : `int`
+            Epoch used for warm restart.
+        """
 
-        model.internal = False
+        classifier_pt = self.CLASSIFIER_PT.format(
+            log_dir=checkpoint.log_dir, epoch=restart)
+        classifier_state = torch.load(classifier_pt,
+            map_location=lambda storage, loc: storage)
+        self.classifier_.load_state_dict(classifier_state)
 
-        optimizer = Adam(list(model.parameters()) + \
-                         list(classifier.parameters()))
-        if restart > 0:
-            optimizer_pt = checkpoint.OPTIMIZER_PT.format(
-                log_dir=log_dir, epoch=restart)
-            optimizer.load_state_dict(torch.load(optimizer_pt))
-            if gpu:
-                for state in optimizer.state.values():
-                    for k, v in state.items():
-                        if torch.is_tensor(v):
-                            state[k] = v.cuda()
+    def batch_loss(self, batch, model, device, writer=None, **kwargs):
+        """Compute loss for current `batch`
 
-        epoch = restart if restart > 0 else -1
-        while True:
-            epoch += 1
-            if epoch > epochs:
-                break
+        Parameters
+        ----------
+        batch : `dict`
+            ['X'] (`numpy.ndarray`)
+            ['y'] (`numpy.ndarray`)
+        model : `torch.nn.Module`
+            Model currently being trained.
+        device : `torch.device`
+            Device used by model parameters.
+        writer : `tensorboardX.SummaryWriter`, optional
+            Tensorboard writer.
 
-            loss_avg = 0.
+        Returns
+        -------
+        loss : `torch.Tensor`
+            Negative log likelihood loss
+        """
 
-            log_epoch = (epoch < 10) or (epoch % 5 == 0)
+        lengths = torch.tensor([len(x) for x in batch['X']])
+        variable_lengths = len(set(lengths)) > 1
 
-            if log_epoch:
-                pass
+        if variable_lengths:
 
-            desc = 'Epoch #{0}'.format(epoch)
-            for i in tqdm(range(batches_per_epoch), desc=desc):
+            sorted_lengths, sort = torch.sort(lengths, descending=True)
+            _, unsort = torch.sort(sort)
 
-                model.zero_grad()
+            sequences = [torch.tensor(batch['X'][i],
+                                      dtype=torch.float32,
+                                      device=device) for i in sort]
+            padded = pad_sequence(sequences, batch_first=True, padding_value=0)
+            packed = pack_padded_sequence(padded, sorted_lengths,
+                                          batch_first=True)
+            batch['X'] = packed
+        else:
+            batch['X'] = torch.tensor(np.stack(batch['X']),
+                                      dtype=torch.float32,
+                                      device=device)
 
-                batch = next(batches)
+        # forward pass
+        fX = model(batch['X'])
 
-                X = batch['X']
-                y = batch['y']
-                if not getattr(model, 'batch_first', True):
-                    X = np.rollaxis(X, 0, 2)
-                X = np.array(X, dtype=np.float32)
-                X = Variable(torch.from_numpy(X))
-                y = Variable(torch.from_numpy(y))
+        if variable_lengths:
+            fX = fX[unsort]
 
-                if gpu:
-                    X = X.cuda()
-                    y = y.cuda()
+        y_pred = self.classifier_(fX)
+        y = torch.tensor(np.stack(batch['y']), device=device)
+        return self.loss_(y_pred, y)
 
-                fX = model(X)
-                y_pred = classifier(fX)
+    def on_epoch_end(self, iteration, checkpoint, **kwargs):
+        """Save classifier to disk at the end of current epoch
 
-                loss = self.loss_(y_pred, y)
+        Parameters
+        ----------
+        iteration : `int`
+            Current epoch.
+        checkpoint : `pyannote.audio.train.checkpoint.Checkpoint`
+            Checkpoint.
+        """
 
-                if log_epoch:
-                    pass
-
-                # log loss
-                if gpu:
-                    loss_ = float(loss.data.cpu().numpy())
-                else:
-                    loss_ = float(loss.data.numpy())
-                loss_avg += loss_
-
-                loss.backward()
-                optimizer.step()
-
-            loss_avg /= batches_per_epoch
-            writer.add_scalar('train/softmax/loss', loss_avg,
-                              global_step=epoch)
-
-            if log_epoch:
-                pass
-
-            checkpoint.on_epoch_end(epoch, model, optimizer,
-                                    extra={self.CLASSIFIER_PT: classifier})
+        classifier_pt = self.CLASSIFIER_PT.format(
+            log_dir=checkpoint.log_dir, epoch=iteration)
+        torch.save(self.classifier_.state_dict(), classifier_pt)
