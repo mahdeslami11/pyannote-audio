@@ -4,6 +4,10 @@
   - feat: add support for on-the-fly data augmentation
   - setup: switch to librosa 0.6
 
+### Version 1.0.1 (2018--07-19)
+
+  - fix: fix regression in Precomputed.__call__ (#110, #105)
+
 ### Version 1.0 (2018-07-03)
 
   - chore: switch from keras to pytorch (with tensorboard support)
