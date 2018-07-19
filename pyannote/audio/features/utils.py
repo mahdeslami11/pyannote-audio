@@ -276,9 +276,9 @@ class Precomputed(object):
             raise PyannoteFeatureExtractionError(msg)
 
         if self.use_memmap:
-            data = np.load(path, mmap_mode='r')
+            data = np.load(str(path), mmap_mode='r')
         else:
-            data = np.load(path)
+            data = np.load(str(path))
 
         return SlidingWindowFeature(data, self.sliding_window_)
 
