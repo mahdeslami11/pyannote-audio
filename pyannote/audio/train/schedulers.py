@@ -99,7 +99,7 @@ class DavisKingScheduler(object):
         Initial learning rate. Defaults to using optimizer's own learning rate.
     factor : float, optional
         Factor by which the learning rate will be reduced.
-        new_lr = old_lr * factor. Defaults to 0.9
+        new_lr = old_lr * factor. Defaults to 0.3
     patience : int, optional
         Number of epochs with no improvement after which learning rate will
         be reduced. Defaults to 10.
