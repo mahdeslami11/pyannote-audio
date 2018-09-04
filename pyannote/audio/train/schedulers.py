@@ -156,14 +156,16 @@ class DavisKingScheduler(object):
         # if batch loss hasn't been decreasing for a while
         patience = self.patience * self.batches_per_epoch
         if count > patience and count_robust > patience:
-
-            # decrease optimizer learning rate
-            for param_group in self.optimizer.param_groups:
-                lr = param_group['lr'] * self.factor
-                param_group['lr'] = lr
-
+            factor = self.factor
             # reset batch loss trend
             self.batch_losses_.clear()
+        else:
+            factor = 1.
+
+        # decrease optimizer learning rate
+        for param_group in self.optimizer.param_groups:
+            lr = param_group['lr'] * factor
+            param_group['lr'] = lr
 
         return {
             'lr': lr,
