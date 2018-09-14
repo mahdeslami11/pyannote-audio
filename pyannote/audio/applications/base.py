@@ -167,8 +167,6 @@ class Application(object):
         self.task_.fit(
             self.model_, self.feature_extraction_,
             protocol, subset=subset,
-            augmentation=self.augmentation_,
-            normalization=self.normalization_,
             restart=restart, epochs=epochs,
             get_optimizer=self.get_optimizer_,
             get_scheduler=self.get_scheduler_,
