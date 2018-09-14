@@ -176,7 +176,6 @@ class Trainer:
         return tensor.detach().to(cpu).numpy()
 
     def fit(self, model, feature_extraction, protocol, subset='train',
-            augmentation=None, normalization=None,
             restart=0, epochs=1000,
             get_optimizer=None, get_scheduler=None, learning_rate='auto',
             log_dir=None, device=None):
@@ -192,12 +191,6 @@ class Trainer:
             Evaluation protocol.
         subset : {'train', 'development', 'test'}, optional
             Subset to use for training. Defaults to "train".
-        augmentation : `pyannote.audio.augmentation.Augmentation`, optional
-            Data augmentation.
-        normalization : callable, optional
-            Feature normalization. See
-            `pyannote.audio.features.normalization.ShortTermStandardization`
-            for an example.
         restart : int, optional
             Restart training at this epoch. Defaults to train from scratch.
         epochs : int, optional
@@ -226,7 +219,6 @@ class Trainer:
         iterations = self.fit_iter(
             model, feature_extraction,
             protocol, subset=subset,
-            augmentation=augmentation, normalization=normalization,
             restart=restart, epochs=epochs,
             get_optimizer=get_optimizer, get_scheduler=get_scheduler,
             learning_rate=learning_rate, log_dir=log_dir, device=device)
@@ -380,8 +372,8 @@ class Trainer:
             min_lr=min_lr, max_lr=max_lr, n_batches=n_batches)
 
 
-    def fit_iter(self, model, feature_extraction, protocol, subset='train',
-                 augmentation=None, normalization=None,
+    def fit_iter(self, model, feature_extraction,
+                 protocol, subset='train',
                  restart=0, epochs=1000,
                  get_optimizer=None, get_scheduler=None, learning_rate='auto',
                  log_dir=None, device=None):
@@ -397,12 +389,6 @@ class Trainer:
             Evaluation protocol.
         subset : {'train', 'development', 'test'}, optional
             Subset to use for training. Defaults to "train".
-        augmentation : `pyannote.audio.augmentation.Augmentation`, optional
-            Data augmentation.
-        normalization : callable, optional
-            Feature normalization. See
-            `pyannote.audio.features.normalization.ShortTermStandardization`
-            for an example.
         restart : int, optional
             Restart training at this epoch. Defaults to train from scratch.
         epochs : int, optional
@@ -438,24 +424,6 @@ class Trainer:
 
         if log_dir is None:
             log_dir = tempfile.mkdtemp()
-
-        if augmentation is not None:
-            if isinstance(feature_extraction, Precomputed):
-                msg = ('One cannot use `Precomputed` features when using '
-                       'data augmentation as features have to be computed '
-                       'on the fly on "augmented" waveforms.')
-                raise ValueError(msg)
-            else:
-                feature_extraction.augmentation = augmentation
-
-        if normalization is not None:
-            if isinstance(feature_extraction, Precomputed):
-                msg = ('One cannot use `Precomputed` features when using '
-                       'feature normalization. Normalization must be applied '
-                       'when features are precomputed.')
-                raise ValueError(msg)
-            else:
-                feature_extraction.normalization = normalization
 
         # initialize batch generator
         batch_generator = self.get_batch_generator(feature_extraction)

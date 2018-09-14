@@ -180,10 +180,10 @@ from pyannote.audio.labeling.extraction import SequenceLabeling
 
 class SpeechActivityDetection(Application):
 
-    def __init__(self, experiment_dir, db_yml=None):
+    def __init__(self, experiment_dir, db_yml=None, training=False):
 
         super(SpeechActivityDetection, self).__init__(
-            experiment_dir, db_yml=db_yml)
+            experiment_dir, db_yml=db_yml, training=training)
 
         # task
         task_name = self.config_['task']['name']
@@ -349,7 +349,8 @@ def main():
         else:
             epochs = int(epochs)
 
-        application = SpeechActivityDetection(experiment_dir, db_yml=db_yml)
+        application = SpeechActivityDetection(experiment_dir, db_yml=db_yml,
+                                              training=True)
         application.device = device
         application.train(protocol_name, subset=subset,
                           restart=restart, epochs=epochs)
@@ -382,7 +383,7 @@ def main():
         batch_size = int(arguments['--batch'])
 
         application = SpeechActivityDetection.from_train_dir(
-            train_dir, db_yml=db_yml)
+            train_dir, db_yml=db_yml, training=False)
         application.device = device
         application.batch_size = batch_size
         application.validate(protocol_name, subset=subset,
@@ -406,7 +407,7 @@ def main():
         batch_size = int(arguments['--batch'])
 
         application = SpeechActivityDetection.from_model_pt(
-            model_pt, db_yml=db_yml)
+            model_pt, db_yml=db_yml, training=False)
         application.device = device
         application.batch_size = batch_size
         application.apply(protocol_name, output_dir, step=step)

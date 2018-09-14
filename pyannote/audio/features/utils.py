@@ -161,12 +161,19 @@ class RawAudio(object):
         Data augmentation.
     """
 
-    def __init__(self, sample_rate=None, mono=True, augmentation=None):
+    def __init__(self, sample_rate=None, mono=True,
+                 augmentation=None, normalization=None):
+
+        if normalization is not None:
+            msg = 'Feature normalization is not supported by `RawAudio`'
+            raise ValueError(msg)
+
         super(RawAudio, self).__init__()
         self.sample_rate = sample_rate
         self.mono = mono
 
         self.augmentation = augmentation
+
 
         if sample_rate is not None:
             self.sliding_window_ = SlidingWindow(start=-.5/sample_rate,
@@ -321,7 +328,16 @@ class Precomputed(object):
         return path
 
     def __init__(self, root_dir=None, use_memmap=True,
-                 sliding_window=None, dimension=None):
+                 sliding_window=None, dimension=None,
+                 normalization=None, augmentation=None):
+
+        if augmentation is not None:
+            msg = 'Data augmentation is not supported by `Precomputed`.'
+            raise ValueError(msg)
+
+        if normalization is not None:
+            msg = 'Feature normalization is not supported by `Precomputed`.'
+            raise ValueError(msg)
 
         super(Precomputed, self).__init__()
         self.root_dir = Path(root_dir).expanduser().resolve(strict=False)

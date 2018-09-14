@@ -193,10 +193,10 @@ from pyannote.audio.generators.speaker import SpeechTurnSubSegmentGenerator
 
 class SpeakerEmbedding(Application):
 
-    def __init__(self, experiment_dir, db_yml=None):
+    def __init__(self, experiment_dir, db_yml=None, training=False):
 
         super(SpeakerEmbedding, self).__init__(
-            experiment_dir, db_yml=db_yml)
+            experiment_dir, db_yml=db_yml, training=training)
 
         # architecture
         architecture_name = self.config_['architecture']['name']
@@ -557,7 +557,8 @@ def main():
         else:
             epochs = int(epochs)
 
-        application = SpeakerEmbedding(experiment_dir, db_yml=db_yml)
+        application = SpeakerEmbedding(experiment_dir, db_yml=db_yml,
+                                       training=True)
         application.device = device
         application.train(protocol_name, subset=subset,
                           restart=restart, epochs=epochs)
@@ -593,7 +594,7 @@ def main():
         batch_size = int(arguments['--batch'])
 
         application = SpeakerEmbedding.from_train_dir(
-            train_dir, db_yml=db_yml)
+            train_dir, db_yml=db_yml, training=False)
         application.device = device
         application.turn = turn
         application.batch_size = batch_size
@@ -633,7 +634,7 @@ def main():
         batch_size = int(arguments['--batch'])
 
         application = SpeakerEmbedding.from_model_pt(
-            model_pt, db_yml=db_yml)
+            model_pt, db_yml=db_yml, training=False)
         application.device = device
         application.batch_size = batch_size
 

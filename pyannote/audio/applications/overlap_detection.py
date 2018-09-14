@@ -230,7 +230,7 @@ def main():
         precision = float(arguments['--precision'])
 
         application = OverlapDetection.from_train_dir(
-            train_dir, db_yml=db_yml)
+            train_dir, db_yml=db_yml, training=False)
         application.device = device
         application.batch_size = batch_size
         application.precision = precision

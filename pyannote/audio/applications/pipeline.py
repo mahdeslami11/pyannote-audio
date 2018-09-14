@@ -104,19 +104,19 @@ from pyannote.database import get_unique_identifier
 class Pipeline(Application):
 
     @classmethod
-    def from_params_yml(cls, params_yml, db_yml=None):
+    def from_params_yml(cls, params_yml, db_yml=None, training=False):
         train_dir = dirname(params_yml)
-        app = cls.from_train_dir(train_dir, db_yml=db_yml)
+        app = cls.from_train_dir(train_dir, db_yml=db_yml, training=training)
         app.params_yml_ = params_yml
         with open(params_yml, mode='r') as fp:
             params = yaml.load(fp)
         app.pipeline_.with_params(**params)
         return app
 
-    def __init__(self, experiment_dir, db_yml=None):
+    def __init__(self, experiment_dir, db_yml=None, training=False):
 
         super(Pipeline, self).__init__(
-            experiment_dir, db_yml=db_yml)
+            experiment_dir, db_yml=db_yml, training=training)
 
         # pipeline
         pipeline_name = self.config_['pipeline']['name']
@@ -256,7 +256,7 @@ def main():
         if subset is None:
             subset = 'development'
 
-        application = Pipeline(experiment_dir, db_yml=db_yml)
+        application = Pipeline(experiment_dir, db_yml=db_yml, training=True)
         application.train(protocol_name, subset=subset, n_calls=trials)
 
     if arguments['apply']:
@@ -268,5 +268,5 @@ def main():
         output_dir = output_dir.expanduser().resolve(strict=False)
 
         application = Pipeline.from_params_yml(
-            params_yml, db_yml=db_yml)
+            params_yml, db_yml=db_yml, training=False)
         application.apply(protocol_name, output_dir)

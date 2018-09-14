@@ -51,29 +51,38 @@ class Application(object):
     VALIDATE_DIR = '{train_dir}/validate/{protocol}.{subset}'
 
     @classmethod
-    def from_train_dir(cls, train_dir, db_yml=None):
+    def from_train_dir(cls, train_dir, db_yml=None, training=False):
         experiment_dir = dirname(dirname(train_dir))
-        app = cls(experiment_dir, db_yml=db_yml)
+        app = cls(experiment_dir, db_yml=db_yml, training=training)
         app.train_dir_ = train_dir
         return app
 
     @classmethod
-    def from_validate_txt(cls, validate_txt, db_yml=None):
+    def from_validate_txt(cls, validate_txt, db_yml=None, training=False):
         train_dir = dirname(dirname(dirname(validate_txt)))
-        app = cls.from_train_dir(train_dir, db_yml=db_yml)
+        app = cls.from_train_dir(train_dir, db_yml=db_yml, training=training)
         app.validate_txt_ = validate_txt
         return app
 
     @classmethod
-    def from_model_pt(cls, model_pt, db_yml=None):
+    def from_model_pt(cls, model_pt, db_yml=None, training=False):
         train_dir = dirname(dirname(model_pt))
-        app = cls.from_train_dir(train_dir, db_yml=db_yml)
+        app = cls.from_train_dir(train_dir, db_yml=db_yml, training=training)
         app.model_pt_ = model_pt
         epoch = int(basename(app.model_pt_)[:-3])
         app.model_ = app.load_model(epoch, train_dir=train_dir)
         return app
 
-    def __init__(self, experiment_dir, db_yml=None):
+    def __init__(self, experiment_dir, db_yml=None, training=False):
+        """
+
+        Parameters
+        ----------
+        experiment_dir : str
+        db_yml : str, optional
+        training : boolean, optional
+            When False, data augmentation is disabled.
+        """
         super(Application, self).__init__()
 
         self.db_yml = db_yml
@@ -112,6 +121,28 @@ class Application(object):
         optimizer_params = optimizer_cfg.get('params', {})
         self.get_optimizer_ = partial(Optimizer, **optimizer_params)
 
+        # data augmentation (only when training the model)
+        if training and 'data_augmentation' in self.config_ :
+            augmentation_name = self.config_['data_augmentation']['name']
+            augmentation = __import__('pyannote.audio.augmentation',
+                                      fromlist=[augmentation_name])
+            DataAugmentation = getattr(augmentation, augmentation_name)
+            augmentation = DataAugmentation(
+                **self.config_['data_augmentation'].get('params', {}))
+        else:
+            augmentation = None
+
+        # feature normalization
+        if 'feature_normalization' in self.config_:
+            normalization_name = self.config_['feature_normalization']['name']
+            normalization = __import__('pyannote.audio.features.normalization',
+                                       fromlist=[normalization_name])
+            FeatureNormalization = getattr(normalization, normalization_name)
+            normalization = FeatureNormalization(
+                **self.config_['feature_normalization'].get('params', {}))
+        else:
+            normalization = None
+
         # feature extraction
         extraction_name = None
         if 'feature_extraction' in self.config_:
@@ -120,32 +151,8 @@ class Application(object):
                                   fromlist=[extraction_name])
             FeatureExtraction = getattr(features, extraction_name)
             self.feature_extraction_ = FeatureExtraction(
-                **self.config_['feature_extraction'].get('params', {}))
-
-        # feature normalization
-        if 'feature_normalization' in self.config_:
-            normalization_name = self.config_['feature_normalization']['name']
-            normalization = __import__('pyannote.audio.features.normalization',
-                                       fromlist=[normalization_name])
-            FeatureNormalization = getattr(normalization, normalization_name)
-            self.normalization_ = FeatureNormalization(
-                **self.config_['feature_normalization'].get('params', {}))
-
-        else:
-            self.normalization_ = None
-
-        # data augmentation
-        if 'data_augmentation' in self.config_:
-            augmentation_name = self.config_['data_augmentation']['name']
-            augmentation = __import__('pyannote.audio.augmentation',
-                                      fromlist=[augmentation_name])
-            DataAugmentation = getattr(augmentation, augmentation_name)
-            self.augmentation_ = DataAugmentation(
-                **self.config_['data_augmentation'].get('params', {}))
-
-        else:
-            self.augmentation_ = None
-
+                **self.config_['feature_extraction'].get('params', {}),
+                augmentation=augmentation, normalization=normalization)
 
     def train(self, protocol_name, subset='train', restart=None, epochs=1000):
 

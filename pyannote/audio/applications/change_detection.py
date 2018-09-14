@@ -281,7 +281,8 @@ def main():
         else:
             epochs = int(epochs)
 
-        application = SpeakerChangeDetection(experiment_dir, db_yml=db_yml)
+        application = SpeakerChangeDetection(experiment_dir, db_yml=db_yml,
+                                             training=True)
         application.device = device
         application.train(protocol_name, subset=subset,
                           restart=restart, epochs=epochs)
@@ -316,7 +317,7 @@ def main():
         purity = float(arguments['--purity'])
 
         application = SpeakerChangeDetection.from_train_dir(
-            train_dir, db_yml=db_yml)
+            train_dir, db_yml=db_yml, training=False)
         application.device = device
         application.batch_size = batch_size
         application.purity = purity
@@ -341,7 +342,7 @@ def main():
         batch_size = int(arguments['--batch'])
 
         application = SpeakerChangeDetection.from_model_pt(
-            model_pt, db_yml=db_yml)
+            model_pt, db_yml=db_yml, training=False)
         application.device = device
         application.batch_size = batch_size
         application.apply(protocol_name, output_dir, step=step)
