@@ -229,7 +229,8 @@ class FeatureExtraction(object):
 
         # normalization
         if self.normalization:
-            features = self.normalization(features)
+            features = self.normalization(features,
+                                          sliding_window=self.sliding_window)
 
         # get rid of additional context before returning
         frames = self.sliding_window
