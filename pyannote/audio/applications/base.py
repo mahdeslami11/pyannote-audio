@@ -129,7 +129,7 @@ class Application(object):
                                        fromlist=[normalization_name])
             FeatureNormalization = getattr(normalization, normalization_name)
             self.normalization_ = FeatureNormalization(
-                **self.config_['feature_normalization'].get('params', {})
+                **self.config_['feature_normalization'].get('params', {}))
 
         else:
             self.normalization_ = None
