@@ -225,7 +225,8 @@ class Trainer:
 
         iterations = self.fit_iter(
             model, feature_extraction,
-            protocol, subset=subset, augmentation=augmentation,
+            protocol, subset=subset,
+            augmentation=augmentation, normalization=normalization,
             restart=restart, epochs=epochs,
             get_optimizer=get_optimizer, get_scheduler=get_scheduler,
             learning_rate=learning_rate, log_dir=log_dir, device=device)
