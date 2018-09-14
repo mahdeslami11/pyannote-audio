@@ -46,7 +46,11 @@ class PySpeechFeaturesExtraction(FeatureExtraction):
     sample_rate : int, optional
         Defaults to 16000 (i.e. 16kHz)
     augmentation : `pyannote.audio.augmentation.Augmentation`, optional
-        Defaults to no augmentation.
+        Data augmentation.
+    normalization : callable, optional
+        Feature normalization. See
+        `pyannote.audio.features.normalization.ShortTermStandardization` for an
+        example.
     duration : float, optional
         Defaults to 0.025.
     step : float, optional
@@ -54,9 +58,11 @@ class PySpeechFeaturesExtraction(FeatureExtraction):
     """
 
     def __init__(self, sample_rate=16000, augmentation=None,
-                 duration=0.025, step=0.01):
+                 normalization=None, duration=0.025, step=0.01):
 
-        super().__init__(sample_rate=sample_rate, augmentation=augmentation)
+        super().__init__(sample_rate=sample_rate,
+                         augmentation=augmentation,
+                         normalization=normalization)
         self.duration = duration
         self.step = step
 
@@ -76,7 +82,11 @@ class PySpeechFeaturesMFCC(PySpeechFeaturesExtraction):
     sample_rate : int, optional
         Defaults to 16000 (i.e. 16kHz)
     augmentation : `pyannote.audio.augmentation.Augmentation`, optional
-        Defaults to no augmentation.
+        Data augmentation.
+    normalization : callable, optional
+        Feature normalization. See
+        `pyannote.audio.features.normalization.ShortTermStandardization` for an
+        example.
     duration : float, optional
         Defaults to 0.025.
     step : float, optional
@@ -86,10 +96,11 @@ class PySpeechFeaturesMFCC(PySpeechFeaturesExtraction):
     """
 
     def __init__(self, sample_rate=16000, augmentation=None,
-                 duration=0.025, step=0.01, coefs=13):
+                 normalization=None, duration=0.025, step=0.01, coefs=13):
 
         super().__init__(sample_rate=sample_rate, augmentation=augmentation,
-                         duration=duration, step=step)
+                         normalization=normalization, duration=duration,
+                         step=step)
         self.coefs = coefs
 
     def get_dimension(self):

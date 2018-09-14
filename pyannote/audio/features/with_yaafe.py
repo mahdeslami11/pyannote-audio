@@ -46,7 +46,11 @@ class YaafeFeatureExtraction(FeatureExtraction):
     sample_rate : int, optional
         Defaults to 16000 (i.e. 16kHz)
     augmentation : `pyannote.audio.augmentation.Augmentation`, optional
-        Defaults to no augmentation.
+        Data augmentation.
+    normalization : callable, optional
+        Feature normalization. See
+        `pyannote.audio.features.normalization.ShortTermStandardization` for an
+        example.
     duration : float, optional
         Defaults to 0.025.
     step : float, optional
@@ -56,9 +60,11 @@ class YaafeFeatureExtraction(FeatureExtraction):
     """
 
     def __init__(self, sample_rate=16000, augmentation=None,
-                 duration=0.025, step=0.010, stack=1):
+                 normalization=None, duration=0.025, step=0.010, stack=1):
 
-        super().__init__(sample_rate=sample_rate, augmentation=augmentation)
+        super().__init__(sample_rate=sample_rate,
+                         augmentation=augmentation,
+                         normalization=normalization)
         self.duration = duration
         self.step = step
         self.stack = stack
@@ -72,10 +78,8 @@ class YaafeFeatureExtraction(FeatureExtraction):
     def get_sliding_window(self):
         return self.sliding_window_
 
-    def get_margins(self):
-        onset = 8 * self.step
-        offset = 7 * self.step + self.duration
-        return onset, offset
+    def get_context_duration(self):
+        return 8 * self.step + self.duration
 
     def get_features(self, y, sample_rate):
         """Feature extraction
@@ -137,7 +141,7 @@ class YaafeFeatureExtraction(FeatureExtraction):
 class YaafeCompound(YaafeFeatureExtraction):
 
     def __init__(self, extractors, sample_rate=16000, augmentation=None,
-                 duration=0.025, step=0.010, stack=1):
+                 normalization=None, duration=0.025, step=0.010, stack=1):
 
         assert all(e.sample_rate == sample_rate for e in extractors)
         assert all(e.duration == duration for e in extractors)
@@ -145,7 +149,8 @@ class YaafeCompound(YaafeFeatureExtraction):
         assert all(e.stack == stack for e in extractors)
 
         super().__init__(sample_rate=sample_rate, augmentation=augmentation,
-                         duration=duration, step=step, stack=stack)
+                         normalization=normalization, duration=duration,
+                         step=step, stack=stack)
 
         self.extractors = extractors
 
@@ -204,7 +209,11 @@ class YaafeMFCC(YaafeFeatureExtraction):
     sample_rate : int, optional
         Defaults to 16000.
     augmentation : `pyannote.audio.augmentation.Augmentation`, optional
-        Defaults to no augmentation.
+        Data augmentation.
+    normalization : callable, optional
+        Feature normalization. See
+        `pyannote.audio.features.normalization.ShortTermStandardization` for an
+        example.
     duration : float, optional
         Defaults to 0.025.
     step : float, optional
@@ -233,11 +242,12 @@ class YaafeMFCC(YaafeFeatureExtraction):
     """
 
     def __init__(self, sample_rate=16000, augmentation=None,
-                 duration=0.025, step=0.010, stack=1,
+                 normalization=None, duration=0.025, step=0.010, stack=1,
                  e=True, coefs=11, De=False, DDe=False, D=False, DD=False):
 
         super().__init__(sample_rate=sample_rate, augmentation=augmentation,
-                         duration=duration, step=step, stack=stack)
+                         normalization=normalization, duration=duration,
+                         step=step, stack=stack)
 
         self.e = e
         self.coefs = coefs

@@ -45,6 +45,9 @@ class ShortTermStandardization(object):
         super(ShortTermStandardization, self).__init__()
         self.duration = duration
 
+    def get_context_duration(self):
+        return .5 * self.duration
+
     def __call__(self, features, sliding_window=None):
         """Apply short-term standardization
 

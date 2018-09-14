@@ -122,6 +122,19 @@ class Application(object):
             self.feature_extraction_ = FeatureExtraction(
                 **self.config_['feature_extraction'].get('params', {}))
 
+        # feature normalization
+        if 'feature_normalization' in self.config_:
+            normalization_name = self.config_['feature_normalization']['name']
+            normalization = __import__('pyannote.audio.features.normalization',
+                                       fromlist=[normalization_name])
+            FeatureNormalization = getattr(normalization, normalization_name)
+            self.normalization_ = FeatureNormalization(
+                **self.config_['feature_normalization'].get('params', {})
+
+        else:
+            self.normalization_ = None
+
+        # data augmentation
         if 'data_augmentation' in self.config_:
             augmentation_name = self.config_['data_augmentation']['name']
             augmentation = __import__('pyannote.audio.augmentation',
@@ -146,7 +159,9 @@ class Application(object):
 
         self.task_.fit(
             self.model_, self.feature_extraction_,
-            protocol, subset=subset, augmentation=self.augmentation_,
+            protocol, subset=subset,
+            augmentation=self.augmentation_,
+            normalization=self.normalization_,
             restart=restart, epochs=epochs,
             get_optimizer=self.get_optimizer_,
             get_scheduler=self.get_scheduler_,

@@ -158,9 +158,10 @@ class RawAudio(object):
     mono : int, optional
         Convert multi-channel to mono. Defaults to True.
     augmentation : `pyannote.audio.augmentation.Augmentation`, optional
+        Data augmentation.
     """
 
-    def __init__(self, sample_rate=None, augmentation=None, mono=True):
+    def __init__(self, sample_rate=None, mono=True, augmentation=None):
         super(RawAudio, self).__init__()
         self.sample_rate = sample_rate
         self.mono = mono
@@ -211,8 +212,8 @@ class RawAudio(object):
 
         return SlidingWindowFeature(y, sliding_window)
 
-    def get_margins(self):
-        return 0., 0.
+    def get_context_duration(self):
+        return 0.
 
     def crop(self, current_file, segment, mode='center', fixed=None):
         """Fast version of self(current_file).crop(segment, **kwargs)
