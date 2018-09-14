@@ -32,6 +32,45 @@ import pandas as pd
 from pyannote.core import SlidingWindowFeature
 
 
+class GlobalStandardization(object):
+    """Mean/variance normalization"""
+
+    def get_context_duration(self):
+        return 0.
+
+    def __call__(self, features, sliding_window=None):
+        """Apply global standardization
+
+        Parameters
+        ----------
+        features : `SlidingWindowFeature` or (n_samples, n_features ) `numpy.ndarray`
+            Features.
+        sliding_window : `SlidingWindow`, optional
+            Not used.
+
+        Returns
+        -------
+        normalized : `SlidingWindowFeature` or (n_samples, n_features ) `numpy.ndarray`
+            Standardized features
+        """
+
+        if isinstance(features, SlidingWindowFeature):
+            data = features.data
+        else:
+            data = features
+
+        mu = np.mean(data, axis=0)
+        sigma = np.std(data, axis=0, ddof=1)
+        sigma[sigma == 0.] = 1e-6
+
+        normalized = (data - mu) / sigma
+
+        if isinstance(features, SlidingWindowFeature):
+            return SlidingWindowFeature(normalized, features.sliding_window)
+        else:
+            return normalized
+
+
 class ShortTermStandardization(object):
     """Short term mean/variance normalization
 
