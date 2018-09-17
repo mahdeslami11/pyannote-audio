@@ -35,8 +35,6 @@ from scipy.spatial.distance import squareform
 from pyannote.metrics.binary_classification import det_curve
 from collections import deque
 from pyannote.audio.train import Trainer
-from torch.nn.utils.rnn import pad_sequence
-from torch.nn.utils.rnn import pack_padded_sequence
 
 
 class TripletLoss(Trainer):
@@ -375,31 +373,7 @@ class TripletLoss(Trainer):
             Triplet loss.
         """
 
-        lengths = torch.tensor([len(x) for x in batch['X']])
-        variable_lengths = len(set(lengths)) > 1
-
-        if variable_lengths:
-
-            sorted_lengths, sort = torch.sort(lengths, descending=True)
-            _, unsort = torch.sort(sort)
-
-            sequences = [torch.tensor(batch['X'][i],
-                                      dtype=torch.float32,
-                                      device=device) for i in sort]
-            padded = pad_sequence(sequences, batch_first=True, padding_value=0)
-            packed = pack_padded_sequence(padded, sorted_lengths,
-                                          batch_first=True)
-            batch['X'] = packed
-        else:
-            batch['X'] = torch.tensor(np.stack(batch['X']),
-                                      dtype=torch.float32,
-                                      device=device)
-
-        # forward pass
-        fX = model(batch['X'])
-
-        if variable_lengths:
-            fX = fX[unsort]
+        fX = self.forward(batch, model, device)
 
         # log embedding norms
         if writer is not None:

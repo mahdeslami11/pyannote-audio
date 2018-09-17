@@ -31,8 +31,6 @@ import torch
 import torch.nn as nn
 from pyannote.audio.generators.speaker import SpeechSegmentGenerator
 from pyannote.audio.train import Trainer
-from torch.nn.utils.rnn import pad_sequence
-from torch.nn.utils.rnn import pack_padded_sequence
 
 
 class Classifier(nn.Module):
@@ -199,32 +197,7 @@ class Softmax(Trainer):
             Negative log likelihood loss
         """
 
-        lengths = torch.tensor([len(x) for x in batch['X']])
-        variable_lengths = len(set(lengths)) > 1
-
-        if variable_lengths:
-
-            sorted_lengths, sort = torch.sort(lengths, descending=True)
-            _, unsort = torch.sort(sort)
-
-            sequences = [torch.tensor(batch['X'][i],
-                                      dtype=torch.float32,
-                                      device=device) for i in sort]
-            padded = pad_sequence(sequences, batch_first=True, padding_value=0)
-            packed = pack_padded_sequence(padded, sorted_lengths,
-                                          batch_first=True)
-            batch['X'] = packed
-        else:
-            batch['X'] = torch.tensor(np.stack(batch['X']),
-                                      dtype=torch.float32,
-                                      device=device)
-
-        # forward pass
-        fX = model(batch['X'])
-
-        if variable_lengths:
-            fX = fX[unsort]
-
+        fX = self.forward(batch, model, device)
         y_pred = self.classifier_(fX)
         y = torch.tensor(np.stack(batch['y']), device=device)
         return self.loss_(y_pred, y)

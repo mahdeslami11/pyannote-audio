@@ -35,6 +35,8 @@ from collections import deque
 from torch.optim import SGD
 from scipy.signal import convolve
 from abc import ABCMeta, abstractmethod
+from torch.nn.utils.rnn import pad_sequence
+from torch.nn.utils.rnn import pack_padded_sequence
 from pyannote.audio.train.schedulers import ConstantScheduler
 from pyannote.audio.train.checkpoint import Checkpoint
 from tensorboardX import SummaryWriter
@@ -151,6 +153,52 @@ class Trainer:
             Loss value.
         """
         pass
+
+    def forward(self, batch, model, device):
+        """Forward pass on current batch
+
+        Parameters
+        ----------
+        batch : `dict`
+            ['X'] (`list`of `numpy.ndarray`)
+        model : `torch.nn.Module`
+            Model currently being trained.
+        device : `torch.device`
+            Device used by model parameters.
+
+        Returns
+        -------
+        fX : `torch.Tensor`
+            model(batch['X'])
+        """
+
+        lengths = torch.tensor([len(x) for x in batch['X']])
+        variable_lengths = len(set(lengths)) > 1
+
+        if variable_lengths:
+
+            sorted_lengths, sort = torch.sort(lengths, descending=True)
+            _, unsort = torch.sort(sort)
+
+            sequences = [torch.tensor(batch['X'][i],
+                                      dtype=torch.float32,
+                                      device=device) for i in sort]
+            padded = pad_sequence(sequences, batch_first=True, padding_value=0)
+            packed = pack_padded_sequence(padded, sorted_lengths,
+                                          batch_first=True)
+            batch['X'] = packed
+        else:
+            batch['X'] = torch.tensor(np.stack(batch['X']),
+                                      dtype=torch.float32,
+                                      device=device)
+
+        # forward pass
+        fX = model(batch['X'])
+
+        if variable_lengths:
+            fX = fX[unsort]
+
+        return fX
 
     @abstractmethod
     def on_epoch_end(self, iteration, checkpoint, writer=None, **kwargs):
