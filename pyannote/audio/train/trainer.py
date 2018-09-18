@@ -172,11 +172,11 @@ class Trainer:
             model(batch['X'])
         """
 
-        lengths = torch.tensor([len(x) for x in batch['X']])
+        lengths = [len(x) for x in batch['X']]
         variable_lengths = len(set(lengths)) > 1
 
         if variable_lengths:
-
+            lengths = torch.tensor(lengths)
             sorted_lengths, sort = torch.sort(lengths, descending=True)
             _, unsort = torch.sort(sort)
 
