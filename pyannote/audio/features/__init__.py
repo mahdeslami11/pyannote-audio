@@ -31,7 +31,7 @@
 
 
 from .with_yaafe import YaafeCompound, YaafeZCR, YaafeMFCC
-from .with_librosa import LibrosaMFCC, LibrosaRMSE, LibrosaSpectrogram, LibrosaMelSpectrogram
+from .with_librosa import LibrosaMFCC, LibrosaSpectrogram, LibrosaMelSpectrogram
 from .with_python_speech_features import PySpeechFeaturesMFCC
 from .utils import Precomputed
 from .utils import PrecomputedHTK

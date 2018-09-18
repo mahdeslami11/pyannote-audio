@@ -122,7 +122,7 @@ class LibrosaSpectrogram(LibrosaFeatureExtraction):
             Features
         """
 
-        fft = librosa.core.stft(y=y, n_fft=self.n_fft_,
+        fft = librosa.core.stft(y=y.squeeze(), n_fft=self.n_fft_,
                                 hop_length=self.hop_length_,
                                 center=True, window='hamming')
         return np.abs(fft).T
@@ -180,54 +180,11 @@ class LibrosaMelSpectrogram(LibrosaFeatureExtraction):
         """
 
         X = librosa.feature.melspectrogram(
-            y, sr=sample_rate, n_mels=self.n_mels,
+            y.squeeze(), sr=sample_rate, n_mels=self.n_mels,
             n_fft=self.n_fft_, hop_length=self.hop_length_,
             power=2.0)
 
         return librosa.amplitude_to_db(X, ref=1.0, amin=1e-5, top_db=80.0).T
-
-
-class LibrosaRMSE(LibrosaFeatureExtraction):
-    """librosa RMSE
-
-    Parameters
-    ----------
-    sample_rate : int, optional
-        Defaults to 16000 (i.e. 16kHz)
-    augmentation : `pyannote.audio.augmentation.Augmentation`, optional
-        Data augmentation.
-    normalization : callable, optional
-        Feature normalization. See
-        `pyannote.audio.features.normalization.ShortTermStandardization` for an
-        example.
-    duration : float, optional
-        Defaults to 0.025.
-    step : float, optional
-        Defaults to 0.010.
-    """
-
-    def get_features(self, y, sample_rate):
-        """Feature extraction
-
-        Parameters
-        ----------
-        y : (n_samples, 1) numpy array
-            Waveform
-        sample_rate : int
-            Sample rate
-
-        Returns
-        -------
-        data : (n_frames, 1) numpy array
-            Features
-        """
-
-        n_fft = int(self.duration * sample_rate)
-        hop_length = int(self.step * sample_rate)
-        return librosa.feature.rmse(y=y, n_fft=n_fft, hop_length=hop_length).T
-
-    def get_dimension(self):
-        return 1
 
 
 class LibrosaMFCC(LibrosaFeatureExtraction):
@@ -311,7 +268,7 @@ class LibrosaMFCC(LibrosaFeatureExtraction):
         self.fmax = fmax      # yaafe / 6854.0
 
     def get_context_duration(self):
-        raise NotImplementedError('')
+        return 0.
 
     def get_features(self, y, sample_rate):
         """Feature extraction
@@ -336,7 +293,7 @@ class LibrosaMFCC(LibrosaFeatureExtraction):
         hop_length = int(self.step * sample_rate)
 
         mfcc = librosa.feature.mfcc(
-            y=y, sr=sample_rate, n_mfcc=n_mfcc,
+            y=y.squeeze(), sr=sample_rate, n_mfcc=n_mfcc,
             n_fft=n_fft, hop_length=hop_length,
             n_mels=self.n_mels, htk=True,
             fmin=self.fmin, fmax=self.fmax)
