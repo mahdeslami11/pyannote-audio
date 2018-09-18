@@ -174,7 +174,6 @@ class RawAudio(object):
 
         self.augmentation = augmentation
 
-
         if sample_rate is not None:
             self.sliding_window_ = SlidingWindow(start=-.5/sample_rate,
                                                  duration=1./sample_rate,
@@ -263,7 +262,7 @@ class RawAudio(object):
 
         # extract segment waveform
         (start, end), = self.sliding_window_.crop(
-            segment, mode='center', fixed=segment.duration, return_ranges=True)
+            segment, mode=mode, fixed=fixed, return_ranges=True)
         data = y[start:end]
 
         # see https://docs.scipy.org/doc/scipy/reference/generated/scipy.io.wavfile.read.html
