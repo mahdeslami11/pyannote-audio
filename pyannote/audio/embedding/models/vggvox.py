@@ -27,10 +27,10 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from .utils import get_conv2d_output_shape
 
 
 class VGGVox(nn.Module):
@@ -42,29 +42,6 @@ class VGGVox(nn.Module):
     speaker identification dataset."
 
     """
-
-    @staticmethod
-    def _output_shape(input_shape, kernel_size, stride=1, padding=0, dilation=1):
-        """Predict output shape"""
-
-        if not isinstance(kernel_size, tuple):
-            kernel_size = (kernel_size, kernel_size)
-        if not isinstance(stride, tuple):
-            stride = (stride, stride)
-        if not isinstance(padding, tuple):
-            padding = (padding, padding)
-        if not isinstance(dilation, tuple):
-            dilation = (dilation, dilation)
-
-        h_in, w_in = input_shape
-
-        h_out = (h_in + 2 * padding[0] - dilation[0] * (kernel_size[0]- 1) - 1)
-        h_out = h_out / stride[0] + 1
-
-        w_out = (w_in + 2 * padding[1] - dilation[1] * (kernel_size[1]- 1) - 1)
-        w_out = w_out / stride[1] + 1
-
-        return int(math.floor(h_out)), int(math.floor(w_out))
 
     def __init__(self, n_features, output_dim=256):
 
@@ -83,54 +60,54 @@ class VGGVox(nn.Module):
         self.conv1_ = nn.Conv2d(1, 96, (7, 7), stride=(2, 2), padding=1)
         # 254 x 148 when n_features = 512
         # 99 x 148 when n_features = 201
-        h, w = self._output_shape((h, w), (7, 7), stride=(2, 2), padding=1)
+        h, w = get_conv2d_output_shape((h, w), (7, 7), stride=(2, 2), padding=1)
 
         self.bn1_ = nn.BatchNorm2d(96)
         self.mpool1_ = nn.MaxPool2d((3, 3), stride=(2, 2))
         # 126 x 73 when n_features = 512
         # 49 x 73 when n_features = 201
-        h, w = self._output_shape((h, w), (3, 3), stride=(2, 2))
+        h, w = get_conv2d_output_shape((h, w), (3, 3), stride=(2, 2))
 
         self.conv2_ = nn.Conv2d(96, 256, (5, 5), stride=(2, 2), padding=1)
         # 62 x 36 when n_features = 512
         # 24 x 36 when n_features = 201
-        h, w = self._output_shape((h, w), (5, 5), stride=(2, 2), padding=1)
+        h, w = get_conv2d_output_shape((h, w), (5, 5), stride=(2, 2), padding=1)
 
         self.bn2_ = nn.BatchNorm2d(256)
         self.mpool2_ = nn.MaxPool2d((3, 3), stride=(2, 2))
         # 30 x 17 when n_features = 512
         # 11 x 17 when n_features = 201
-        h, w = self._output_shape((h, w), (3, 3), stride=(2, 2))
+        h, w = get_conv2d_output_shape((h, w), (3, 3), stride=(2, 2))
 
         self.conv3_ = nn.Conv2d(256, 256, (3, 3), stride=(1, 1), padding=1)
         # 30 x 17 when n_features = 512
         # 11 x 17 when n_features = 201
-        h, w = self._output_shape((h, w), (3, 3), stride=(1, 1), padding=1)
+        h, w = get_conv2d_output_shape((h, w), (3, 3), stride=(1, 1), padding=1)
 
         self.bn3_ = nn.BatchNorm2d(256)
 
         self.conv4_ = nn.Conv2d(256, 256, (3, 3), stride=(1, 1), padding=1)
         # 30 x 17 when n_features = 512
         # 11 x 17 when n_features = 201
-        h, w = self._output_shape((h, w), (3, 3), stride=(1, 1), padding=1)
+        h, w = get_conv2d_output_shape((h, w), (3, 3), stride=(1, 1), padding=1)
 
         self.bn4_ = nn.BatchNorm2d(256)
 
         self.conv5_ = nn.Conv2d(256, 256, (3, 3), stride=(1, 1), padding=1)
         # 30 x 17 when n_features = 512
         # 11 x 17 when n_features = 201
-        h, w = self._output_shape((h, w), (3, 3), stride=(1, 1), padding=1)
+        h, w = get_conv2d_output_shape((h, w), (3, 3), stride=(1, 1), padding=1)
 
         self.bn5_ = nn.BatchNorm2d(256)
 
         self.mpool5_ = nn.MaxPool2d((5, 3), stride=(3, 2))
         # 9 x 8 when n_features = 512
         # 3 x 8 when n_features = 201
-        h, w = self._output_shape((h, w), (5, 3), stride=(3, 2))
+        h, w = get_conv2d_output_shape((h, w), (5, 3), stride=(3, 2))
 
         self.fc6_ = nn.Conv2d(256, 4096, (h, 1), stride=(1, 1))
         # 1 x 8
-        h, w = self._output_shape((h, w), (h, 1), stride=(1, 1))
+        h, w = get_conv2d_output_shape((h, w), (h, 1), stride=(1, 1))
 
         self.fc7_ = nn.Linear(4096, 1024)
         self.fc8_ = nn.Linear(1024, self.output_dim)
