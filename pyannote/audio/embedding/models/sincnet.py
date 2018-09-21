@@ -49,6 +49,16 @@ class SincConv(nn.Module):
     sample_rate : `int`, optional
         Sample rate. Defaults to 16000.
 
+    Usage
+    -----
+    See `torch.nn.Conv1d`
+
+    Reference
+    ---------
+    Mirco Ravanelli, Yoshua Bengio,
+    "Speaker Recognition from raw waveform with SincNet".
+    https://arxiv.org/abs/1808.00158
+
     """
 
     @staticmethod
@@ -131,7 +141,7 @@ class SincConv(nn.Module):
         self.n_ = self.n_.to(waveforms.device)
         self.window_ = self.window_.to(waveforms.device)
 
-        # ASK AUTHORS: why torch.abs and not torch.clamp?
+        # why torch.abs? see https://github.com/mravanelli/SincNet/issues/4
         low = self.min_low_hz / self.sample_rate + torch.abs(self.low_hz_)
         high = low + self.min_band_hz /self.sample_rate + torch.abs(self.band_hz_)
 
