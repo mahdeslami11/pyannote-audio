@@ -100,7 +100,8 @@ class AddNoise(Augmentation):
             # if noise file is longer than what is needed, crop it
             if duration > left:
                 segment = next(random_subsegment(Segment(0, duration), left))
-                noise = raw_audio.crop({'audio': filename}, segment)
+                noise = raw_audio.crop({'audio': filename}, segment,
+                                       mode='center', fixed=left)
                 left -= left
 
             # otherwise, take the whole file
