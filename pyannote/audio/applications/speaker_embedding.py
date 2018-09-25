@@ -329,6 +329,16 @@ class SpeakerEmbedding(Application):
                    'supported in "validation" mode.')
             raise ValueError(msg)
 
+    @staticmethod
+    def get_hash(trial_file):
+        uri = get_unique_identifier(trial_file)
+        try_with = trial_file['try_with']
+        if isinstance(try_with, Timeline):
+            segments = tuple(try_with)
+        else:
+            segments = (try_with, )
+        return hash((uri, segments))
+
     def _validate_epoch_verification(self, epoch, protocol_name,
                                      subset='development',
                                      validation_data=None):
@@ -383,49 +393,32 @@ class SpeakerEmbedding(Application):
         protocol = get_protocol(protocol_name, progress=False,
                                 preprocessors=self.preprocessors_)
 
-        enrolment_models, enrolment_khashes = {}, {}
-        enrolments = getattr(protocol, '{0}_enrolment'.format(subset))()
-        for i, enrolment in enumerate(enrolments):
-            data = sequence_embedding.apply(enrolment,
-                                            crop=enrolment['enrol_with'])
-            model_id = enrolment['model_id']
-            model = np.mean(np.stack(data), axis=0, keepdims=True)
-            enrolment_models[model_id] = model
+        y_true, y_pred, cache = [], [], {}
 
-            # in some specific speaker verification protocols,
-            # enrolment data may be  used later as trial data.
-            # therefore, we cache information about enrolment data
-            # to speed things up by reusing the enrolment as trial
-            h = hash((get_unique_identifier(enrolment),
-                      tuple(enrolment['enrol_with'])))
-            enrolment_khashes[h] = model_id
+        for trial in getattr(protocol, '{0}_trial'.format(subset))():
 
-        trial_models = {}
-        trials = getattr(protocol, '{0}_trial'.format(subset))()
-        y_true, y_pred = [], []
-        for i, trial in enumerate(trials):
-            model_id = trial['model_id']
-
-            h = hash((get_unique_identifier(trial),
-                      tuple(trial['try_with'])))
-
-            # re-use enrolment model whenever possible
-            if h in enrolment_khashes:
-                model = enrolment_models[enrolment_khashes[h]]
-
-            # re-use trial model whenever possible
-            elif h in trial_models:
-                model = trial_models[h]
-
+            # compute embedding for file1
+            hash1 = self.get_hash(file1)
+            if hash1 in cache:
+                emb1 = cache[hash1]
             else:
-                data = sequence_embedding.apply(trial, crop=trial['try_with'])
-                model = np.mean(data, axis=0, keepdims=True)
-                # cache trial model for later re-use
-                trial_models[h] = model
+                emb1 = sequence_embedding.apply(file1, crop=file1['try_with'])
+                emb1 = np.mean(np.stack(emb1), axis=0, keepdims=True)
+                cache[hash1] = emb1
 
-            distance = cdist(enrolment_models[model_id], model,
-                             metric=self.metric)[0, 0]
+            # compute embedding for file2
+            hash2 = self.get_hash(file2)
+            if hash2 in cache:
+                emb2 = cache[hash2]
+            else:
+                emb2 = sequence_embedding.apply(file2, crop=file2['try_with'])
+                emb2 = np.mean(np.stack(emb2), axis=0, keepdims=True)
+                cache[hash2] = emb2
+
+            # compare embeddings
+            distance = cdist(emb1, emb2, metric=self.metric)[0, 0]
             y_pred.append(distance)
+
             y_true.append(trial['reference'])
 
         _, _, _, eer = det_curve(np.array(y_true), np.array(y_pred),
