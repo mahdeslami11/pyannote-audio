@@ -180,6 +180,8 @@ from pathlib import Path
 from docopt import docopt
 from .base import Application
 
+from pyannote.core import Timeline
+
 from pyannote.database import FileFinder
 from pyannote.database import get_protocol
 from pyannote.database import get_unique_identifier
@@ -398,6 +400,7 @@ class SpeakerEmbedding(Application):
         for trial in getattr(protocol, '{0}_trial'.format(subset))():
 
             # compute embedding for file1
+            file1 = trial['file1']
             hash1 = self.get_hash(file1)
             if hash1 in cache:
                 emb1 = cache[hash1]
@@ -407,6 +410,7 @@ class SpeakerEmbedding(Application):
                 cache[hash1] = emb1
 
             # compute embedding for file2
+            file2 = trial['file2']
             hash2 = self.get_hash(file2)
             if hash2 in cache:
                 emb2 = cache[hash2]
