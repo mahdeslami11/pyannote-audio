@@ -179,11 +179,15 @@ import numpy as np
 from pathlib import Path
 from docopt import docopt
 from .base import Application
+
 from pyannote.database import FileFinder
 from pyannote.database import get_protocol
+from pyannote.database import get_unique_identifier
+from pyannote.database.protocol import SpeakerDiarizationProtocol
+from pyannote.database.protocol import SpeakerVerificationProtocol
+
 from pyannote.audio.embedding.utils import pdist
 from pyannote.audio.embedding.utils import cdist
-from pyannote.database import get_unique_identifier
 from pyannote.audio.features.utils import Precomputed
 from pyannote.metrics.binary_classification import det_curve
 from pyannote.audio.embedding.extraction import SequenceEmbedding
@@ -217,12 +221,13 @@ class SpeakerEmbedding(Application):
 
     def validate_init(self, protocol_name, subset='development'):
 
-        task = protocol_name.split('.')[1]
-        if task == 'SpeakerVerification':
+        protocol = get_protocol(protocol_name)
+
+        if isinstance(protocol, SpeakerVerificationProtocol):
             return self._validate_init_verification(protocol_name,
                                                     subset=subset)
 
-        elif task == 'SpeakerDiarization':
+        elif isinstance(protocol, SpeakerDiarizationProtocol):
 
             if self.duration is None:
                 duration = getattr(self.task_, 'duration', None)
@@ -302,13 +307,14 @@ class SpeakerEmbedding(Application):
     def validate_epoch(self, epoch, protocol_name, subset='development',
                        validation_data=None):
 
-        task = protocol_name.split('.')[1]
-        if task == 'SpeakerVerification':
+        protocol = get_protocol(protocol_name)
+
+        if isinstance(protocol, SpeakerVerificationProtocol):
             return self._validate_epoch_verification(
                 epoch, protocol_name, subset=subset,
                 validation_data=validation_data)
 
-        elif task == 'SpeakerDiarization':
+        elif isinstance(protocol, SpeakerDiarizationProtocol):
             if self.turn:
                 return self._validate_epoch_turn(
                     epoch, protocol_name, subset=subset,
