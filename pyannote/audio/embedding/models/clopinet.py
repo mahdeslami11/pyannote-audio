@@ -100,9 +100,6 @@ class ClopiNet(nn.Module):
         if self.pooling not in {'sum', 'max'}:
             raise ValueError('"pooling" must be one of {"sum", "max"}')
 
-        if self.instance_normalize:
-            self.instance_norm_ = nn.InstanceNorm1d(self.n_features)
-
         # create list of recurrent layers
         self.recurrent_layers_ = []
         input_dim = self.n_features
@@ -190,7 +187,9 @@ class ClopiNet(nn.Module):
         output = sequence
 
         if self.instance_normalize:
-            sequence = self.instance_norm_(sequence)
+            sequence = sequence.transpose(1, 2)
+            sequence = F.instance_norm(sequence)
+            sequence = sequence.transpose(1, 2)
 
         if self.weighted:
             self.alphas_ = self.alphas_.to(device)
