@@ -187,9 +187,9 @@ class ClopiNet(nn.Module):
         output = sequence
 
         if self.instance_normalize:
-            sequence = sequence.transpose(1, 2)
-            sequence = F.instance_norm(sequence)
-            sequence = sequence.transpose(1, 2)
+            output = output.transpose(1, 2)
+            output = F.instance_norm(output)
+            output = output.transpose(1, 2)
 
         if self.weighted:
             self.alphas_ = self.alphas_.to(device)
