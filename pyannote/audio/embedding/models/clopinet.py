@@ -55,6 +55,8 @@ class ClopiNet(nn.Module):
         mono-directional RNNs.
     pooling : {'sum', 'max'}
         Temporal pooling strategy. Defaults to 'sum'.
+    instance_normalize : boolean, optional
+        Apply mean/variance normalization on input sequences.
     batch_normalize : boolean, optional
         Set to False to not apply batch normalization before embedding
         normalization. Defaults to True.
@@ -76,8 +78,8 @@ class ClopiNet(nn.Module):
 
     def __init__(self, n_features,
                  rnn='LSTM', recurrent=[64, 64, 64], bidirectional=False,
-                 pooling='sum', batch_normalize=True, normalize=False,
-                 weighted=False, linear=None, attention=None):
+                 pooling='sum', instance_normalize=False, batch_normalize=True,
+                 normalize=False, weighted=False, linear=None, attention=None):
 
         super(ClopiNet, self).__init__()
 
@@ -86,6 +88,7 @@ class ClopiNet(nn.Module):
         self.recurrent = recurrent
         self.bidirectional = bidirectional
         self.pooling = pooling
+        self.instance_normalize = instance_normalize
         self.batch_normalize = batch_normalize
         self.normalize = normalize
         self.weighted = weighted
@@ -96,6 +99,9 @@ class ClopiNet(nn.Module):
 
         if self.pooling not in {'sum', 'max'}:
             raise ValueError('"pooling" must be one of {"sum", "max"}')
+
+        if self.instance_normalize:
+            self.instance_norm_ = nn.InstanceNorm1d(self.n_features)
 
         # create list of recurrent layers
         self.recurrent_layers_ = []
@@ -111,6 +117,7 @@ class ClopiNet(nn.Module):
                                          batch_first=True)
             else:
                 raise ValueError('"rnn" must be one of {"LSTM", "GRU"}.')
+            # TODO. use nn.ModuleList instead
             self.add_module('recurrent_{0}'.format(i), recurrent_layer)
             self.recurrent_layers_.append(recurrent_layer)
             input_dim = hidden_dim * (2 if self.bidirectional else 1)
@@ -181,6 +188,9 @@ class ClopiNet(nn.Module):
             raise ValueError(msg.format(n_features, self.n_features))
 
         output = sequence
+
+        if self.instance_normalize:
+            sequence = self.instance_norm_(sequence)
 
         if self.weighted:
             self.alphas_ = self.alphas_.to(device)
