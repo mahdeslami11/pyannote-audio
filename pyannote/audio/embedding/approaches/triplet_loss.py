@@ -30,6 +30,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from pyannote.audio.generators.speaker import SpeechSegmentGenerator
+from pyannote.audio.generators.speaker import FileWiseSpeechSegmentGenerator
 from pyannote.audio.embedding.utils import to_condensed, pdist
 from scipy.spatial.distance import squareform
 from pyannote.metrics.binary_classification import det_curve
@@ -74,6 +75,8 @@ class TripletLoss(Trainer):
     per_fold : int, optional
         If provided, sample triplets from groups of `per_fold` speakers at a
         time. Defaults to sample triplets from the whole speaker set.
+    file_wise: bool, optional
+        Only sample triplets made of sequences coming from the same file.
     parallel : int, optional
         Number of prefetching background generators. Defaults to 1.
         Each generator will prefetch enough batches to cover a whole epoch.
@@ -83,7 +86,7 @@ class TripletLoss(Trainer):
     def __init__(self, duration=None, min_duration=None, max_duration=None,
                  metric='cosine', margin=0.2, clamp='positive',
                  sampling='all', per_label=3, per_fold=None, parallel=1,
-                 label_min_duration=0.):
+                 file_wise=False, label_min_duration=0.):
 
         super(TripletLoss, self).__init__()
 
@@ -105,6 +108,8 @@ class TripletLoss(Trainer):
         self.per_fold = per_fold
         self.per_label = per_label
         self.label_min_duration = label_min_duration
+
+        self.file_wise = file_wise
 
         self.duration = duration
         self.min_duration = min_duration
@@ -337,11 +342,19 @@ class TripletLoss(Trainer):
         generator : `pyannote.audio.generators.speaker.SpeechSegmentGenerator`
 
         """
-        return SpeechSegmentGenerator(
-            feature_extraction, label_min_duration=self.label_min_duration,
-            per_label=self.per_label, per_fold=self.per_fold,
-            duration=self.duration, min_duration=self.min_duration,
-            max_duration=self.max_duration, parallel=self.parallel)
+
+        if self.file_wise:
+            return FileWiseSpeechSegmentGenerator(
+                feature_extraction, label_min_duration=self.label_min_duration,
+                per_label=self.per_label, per_fold=self.per_fold,
+                duration=self.duration, min_duration=self.min_duration,
+                max_duration=self.max_duration, parallel=self.parallel)
+        else:
+            return SpeechSegmentGenerator(
+                feature_extraction, label_min_duration=self.label_min_duration,
+                per_label=self.per_label, per_fold=self.per_fold,
+                duration=self.duration, min_duration=self.min_duration,
+                max_duration=self.max_duration, parallel=self.parallel)
 
     def aggregate(self, batch):
         return batch

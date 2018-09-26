@@ -36,6 +36,154 @@ from pyannote.generators.fragment import random_subsegment
 from pyannote.generators.batch import batchify, EndOfBatch
 from pyannote.database import get_label_identifier
 from pyannote.database import get_annotated
+from pyannote.database.protocol import SpeakerDiarizationProtocol
+
+
+def get_dummy_protocol(current_file: dict) -> SpeakerDiarizationProtocol:
+    """Get dummy speaker diarization protocol containing only `current_file`
+
+    Parameters
+    ----------
+    current_file : dict
+
+    Returns
+    -------
+    protocol : SpeakerDiarizationProtocol instance
+        Dummy protocol containing only `current_file` in both train,
+        dev., and test sets.
+
+    """
+
+    class DummyProtocol(SpeakerDiarizationProtocol):
+
+        def trn_iter(self):
+            yield current_file
+
+        def dev_iter(self):
+            yield current_file
+
+        def tst_iter(self):
+            yield current_file
+
+    return DummyProtocol()
+
+
+class FileWiseSpeechSegmentGenerator(object):
+    """Generate batch of pure speech segments with associated speaker labels
+
+    The difference with `SpeechSegmentGenerator` is that each batch can only
+    contain sequences extracted from the same file.
+
+    This generator is useful for protocols where annotations are available
+    for each file separately and nothings guarantees that
+    - the same speaker in two different files share the same label
+    - two different speakers in two different files have two different labels
+
+    Parameters
+    ----------
+    feature_extraction : `pyannote.audio.features.FeatureExtraction`
+        Feature extraction.
+    per_label : int, optional
+        Number of speech turns per speaker in each batch. Defaults to 3.
+    label_min_duration : float, optional
+        Remove speakers with less than `label_min_duration` seconds of speech.
+        Defaults to 0 (i.e. keep it all).
+    per_fold : int
+        Number of speakers in each batch. Must be provided.
+    duration : float, optional
+        Use fixed duration segments with this `duration`.
+        Defaults (None) to using variable duration segments.
+    min_duration : float, optional
+        In case `duration` is None, set segment minimum duration.
+    max_duration : float, optional
+        In case `duration` is None, set segment maximum duration.
+    parallel : int, optional
+        Number of prefetching background generators. Defaults to 1.
+        Each generator will prefetch enough batches to cover a whole epoch.
+        Set `parallel` to 0 to not use background generators.
+    """
+
+    def __init__(self, feature_extraction,
+                 per_label=3, per_fold=None,
+                 duration=None, min_duration=None, max_duration=None,
+                 label_min_duration=0., parallel=1):
+
+        if per_fold is None:
+            msg = f'per_fold = None is not supported.'
+            raise ValueError(msg)
+
+        super().__init__()
+
+        self.feature_extraction = feature_extraction
+        self.per_label = per_label
+        self.per_fold = per_fold
+        self.duration = duration
+        self.min_duration = min_duration
+        self.max_duration = max_duration
+        self.label_min_duration = label_min_duration
+        self.parallel = parallel
+
+    def initialize(self, protocol, subset='train'):
+        """Intialize one batch generator per file in the protocol"""
+
+        self.batches_ = []
+
+        for current_file in getattr(protocol, subset)():
+
+            # create a dummy protocol that contains only one file
+            dummy = get_dummy_protocol(current_file)
+
+            # initialize batch generator for current file
+            generator = SpeechSegmentGenerator(self.feature_extraction,
+                per_label=self.per_label, per_fold=self.per_fold,
+                duration=self.duration, min_duration=self.min_duration,
+                max_duration=self.max_duration,
+                label_min_duration=self.label_min_duration, parallel=1)
+
+            # keep track of it
+            self.batches_.append(generator(dummy, subset='train'))
+
+    def __call__(self, protocol, subset='train'):
+
+        # initialize one batch generator per file in the protocol
+        self.initialize(protocol, subset=subset)
+
+        # generate one batch per file
+        while True:
+            for batches in self.batches_:
+                yield next(batches)
+
+    @property
+    def batch_size(self):
+        return self.per_label * self.per_fold
+
+    @property
+    def batches_per_epoch(self):
+
+        # one hour per epoch
+        duration_per_epoch = 3600
+
+        # number of segments per batch
+        segments_per_batch = self.per_label * self.per_fold
+
+        # duration per batch
+        if self.duration is None:
+            if self.min_duration is None:
+                duration_per_batch = self.max_duration * segments_per_batch
+            else:
+                duration_per_batch = self.min_duration * segments_per_batch
+        else:
+            duration_per_batch = self.duration * segments_per_batch
+
+        return int(np.ceil(duration_per_epoch / duration_per_batch))
+
+    @property
+    def signature(self):
+        return {'X': {'@': (None, None)},
+                'y': {'@': (None, np.stack)},
+                'y_database': {'@': (None, np.stack)},
+                'extra': {'label': {'@': (None, None)},
+                         'database': {'@': (None, None)}}}
 
 
 class SpeechSegmentGenerator(object):
