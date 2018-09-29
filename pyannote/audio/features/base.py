@@ -39,6 +39,7 @@ from pyannote.core import SlidingWindowFeature
 
 from pyannote.database import get_unique_identifier
 
+import librosa.util
 
 class FeatureExtraction(object):
     """Base class for feature extraction
@@ -220,6 +221,14 @@ class FeatureExtraction(object):
 
         # obtain waveform on this extended segment
         y = self.raw_audio_.crop(current_file, xsegment)
+
+        try:
+            valid = librosa.util.valid_audio(y, mono=True)
+        except ValueError as e:
+            msg = (f"Something went wrong when trying to extract waveform of "
+                   f"file {current_file['uri']} between {xsegment.start:.3f}s "
+                   f"and {xsegment.end:.3f}s.")
+            raise ValueError(msg)
 
         # data augmentation
         if self.augmentation is not None:
