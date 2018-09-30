@@ -235,6 +235,12 @@ class FeatureExtraction(object):
         if self.augmentation is not None:
             y = self.augmentation(y, self.sample_rate)
 
+            try:
+                valid = valid_audio(y[:, 0], mono=True)
+            except ParameterError as e:
+                msg = (f"Something went wrong when augmenting waveform.")
+                raise ValueError(msg)
+
         features = self.get_features(y, self.sample_rate)
 
         # normalization
