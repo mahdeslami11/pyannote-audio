@@ -40,7 +40,7 @@ from pyannote.core import SlidingWindowFeature
 from pyannote.database import get_unique_identifier
 
 from librosa.util import valid_audio
-from librosa.util import ParameterError
+from librosa.util.exceptions import ParameterError
 
 class FeatureExtraction(object):
     """Base class for feature extraction
