@@ -223,13 +223,6 @@ class FeatureExtraction(object):
         # obtain waveform on this extended segment
         y = self.raw_audio_.crop(current_file, xsegment)
 
-        try:
-            valid = valid_audio(y[:, 0], mono=True)
-        except ParameterError as e:
-            msg = (f"Something went wrong when trying to extract waveform of "
-                   f"file {current_file['uri']} between {xsegment.start:.3f}s "
-                   f"and {xsegment.end:.3f}s.")
-            raise ValueError(msg)
 
         # data augmentation
         if self.augmentation is not None:

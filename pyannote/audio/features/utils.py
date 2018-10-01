@@ -35,7 +35,11 @@ import numpy as np
 from numpy.lib.format import open_memmap
 from struct import unpack
 import audioread
+
 import librosa
+from librosa.util import valid_audio
+from librosa.util.exceptions import ParameterError
+
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.database.util import get_unique_identifier
 from pyannote.audio.util import mkdir_p
@@ -290,6 +294,14 @@ class RawAudio(object):
         # convert to mono if needed
         if self.mono and len(data.shape) > 1:
             data = np.mean(data, axis=1, keepdims=True)
+
+        try:
+            valid = valid_audio(data[:, 0], mono=True)
+        except ParameterError as e:
+            msg = (f"Something went wrong when trying to extract waveform of "
+                   f"file {current_file['database']}/{current_file['uri']} "
+                   f"between {segment.start:.3f}s and {segment.end:.3f}s.")
+            raise ValueError(msg)
 
         if self.augmentation is not None:
             data = self.augmentation(data, sample_rate)
