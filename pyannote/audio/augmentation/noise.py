@@ -77,7 +77,7 @@ class AddNoise(Augmentation):
         self.durations_ = np.array(self.durations_)
 
     def normalize(self, waveform):
-        return waveform / np.sqrt(np.mean(waveform ** 2))
+        return waveform / (np.sqrt(np.mean(waveform ** 2)) + 1e-8)
 
     def __call__(self, original, sample_rate):
 
