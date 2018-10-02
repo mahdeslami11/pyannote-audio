@@ -68,11 +68,12 @@ def get_dummy_protocol(current_file: dict) -> SpeakerDiarizationProtocol:
     return DummyProtocol()
 
 
-class FileWiseSpeechSegmentGenerator(object):
+
+class SessionWiseSpeechSegmentGenerator(object):
     """Generate batch of pure speech segments with associated speaker labels
 
     The difference with `SpeechSegmentGenerator` is that each batch can only
-    contain sequences extracted from the same file.
+    contain sequences extracted from the same session.
 
     This generator is useful for protocols where annotations are available
     for each file separately and nothings guarantees that
@@ -184,6 +185,127 @@ class FileWiseSpeechSegmentGenerator(object):
                 'y_database': {'@': (None, np.stack)},
                 'extra': {'label': {'@': (None, None)},
                          'database': {'@': (None, None)}}}
+
+
+class UnsupervisedSpeechSegmentGenerator(object):
+    """
+
+    Parameters
+    ----------
+    feature_extraction : `pyannote.audio.features.FeatureExtraction`
+        Feature extraction.
+    duration : float
+        Fixed duration of segments. Must be provided.
+    per_fold : int
+        Number of speakers in each batch. Must be provided.
+    parallel : int, optional
+        Number of prefetching background generators. Defaults to 1.
+        Each generator will prefetch enough batches to cover a whole epoch.
+        Set `parallel` to 0 to not use background generators.
+    """
+
+    def __init__(self, feature_extraction, duration=None, per_fold=None,
+                 parallel=1, **kwargs):
+
+        super().__init__()
+
+        self.feature_extraction = feature_extraction
+
+        if duration is None:
+            raise ValueError('duration is None')
+        self.duration = duration
+
+        if per_fold is None:
+            raise ValueError('per_fold is None')
+        self.per_fold = per_fold
+
+        self.parallel = parallel
+
+    @property
+    def batch_size(self):
+        return self.per_fold * 2
+
+    @property
+    def batches_per_epoch(self):
+
+        # one hour per epoch
+        duration_per_epoch = 3600
+
+        # duration per batch
+        duration_per_batch = 2 * self.per_fold * self.duration
+
+        return int(np.ceil(duration_per_epoch / duration_per_batch))
+
+    def initialize(self, protocol, subset='train'):
+
+        self.data_ = [(current_file, segment)
+            for current_file in getattr(protocol, subset)()
+            for segment, _ in current_file['annotation'].itertracks()
+            if segment.duration > 2 * self.duration
+        ]
+
+    def generator(self):
+
+        while True:
+
+            # shuffle segments
+            np.random.shuffle(self.data_)
+
+            for y, (current_file, segment) in enumerate(self.data_):
+
+                # split original segment in two parts
+                t = self.duration + \
+                    np.random.rand() * (segment.duration - 2 * self.duration)
+
+                # extract one subsegment at random on left part
+                sample1 = next(
+                    random_subsegment(Segment(0, t),
+                                      self.duration))
+
+                sample2 = next(
+                    random_subsegment(Segment(t, segment.duration),
+                                      self.duration))
+
+                for sample in [sample1, sample2]:
+
+                    X = self.feature_extraction.crop(
+                        current_file, sample, mode='center',
+                        fixed=self.duration)
+
+                    yield {'X': X, 'y': y}
+
+    @property
+    def signature(self):
+        return {'X': {'@': (None, None)},
+                'y': {'@': (None, np.stack)}}
+
+    def __call__(self, protocol, subset='train'):
+
+        self.initialize(protocol, subset=subset)
+
+        batch_size = self.batch_size
+        batches_per_epoch = self.batches_per_epoch
+
+        generators = []
+        if self.parallel:
+
+            for i in range(self.parallel):
+                generator = self.generator()
+                batches = batchify(generator, self.signature,
+                                   batch_size=batch_size,
+                                   prefetch=batches_per_epoch)
+                generators.append(batches)
+        else:
+            generator = self.generator()
+            batches = batchify(generator, self.signature,
+                               batch_size=batch_size, prefetch=0)
+            generators.append(batches)
+
+        while True:
+            # get `batches_per_epoch` batches from each generator
+            for batches in generators:
+                for _ in range(batches_per_epoch):
+                    yield next(batches)
 
 
 class SpeechSegmentGenerator(object):

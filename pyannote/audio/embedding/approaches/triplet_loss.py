@@ -30,7 +30,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from pyannote.audio.generators.speaker import SpeechSegmentGenerator
-from pyannote.audio.generators.speaker import FileWiseSpeechSegmentGenerator
+from pyannote.audio.generators.speaker import SessionWiseSpeechSegmentGenerator
+from pyannote.audio.generators.speaker import UnsupervisedSpeechSegmentGenerator
+
 from pyannote.audio.embedding.utils import to_condensed, pdist
 from scipy.spatial.distance import squareform
 from pyannote.metrics.binary_classification import det_curve
@@ -75,8 +77,17 @@ class TripletLoss(Trainer):
     per_fold : int, optional
         If provided, sample triplets from groups of `per_fold` speakers at a
         time. Defaults to sample triplets from the whole speaker set.
-    file_wise: bool, optional
-        Only sample triplets made of sequences coming from the same file.
+    variant : {'corpus', 'session', 'unsupervised'}, optional
+        Change the way triplets are built. Default behavior ('corpus') is to
+        build triplets by sampling sequences from the whole corpus (assuming
+        that labels are consistent on the whole corpus). Therefore, triplets
+        may contain sequences from different sessions in the corpus. When
+        `variant` is 'session', we only assume labels are consistent within
+        each 'session'. Therefore, triplets are always made of sequences
+        extracted from the same session. When `variant` is 'unsupervised',
+        anchor and positive sequences are always extracted from the same
+        speech turn, and the negative sequence is sampled at random from any
+        other speech turns (whatever its label).
     parallel : int, optional
         Number of prefetching background generators. Defaults to 1.
         Each generator will prefetch enough batches to cover a whole epoch.
@@ -86,7 +97,7 @@ class TripletLoss(Trainer):
     def __init__(self, duration=None, min_duration=None, max_duration=None,
                  metric='cosine', margin=0.2, clamp='positive',
                  sampling='all', per_label=3, per_fold=None, parallel=1,
-                 file_wise=False, label_min_duration=0.):
+                 variant='corpus', label_min_duration=0.):
 
         super(TripletLoss, self).__init__()
 
@@ -109,7 +120,10 @@ class TripletLoss(Trainer):
         self.per_label = per_label
         self.label_min_duration = label_min_duration
 
-        self.file_wise = file_wise
+        if variant not in {'corpus', 'session', 'unsupervised'}:
+            msg = "'variant' must be one of {'corpus', 'session', 'unsupervised'}."
+            raise ValueError(msg)
+        self.variant = variant
 
         self.duration = duration
         self.min_duration = min_duration
@@ -343,18 +357,27 @@ class TripletLoss(Trainer):
 
         """
 
-        if self.file_wise:
-            return FileWiseSpeechSegmentGenerator(
+        if self.variant == 'session':
+
+            return SessionWiseSpeechSegmentGenerator(
                 feature_extraction, label_min_duration=self.label_min_duration,
                 per_label=self.per_label, per_fold=self.per_fold,
                 duration=self.duration, min_duration=self.min_duration,
                 max_duration=self.max_duration, parallel=self.parallel)
-        else:
+
+        elif self.variant == 'corpus':
+
             return SpeechSegmentGenerator(
                 feature_extraction, label_min_duration=self.label_min_duration,
                 per_label=self.per_label, per_fold=self.per_fold,
                 duration=self.duration, min_duration=self.min_duration,
                 max_duration=self.max_duration, parallel=self.parallel)
+
+        elif self.variant == 'unsupervised':
+
+            return UnsupervisedSpeechSegmentGenerator(
+                feature_extraction, per_fold=self.per_fold,
+                duration=self.duration, parallel=self.parallel)
 
     def aggregate(self, batch):
         return batch
