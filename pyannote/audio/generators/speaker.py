@@ -228,8 +228,8 @@ class UnsupervisedSpeechSegmentGenerator(object):
     @property
     def batches_per_epoch(self):
 
-        # one hour per epoch
-        duration_per_epoch = 3600
+        # ten hours per epoch
+        duration_per_epoch = 36000
 
         # duration per batch
         duration_per_batch = 2 * self.per_fold * self.duration
