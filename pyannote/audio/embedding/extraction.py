@@ -58,9 +58,27 @@ class SequenceEmbedding(SequenceLabeling):
         Defaults to CPU.
     """
 
-    def __init__(self, model, feature_extraction, duration=1,
-                 min_duration=None, step=None, batch_size=32, source='audio',
-                 device=None):
+    @classmethod
+    def from_model_pt(cls, model_pt,
+                      min_duration=None, step=None, source='audio',
+                      batch_size=32, device=None):
+
+        from pyannote.audio.applications.speaker_embedding \
+            import SpeakerEmbedding
+
+        app = SpeakerEmbedding.from_model_pt(model_pt, training=False)
+
+        model = app.model_
+        feature_extraction = app.feature_extraction_
+        duration = app.task_.duration
+
+        return cls(model, feature_extraction,
+                   duration=duration, min_duration=min_duration, step=step,
+                   source=source, batch_size=batch_size, device=device)
+
+    def __init__(self, model, feature_extraction,
+                 duration=1, min_duration=None, step=None, source='audio',
+                 batch_size=32, device=None):
 
         super(SequenceEmbedding, self).__init__(
             model, feature_extraction, duration=duration,
