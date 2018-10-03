@@ -67,8 +67,12 @@ class TripletLoss(Trainer):
         Margin multiplicative factor. Defaults to 0.2.
     clamp : {'positive', 'sigmoid', 'softmargin'}, optional
         Defaults to 'positive'.
-    sampling : {'all', 'hard', 'negative'}, optional
-        Triplet sampling strategy.
+    sampling : {'all', 'hard', 'negative', 'easy'}, optional
+        Triplet sampling strategy. Defaults to 'all' (i.e. use all possible
+        triplets). 'hard' sampling use both hardest positive and negative for
+        each anchor. 'negative' sampling use hardest negative for each
+        (anchor, positive) pairs. 'easy' sampling only use easy triplets (i.e.
+        those for which d(anchor, positive) < d(anchor, negative)).
     per_label : int, optional
         Number of sequences per speaker in each batch. Defaults to 3.
     label_min_duration : float, optional
@@ -111,8 +115,8 @@ class TripletLoss(Trainer):
             raise ValueError(msg)
         self.clamp = clamp
 
-        if sampling not in {'all', 'hard', 'negative'}:
-            msg = "'sampling' must be one of {'all', 'hard', 'negative'}."
+        if sampling not in {'all', 'hard', 'negative', 'easy'}:
+            msg = "'sampling' must be one of {'all', 'hard', 'negative', 'easy'}."
             raise ValueError(msg)
         self.sampling = sampling
 
@@ -179,6 +183,38 @@ class TripletLoss(Trainer):
             distances.append(d)
 
         return torch.cat(distances)
+
+
+    def batch_easy(self, y, distances):
+        """Build easy triplets"""
+
+        anchors, positives, negatives = [], [], []
+
+        distances = squareform(self.to_numpy(distances))
+
+        for anchor, y_anchor in enumerate(y):
+            for positive, y_positive in enumerate(y):
+
+                # if same embedding or different labels, skip
+                if (anchor == positive) or (y_anchor != y_positive):
+                    continue
+
+                d = distances[anchor, positive]
+
+                for negative, y_negative in enumerate(y):
+
+                    if y_negative == y_anchor:
+                        continue
+
+                    if d > distances[anchor, negative]:
+                        continue
+
+                    anchors.append(anchor)
+                    positives.append(positive)
+                    negatives.append(negative)
+
+        return anchors, positives, negatives
+
 
     def batch_hard(self, y, distances):
         """Build triplet with both hardest positive and hardest negative
