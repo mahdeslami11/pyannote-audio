@@ -497,7 +497,7 @@ class SpeakerEmbedding(Application):
                               options={'maxiter': 20, 'disp': False})
 
         metrics = {
-            'speaker_diarization/purity_coverage_f1_score': {'minimize': True,
+            'speaker_diarization/purity_coverage_f1_score': {'minimize': False,
                                                              'value': -res.fun},
             'speaker_diarization/threshold': {'minimize': 'NA',
                                               'value': res.x}}
