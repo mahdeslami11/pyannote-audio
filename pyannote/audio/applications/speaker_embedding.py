@@ -155,7 +155,7 @@ Configuration file:
     * for speaker diarization protocols: tune the stopping criterion (distance
       threshold) of a "median-linkage" clustering using one average embedding
       for each reference speech turn and report both the best threshold and the
-      corresponding diarization error rate to tensorboard
+      corresponding purity/coverage F1 score to tensorboard
     * for speaker verification protocols: run the actual verification
       experiment and report the equal error rate to tensorboard,
 
@@ -201,7 +201,7 @@ from pyannote.audio.embedding.utils import cdist
 from pyannote.audio.features.utils import Precomputed
 
 from pyannote.metrics.binary_classification import det_curve
-from pyannote.metrics.diarization import GreedyDiarizationErrorRate
+from pyannote.metrics.diarization import DiarizationPurityCoverageFMeasure
 
 from pyannote.audio.embedding.extraction import SequenceEmbedding
 from pyannote.audio.generators.speaker import SpeechSegmentGenerator
@@ -474,7 +474,7 @@ class SpeakerEmbedding(Application):
 
         def fun(threshold):
 
-            metric = GreedyDiarizationErrorRate()
+            metric = DiarizationPurityCoverageFMeasure()
 
             for current_file in getattr(protocol, subset)():
 
@@ -490,14 +490,15 @@ class SpeakerEmbedding(Application):
 
                 _ = metric(reference, hypothesis, uem=uem)
 
-            return abs(metric)
+            # maximizing F1 = minimizing -F1
+            return -abs(metric)
 
         res = minimize_scalar(fun, bounds=(min_d, max_d), method='bounded',
                               options={'maxiter': 20, 'disp': False})
 
         metrics = {
-            'speaker_diarization/error': {'minimize': True,
-                                          'value': res.fun},
+            'speaker_diarization/purity_coverage_f1_score': {'minimize': True,
+                                                             'value': -res.fun},
             'speaker_diarization/threshold': {'minimize': 'NA',
                                               'value': res.x}}
 
