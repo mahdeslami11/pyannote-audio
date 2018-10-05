@@ -151,10 +151,13 @@ Configuration file:
     You can run multiple "validate" in parallel (e.g. for every subset,
     protocol, task, or database).
 
-    In practice, for each epoch, "validate" mode will run a "same/different"
-    experiment for SpeakerDiarization protocols (and actual verification
-    experiment for SpeakerVerification protocols) and send the corresponding
-    equal error rate to tensorboard.
+    In practice, for each epoch, "validate" will
+    * for speaker diarization protocols: tune the stopping criterion (distance
+      threshold) of a "median-linkage" clustering using one average embedding
+      for each reference speech turn and report both the best threshold and the
+      corresponding diarization error rate to tensorboard
+    * for speaker verification protocols: run the actual verification
+      experiment and report the equal error rate to tensorboard,
 
 "apply" mode:
     Use the "apply" mode to extract speaker embeddings on a sliding window.
@@ -180,18 +183,26 @@ from pathlib import Path
 from docopt import docopt
 from .base import Application
 
-from pyannote.core import Timeline
+from pyannote.core import Segment, Timeline, Annotation
 
 from pyannote.database import FileFinder
 from pyannote.database import get_protocol
+from pyannote.database import get_annotated
 from pyannote.database import get_unique_identifier
 from pyannote.database.protocol import SpeakerDiarizationProtocol
 from pyannote.database.protocol import SpeakerVerificationProtocol
 
+from scipy.cluster.hierarchy import fcluster
+from scipy.cluster.hierarchy import linkage
+from scipy.optimize import minimize_scalar
+
 from pyannote.audio.embedding.utils import pdist
 from pyannote.audio.embedding.utils import cdist
 from pyannote.audio.features.utils import Precomputed
+
 from pyannote.metrics.binary_classification import det_curve
+from pyannote.metrics.diarization import GreedyDiarizationErrorRate
+
 from pyannote.audio.embedding.extraction import SequenceEmbedding
 from pyannote.audio.generators.speaker import SpeechSegmentGenerator
 from pyannote.audio.generators.speaker import SpeechTurnSubSegmentGenerator
@@ -239,11 +250,7 @@ class SpeakerEmbedding(Application):
                     raise ValueError(msg)
                 self.duration = duration
 
-            if self.turn:
-                return self._validate_init_turn(protocol_name,
-                                                subset=subset)
-            else:
-                return self._validate_init_segment(protocol_name,
+            return self._validate_init_diarization(protocol_name,
                                                    subset=subset)
 
         else:
@@ -254,57 +261,9 @@ class SpeakerEmbedding(Application):
     def _validate_init_verification(self, protocol_name, subset='development'):
         return {}
 
-    def _validate_init_turn(self, protocol_name, subset='development'):
+    def _validate_init_diarization(self, protocol_name, subset='development'):
+        return {}
 
-        np.random.seed(1337)
-
-        protocol = get_protocol(protocol_name, progress=False,
-                                preprocessors=self.preprocessors_)
-
-        batch_generator = SpeechTurnSubSegmentGenerator(
-            self.feature_extraction_, self.duration,
-            per_label=10, per_turn=5)
-        batch = next(batch_generator(protocol, subset=subset))
-
-        X = np.stack(batch['X'])
-        y = np.stack(batch['y'])
-        z = np.stack(batch['z'])
-
-        # get list of labels from list of repeated labels:
-        # z 0 0 0 1 1 1 2 2 2 2 3 3 3 3
-        # y A A A A A A B B B B B B B B
-        # becomes
-        # z 0 0 0 1 1 1 2 2 2 2 3 3 3 3
-        # y A B
-        yz = np.vstack([y, z]).T
-        y = []
-        for _, yz_ in itertools.groupby(yz, lambda t: t[1]):
-            yz_ = np.stack(yz_)
-            y.append(yz_[0, 0])
-        y = np.array(y).reshape((-1, 1))
-
-        # precompute same/different groundtruth
-        y = pdist(y, metric='equal')
-
-        return {'X': X, 'y': y, 'z': z}
-
-    def _validate_init_segment(self, protocol_name, subset='development'):
-
-        np.random.seed(1337)
-
-        protocol = get_protocol(protocol_name, progress=False,
-                                preprocessors=self.preprocessors_)
-
-        batch_generator = SpeechSegmentGenerator(
-            self.feature_extraction_, per_label=10, duration=self.duration)
-        batch = next(batch_generator(protocol, subset=subset))
-
-        X = np.stack(batch['X'])
-        y = np.stack(batch['y']).reshape((-1, 1))
-
-        # precompute same/different groundtruth
-        y = pdist(y, metric='equal')
-        return {'X': X, 'y': y}
 
     def validate_epoch(self, epoch, protocol_name, subset='development',
                        validation_data=None):
@@ -317,14 +276,9 @@ class SpeakerEmbedding(Application):
                 validation_data=validation_data)
 
         elif isinstance(protocol, SpeakerDiarizationProtocol):
-            if self.turn:
-                return self._validate_epoch_turn(
-                    epoch, protocol_name, subset=subset,
-                    validation_data=validation_data)
-            else:
-                return self._validate_epoch_segment(
-                    epoch, protocol_name, subset=subset,
-                    validation_data=validation_data)
+            return self._validate_epoch_diarization(
+                epoch, protocol_name, subset=subset,
+                validation_data=validation_data)
 
         else:
             msg = ('Only SpeakerVerification or SpeakerDiarization tasks are'
@@ -361,7 +315,6 @@ class SpeakerEmbedding(Application):
         metrics : dict
         """
 
-
         # load current model
         model = self.load_model(epoch).to(self.device)
         model.eval()
@@ -391,7 +344,6 @@ class SpeakerEmbedding(Application):
             step=step, min_duration=min_duration,
             batch_size=self.batch_size, device=self.device)
 
-        metrics = {}
         protocol = get_protocol(protocol_name, progress=False,
                                 preprocessors=self.preprocessors_)
 
@@ -427,69 +379,128 @@ class SpeakerEmbedding(Application):
 
         _, _, _, eer = det_curve(np.array(y_true), np.array(y_pred),
                                  distances=True)
-        metrics['EER'] = {'minimize': True, 'value': eer}
 
-        return metrics
+        return {'speaker_verification/equal_error_rate': {'minimize': True,
+                                                          'value': eer}}
 
-    def _validate_epoch_segment(self, epoch, protocol_name,
-                                subset='development',
-                                validation_data=None):
+    def _validate_epoch_diarization(self, epoch, protocol_name,
+                                    subset='development',
+                                    validation_data=None):
+        """Perform a speaker diarization experiment using model at `epoch`
 
+        Parameters
+        ----------
+        epoch : int
+            Epoch to validate.
+        protocol_name : str
+            Name of speaker verification protocol
+        subset : {'train', 'development', 'test'}, optional
+            Name of subset.
+        validation_data : provided by `validate_init`
+
+        Returns
+        -------
+        metrics : dict
+        """
+
+        # load current model
         model = self.load_model(epoch).to(self.device)
         model.eval()
 
+        # use user-provided --duration when available
+        # otherwise use 'duration' used for training
+        if self.duration is None:
+            duration = self.task_.duration
+        else:
+            duration = self.duration
+        min_duration = None
+
+        # if 'duration' is still None, it means that
+        # network was trained with variable lengths
+        if duration is None:
+            duration = self.task_.max_duration
+            min_duration = self.task_.min_duration
+
+        step = .5 * duration
+
+        if isinstance(self.feature_extraction_, Precomputed):
+            self.feature_extraction_.use_memmap = False
+
+        # initialize embedding extraction
         sequence_embedding = SequenceEmbedding(
-            model, self.feature_extraction_,
+            model, self.feature_extraction_, duration=duration,
+            step=step, min_duration=min_duration,
             batch_size=self.batch_size, device=self.device)
 
+        protocol = get_protocol(protocol_name, progress=False,
+                                preprocessors=self.preprocessors_)
 
-        fX = sequence_embedding.apply(validation_data['X'])
-        y_pred = pdist(fX, metric=self.metric)
-        _, _, _, eer = det_curve(validation_data['y'], y_pred,
-                                 distances=True)
+        Z, t = dict(), dict()
+        min_d, max_d = np.inf, -np.inf
 
-        return {'EER.{0:g}s'.format(self.duration): {'minimize': True,
-                                                'value': eer}}
+        for current_file in getattr(protocol, subset)():
 
-    def _validate_epoch_turn(self, epoch, protocol_name,
-                             subset='development',
-                             validation_data=None):
+            uri = get_unique_identifier(current_file)
+            uem = get_annotated(current_file)
+            reference = current_file['annotation']
 
-        model = self.load_model(epoch).to(self.device)
-        model.eval()
+            X_, t_ = [], []
+            embedding = sequence_embedding.apply(current_file)
+            for i, (turn, _) in enumerate(reference.itertracks()):
 
-        sequence_embedding = SequenceEmbedding(
-            model, self.feature_extraction_,
-            batch_size=self.batch_size, device=self.device)
+                # extract embedding for current speech turn. whenever possible,
+                # only use those fully included in the speech turn ('strict')
+                x_ = embedding.crop(turn, mode='strict')
+                if len(x_) < 1:
+                    x_ = embedding.crop(turn, mode='center')
+                if len(x_) < 1:
+                    x_ = embedding.crop(turn, mode='loose')
+                if len(x_) < 1:
+                    msg = (f'No embedding for {turn:s} in {uri:s}.')
+                    raise ValueError(msg)
 
-        fX = sequence_embedding.apply(validation_data['X'])
+                # each speech turn is represented by its average embedding
+                X_.append(np.mean(x_, axis=0))
+                t_.append(turn)
 
-        z = validation_data['z']
+            # apply hierarchical agglomerative clustering
+            # all the way up to just one cluster (ie complete dendrogram)
+            D = pdist(np.array(X_), metric=self.metric)
+            min_d = min(np.min(D), min_d)
+            max_d = max(np.max(D), max_d)
 
-        # iterate over segments, speech turn by speech turn
+            Z[uri] = linkage(D, method='median')
+            t[uri] = np.array(t_)
 
-        fX_avg = []
-        nz = np.vstack([np.arange(len(z)), z]).T
-        for _, nz_ in itertools.groupby(nz, lambda t: t[1]):
+        def fun(threshold):
 
-            # (n, 2) numpy array where
-            # * n is the number of segments in current speech turn
-            # * dim #0 is the index of segment in original batch
-            # * dim #1 is the index of speech turn (used for grouping)
-            nz_ = np.stack(nz_)
+            metric = GreedyDiarizationErrorRate()
 
-            # compute (and stack) average embedding over all segments
-            # of current speech turn
-            indices = nz_[:, 0]
+            for current_file in getattr(protocol, subset)():
 
-            fX_avg.append(np.mean(fX[indices], axis=0))
+                uri = get_unique_identifier(current_file)
+                uem = get_annotated(current_file)
+                reference = current_file['annotation']
 
-        fX = np.vstack(fX_avg)
-        y_pred = pdist(fX, metric=self.metric)
-        _, _, _, eer = det_curve(validation_data['y'], y_pred,
-                                 distances=True)
-        metrics = {}
-        metrics['EER.turn'] = {'minimize': True, 'value': eer}
+                clusters = fcluster(Z[uri], threshold, criterion='inconsistent')
+
+                hypothesis = Annotation(uri=uri)
+                for (start_time, end_time), cluster in zip(t[uri], clusters):
+                    hypothesis[Segment(start_time, end_time)] = cluster
+
+                _ = metric(reference, hypothesis, uem=uem)
+
+            return abs(metric)
+
+        res = minimize_scalar(fun, bounds=(min_d, max_d), method='bounded',
+                              options={'maxiter': 20, 'disp': False})
+
+        metrics = {
+            'speaker_diarization/error': {'minimize': True,
+                                          'value': res.fun},
+            'speaker_diarization/threshold': {'minimize': 'NA',
+                                              'value': res.x}}
+
         return metrics
 
     def apply(self, protocol_name, output_dir, step=None):
