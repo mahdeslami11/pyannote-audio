@@ -494,7 +494,7 @@ class SpeakerEmbedding(Application):
             return -abs(metric)
 
         res = minimize_scalar(fun, bounds=(min_d, max_d), method='bounded',
-                              options={'maxiter': 20, 'disp': False})
+                              options={'maxiter': 50, 'disp': False})
 
         metrics = {
             'speaker_diarization/purity_coverage_f1_score': {'minimize': False,
