@@ -31,7 +31,7 @@ Speaker embedding
 
 Usage:
   pyannote-speaker-embedding train [options] <experiment_dir> <database.task.protocol>
-  pyannote-speaker-embedding validate [options] [--duration=<duration> --every=<epoch> --chronological --turn --metric=<metric>] <train_dir> <database.task.protocol>
+  pyannote-speaker-embedding validate [options] [--duration=<duration> --every=<epoch> --chronological --purity=<purity> --metric=<metric>] <train_dir> <database.task.protocol>
   pyannote-speaker-embedding apply [options] [--duration=<duration> --step=<step>] <model.pt> <database.task.protocol> <output_dir>
   pyannote-speaker-embedding -h | --help
   pyannote-speaker-embedding --version
@@ -64,8 +64,7 @@ Common options:
 "validation" mode:
   --every=<epoch>            Validate model every <epoch> epochs [default: 1].
   --chronological            Force validation in chronological order.
-  --turn                     Perform same/different validation at speech turn
-                             level. Default is to use fixed duration segments.
+  --purity=<purity>          Target cluster purity [default: 0.9].
   <train_dir>                Path to the directory containing pre-trained
                              models (i.e. the output of "train" mode).
   --metric=<metric>          Use this metric (e.g. "cosine" or "euclidean") to
@@ -383,6 +382,7 @@ class SpeakerEmbedding(Application):
         return {'speaker_verification/equal_error_rate': {'minimize': True,
                                                           'value': eer}}
 
+
     def _validate_epoch_diarization(self, epoch, protocol_name,
                                     subset='development',
                                     validation_data=None):
@@ -402,6 +402,8 @@ class SpeakerEmbedding(Application):
         -------
         metrics : dict
         """
+
+        target_purity = self.purity
 
         # load current model
         model = self.load_model(epoch).to(self.device)
@@ -474,7 +476,7 @@ class SpeakerEmbedding(Application):
 
         def fun(threshold):
 
-            metric = DiarizationPurityCoverageFMeasure()
+            metric = DiarizationPurityCoverageFMeasure(weighted=False)
 
             for current_file in getattr(protocol, subset)():
 
@@ -490,17 +492,33 @@ class SpeakerEmbedding(Application):
 
                 _ = metric(reference, hypothesis, uem=uem)
 
-            # maximizing F1 = minimizing -F1
-            return -abs(metric)
+            purity, coverage, _ = metric.compute_metrics()
 
-        res = minimize_scalar(fun, bounds=(min_d, max_d), method='bounded',
-                              options={'maxiter': 50, 'disp': False})
+            return purity, coverage
+
+        lower_threshold = min_d
+        upper_threshold = max_d
+        best_threshold = .5 * (lower_threshold + upper_threshold)
+        best_coverage = 0.
+
+        for _ in range(10):
+            current_threshold = .5 * (lower_threshold + upper_threshold)
+            purity, coverage = fun(current_threshold)
+
+            if purity < target_purity:
+                upper_threshold = current_threshold
+            else:
+                lower_threshold = current_threshold
+                if coverage > best_coverage:
+                    best_coverage = coverage
+                    best_threshold = current_threshold
+
+        task = 'speaker_diarization'
+        metric_name = f'{task}/coverage@{target_purity:.2f}purity'
 
         metrics = {
-            'speaker_diarization/purity_coverage_f1_score': {'minimize': False,
-                                                             'value': -res.fun},
-            'speaker_diarization/threshold': {'minimize': 'NA',
-                                              'value': res.x}}
+            metric_name: {'minimize': False, 'value': best_coverage},
+            f'{task}/threshold': {'minimize': 'NA', 'value': best_threshold}}
 
         return metrics
 
@@ -602,16 +620,15 @@ def main():
         # validate epochs in chronological order
         in_order = arguments['--chronological']
 
-        # validate at speech turn level
-        turn = arguments['--turn']
-
         # batch size
         batch_size = int(arguments['--batch'])
+
+        purity = float(arguments['--purity'])
 
         application = SpeakerEmbedding.from_train_dir(
             train_dir, db_yml=db_yml, training=False)
         application.device = device
-        application.turn = turn
+        application.purity = purity
         application.batch_size = batch_size
 
         metric = arguments['--metric']
