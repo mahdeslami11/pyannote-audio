@@ -476,7 +476,7 @@ class SpeakerEmbedding(Application):
 
         def fun(threshold):
 
-            metric = DiarizationPurityCoverageFMeasure(weighted=False)
+            metric = DiarizationPurityCoverageFMeasure(weighted=True)
 
             for current_file in getattr(protocol, subset)():
 
