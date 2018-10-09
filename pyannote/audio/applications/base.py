@@ -38,6 +38,7 @@ from pyannote.audio.util import mkdir_p
 from sortedcontainers import SortedDict
 import tensorboardX
 from functools import partial
+from pyannote.audio.util import get_class_by_name
 
 
 class Application(object):
@@ -105,10 +106,9 @@ class Application(object):
         SCHEDULER_DEFAULT = {'name': 'DavisKingScheduler',
                              'params': {'learning_rate': 'auto'}}
         scheduler_cfg = self.config_.get('scheduler', SCHEDULER_DEFAULT)
-        scheduler_name = scheduler_cfg['name']
-        schedulers = __import__('pyannote.audio.train.schedulers',
-                                fromlist=[scheduler_name])
-        Scheduler = getattr(schedulers, scheduler_name)
+        Scheduler = get_class_by_name(
+            scheduler_cfg['name'],
+            default_module_name='pyannote.audio.train.schedulers')
         scheduler_params = scheduler_cfg.get('params', {})
         self.get_scheduler_ = partial(Scheduler, **scheduler_params)
         self.learning_rate_ = scheduler_params.get('learning_rate', 'auto')
@@ -119,19 +119,16 @@ class Application(object):
             'params': {'momentum': 0.9, 'dampening': 0, 'weight_decay': 0,
                        'nesterov': True}}
         optimizer_cfg = self.config_.get('optimizer', OPTIMIZER_DEFAULT)
-        optimizer_name = optimizer_cfg['name']
-        optimizers = __import__('torch.optim',
-                                fromlist=[optimizer_name])
-        Optimizer = getattr(optimizers, optimizer_name)
+        Optimizer = get_class_by_name(optimizer_cfg['name'],
+                                      default_module_name='torch.optim')
         optimizer_params = optimizer_cfg.get('params', {})
         self.get_optimizer_ = partial(Optimizer, **optimizer_params)
 
         # data augmentation (only when training the model)
         if training and 'data_augmentation' in self.config_ :
-            augmentation_name = self.config_['data_augmentation']['name']
-            augmentation = __import__('pyannote.audio.augmentation',
-                                      fromlist=[augmentation_name])
-            DataAugmentation = getattr(augmentation, augmentation_name)
+            DataAugmentation = get_class_by_name(
+                self.config_['data_augmentation']['name'],
+                default_module_name='pyannote.audio.augmentation')
             augmentation = DataAugmentation(
                 **self.config_['data_augmentation'].get('params', {}))
         else:
@@ -139,10 +136,9 @@ class Application(object):
 
         # feature normalization
         if 'feature_normalization' in self.config_:
-            normalization_name = self.config_['feature_normalization']['name']
-            normalization = __import__('pyannote.audio.features.normalization',
-                                       fromlist=[normalization_name])
-            FeatureNormalization = getattr(normalization, normalization_name)
+            FeatureNormalization = get_class_by_name(
+                self.config_['feature_normalization']['name'],
+                default_module_name='pyannote.audio.features.normalization')
             normalization = FeatureNormalization(
                 **self.config_['feature_normalization'].get('params', {}))
         else:
@@ -151,10 +147,9 @@ class Application(object):
         # feature extraction
         extraction_name = None
         if 'feature_extraction' in self.config_:
-            extraction_name = self.config_['feature_extraction']['name']
-            features = __import__('pyannote.audio.features',
-                                  fromlist=[extraction_name])
-            FeatureExtraction = getattr(features, extraction_name)
+            FeatureExtraction = get_class_by_name(
+                self.config_['feature_extraction']['name'],
+                default_module_name='pyannote.audio.features')
             self.feature_extraction_ = FeatureExtraction(
                 **self.config_['feature_extraction'].get('params', {}),
                 augmentation=augmentation, normalization=normalization)

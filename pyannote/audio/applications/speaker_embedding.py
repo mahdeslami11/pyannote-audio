@@ -195,6 +195,8 @@ from scipy.cluster.hierarchy import fcluster
 from scipy.cluster.hierarchy import linkage
 from scipy.optimize import minimize_scalar
 
+from pyannote.audio.util import get_class_by_name
+
 from pyannote.audio.embedding.utils import pdist
 from pyannote.audio.embedding.utils import cdist
 from pyannote.audio.features.utils import Precomputed
@@ -215,21 +217,19 @@ class SpeakerEmbedding(Application):
             experiment_dir, db_yml=db_yml, training=training)
 
         # architecture
-        architecture_name = self.config_['architecture']['name']
-        models = __import__('pyannote.audio.embedding.models',
-                            fromlist=[architecture_name])
-        Architecture = getattr(models, architecture_name)
+        Architecture = get_class_by_name(
+            self.config_['architecture']['name'],
+            default_module_name='pyannote.audio.embedding.models')
         self.model_ = Architecture(
             int(self.feature_extraction_.dimension),
             **self.config_['architecture'].get('params', {}))
 
-        approach_name = self.config_['approach']['name']
-        approaches = __import__('pyannote.audio.embedding.approaches',
-                                fromlist=[approach_name])
-        Approach = getattr(approaches, approach_name)
+        # training approach
+        Approach = get_class_by_name(
+            self.config_['approach']['name'],
+            default_module_name='pyannote.audio.embedding.approaches')
         self.task_ = Approach(
             **self.config_['approach'].get('params', {}))
-
 
     def validate_init(self, protocol_name, subset='development'):
 

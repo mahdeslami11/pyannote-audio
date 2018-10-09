@@ -81,6 +81,8 @@ from pyannote.database import FileFinder
 from pyannote.database import get_unique_identifier
 from pyannote.database import get_protocol
 
+from pyannote.audio.util import get_class_by_name
+
 from pyannote.audio.features.utils import Precomputed
 from pyannote.audio.features.utils import get_audio_duration
 from pyannote.audio.features.utils import PyannoteFeatureExtractionError
@@ -95,10 +97,9 @@ def init_feature_extraction(experiment_dir):
     with open(config_yml, 'r') as fp:
         config = yaml.load(fp)
 
-    feature_extraction_name = config['feature_extraction']['name']
-    features = __import__('pyannote.audio.features',
-                          fromlist=[feature_extraction_name])
-    FeatureExtraction = getattr(features, feature_extraction_name)
+    FeatureExtraction = get_class_by_name(
+        config['feature_extraction']['name'],
+        default_module_name='pyannote.audio.features')
     feature_extraction = FeatureExtraction(
         **config['feature_extraction'].get('params', {}))
 
@@ -167,10 +168,9 @@ def extract(protocol_name, file_finder, experiment_dir,
     with open(config_yml, 'r') as fp:
         config = yaml.load(fp)
 
-    feature_extraction_name = config['feature_extraction']['name']
-    features = __import__('pyannote.audio.features',
-                          fromlist=[feature_extraction_name])
-    FeatureExtraction = getattr(features, feature_extraction_name)
+    FeatureExtraction = get_class_by_name(
+        config['feature_extraction']['name'],
+        default_module_name='pyannote.audio.features')
     feature_extraction = FeatureExtraction(
         **config['feature_extraction'].get('params', {}))
 
@@ -178,11 +178,10 @@ def extract(protocol_name, file_finder, experiment_dir,
     dimension = feature_extraction.dimension
 
     if 'normalization' in config:
-        normalization_name = config['normalization']['name']
-        normalization_module = __import__('pyannote.audio.features.normalization',
-                                   fromlist=[normalization_name])
-        Normalization = getattr(normalization_module, normalization_name)
-        normalization = Normalization(
+        FeatureNormalization = get_class_by_name(
+            config['normalization']['name'],
+            default_module_name='pyannote.audio.features.normalization')
+        normalization = FeatureNormalization(
             **config['normalization'].get('params', {}))
     else:
         normalization = None

@@ -176,6 +176,7 @@ from pyannote.database import get_unique_identifier
 from pyannote.audio.features.utils import Precomputed
 from pyannote.metrics.detection import DetectionErrorRate
 from pyannote.audio.labeling.extraction import SequenceLabeling
+from pyannote.audio.util import get_class_by_name
 
 
 class SpeechActivityDetection(Application):
@@ -186,10 +187,9 @@ class SpeechActivityDetection(Application):
             experiment_dir, db_yml=db_yml, training=training)
 
         # task
-        task_name = self.config_['task']['name']
-        tasks = __import__('pyannote.audio.labeling.tasks',
-                           fromlist=[task_name])
-        Task = getattr(tasks, task_name)
+        Task = get_class_by_name(
+            self.config_['task']['name'],
+            default_module_name='pyannote.audio.labeling.tasks')
         self.task_ = Task(
             **self.config_['task'].get('params', {}))
 
@@ -197,10 +197,9 @@ class SpeechActivityDetection(Application):
         n_classes = self.task_.n_classes
 
         # architecture
-        architecture_name = self.config_['architecture']['name']
-        models = __import__('pyannote.audio.labeling.models',
-                            fromlist=[architecture_name])
-        Architecture = getattr(models, architecture_name)
+        Architecture = get_class_by_name(
+            self.config_['architecture']['name'],
+            default_module_name='pyannote.audio.labeling.models')
         self.model_ = Architecture(
             n_features, n_classes,
             **self.config_['architecture'].get('params', {}))

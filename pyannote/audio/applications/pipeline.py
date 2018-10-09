@@ -86,6 +86,7 @@ Configuration file:
 
 import os
 import yaml
+from pyannote.audio.util import get_class_by_name
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
@@ -120,15 +121,15 @@ class Pipeline(Application):
 
         # pipeline
         pipeline_name = self.config_['pipeline']['name']
-        pipelines = __import__('pyannote.audio.pipeline',
-                               fromlist=[pipeline_name])
-        self.pipeline_ = getattr(pipelines, pipeline_name)(
-            **self.config_['pipeline'].get('params', {}))
+        Klass = get_class_by_name(
+            pipeline_name, default_module_name='pyannote.audio.pipeline')
+        self.pipeline_ = Klass(**self.config_['pipeline'].get('params', {}))
 
         # sampler
         sampler_name = self.config_.get('sampler', {}).get('name', 'CMAES')
-        samplers = __import__('chocolate', fromlist=[sampler_name])
-        self.sampler_ = getattr(samplers, sampler_name)
+        Klass = get_class_by_name(
+            sampler_name, default_module_name='chocolate')
+        self.sampler_ = Klass
 
     def dump(self, best, params_yml, params_yml_lock):
         content = yaml.dump(best['params'], default_flow_style=False)
