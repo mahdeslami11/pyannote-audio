@@ -26,9 +26,11 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
+import sys
 import os
 import errno
 import collections
+from importlib import import_module
 import numpy as np
 from pyannote.core import Segment
 from pyannote.core import Annotation
@@ -178,3 +180,47 @@ def from_numpy(y, precomputed, labels=None):
                 annotation[segment, k] = label
 
     return annotation
+
+def get_class_by_name(class_name, default_module_name=None):
+    """Load class by its name
+
+    Parameters
+    ----------
+    class_name : str
+    default_module_name : str, optional
+        When provided and `class_name` does not contain the absolute path
+
+    Returns
+    -------
+    Klass : `type`
+        Class.
+
+    Example
+    -------
+    >>> ClopiNet = get_class_by_name(
+    ...     'pyannote.audio.embedding.models.ClopiNet')
+    >>> ClopiNet = get_class_by_name(
+    ...     'ClopiNet', default_module_name='pyannote.audio.embedding.models')
+    """
+    tokens = class_name.split('.')
+
+    if len(tokens) == 1:
+        if default_module_name is None:
+            msg = (
+                f'Could not infer module name from class name "{class_name}".'
+                f'Please provide default module name.')
+            raise ValueError(msg)
+        module_name = default_module_name
+    else:
+        module_name = '.'.join(tokens[:-1])
+        class_name = tokens[-1]
+
+    sys.path.append('.')
+
+    try:
+        Klass = getattr(import_module(module_name), class_name)
+    except ModuleNotFoundError as e:
+        msg = f'Could not load class {class_name} from module {module_name}.'
+        raise ValueError(msg)
+
+    return Klass
