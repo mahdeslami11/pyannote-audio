@@ -86,15 +86,20 @@ class Application(object):
         super(Application, self).__init__()
 
         self.db_yml = db_yml
-
-        self.preprocessors_ = {'audio': FileFinder(self.db_yml)}
-
         self.experiment_dir = experiment_dir
 
         # load configuration
         config_yml = self.CONFIG_YML.format(experiment_dir=self.experiment_dir)
         with open(config_yml, 'r') as fp:
             self.config_ = yaml.load(fp)
+
+        # preprocessors
+        preprocessors = {}
+        PREPROCESSORS_DEFAULT = {'audio': db_yml}
+        for key, db_yml in self.config_.get('preprocessors',
+                                            PREPROCESSORS_DEFAULT):
+            preprocessors[key] = FileFinder(db_yml)
+        self.preprocessors_ = preprocessors
 
         # scheduler
         SCHEDULER_DEFAULT = {'name': 'DavisKingScheduler',
