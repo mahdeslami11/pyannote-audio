@@ -38,8 +38,8 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
 
     Parameters
     ----------
-    precomputed : `pyannote.audio.features.Precomputed`
-        Precomputed features
+    feature_extraction : `pyannote.audio.features.FeatureExtraction`
+        Feature extraction
     overlap : bool, optional
         Switch to 3 classes "non-speech vs. one speaker vs. 2+ speakers".
         Defaults to 2 classes "non-speech vs. speech".
@@ -75,9 +75,9 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
     >>>     pass
     """
 
-    def __init__(self, precomputed, overlap=False, **kwargs):
+    def __init__(self, feature_extraction, overlap=False, **kwargs):
         super(SpeechActivityDetectionGenerator, self).__init__(
-            precomputed, exhaustive=True, **kwargs)
+            feature_extraction, exhaustive=True, **kwargs)
         self.overlap = overlap
 
     def postprocess_y(self, Y):

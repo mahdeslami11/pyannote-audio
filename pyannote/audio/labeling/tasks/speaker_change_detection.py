@@ -39,8 +39,8 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
 
     Parameters
     ----------
-    precomputed : `pyannote.audio.features.Precomputed`
-        Precomputed features
+    feature_extraction : `pyannote.audio.features.FeatureExtraction`
+        Feature extraction
     collar : float, optional
         Duration of "change" collar, in seconds. Default to 100ms (0.1).
     window : {'plateau', 'triangle'}, optional
@@ -77,10 +77,10 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
     >>>     pass
     """
 
-    def __init__(self, precomputed, collar=0.100, window='plateau', **kwargs):
+    def __init__(self, feature_extraction, collar=0.100, window='plateau', **kwargs):
 
         super(SpeakerChangeDetectionGenerator, self).__init__(
-            precomputed, exhaustive=True, **kwargs)
+            feature_extraction, exhaustive=True, **kwargs)
 
         self.collar = collar
         self.window = window
@@ -89,7 +89,7 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
             raise ValueError(msg)
 
         # convert duration to number of samples
-        M = self.precomputed.sliding_window.durationToSamples(self.collar)
+        M = self.feature_extraction.sliding_window.durationToSamples(self.collar)
 
         # triangular window
         self.window_ = scipy.signal.triang(M)[:, np.newaxis]
