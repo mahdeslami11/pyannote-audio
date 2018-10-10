@@ -201,7 +201,7 @@ class SequenceLabeling(FileBasedBatchGenerator):
         -------
         predictions : SlidingWindowFeature
         """
-
+        
         # frame and sub-sequence sliding windows
         frames = self.feature_extraction.sliding_window
         batches = [batch for batch in self.from_file(current_file,
@@ -217,6 +217,8 @@ class SequenceLabeling(FileBasedBatchGenerator):
         # get total number of frames
         if isinstance(self.feature_extraction, Precomputed):
             n_frames, _ = self.feature_extraction.shape(current_file)
+        elif 'features' in current_file:
+            n_frames, _ = current_file['features'].data.shape
         else:
             uri = get_unique_identifier(current_file)
             n_frames, _ = self.preprocessed_[uri].data.shape
