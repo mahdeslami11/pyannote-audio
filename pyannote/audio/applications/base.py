@@ -98,7 +98,7 @@ class Application(object):
         preprocessors = {}
         PREPROCESSORS_DEFAULT = {'audio': db_yml}
         for key, db_yml in self.config_.get('preprocessors',
-                                            PREPROCESSORS_DEFAULT):
+                                            PREPROCESSORS_DEFAULT).items():
             preprocessors[key] = FileFinder(db_yml)
         self.preprocessors_ = preprocessors
 
