@@ -219,7 +219,7 @@ class SequenceLabeling(FileBasedBatchGenerator):
             n_frames, _ = self.feature_extraction.shape(current_file)
         else:
             uri = get_unique_identifier(current_file)
-            n_frames, _ = self.preprocessed_[uri].data
+            n_frames, _ = self.preprocessed_[uri].data.shape
 
         # data[i] is the sum of all predictions for frame #i
         data = np.zeros((n_frames, self.dimension), dtype=np.float32)
