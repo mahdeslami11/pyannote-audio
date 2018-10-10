@@ -35,6 +35,7 @@ from pyannote.database import get_unique_identifier
 from pyannote.database import get_label_identifier
 from pyannote.database import get_annotated
 from pyannote.audio.util import to_numpy
+from pyannote.audio.features import Precomputed
 from pyannote.core import Segment
 from pyannote.core import Timeline
 from pyannote.core import SlidingWindowFeature
@@ -56,8 +57,8 @@ class LabelingTaskGenerator(object):
 
     Parameters
     ----------
-    precomputed : `pyannote.audio.features.Precomputed`
-        Precomputed features
+    feature_extraction : `pyannote.audio.features.FeatureExtraction`
+        Feature extraction
     duration : float, optional
         Duration of sub-sequences. Defaults to 3.2s.
     batch_size : int, optional
@@ -76,12 +77,12 @@ class LabelingTaskGenerator(object):
         Shuffle exhaustive samples. Defaults to False.
     """
 
-    def __init__(self, precomputed, duration=3.2, batch_size=32,
+    def __init__(self, feature_extraction, duration=3.2, batch_size=32,
                  per_epoch=3600, parallel=1, exhaustive=False, shuffle=False):
 
         super(LabelingTaskGenerator, self).__init__()
 
-        self.precomputed = precomputed
+        self.feature_extraction = feature_extraction
         self.duration = duration
         self.batch_size = batch_size
         self.per_epoch = per_epoch
@@ -123,7 +124,8 @@ class LabelingTaskGenerator(object):
 
             annotated = get_annotated(current_file)
 
-            if not self.precomputed.use_memmap:
+            if isinstance(self.feature_extraction, Precomputed) and \
+               not self.feature_extraction.use_memmap:
                 msg = ('Loading all precomputed features in memory. '
                        'Set "use_memmap" to True if you run out of memory.')
                 warnings.warn(msg)
@@ -149,9 +151,9 @@ class LabelingTaskGenerator(object):
         self.databases_ = sorted(databases)
         self.labels_ = sorted(labels)
 
-        sliding_window = self.precomputed.sliding_window
+        sliding_window = self.feature_extraction.sliding_window
         for current_file in getattr(protocol, subset)():
-            y, _ = to_numpy(current_file, self.precomputed,
+            y, _ = to_numpy(current_file, self.feature_extraction,
                             labels=self.labels_)
             uri = get_unique_identifier(current_file)
             self.data_[uri]['y'] = SlidingWindowFeature(
@@ -197,7 +199,7 @@ class LabelingTaskGenerator(object):
             # choose fixed-duration subsegment at random
             sequence = next(random_subsegment(segment, self.duration))
 
-            X = self.precomputed.crop(current_file,
+            X = self.feature_extraction.crop(current_file,
                                       sequence, mode='center',
                                       fixed=self.duration)
 
@@ -221,10 +223,14 @@ class LabelingTaskGenerator(object):
 
             # loop on all files
             for uri in uris:
+
                 datum = self.data_[uri]
 
                 # make a copy of current file
                 current_file = dict(datum['current_file'])
+
+                # compute features for the whole file
+                current_file['X'] = self.feature_extraction(current_file)
 
                 # randomly shift 'annotated' segments start time so that
                 # we avoid generating exactly the same subsequence twice
@@ -238,9 +244,8 @@ class LabelingTaskGenerator(object):
 
                 for sequence in sliding_segments.from_file(current_file):
 
-                    X = self.precomputed.crop(current_file,
-                                              sequence, mode='center',
-                                              fixed=self.duration)
+                    X = current_file['X'].crop(sequence, mode='center',
+                                               fixed=self.duration)
 
                     y = datum['y'].crop(sequence, mode='center',
                                         fixed=self.duration)
@@ -347,19 +352,19 @@ class LabelingTask(Trainer):
         self.per_epoch = per_epoch
         self.parallel = parallel
 
-    def get_batch_generator(self, precomputed):
+    def get_batch_generator(self, feature_extraction):
         """This method should be overriden by subclass
 
         Parameters
         ----------
-        precomputed : `pyannote.audio.features.Precomputed`
+        feature_extraction : `pyannote.audio.features.FeatureExtraction`
 
         Returns
         -------
         batch_generator : `LabelingTaskGenerator`
         """
         return LabelingTaskGenerator(
-            precomputed, duration=self.duration, per_epoch=self.per_epoch,
+            feature_extraction, duration=self.duration, per_epoch=self.per_epoch,
             batch_size=self.batch_size, parallel=self.parallel)
 
     @property
