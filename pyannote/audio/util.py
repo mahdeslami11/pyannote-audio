@@ -29,7 +29,6 @@
 import sys
 import os
 import errno
-import collections
 from importlib import import_module
 import numpy as np
 from pyannote.core import Segment
@@ -69,9 +68,9 @@ def to_numpy(current_file, precomputed, labels=None):
     Parameters
     ----------
     current_file : dict
-    precomputed : Precomputed or SlidingWindowFeature
-        Precomputed features. Both `pyannote.audio.features.Precomputed`
-        instance and `SlidingWindowFeature` instances are supported.
+    features : `SlidingWindowFeature` or `FeatureExtraction`
+        Both `pyannote.core.SlidingWindowFeature` and
+        `pyannote.audio.features.FeatureExtraction` instances are supported.
     labels : list, optional
         Predefined list of labels.  Defaults to using `annotation` labels.
 
@@ -87,25 +86,41 @@ def to_numpy(current_file, precomputed, labels=None):
     See `from_numpy` to convert `y` back to a pyannote.core.Annotation instance
     """
 
+    # imported here to avoid cyclical references
+    from .features import Precomputed
+    from .features.utils import get_audio_duration
+
     annotation = current_file['annotation']
 
+    # if `labels` are not provided by the user, use those in `annotation`
     if labels is None:
         labels = [get_label_identifier(label, current_file)
                   for label in annotation.labels()]
     indices = {label: i for i, label in enumerate(labels)}
 
     # number of samples
-    from .features import Precomputed
-    if isinstance(precomputed, Precomputed):
-        N, _ = precomputed.shape(current_file)
+
+    if isinstance(features, SlidingWindowFeature):
+        N, _ = features.data.shape
+
+    elif isinstance(features, Precomputed):
+        N, _ = features.shape(current_file)
+
+    elif isinstance(features, FeatureExtraction):
+        sw = features.sliding_window
+        N = sw.samples(get_audio_duration(current_file), mode='strict')
+
     else:
-        N, _ = precomputed.data.shape
+        msg = ('`to_numpy` only supports `FeatureExtraction` and '
+               '`SlidingWindowFeature` instances.')
+        raise TypeError(msg)
+
     # number of classes
     K = len(labels)
     # one-hot encoding
     y = np.zeros((N, K), dtype=np.int64)
 
-    sw = precomputed.sliding_window
+    sw = features.sliding_window
     for segment, _, label in annotation.itertracks(yield_label=True):
         label = get_label_identifier(label, current_file)
         try:
