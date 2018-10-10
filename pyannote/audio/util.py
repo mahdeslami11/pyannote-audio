@@ -62,7 +62,7 @@ def mkdir_p(path):
             raise exc
 
 
-def to_numpy(current_file, precomputed, labels=None):
+def to_numpy(current_file, features, labels=None):
     """Convert annotation to numpy array
 
     Parameters
