@@ -60,7 +60,7 @@ class StackedRNN(nn.Module):
         Defaults to True (i.e. apply log-softmax).
     """
 
-    def __init__(self, n_features, n_classes, isinstance_normalize=False,
+    def __init__(self, n_features, n_classes, instance_normalize=False,
                  rnn='LSTM', recurrent=[16,], bidirectional=False,
                  linear=[16, ], logsoftmax=True):
 
