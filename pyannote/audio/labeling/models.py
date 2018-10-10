@@ -43,6 +43,8 @@ class StackedRNN(nn.Module):
         Input feature dimension.
     n_classes : int
         Set number of classes.
+    instance_normalize : boolean, optional
+        Apply mean/variance normalization on input sequences.
     rnn : {'LSTM', 'GRU'}, optional
         Defaults to 'LSTM'.
     recurrent : list, optional
@@ -58,17 +60,18 @@ class StackedRNN(nn.Module):
         Defaults to True (i.e. apply log-softmax).
     """
 
-    def __init__(self, n_features, n_classes,
+    def __init__(self, n_features, n_classes, isinstance_normalize=False,
                  rnn='LSTM', recurrent=[16,], bidirectional=False,
                  linear=[16, ], logsoftmax=True):
 
         super(StackedRNN, self).__init__()
 
         self.n_features = n_features
+        self.n_classes = n_classes
+        self.instance_normalize = instance_normalize
         self.rnn = rnn
         self.recurrent = recurrent
         self.bidirectional = bidirectional
-        self.n_classes = n_classes
         self.linear = linear
         self.logsoftmax = logsoftmax
 
@@ -125,6 +128,11 @@ class StackedRNN(nn.Module):
 
         output = sequence
         device = sequence.device
+
+        if self.instance_normalize:
+            output = output.transpose(1, 2)
+            output = F.instance_norm(output)
+            output = output.transpose(1, 2)
 
         # stack recurrent layers
         for hidden_dim, layer in zip(self.recurrent, self.recurrent_layers_):
