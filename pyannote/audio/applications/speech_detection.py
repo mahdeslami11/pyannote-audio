@@ -163,6 +163,7 @@ Configuration file:
 import torch
 import numpy as np
 import scipy.optimize
+from tqdm import tqdm
 from pathlib import Path
 from docopt import docopt
 from .base import Application
@@ -204,15 +205,28 @@ class SpeechActivityDetection(Application):
             n_features, n_classes,
             **self.config_['architecture'].get('params', {}))
 
+    def validate_init(self, protocol_name, subset='development'):
+
+        protocol = get_protocol(protocol_name, progress=False,
+                                preprocessors=self.preprocessors_)
+        files = getattr(protocol, subset)()
+
+        if isinstance(self.feature_extraction_, Precomputed):
+            return list(files)
+
+        validation_data = []
+        for current_file in tqdm(files, desc='Feature extraction'):
+            current_file['features'] = self.feature_extraction_(current_file)
+            validation_data.append(current_file)
+
+        return validation_data
+
     def validate_epoch(self, epoch, protocol_name, subset='development',
                        validation_data=None):
 
         # load model for current epoch
         model = self.load_model(epoch).to(self.device)
         model.eval()
-
-        if isinstance(self.feature_extraction_, Precomputed):
-            self.feature_extraction_.use_memmap = False
 
         duration = self.task_.duration
         step = .25 * duration
@@ -221,15 +235,9 @@ class SpeechActivityDetection(Application):
             step=.25 * duration, batch_size=self.batch_size,
             source='audio', device=self.device)
 
-        protocol = get_protocol(protocol_name, progress=False,
-                                preprocessors=self.preprocessors_)
-
-        metric = DetectionErrorRate()
-
+        # precompute detection scores
         predictions = {}
-
-        file_generator = getattr(protocol, subset)()
-        for current_file in file_generator:
+        for current_file in validation_data:
             uri = get_unique_identifier(current_file)
             scores = sequence_labeling.apply(current_file)
 
@@ -250,16 +258,9 @@ class SpeechActivityDetection(Application):
                                  offset=threshold,
                                  log_scale=False)
 
-            protocol = get_protocol(protocol_name, progress=False,
-                                    preprocessors=self.preprocessors_)
-
             metric = DetectionErrorRate()
 
-            # NOTE -- embarrasingly parallel
-            # TODO -- parallelize this
-            file_generator = getattr(protocol, subset)()
-            for current_file in file_generator:
-
+            for current_file in validation_data:
                 uri = get_unique_identifier(current_file)
                 hypothesis = binarizer.apply(
                     predictions[uri], dimension=0).to_annotation()
