@@ -351,12 +351,11 @@ class TripletLoss(Trainer):
 
         # estimate total number of embeddings from pdist shape
         n = int(.5 * (1 + np.sqrt(1 + 8 * len(distances))))
-        n = [n] * len(anchors)
 
         # convert indices from squared matrix
         # to condensed matrix referential
-        pos = list(map(to_condensed, n, anchors, positives))
-        neg = list(map(to_condensed, n, anchors, negatives))
+        pos = to_condensed(n, anchors, positives)
+        neg = to_condensed(n, anchors, negatives)
 
         # compute raw triplet loss (no margin, no clamping)
         # the lower, the better

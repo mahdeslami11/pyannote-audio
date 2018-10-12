@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016 CNRS
+# Copyright (c) 2016-2018 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -150,18 +150,19 @@ def to_condensed(n, i, j):
     ----------
     n : int
         Number of inputs in squared pdist matrix
-    i, j : int
+    i, j : `int` or `numpy.ndarray`
         Indices in squared pdist matrix
 
     Returns
     -------
-    k : int
+    k : `int` or `numpy.ndarray`
         Index in condensed pdist matrix
     """
-    if i == j:
+    i, j = np.array(i), np.array(j)
+    if np.any(i == j):
         raise ValueError('i and j should be different.')
-    i, j = min(i, j), max(i, j)
-    return int(i * n - i * i / 2 - 3 * i / 2 + j - 1)
+    i, j = np.minimum(i, j), np.maximum(i, j)
+    return np.int64(i * n - i * i / 2 - 3 * i / 2 + j - 1)
 
 
 def to_squared(n, k):
@@ -171,17 +172,18 @@ def to_squared(n, k):
     ----------
     n : int
         Number of inputs in squared pdist matrix
-    k : int
+    k : `int` or `numpy.ndarray`
         Index in condensed pdist matrix
 
     Returns
     -------
-    i, j : int
+    i, j : `int` or `numpy.ndarray`
         Indices in squared pdist matrix
 
     """
-    i = int(n - np.sqrt(-8*k + 4*n**2 - 4*n + 1)/2 - 1/2)
-    j = int(i**2/2 - i*n + 3*i/2 + k + 1)
+    k = np.array(k)
+    i = np.int64(n - np.sqrt(-8*k + 4*n**2 - 4*n + 1)/2 - 1/2)
+    j = np.int64(i**2/2 - i*n + 3*i/2 + k + 1)
     return i, j
 
 
