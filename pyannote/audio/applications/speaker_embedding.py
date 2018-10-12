@@ -484,7 +484,7 @@ class SpeakerEmbedding(Application):
                 uem = get_annotated(current_file)
                 reference = current_file['annotation']
 
-                clusters = fcluster(Z[uri], threshold, criterion='inconsistent')
+                clusters = fcluster(Z[uri], threshold, criterion='distance')
 
                 hypothesis = Annotation(uri=uri)
                 for (start_time, end_time), cluster in zip(t[uri], clusters):
