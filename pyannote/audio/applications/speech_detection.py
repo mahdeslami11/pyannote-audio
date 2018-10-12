@@ -178,7 +178,18 @@ from pyannote.audio.features.utils import Precomputed
 from pyannote.metrics.detection import DetectionErrorRate
 from pyannote.audio.labeling.extraction import SequenceLabeling
 from pyannote.audio.util import get_class_by_name
+from functools import partial
+import multiprocessing as mp
 
+
+def validate_helper_func(current_file, predictions=None, binarizer=None,
+                         metric=None):
+    uri = get_unique_identifier(current_file)
+    reference = current_file['annotation']
+    uem = get_annotated(current_file)
+    hypothesis = binarizer.apply(
+        predictions[uri], dimension=0).to_annotation()
+    return metric(reference, hypothesis, uem=uem)
 
 class SpeechActivityDetection(Application):
 
@@ -219,6 +230,8 @@ class SpeechActivityDetection(Application):
             current_file['features'] = self.feature_extraction_(current_file)
             validation_data.append(current_file)
 
+        self.pool_ = mp.Pool(mp.cpu_count())
+
         return validation_data
 
     def validate_epoch(self, epoch, protocol_name, subset='development',
@@ -235,7 +248,7 @@ class SpeechActivityDetection(Application):
             step=.25 * duration, batch_size=self.batch_size,
             source='audio', device=self.device)
 
-        # precompute detection scores
+        # extract predictions for all files.
         predictions = {}
         for current_file in validation_data:
             uri = get_unique_identifier(current_file)
@@ -253,20 +266,15 @@ class SpeechActivityDetection(Application):
             predictions[uri] = scores
 
         def fun(threshold):
-
             binarizer = Binarize(onset=threshold,
                                  offset=threshold,
                                  log_scale=False)
-
-            metric = DetectionErrorRate()
-
-            for current_file in validation_data:
-                uri = get_unique_identifier(current_file)
-                hypothesis = binarizer.apply(
-                    predictions[uri], dimension=0).to_annotation()
-                reference = current_file['annotation']
-                uem = get_annotated(current_file)
-                _ = metric(reference, hypothesis, uem=uem)
+            metric = DetectionErrorRate(parallel=True)
+            validate = partial(validate_helper_func,
+                               predictions=predictions,
+                               binarizer=binarizer,
+                               metric=metric)
+            _ = self.pool_.map(validate, validation_data)
 
             return abs(metric)
 

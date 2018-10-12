@@ -178,7 +178,16 @@ from pyannote.database import get_unique_identifier
 from .speech_detection import SpeechActivityDetection
 from pyannote.audio.labeling.extraction import SequenceLabeling
 from pyannote.metrics.diarization import DiarizationPurityCoverageFMeasure
+from functools import partial
 
+def validate_helper_func(current_file, predictions=None, peak=None,
+                         metric=None):
+    uri = get_unique_identifier(current_file)
+    reference = current_file['annotation']
+    uem = get_annotated(current_file)
+    hypothesis = peak.apply(predictions[uri], dimension=1)
+    hypothesis = hypothesis.to_annotation()
+    return metric(reference, hypothesis, uem=uem)
 
 class SpeakerChangeDetection(SpeechActivityDetection):
 
@@ -191,9 +200,6 @@ class SpeakerChangeDetection(SpeechActivityDetection):
         model = self.load_model(epoch).to(self.device)
         model.eval()
 
-        if isinstance(self.feature_extraction_, Precomputed):
-            self.feature_extraction_.use_memmap = False
-
         duration = self.task_.duration
         step = .25 * duration
         sequence_labeling = SequenceLabeling(
@@ -201,12 +207,9 @@ class SpeakerChangeDetection(SpeechActivityDetection):
             step=.25 * duration, batch_size=self.batch_size,
             source='audio', device=self.device)
 
-        protocol = get_protocol(protocol_name, progress=False,
-                                preprocessors=self.preprocessors_)
-
         # extract predictions for all files.
         predictions = {}
-        for current_file in getattr(protocol, subset)():
+        for current_file in validation_data:
             uri = get_unique_identifier(current_file)
             predictions[uri] = sequence_labeling.apply(current_file)
 
@@ -219,22 +222,21 @@ class SpeakerChangeDetection(SpeechActivityDetection):
         best_coverage = 0.
 
         for _ in range(10):
+
             current_alpha = .5 * (lower_alpha + upper_alpha)
             peak = Peak(alpha=current_alpha, min_duration=0.0,
                         log_scale=model.logsoftmax)
-            metric = DiarizationPurityCoverageFMeasure()
-
-            # NOTE -- embarrasingly parallel
-            # TODO -- parallelize this
-            for current_file in getattr(protocol, subset)():
-                reference = current_file['annotation']
-                uri = get_unique_identifier(current_file)
-                hypothesis = peak.apply(predictions[uri], dimension=1)
-                hypothesis = hypothesis.to_annotation()
-                uem = get_annotated(current_file)
-                metric(reference, hypothesis, uem=uem)
+            metric = DiarizationPurityCoverageFMeasure(parallel=True)
+            validate = partial(validate_helper_func,
+                               predictions=predictions,
+                               peak=peak,
+                               metric=metric)
+            _ = self.pool_.map(validate, validation_data)
 
             purity, coverage, _ = metric.compute_metrics()
+
+            # TODO: normalize coverage with what one could achieve if
+            # we were to put all reference speech turns in its own cluster
 
             if purity < target_purity:
                 upper_alpha = current_alpha
