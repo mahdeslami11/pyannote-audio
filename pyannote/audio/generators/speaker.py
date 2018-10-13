@@ -161,8 +161,8 @@ class SessionWiseSpeechSegmentGenerator(object):
     @property
     def batches_per_epoch(self):
 
-        # one hour per epoch
-        duration_per_epoch = 3600
+        # ten hours per epoch
+        duration_per_epoch = 36000
 
         # number of segments per batch
         segments_per_batch = self.per_label * self.per_fold
