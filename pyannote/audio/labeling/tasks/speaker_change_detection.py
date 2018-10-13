@@ -176,6 +176,9 @@ class SpeakerChangeDetection(LabelingTask):
             msg = "'window' must be one of {'plateau', 'triangle'}."
             raise ValueError(msg)
 
+        if window == 'triangle':
+            self.regression_ = True
+
     def get_batch_generator(self, precomputed):
         return SpeakerChangeDetectionGenerator(
             precomputed, collar=self.collar, window=self.window,

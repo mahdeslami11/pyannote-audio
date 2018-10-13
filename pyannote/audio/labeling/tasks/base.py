@@ -351,6 +351,7 @@ class LabelingTask(Trainer):
         self.batch_size = batch_size
         self.per_epoch = per_epoch
         self.parallel = parallel
+        self.regression_ = False
 
     def get_batch_generator(self, feature_extraction):
         """This method should be overriden by subclass
@@ -386,14 +387,19 @@ class LabelingTask(Trainer):
     def batch_loss(self, batch, model, device, writer=None):
 
         X = torch.tensor(batch['X'], dtype=torch.float32, device=device)
-        y = torch.tensor(batch['y'], dtype=torch.int64, device=device)
+
+        if self.regression_:
+            y = torch.tensor(batch['y'], dtype=torch.float32, device=device)
+            target = y.contiguous().view((-1, 1))
+        else:
+            y = torch.tensor(batch['y'], dtype=torch.int64, device=device)
+            target = y.contiguous().view((-1, ))
 
         fX = model(X.requires_grad_())
 
-        losses = self.loss_func_(fX.view((-1, self.n_classes)),
-                                 y.contiguous().view((-1, )))
+        losses = self.loss_func_(fX.view((-1, self.n_classes)), target)
 
-        if writer is not None:
+        if writer is not None and not self.regression_:
             self.log_y_pred_.append(self.to_numpy(fX))
             self.log_y_true_.append(self.to_numpy(y))
 
@@ -401,7 +407,7 @@ class LabelingTask(Trainer):
 
     def on_epoch_end(self, iteration, checkpoint, writer=None, **kwargs):
 
-        if writer is None:
+        if writer is None or self.regression_:
             return
 
         log_y_pred = np.hstack(self.log_y_pred_)

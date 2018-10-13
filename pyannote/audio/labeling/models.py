@@ -55,7 +55,7 @@ class StackedRNN(nn.Module):
         List of hidden dimensions of linear layers. Defaults to [16, ], i.e.
         one linear layer with hidden dimension of 16.
     logsoftmax : bool, optional
-        Defaults to True (i.e. apply log-softmax).
+        Apply log-softmax. Defaults to True. Has no effect when n_classes = 1.
     """
 
     def __init__(self, n_features, n_classes, instance_normalize=False,
@@ -101,9 +101,6 @@ class StackedRNN(nn.Module):
             self.linear_layers_.append(linear_layer)
             input_dim = hidden_dim
 
-        # define post-linear activation
-        self.tanh_ = nn.Tanh()
-
         # create final classification layer (with log-softmax activation)
         self.final_layer_ = nn.Linear(input_dim, self.n_classes)
 
@@ -111,6 +108,10 @@ class StackedRNN(nn.Module):
             self.logsoftmax_ = nn.LogSoftmax(dim=2)
 
     def get_loss(self):
+
+        if self.n_classes == 1:
+            return nn.MSELoss()
+
         if self.logsoftmax:
             return nn.NLLLoss()
         else:
@@ -164,10 +165,13 @@ class StackedRNN(nn.Module):
             output = layer(output)
 
             # apply non-linear activation function
-            output = self.tanh_(output)
+            output = F.tanh(output)
 
         # apply final classification layer
         output = self.final_layer_(output)
+
+        if self.n_classes == 1:
+            return output
 
         # apply softmax
         if self.logsoftmax:
