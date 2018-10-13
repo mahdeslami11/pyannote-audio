@@ -71,7 +71,7 @@ class StackedRNN(nn.Module):
         self.recurrent = recurrent
         self.bidirectional = bidirectional
         self.linear = linear
-        self.logsoftmax = logsoftmax
+        self.logsoftmax = logsoftmax if self.n_classes > 1 else False
 
         self.num_directions_ = 2 if self.bidirectional else 1
 
@@ -169,9 +169,6 @@ class StackedRNN(nn.Module):
 
         # apply final classification layer
         output = self.final_layer_(output)
-
-        if self.n_classes == 1:
-            return output
 
         # apply softmax
         if self.logsoftmax:
