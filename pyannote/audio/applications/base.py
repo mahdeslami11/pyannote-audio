@@ -99,7 +99,10 @@ class Application(object):
         PREPROCESSORS_DEFAULT = {'audio': db_yml}
         for key, db_yml in self.config_.get('preprocessors',
                                             PREPROCESSORS_DEFAULT).items():
-            preprocessors[key] = FileFinder(db_yml)
+            try:
+                preprocessors[key] = FileFinder(db_yml)
+            except FileNotFoundError as e:
+                preprocessors[key] = db_yml
         self.preprocessors_ = preprocessors
 
         # scheduler
