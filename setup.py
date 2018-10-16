@@ -40,7 +40,7 @@ setup(
         'pyannote.core >= 1.3.2',
         'pyannote.metrics >= 1.7',
         'pyannote.generators >= 1.0',
-        'pyannote.database >= 1.5',
+        'pyannote.database >= 1.5.1',
         'scikit-learn >= 0.19.1',
         'torch == 0.4',
         'pandas >= 0.18.0',
