@@ -47,7 +47,7 @@ from pyannote.generators.fragment import SlidingSegments
 
 from collections import deque
 
-from pyannote.audio.train import Trainer
+from pyannote.audio.train.trainer import Trainer
 
 
 class LabelingTaskGenerator(object):

@@ -37,7 +37,7 @@ from pyannote.audio.embedding.utils import to_condensed, pdist
 from scipy.spatial.distance import squareform
 from pyannote.metrics.binary_classification import det_curve
 from collections import deque
-from pyannote.audio.train import Trainer
+from pyannote.audio.train.trainer import Trainer
 
 
 class TripletLoss(Trainer):

@@ -30,7 +30,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from pyannote.audio.generators.speaker import SpeechSegmentGenerator
-from pyannote.audio.train import Trainer
+from pyannote.audio.train.trainer import Trainer
 
 
 class Classifier(nn.Module):
