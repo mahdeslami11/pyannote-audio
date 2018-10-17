@@ -39,6 +39,7 @@ from sortedcontainers import SortedDict
 import tensorboardX
 from functools import partial
 from pyannote.audio.util import get_class_by_name
+import warnings
 
 
 class Application(object):
@@ -122,10 +123,16 @@ class Application(object):
             'params': {'momentum': 0.9, 'dampening': 0, 'weight_decay': 0,
                        'nesterov': True}}
         optimizer_cfg = self.config_.get('optimizer', OPTIMIZER_DEFAULT)
-        Optimizer = get_class_by_name(optimizer_cfg['name'],
-                                      default_module_name='torch.optim')
-        optimizer_params = optimizer_cfg.get('params', {})
-        self.get_optimizer_ = partial(Optimizer, **optimizer_params)
+        try:
+            Optimizer = get_class_by_name(optimizer_cfg['name'],
+                                          default_module_name='torch.optim')
+            optimizer_params = optimizer_cfg.get('params', {})
+            self.get_optimizer_ = partial(Optimizer, **optimizer_params)
+
+        # do not raise an error here as it is possible that the optimizer is
+        # not really needed (e.g. in pipeline training)
+        except ModuleNotFoundError as e:
+            warnings.warn(e.args[0])
 
         # data augmentation (only when training the model)
         if training and 'data_augmentation' in self.config_ :
@@ -156,6 +163,7 @@ class Application(object):
             self.feature_extraction_ = FeatureExtraction(
                 **self.config_['feature_extraction'].get('params', {}),
                 augmentation=augmentation, normalization=normalization)
+
 
     def train(self, protocol_name, subset='train', restart=None, epochs=1000):
 

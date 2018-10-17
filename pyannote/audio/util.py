@@ -231,12 +231,4 @@ def get_class_by_name(class_name, default_module_name=None):
         module_name = '.'.join(tokens[:-1])
         class_name = tokens[-1]
 
-    sys.path.append('.')
-
-    try:
-        Klass = getattr(import_module(module_name), class_name)
-    except ModuleNotFoundError as e:
-        msg = f'Could not load class {class_name} from module {module_name}.'
-        raise ValueError(msg)
-
-    return Klass
+    return getattr(import_module(module_name), class_name)
