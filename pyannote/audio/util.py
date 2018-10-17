@@ -88,7 +88,7 @@ def to_numpy(current_file, features, labels=None):
 
     # imported here to avoid cyclical references
     from .features.base import FeatureExtraction
-    from .features.utils import Precomputed
+    from .features.precomputed import Precomputed
     from .features.utils import get_audio_duration
 
     annotation = current_file['annotation']

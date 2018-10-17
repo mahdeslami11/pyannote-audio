@@ -55,6 +55,7 @@ except Exception as e:
             f'because something went wrong when importing them: "{e}".')
         print(msg)
 
-from .utils import Precomputed
-from .utils import PrecomputedHTK
+from .precomputed import Precomputed
+from .precomputed import PrecomputedHTK
+
 from .utils import RawAudio
