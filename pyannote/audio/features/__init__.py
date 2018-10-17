@@ -40,7 +40,14 @@ except ModuleNotFoundError as e:
             'because "yaafelib" could not be found.')
         warnings.warn(msg)
 
-from .with_librosa import LibrosaMFCC, LibrosaSpectrogram, LibrosaMelSpectrogram
+try:
+    from .with_librosa import LibrosaMFCC, LibrosaSpectrogram, LibrosaMelSpectrogram
+except Exception as e:
+        msg = (
+            f'Feature extractors based on "librosa" are not available '
+            f'because something went wrong when importing them: "{e}".')
+        warnings.warn(msg)
+
 from .with_python_speech_features import PySpeechFeaturesMFCC
 from .utils import Precomputed
 from .utils import PrecomputedHTK
