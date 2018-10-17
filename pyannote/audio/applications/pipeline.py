@@ -31,6 +31,7 @@ Pipeline
 
 Usage:
   pyannote-pipeline train [options] [(--forever | --trials=<trials>)] <experiment_dir> <database.task.protocol>
+  pyannote-pipeline best [options] <experiment_dir> <database.task.protocol>
   pyannote-pipeline apply [options] <params.yml> <database.task.protocol> <output_dir>
   pyannote-pipeline -h | --help
   pyannote-pipeline --version
@@ -209,6 +210,18 @@ class Pipeline(Application):
         print(f"Loss = {best['loss']:g} | {best['n_trials']} trials")
         print(f"{sep}")
 
+    def best(self, protocol_name, subset='development'):
+
+        train_dir = self.TRAIN_DIR.format(
+            experiment_dir=self.experiment_dir,
+            protocol=protocol_name,
+            subset=subset)
+
+        tune_db = f'{train_dir}/tune.db'
+
+        best = self.pipeline_.best(tune_db=tune_db)
+        print(f"Loss = {best['loss']:g} | {best['n_trials']} trials")
+
     def apply(self, protocol_name, output_dir):
 
         # file generator
@@ -259,6 +272,16 @@ def main():
 
         application = Pipeline(experiment_dir, db_yml=db_yml, training=True)
         application.train(protocol_name, subset=subset, n_calls=trials)
+
+    if arguments['best']:
+        experiment_dir = Path(arguments['<experiment_dir>'])
+        experiment_dir = experiment_dir.expanduser().resolve(strict=True)
+
+        if subset is None:
+            subset = 'development'
+
+        application = Pipeline(experiment_dir, db_yml=db_yml, training=False)
+        application.best(protocol_name, subset=subset)
 
     if arguments['apply']:
 
