@@ -30,7 +30,16 @@
 """
 
 
-from .with_yaafe import YaafeCompound, YaafeZCR, YaafeMFCC
+try:
+    from .with_yaafe import YaafeCompound, YaafeZCR, YaafeMFCC
+except ModuleNotFoundError as e:
+    if e.args[0] == "No module named 'yaafelib'":
+        import warnings
+        msg = (
+            'Feature extractors based on "yaafe" are not available '
+            'because "yaafelib" could not be found.')
+        warnings.warn(msg)
+
 from .with_librosa import LibrosaMFCC, LibrosaSpectrogram, LibrosaMelSpectrogram
 from .with_python_speech_features import PySpeechFeaturesMFCC
 from .utils import Precomputed
