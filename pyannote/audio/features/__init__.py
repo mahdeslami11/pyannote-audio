@@ -58,4 +58,8 @@ except Exception as e:
 from .precomputed import Precomputed
 from .precomputed import PrecomputedHTK
 
-from .utils import RawAudio
+try:
+    from .utils import RawAudio
+except Exception as e:
+    msg = f'Loading raw audio might fail because something went wrong: {e}.'
+    print(msg)
