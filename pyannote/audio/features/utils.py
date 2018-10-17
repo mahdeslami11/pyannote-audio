@@ -27,22 +27,13 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 
-import yaml
-import io
-from pathlib import Path
-from glob import glob
 import numpy as np
-from numpy.lib.format import open_memmap
-from struct import unpack
 import audioread
-
 import librosa
 from librosa.util import valid_audio
 from librosa.util.exceptions import ParameterError
 
 from pyannote.core import SlidingWindow, SlidingWindowFeature
-from pyannote.database.util import get_unique_identifier
-from pyannote.audio.util import mkdir_p
 import tempfile
 import scipy.io.wavfile
 
