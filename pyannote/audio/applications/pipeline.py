@@ -40,8 +40,8 @@ Common options:
   <database.task.protocol>   Experimental protocol (e.g. "Etape.SpeakerDiarization.TV")
   --database=<db.yml>        Path to database configuration file.
                              [default: ~/.pyannote/db.yml]
-  --subset=<subset>          Set subset [default: development].
-
+  --subset=<subset>          Set subset. Defaults to 'development' in "train"
+                             mode, and to 'all' in "apply" mode.
 "train" mode:
   <experiment_dir>           Set experiment root directory. This script expects
                              a configuration file called "config.yml" to live
@@ -222,19 +222,27 @@ class Pipeline(Application):
         best = self.pipeline_.best(tune_db=tune_db)
         print(f"Loss = {best['loss']:g} | {best['n_trials']} trials")
 
-    def apply(self, protocol_name, output_dir):
+    def apply(self, protocol_name, output_dir, subset=None):
 
         # file generator
         protocol = get_protocol(protocol_name, progress=True,
                                 preprocessors=self.preprocessors_)
 
         mkdir_p(output_dir)
-        path = Path(output_dir) / f'{protocol_name}.txt'
+        if subset is None:
+            path = Path(output_dir) / f'{protocol_name}.all.txt'
+        else:
+            path = Path(output_dir) / f'{protocol_name}.{subset}.txt'
 
         with open(path, mode='w') as fp:
 
-            for current_file in FileFinder.protocol_file_iter(
-                protocol, extra_keys=['audio']):
+            if subset is None:
+                files = FileFinder.protocol_file_iter(protocol,
+                                                      extra_keys=['audio'])
+            else:
+                files = getattr(protocol, subset)()
+
+            for current_file in files:
 
                 uri = get_unique_identifier(current_file)
                 hypothesis = self.pipeline_.apply(current_file)
@@ -259,8 +267,12 @@ def main():
     subset = arguments['--subset']
 
     if arguments['train']:
+
         experiment_dir = Path(arguments['<experiment_dir>'])
         experiment_dir = experiment_dir.expanduser().resolve(strict=True)
+
+        if subset is None:
+            subset = 'development'
 
         if arguments['--forever']:
             trials = -1
@@ -293,4 +305,4 @@ def main():
 
         application = Pipeline.from_params_yml(
             params_yml, db_yml=db_yml, training=False)
-        application.apply(protocol_name, output_dir)
+        application.apply(protocol_name, output_dir, subset=subset)
