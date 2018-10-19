@@ -199,7 +199,7 @@ from pyannote.audio.util import get_class_by_name
 
 from pyannote.audio.embedding.utils import pdist
 from pyannote.audio.embedding.utils import cdist
-from pyannote.audio.features.utils import Precomputed
+from pyannote.audio.features.precomputed import Precomputed
 
 from pyannote.metrics.binary_classification import det_curve
 from pyannote.metrics.diarization import DiarizationPurityCoverageFMeasure
