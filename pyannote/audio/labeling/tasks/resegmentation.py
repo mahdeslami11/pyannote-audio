@@ -36,7 +36,7 @@ from .base import LabelingTask
 from .base import LabelingTaskGenerator
 from pyannote.database.protocol import SpeakerDiarizationProtocol
 from pyannote.audio.labeling.models import StackedRNN
-from pyannote.audio.util import from_numpy
+from pyannote.audio.util import one_hot_decoding
 from pyannote.database import get_unique_identifier
 from pyannote.database import get_annotated
 from pyannote.audio.labeling.extraction import SequenceLabeling
@@ -211,8 +211,8 @@ class Resegmentation(LabelingTask):
 
         # TODO. replace argmax by Viterbi decoding
         self.y_ = np.argmax(avg_scores, axis=1)
-        return from_numpy(self.y_, self.precomputed,
-                          labels=self.batch_generator_.labels)
+        return one_hot_decoding(self.y_, self.precomputed,
+                                labels=self.batch_generator_.labels)
 
     def apply_iter(self, current_file, hypothesis,
                    partial=True, device=None,

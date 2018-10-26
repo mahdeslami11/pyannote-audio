@@ -31,6 +31,8 @@ import numpy as np
 import scipy.signal
 from pyannote.core import Segment, Timeline
 from pyannote.core.util import pairwise
+from sklearn.mixture import GaussianMixture
+from .util import one_hot_decoding
 
 
 class Peak(object):
@@ -244,3 +246,95 @@ class Binarize(object):
         active = active.support()
 
         return active
+
+
+class GMMResegmentation(object):
+    """
+    Parameters
+    ----------
+    n_components : int, optional
+        Number of Gaussian components of the GMMs. Defaults to 128.
+    n_iter : int, optional
+        Number of EM iterations to train the models. Defaults to 10.
+    window : float, optional
+        Duration of the smoothing window. Defaults to 1 second.
+
+    Note
+    ----
+    Recommended feature extraction is to use LibrosaMFCC with 19 static MFCCs
+    (no energy nor zero-coefficient)
+    >>> feature_extraction = LibrosaMFCC(duration=0.025, step=0.01,
+                                         e=False, De=False, DDe=False,
+                                         coefs=19, D=False, DD=False,
+                                         fmin=0.0, fmax=None, n_mels=40)
+
+    TODO: add option to also resegment speech/non-speech
+
+    """
+    def __init__(self, n_components=128, n_iter=10, window=1.):
+        super().__init__()
+        self.n_components = n_components
+        self.n_iter = n_iter
+        self.window = window
+
+
+    def apply(self, annotation, features):
+        """
+
+        Parameters
+        ----------
+        annotation : `pyannote.core.Annotation`
+            Original annotation to be resegmented.
+        features : `SlidingWindowFeature`
+            Features
+
+        Returns
+        -------
+        hypothesis : `pyannote.core.Annotation`
+            Resegmented annotation.
+
+        """
+
+        sliding_window = features.sliding_window
+        window = np.ones((1, sliding_window.samples(self.window)))
+
+        log_probs = []
+        labels = annotation.labels()
+
+        # FIXME: embarrasingly parallel
+        for label in labels:
+
+            # gather all features for current label
+            span = annotation.label_timeline(label)
+            data = features.crop(span, mode='center')
+
+            # train a GMM
+            gmm = GaussianMixture(n_components=self.n_components,
+                                  covariance_type='diag',
+                                  tol=0.001, reg_covar=1e-06,
+                                  max_iter=self.n_iter, n_init=1,
+                                  init_params='kmeans',
+                                  weights_init=None,
+                                  means_init=None,
+                                  precisions_init=None,
+                                  random_state=None,
+                                  warm_start=False,
+                                  verbose=0,
+                                  verbose_interval=10).fit(data)
+
+            # compute log-probability across the whole file
+            log_prob = gmm.score_samples(features.data)
+            log_probs.append(log_prob)
+
+        # smooth log-probability using a sliding window
+        log_probs = scipy.signal.convolve(np.vstack(log_probs),
+                                          window, mode='same')
+
+        # assign each frame to the most likely label
+        y = np.argmax(log_probs, axis=0)
+
+        # reconstruct the annotation
+        hypothesis = one_hot_decoding(y, sliding_window, labels=labels)
+
+        # remove original non-speech regions
+        return hypothesis.crop(annotation.get_timeline().support())
