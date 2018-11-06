@@ -87,7 +87,6 @@ class Application(object):
         """
         super(Application, self).__init__()
 
-        self.db_yml = db_yml
         self.experiment_dir = experiment_dir
 
         # load configuration
