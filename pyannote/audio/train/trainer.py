@@ -35,8 +35,7 @@ from collections import deque
 from torch.optim import SGD
 from scipy.signal import convolve
 from abc import ABCMeta, abstractmethod
-from torch.nn.utils.rnn import pad_sequence
-from torch.nn.utils.rnn import pack_padded_sequence
+from torch.nn.utils.rnn import pack_sequence
 from pyannote.audio.train.schedulers import ConstantScheduler
 from pyannote.audio.train.checkpoint import Checkpoint
 from tensorboardX import SummaryWriter
@@ -176,17 +175,12 @@ class Trainer:
         variable_lengths = len(set(lengths)) > 1
 
         if variable_lengths:
-            lengths = torch.tensor(lengths)
-            sorted_lengths, sort = torch.sort(lengths, descending=True)
+            _, sort = torch.sort(torch.tensor(lengths), descending=True)
             _, unsort = torch.sort(sort)
-
             sequences = [torch.tensor(batch['X'][i],
                                       dtype=torch.float32,
                                       device=device) for i in sort]
-            padded = pad_sequence(sequences, batch_first=True, padding_value=0)
-            packed = pack_padded_sequence(padded, sorted_lengths,
-                                          batch_first=True)
-            batch['X'] = packed
+            batch['X'] = pack_sequence(sequences)
         else:
             batch['X'] = torch.tensor(np.stack(batch['X']),
                                       dtype=torch.float32,
