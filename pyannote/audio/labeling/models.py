@@ -31,6 +31,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from ..train.utils import get_info
+from torch.nn.utils.rnn import PackedSequence
 
 
 class StackedRNN(nn.Module):
