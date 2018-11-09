@@ -30,6 +30,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from ..train.utils import get_info
 
 
 class StackedRNN(nn.Module):
@@ -117,16 +118,20 @@ class StackedRNN(nn.Module):
         else:
             return nn.CrossEntropyLoss()
 
-    def forward(self, sequence):
+    def forward(self, sequences):
 
-        # check input feature dimension
-        batch_size, n_samples, n_features = sequence.size()
+        if isinstance(sequences, PackedSequence):
+            msg = (f'{self.__class__.__name__} does not support batches '
+                   f'containing sequences of variable length.')
+            raise ValueError(msg)
+
+        batch_size, n_features, device = get_info(sequences)
+
         if n_features != self.n_features:
             msg = 'Wrong feature dimension. Found {0}, should be {1}'
             raise ValueError(msg.format(n_features, self.n_features))
 
-        output = sequence
-        device = sequence.device
+        output = sequences
 
         if self.instance_normalize:
             output = output.transpose(1, 2)
