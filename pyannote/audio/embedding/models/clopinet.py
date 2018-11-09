@@ -32,6 +32,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import PackedSequence
 from torch.nn.utils.rnn import pad_packed_sequence
+from ...train.utils import get_info
+from ...train.utils import map_packed
+from ...train.utils import pool_packed
+from ...train.utils import operator_packed
 
 
 class ClopiNet(nn.Module):
@@ -167,29 +171,33 @@ class ClopiNet(nn.Module):
             return self.linear[-1]
         return sum(self.recurrent) * (2 if self.bidirectional else 1)
 
-    def forward(self, sequence):
+    def forward(self, sequences):
+        """Forward pass
 
-        packed_sequences = isinstance(sequence, PackedSequence)
+        Parameters
+        ----------
+        sequences : (batch_size, n_samples, n_features) `torch.Tensor`
+                    or `PackedSequence`
+            Batch of sequences. Variable length is supported through
+            `PackedSequence` instance but fixed length will be much faster.
 
-        if packed_sequences:
-            _, n_features = sequence.data.size()
-            batch_size = sequence.batch_sizes[0].item()
-            device = sequence.data.device
-        else:
-            # check input feature dimension
-            batch_size, _, n_features = sequence.size()
-            device = sequence.device
+        Returns
+        -------
+        embeddings : (batch_size, dimension) `torch.Tensor`
+            Embeddings.
+        """
 
+        batch_size, n_features, device = get_info(sequences)
         if n_features != self.n_features:
             msg = 'Wrong feature dimension. Found {0}, should be {1}'
             raise ValueError(msg.format(n_features, self.n_features))
 
-        output = sequence
+        output = sequences
 
         if self.instance_normalize:
-            output = output.transpose(1, 2)
-            output = F.instance_norm(output)
-            output = output.transpose(1, 2)
+            func = lambda b: F.instance_norm(b.transpose(1, 2)).transpose(1, 2)
+            output = map_packed(func, output)
+            # same as F.instance_norm(output) it supports PackedSequence
 
         if self.weighted:
             self.alphas_ = self.alphas_.to(device)
@@ -212,56 +220,53 @@ class ClopiNet(nn.Module):
                     self.num_directions_, batch_size, hidden_dim,
                     device=device, requires_grad=False)
 
-            # apply current recurrent layer and get output sequence
+            # apply current recurrent layer and get output sequences
             output, _ = layer(output, hidden)
 
             outputs.append(output)
 
-        if packed_sequences:
-            outputs, lengths = zip(*[pad_packed_sequence(o, batch_first=True)
-                                     for o in outputs])
-
         # concatenate outputs
-        output = torch.cat(outputs, dim=2)
-        # batch_size, n_samples, dimension
+        output = operator_packed(lambda seq: torch.cat(seq, dim=2), outputs)
+        # same as torch.cat(outputs) except it supports PackedSequence
+
+        # batch_size, n_samples, (sum of LSTM dimensions)
 
         if self.weighted:
-            output = output * self.alphas_
+            func = lambda b: b * self.alphas_
+            output = map_packed(func, output)
+            # same as output * self.alphas_ except it supports PackedSequence
 
         # stack linear layers
         for hidden_dim, layer in zip(self.linear, self.linear_layers_):
-
-            # apply current linear layer
-            output = layer(output)
-
-            # apply non-linear activation function
-            output = F.tanh(output)
+            func = lambda b: F.tanh(layer(b))
+            output = map_packed(func, output)
+            # same as F.tanh(layer(output)) except it supports PackedSequence
 
         # n_samples, batch_size, dimension
 
         if self.attention_layers_:
-            attn = sequence
+
+            attn = sequences
             for layer, hidden_dim in zip(self.attention_layers_,
                                          self.attention + [1]):
-                attn = layer(attn)
-                attn = F.tanh(attn)
+                func = lambda b: F.tanh(layer(b))
+                attn = map_packed(func, attn)
+                # same as F.tanh(layer(attn)) except it supports PackedSequence
 
-            if packed_sequences:
-                msg = ('attention is not yet implemented '
-                       'for variable length sequences.')
-                raise NotImplementedError(msg)
-            attn = F.softmax(attn, dim=1)
-            output = output * attn
+            func = lambda oa: oa[0] * F.softmax(oa[1], dim=1)
+            output = operator_packed(func, (output, attn))
+            # same as output * F.softmax(attn, dim=1) except it supports PackedSequence
 
-        # average temporal pooling
+        # temporal pooling
         if self.pooling == 'sum':
-            output = output.sum(dim=1)
+            pool_func = lambda batch: batch.sum(dim=1)
+            output = pool_packed(pool_func, output)
+            # same as output.sum(dim=1) except it supports PackedSequence
+
         elif self.pooling == 'max':
-            if packed_sequences:
-                msg = ('"max" pooling is not yet implemented '
-                       'for variable length sequences.')
-                raise NotImplementedError(msg)
-            output, _ = output.max(dim=1)
+            pool_func = lambda batch: batch.max(dim=1)[0]
+            output = pool_packed(pool_func, output)
+            # same as output.max(dim=1)[0] except it supports PackedSequence
 
         # batch_size, dimension
 
