@@ -41,7 +41,7 @@ Common options:
   --database=<db.yml>        Path to database configuration file.
                              [default: ~/.pyannote/db.yml]
   --subset=<subset>          Set subset. Defaults to 'development' in "train"
-                             mode, and to 'all' in "apply" mode.
+                             mode, and to all subsets in "apply" mode.
 "train" mode:
   <experiment_dir>           Set experiment root directory. This script expects
                              a configuration file called "config.yml" to live
