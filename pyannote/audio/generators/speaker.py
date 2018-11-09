@@ -385,13 +385,6 @@ class SpeechSegmentGenerator(object):
             # get annotation for current file
             annotation = current_file['annotation']
 
-            # pre-load features.
-            if isinstance(self.feature_extraction, Precomputed) and \
-               not self.feature_extraction.use_memmap:
-                msg = ('Loading all precomputed features in memory. '
-                       'Set "use_memmap" to True if you run out of memory.')
-                warnings.warn(msg)
-
             # loop on each label in current file
             for label in annotation.labels():
 
