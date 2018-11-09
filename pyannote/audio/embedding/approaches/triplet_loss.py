@@ -81,6 +81,8 @@ class TripletLoss(Trainer):
     per_fold : int, optional
         If provided, sample triplets from groups of `per_fold` speakers at a
         time. Defaults to sample triplets from the whole speaker set.
+    per_epoch : float, optional
+        Number of days per epoch. Defaults to 7 (a week).
     variant : {'corpus', 'session', 'unsupervised'}, optional
         Change the way triplets are built. Default behavior ('corpus') is to
         build triplets by sampling sequences from the whole corpus (assuming
@@ -100,8 +102,8 @@ class TripletLoss(Trainer):
 
     def __init__(self, duration=None, min_duration=None, max_duration=None,
                  metric='cosine', margin=0.2, clamp='positive',
-                 sampling='all', per_label=3, per_fold=None, parallel=1,
-                 variant='corpus', label_min_duration=0.):
+                 sampling='all', per_label=3, per_fold=None, per_epoch=7,
+                 parallel=1, variant='corpus', label_min_duration=0.):
 
         super(TripletLoss, self).__init__()
 
@@ -122,6 +124,7 @@ class TripletLoss(Trainer):
 
         self.per_fold = per_fold
         self.per_label = per_label
+        self.per_epoch = per_epoch
         self.label_min_duration = label_min_duration
 
         if variant not in {'corpus', 'session', 'unsupervised'}:
@@ -397,22 +400,25 @@ class TripletLoss(Trainer):
             return SessionWiseSpeechSegmentGenerator(
                 feature_extraction, label_min_duration=self.label_min_duration,
                 per_label=self.per_label, per_fold=self.per_fold,
-                duration=self.duration, min_duration=self.min_duration,
-                max_duration=self.max_duration, parallel=self.parallel)
+                per_epoch=self.per_epoch, duration=self.duration,
+                min_duration=self.min_duration, max_duration=self.max_duration,
+                parallel=self.parallel)
 
         elif self.variant == 'corpus':
 
             return SpeechSegmentGenerator(
                 feature_extraction, label_min_duration=self.label_min_duration,
                 per_label=self.per_label, per_fold=self.per_fold,
-                duration=self.duration, min_duration=self.min_duration,
-                max_duration=self.max_duration, parallel=self.parallel)
+                per_epoch=self.per_epoch, duration=self.duration,
+                min_duration=self.min_duration, max_duration=self.max_duration,
+                parallel=self.parallel)
 
         elif self.variant == 'unsupervised':
 
             return UnsupervisedSpeechSegmentGenerator(
                 feature_extraction, per_fold=self.per_fold,
-                duration=self.duration, parallel=self.parallel)
+                per_epoch=self.per_epoch, duration=self.duration,
+                parallel=self.parallel)
 
     def aggregate(self, batch):
         return batch

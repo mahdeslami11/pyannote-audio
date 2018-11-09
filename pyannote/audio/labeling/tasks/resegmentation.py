@@ -244,8 +244,8 @@ class Resegmentation(LabelingTask):
         current_file = dict(current_file)
         current_file['annotation'] = hypothesis
 
-        # set `per_epoch` attribute to current file annotated duration
-        self.per_epoch = get_annotated(current_file).duration()
+        # set `per_epoch` attribute to current file annotated duration (in days)
+        self.per_epoch = get_annotated(current_file).duration() / 86400
 
         # number of speakers + 1 for non-speech
         self.n_classes_ = len(hypothesis.labels()) + 1

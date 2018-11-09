@@ -89,7 +89,7 @@ Configuration file:
        name: SpeakerChangeDetection
        params:
           duration: 3.2     # sub-sequence duration
-          per_epoch: 36000  # 10 hours of audio per epoch
+          per_epoch: 1      # 1 day of audio per epoch
           collar: 0.200     # upsampling collar
           batch_size: 32    # number of sub-sequences per batch
           parallel: 4       # number of background generators

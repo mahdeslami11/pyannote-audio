@@ -64,8 +64,8 @@ class LabelingTaskGenerator(object):
     batch_size : int, optional
         Batch size. Defaults to 32.
     per_epoch : float, optional
-        Total audio duration per epoch, in seconds.
-        Defaults to one hour (3600).
+        Total audio duration per epoch, in days.
+        Defaults to one day (1).
     parallel : int, optional
         Number of prefetching background generators. Defaults to 1.
         Each generator will prefetch enough batches to cover a whole epoch.
@@ -78,7 +78,7 @@ class LabelingTaskGenerator(object):
     """
 
     def __init__(self, feature_extraction, duration=3.2, batch_size=32,
-                 per_epoch=3600, parallel=1, exhaustive=False, shuffle=False):
+                 per_epoch=1, parallel=1, exhaustive=False, shuffle=False):
 
         super(LabelingTaskGenerator, self).__init__()
 
@@ -270,8 +270,9 @@ class LabelingTaskGenerator(object):
     @property
     def batches_per_epoch(self):
         """Number of batches needed to complete an epoch"""
+        duration_per_epoch = self.per_epoch * 24 * 60 * 60
         duration_per_batch = self.duration * self.batch_size
-        return int(np.ceil(self.per_epoch / duration_per_batch))
+        return int(np.ceil(duration_per_epoch / duration_per_batch))
 
     @property
     def labels(self):
@@ -336,15 +337,15 @@ class LabelingTask(Trainer):
     batch_size : int, optional
         Batch size. Defaults to 32.
     per_epoch : float, optional
-        Total audio duration per epoch, in seconds.
-        Defaults to one hour (3600).
+        Total audio duration per epoch, in days.
+        Defaults to one day (1).
     parallel : int, optional
         Number of prefetching background generators. Defaults to 1.
         Each generator will prefetch enough batches to cover a whole epoch.
         Set `parallel` to 0 to not use background generators.
     """
 
-    def __init__(self, duration=3.2, batch_size=32, per_epoch=3600,
+    def __init__(self, duration=3.2, batch_size=32, per_epoch=1,
                  parallel=1):
         super(LabelingTask, self).__init__()
         self.duration = duration
@@ -365,8 +366,9 @@ class LabelingTask(Trainer):
         batch_generator : `LabelingTaskGenerator`
         """
         return LabelingTaskGenerator(
-            feature_extraction, duration=self.duration, per_epoch=self.per_epoch,
-            batch_size=self.batch_size, parallel=self.parallel)
+            feature_extraction, duration=self.duration,
+            per_epoch=self.per_epoch, batch_size=self.batch_size,
+            parallel=self.parallel)
 
     @property
     def n_classes(self):

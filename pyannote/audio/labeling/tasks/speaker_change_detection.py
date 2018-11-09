@@ -50,8 +50,8 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
     batch_size : int, optional
         Batch size. Defaults to 32.
     per_epoch : float, optional
-        Total audio duration per epoch, in seconds.
-        Defaults to one hour (3600).
+        Total audio duration per epoch, in days.
+        Defaults to one day (1).
     parallel : int, optional
         Number of prefetching background generators. Defaults to 1.
         Each generator will prefetch enough batches to cover a whole epoch.
@@ -139,8 +139,8 @@ class SpeakerChangeDetection(LabelingTask):
     batch_size : int, optional
         Batch size. Defaults to 32.
     per_epoch : float, optional
-        Total audio duration per epoch, in seconds.
-        Defaults to one hour (3600).
+        Total audio duration per epoch, in days.
+        Defaults to one day (1).
     parallel : int, optional
         Number of prefetching background generators. Defaults to 1.
         Each generator will prefetch enough batches to cover a whole epoch.

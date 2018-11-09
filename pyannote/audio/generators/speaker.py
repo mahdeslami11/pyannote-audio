@@ -91,6 +91,8 @@ class SessionWiseSpeechSegmentGenerator(object):
         Defaults to 0 (i.e. keep it all).
     per_fold : int
         Number of speakers in each batch. Must be provided.
+    per_epoch : float, optional
+        Number of days per epoch. Defaults to 7 (a week).
     duration : float, optional
         Use fixed duration segments with this `duration`.
         Defaults (None) to using variable duration segments.
@@ -105,7 +107,7 @@ class SessionWiseSpeechSegmentGenerator(object):
     """
 
     def __init__(self, feature_extraction,
-                 per_label=3, per_fold=None,
+                 per_label=3, per_fold=None, per_epoch=7,
                  duration=None, min_duration=None, max_duration=None,
                  label_min_duration=0., parallel=1):
 
@@ -118,6 +120,7 @@ class SessionWiseSpeechSegmentGenerator(object):
         self.feature_extraction = feature_extraction
         self.per_label = per_label
         self.per_fold = per_fold
+        self.per_epoch = per_epoch
         self.duration = duration
         self.min_duration = min_duration
         self.max_duration = max_duration
@@ -161,21 +164,21 @@ class SessionWiseSpeechSegmentGenerator(object):
     @property
     def batches_per_epoch(self):
 
-        # ten hours per epoch
-        duration_per_epoch = 36000
+        # duration per epoch
+        duration_per_epoch = self.per_epoch * 24 * 60 * 60
 
-        # number of segments per batch
-        segments_per_batch = self.per_label * self.per_fold
-
-        # duration per batch
+        # (average) duration per segment
         if self.duration is None:
-            if self.min_duration is None:
-                duration_per_batch = self.max_duration * segments_per_batch
-            else:
-                duration_per_batch = self.min_duration * segments_per_batch
+            min_duration = 0. if self.min_duration is None \
+                              else self.min_duration
+            duration = .5 * (min_duration + self.max_duration)
         else:
-            duration_per_batch = self.duration * segments_per_batch
+            duration = self.duration
 
+        # (average) duration per batch
+        duration_per_batch = duration * self.batch_size
+
+        # number of batches per epoch
         return int(np.ceil(duration_per_epoch / duration_per_batch))
 
     @property
@@ -198,6 +201,8 @@ class UnsupervisedSpeechSegmentGenerator(object):
         Fixed duration of segments. Must be provided.
     per_fold : int
         Number of speakers in each batch. Must be provided.
+    per_epoch : float, optional
+        Number of days per epoch. Defaults to 7 (a week).
     parallel : int, optional
         Number of prefetching background generators. Defaults to 1.
         Each generator will prefetch enough batches to cover a whole epoch.
@@ -205,7 +210,7 @@ class UnsupervisedSpeechSegmentGenerator(object):
     """
 
     def __init__(self, feature_extraction, duration=None, per_fold=None,
-                 parallel=1, **kwargs):
+                 per_epoch=7, parallel=1, **kwargs):
 
         super().__init__()
 
@@ -219,6 +224,8 @@ class UnsupervisedSpeechSegmentGenerator(object):
             raise ValueError('per_fold is None')
         self.per_fold = per_fold
 
+        self.per_epoch = per_epoch
+
         self.parallel = parallel
 
     @property
@@ -228,11 +235,11 @@ class UnsupervisedSpeechSegmentGenerator(object):
     @property
     def batches_per_epoch(self):
 
-        # ten hours per epoch
-        duration_per_epoch = 36000
+        # one day per epoch
+        duration_per_epoch = self.per_epoch * 24 * 60 * 60
 
         # duration per batch
-        duration_per_batch = 2 * self.per_fold * self.duration
+        duration_per_batch = self.batch_size * self.duration
 
         return int(np.ceil(duration_per_epoch / duration_per_batch))
 
@@ -322,6 +329,8 @@ class SpeechSegmentGenerator(object):
         Defaults to 0 (i.e. keep it all).
     per_fold : int, optional
         Number of speakers in each batch. Defaults to all speakers.
+    per_epoch : float, optional
+        Number of days per epoch. Defaults to 7 (a week).
     duration : float, optional
         Use fixed duration segments with this `duration`.
         Defaults (None) to using variable duration segments.
@@ -336,7 +345,7 @@ class SpeechSegmentGenerator(object):
     """
 
     def __init__(self, feature_extraction,
-                 per_label=3, per_fold=None,
+                 per_label=3, per_fold=None, per_epoch=7,
                  duration=None, min_duration=None, max_duration=None,
                  label_min_duration=0., parallel=1):
 
@@ -345,6 +354,7 @@ class SpeechSegmentGenerator(object):
         self.feature_extraction = feature_extraction
         self.per_label = per_label
         self.per_fold = per_fold
+        self.per_epoch = per_epoch
         self.duration = duration
         self.parallel = parallel
         self.label_min_duration = label_min_duration
@@ -524,24 +534,21 @@ class SpeechSegmentGenerator(object):
     @property
     def batches_per_epoch(self):
 
-        # one minute per speaker
-        duration_per_epoch = 60 * len(self.data_)
+        # duration per epoch
+        duration_per_epoch = self.per_epoch * 24 * 60 * 60
 
-        # number of segments per batch
-        if self.per_fold is None:
-            segments_per_batch = self.per_label * len(self.data_)
-        else:
-            segments_per_batch = self.per_label * self.per_fold
-
-        # duration per batch
+        # (average) duration per segment
         if self.duration is None:
-            if self.min_duration is None:
-                duration_per_batch = self.max_duration * segments_per_batch
-            else:
-                duration_per_batch = self.min_duration * segments_per_batch
+            min_duration = 0. if self.min_duration is None \
+                              else self.min_duration
+            duration = .5 * (min_duration + self.max_duration)
         else:
-            duration_per_batch = self.duration * segments_per_batch
+            duration = self.duration
 
+        # (average) duration per batch
+        duration_per_batch = duration * self.batch_size
+
+        # number of batches per epoch
         return int(np.ceil(duration_per_epoch / duration_per_batch))
 
     @property
@@ -614,6 +621,8 @@ class SpeechTurnSubSegmentGenerator(SpeechSegmentGenerator):
         Number of speech turns per speaker in each batch. Defaults to 3.
     per_fold : int, optional
         Number of speakers in each batch. Defaults to all speakers.
+    per_epoch : float, optional
+        Number of days per epoch. Defaults to 7 (a week).
     parallel : int, optional
         Number of prefetching background generators. Defaults to 1.
         Each generator will prefetch enough batches to cover a whole epoch.
@@ -621,10 +630,11 @@ class SpeechTurnSubSegmentGenerator(SpeechSegmentGenerator):
     """
 
     def __init__(self, feature_extraction, duration, per_label=3,
-                 per_fold=None, per_turn=10, parallel=1):
+                 per_fold=None, per_turn=10, per_epoch=7, parallel=1):
 
         super(SpeechTurnSubSegmentGenerator, self).__init__(
-            feature_extraction, per_label=per_label, per_fold=per_fold,
+            feature_extraction,
+            per_label=per_label, per_fold=per_fold, per_epoch=per_epoch,
             duration=None, min_duration=duration, max_duration=None)
 
         # this is to make sure speech turns are selected at random
@@ -714,7 +724,7 @@ class SpeechTurnSubSegmentGenerator(SpeechSegmentGenerator):
     def batches_per_epoch(self):
 
         # one minute per speaker
-        duration_per_epoch = 60 * len(self.data_)
+        duration_per_epoch = self.per_epoch * 24 * 60 * 60
 
         # number of segments per batch
         if self.per_fold is None:
