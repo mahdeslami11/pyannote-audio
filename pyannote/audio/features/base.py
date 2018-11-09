@@ -42,6 +42,7 @@ from pyannote.database import get_unique_identifier
 from librosa.util import valid_audio
 from librosa.util.exceptions import ParameterError
 
+
 class FeatureExtraction(object):
     """Base class for feature extraction
 
@@ -221,8 +222,8 @@ class FeatureExtraction(object):
                            min(duration, segment.end + context))
 
         # obtain waveform on this extended segment
-        y = self.raw_audio_.crop(current_file, xsegment)
-
+        y = self.raw_audio_.crop(current_file, xsegment, mode='center',
+                                 fixed=xsegment.duration)
 
         # data augmentation
         if self.augmentation is not None:
