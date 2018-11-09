@@ -34,7 +34,6 @@ from pyannote.audio.features import Precomputed
 from pyannote.generators.fragment import random_segment
 from pyannote.generators.fragment import random_subsegment
 from pyannote.generators.batch import batchify, EndOfBatch
-from pyannote.database import get_label_identifier
 from pyannote.database import get_annotated
 from pyannote.database.protocol import SpeakerDiarizationProtocol
 
@@ -415,8 +414,7 @@ class SpeechSegmentGenerator(object):
                 # store all these in data_ dictionary
                 # datum = (segment_generator, duration, current_file, features)
                 datum = (segments, duration, current_file)
-                l = get_label_identifier(label, current_file)
-                self.data_.setdefault(l, []).append(datum)
+                self.data_.setdefault(label, []).append(datum)
 
         # remove labels with less than 'label_min_duration' of speech
         # otherwise those may generate the same segments over and over again

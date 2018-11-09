@@ -32,9 +32,8 @@ import numpy as np
 from tqdm import tqdm
 from pyannote.metrics.binary_classification import det_curve
 from pyannote.database import get_unique_identifier
-from pyannote.database import get_label_identifier
 from pyannote.database import get_annotated
-from pyannote.audio.util import to_numpy
+from pyannote.audio.util import one_hot_encoding
 from pyannote.audio.features import Precomputed
 from pyannote.core import Segment
 from pyannote.core import Timeline
@@ -118,9 +117,7 @@ class LabelingTaskGenerator(object):
             databases.add(database)
 
             # keep track of unique labels
-            for label in current_file['annotation'].labels():
-                label = get_label_identifier(label, current_file)
-                labels.add(label)
+            labels.update(current_file['annotation'].labels())
 
             annotated = get_annotated(current_file)
 
@@ -151,13 +148,16 @@ class LabelingTaskGenerator(object):
         self.databases_ = sorted(databases)
         self.labels_ = sorted(labels)
 
-        sliding_window = self.feature_extraction.sliding_window
         for current_file in getattr(protocol, subset)():
-            y, _ = to_numpy(current_file, self.feature_extraction,
-                            labels=self.labels_)
+
+            y, _ = one_hot_encoding(
+                current_file, self.feature_extraction.sliding_window,
+                labels=self.labels_, mode='center')
+
             uri = get_unique_identifier(current_file)
+
             self.data_[uri]['y'] = SlidingWindowFeature(
-                self.postprocess_y(y), sliding_window)
+                self.postprocess_y(y.data), y.sliding_window)
 
     def postprocess_y(self, Y):
         """This function does nothing but return its input.
