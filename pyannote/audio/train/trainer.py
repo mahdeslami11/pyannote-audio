@@ -271,14 +271,13 @@ class Trainer:
         return iteration['model']
 
     @staticmethod
-    def _choose_lr(lrs, losses, min_lr=1e-6, max_lr=1e3, n_batches=500):
+    def _choose_lr(lrs, losses):
         """Helper function that actually selects the best learning rates
 
         Parameters
         ----------
         lrs : numpy array
         losses : numpy array
-        min_lr, max_lr, n_batches : see `Trainer.auto_lr`
 
         Returns
         -------
@@ -287,6 +286,10 @@ class Trainer:
         upper : float
             Learning rate upper bound
         """
+
+        min_lr = np.min(lrs)
+        max_lr = np.max(lrs)
+        n_batches = len(lrs)
 
         # `factor` by which the learning rate is multiplied after every batch,
         # to get from `min_lr` to `max_lr` in `n_batches` step.
@@ -409,9 +412,11 @@ class Trainer:
             for param_group in optimizer.param_groups:
                 param_group['lr'] *= factor
 
-        return self._choose_lr(
-            np.array(lrs), np.array(losses),
-            min_lr=min_lr, max_lr=max_lr, n_batches=n_batches)
+            # stop AutoLR early when loss starts to explode
+            if i > 1 and losses[-1] > 100 * np.nanmin(losses):
+                break
+
+        return self._choose_lr(np.array(lrs), np.array(losses))
 
 
     def fit_iter(self, model, feature_extraction,
