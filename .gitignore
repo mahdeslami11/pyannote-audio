@@ -66,5 +66,7 @@ models
 experiments
 *~
 
-tutorials/feature-extraction/*/*npy
-tutorials/*/train/*
+*.npy
+*.pt
+*events.out.tfevents*
+*.csv
