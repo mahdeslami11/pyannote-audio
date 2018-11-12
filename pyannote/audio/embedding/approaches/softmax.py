@@ -29,6 +29,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from pyannote.audio.generators.speaker import SpeechSegmentGenerator
 from pyannote.audio.train.trainer import Trainer
 
@@ -45,20 +46,19 @@ class Classifier(nn.Module):
     """
 
     def __init__(self, n_dimensions, n_classes):
-        super(Classifier, self).__init__()
+        super().__init__()
         self.n_dimensions = n_dimensions
         self.n_classes = n_classes
 
         self.hidden = nn.Linear(n_dimensions, n_dimensions, bias=True)
         self.output = nn.Linear(n_dimensions, n_classes, bias=True)
 
-        self.tanh_ = nn.Tanh()
         self.logsoftmax_ = nn.LogSoftmax(dim=-1)
 
     def forward(self, embedding):
-        hidden = self.tanh_(self.hidden(embedding))
+        hidden = F.tanh(self.hidden(embedding))
         return self.logsoftmax_(self.output(hidden))
-
+        
 
 class Softmax(Trainer):
     """Train embeddings in a supervised (classification) manner
@@ -203,7 +203,7 @@ class Softmax(Trainer):
 
         fX = self.forward(batch, model, device)
         y_pred = self.classifier_(fX)
-        y = torch.tensor(np.stack(batch['y']), device=device)
+        y = torch.tensor(np.stack(batch['y'])).to(device)
         return self.loss_(y_pred, y)
 
     def on_epoch_end(self, iteration, checkpoint, **kwargs):
