@@ -58,7 +58,7 @@ class Classifier(nn.Module):
     def forward(self, embedding):
         hidden = F.tanh(self.hidden(embedding))
         return self.logsoftmax_(self.output(hidden))
-        
+
 
 class Softmax(Trainer):
     """Train embeddings in a supervised (classification) manner
@@ -76,6 +76,8 @@ class Softmax(Trainer):
         Number of speakers per batch. Defaults to the whole speaker set.
     per_label : int, optional
         Number of sequences per speaker in each batch. Defaults to 1.
+    per_epoch : float, optional
+        Number of days per epoch. Defaults to 7 (a week).
     parallel : int, optional
         Number of prefetching background generators. Defaults to 1.
         Each generator will prefetch enough batches to cover a whole epoch.
@@ -86,12 +88,13 @@ class Softmax(Trainer):
     CLASSIFIER_PT = '{log_dir}/weights/{epoch:04d}.classifier.pt'
 
     def __init__(self, duration=None, min_duration=None, max_duration=None,
-                 per_label=1, per_fold=None, parallel=1, label_min_duration=0.,
-                 linear=[]):
+                 per_label=1, per_fold=None, per_epoch=7, parallel=1,
+                 label_min_duration=0.):
         super().__init__()
 
         self.per_fold = per_fold
         self.per_label = per_label
+        self.per_epoch = per_epoch
         self.label_min_duration = label_min_duration
 
         self.duration = duration
@@ -116,7 +119,8 @@ class Softmax(Trainer):
         return SpeechSegmentGenerator(
             feature_extraction, label_min_duration=self.label_min_duration,
             per_label=self.per_label, per_fold=self.per_fold,
-            duration=self.duration, min_duration=self.min_duration,
+            per_epoch=self.per_epoch, duration=self.duration,
+            min_duration=self.min_duration,
             max_duration=self.max_duration, parallel=self.parallel)
 
     def extra_init(self, model, device, checkpoint=None,
