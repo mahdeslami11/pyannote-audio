@@ -339,8 +339,8 @@ class SpeakerEmbedding(Application):
 
         # initialize embedding extraction
         sequence_embedding = SequenceEmbedding(
-            model, self.feature_extraction_, duration=duration,
-            step=step, min_duration=min_duration,
+            model=model, feature_extraction=self.feature_extraction_,
+            duration=duration, step=step, min_duration=min_duration,
             batch_size=self.batch_size, device=self.device)
 
         protocol = get_protocol(protocol_name, progress=False,
@@ -356,7 +356,7 @@ class SpeakerEmbedding(Application):
             if hash1 in cache:
                 emb1 = cache[hash1]
             else:
-                emb1 = sequence_embedding.apply(file1, crop=file1['try_with'])
+                emb1 = sequence_embedding.crop(file1, file1['try_with'])
                 emb1 = np.mean(np.stack(emb1), axis=0, keepdims=True)
                 cache[hash1] = emb1
 
@@ -366,7 +366,7 @@ class SpeakerEmbedding(Application):
             if hash2 in cache:
                 emb2 = cache[hash2]
             else:
-                emb2 = sequence_embedding.apply(file2, crop=file2['try_with'])
+                emb2 = sequence_embedding.crop(file2, file2['try_with'])
                 emb2 = np.mean(np.stack(emb2), axis=0, keepdims=True)
                 cache[hash2] = emb2
 
@@ -430,8 +430,8 @@ class SpeakerEmbedding(Application):
 
         # initialize embedding extraction
         sequence_embedding = SequenceEmbedding(
-            model, self.feature_extraction_, duration=duration,
-            step=step, min_duration=min_duration,
+            model=model, feature_extraction=self.feature_extraction_,
+            duration=duration, step=step, min_duration=min_duration,
             batch_size=self.batch_size, device=self.device)
 
         protocol = get_protocol(protocol_name, progress=False,
@@ -447,7 +447,7 @@ class SpeakerEmbedding(Application):
             reference = current_file['annotation']
 
             X_, t_ = [], []
-            embedding = sequence_embedding.apply(current_file)
+            embedding = sequence_embedding(current_file)
             for i, (turn, _) in enumerate(reference.itertracks()):
 
                 # extract embedding for current speech turn. whenever possible,
@@ -537,8 +537,9 @@ class SpeakerEmbedding(Application):
 
         # initialize embedding extraction
         sequence_embedding = SequenceEmbedding(
-            model, self.feature_extraction_, duration=duration,
-            step=step, batch_size=self.batch_size, device=self.device)
+            model=model, feature_extraction=self.feature_extraction_,
+            duration=duration, step=step, batch_size=self.batch_size,
+            device=self.device)
         sliding_window = sequence_embedding.sliding_window
         dimension = sequence_embedding.dimension
 
@@ -556,7 +557,7 @@ class SpeakerEmbedding(Application):
         for current_file in FileFinder.protocol_file_iter(
             protocol, extra_keys=['audio']):
 
-            fX = sequence_embedding.apply(current_file)
+            fX = sequence_embedding(current_file)
             precomputed.dump(current_file, fX)
 
 def main():

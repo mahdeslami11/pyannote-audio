@@ -31,6 +31,7 @@ from cachetools import LRUCache
 CACHE_MAXSIZE = 12
 
 import torch
+import torch.nn as nn
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.generators.batch import FileBasedBatchGenerator
 from pyannote.generators.fragment import SlidingSegments
@@ -43,45 +44,56 @@ class SequenceLabeling(FileBasedBatchGenerator):
 
     Parameters
     ----------
-    model : nn.Module
-        Pre-trained sequence labeling model.
-    feature_extraction : pyannote.audio.features.Precomputed
-        Feature extractor
+    model : `nn.Module` or `str`
+        Model (or path to model). When a path, the directory structure created
+        by pyannote command line tools (e.g. pyannote-speech-detection) should
+        be kept unchanged so that one can find the corresponding configuration
+        file automatically.
+    feature_extraction : callable, optional
+        Feature extractor. When not provided and `model` is a path, it is
+        inferred directly from the configuration file.
     duration : float, optional
-        Subsequence duration, in seconds. Defaults to 1s.
-    min_duration : float, optional
-        When provided, will do its best to yield segments of length `duration`,
-        but shortest segments are also permitted (as long as they are longer
-        than `min_duration`).
+        Subsequence duration, in seconds. When `model` is a path and `duration`
+        is not provided, it is inferred directly from the configuration file.
     step : float, optional
         Subsequence step, in seconds. Defaults to 50% of `duration`.
     batch_size : int, optional
         Defaults to 32.
     device : torch.device, optional
         Defaults to CPU.
-
-    Example
-    -------
-    >>> labeler = SequenceLabeling(model, feature_extraction)
-    >>> predictions = labeler.apply(current_file)
     """
 
-    def __init__(self, model, feature_extraction, duration=1,
-                 min_duration=None, step=None, batch_size=32, source='audio',
-                 device=None):
+    def __init__(self, model=None, feature_extraction=None, duration=1,
+                 min_duration=None, step=None, batch_size=32, device=None):
 
+        if not isinstance(model, nn.Module):
+
+            # TODO. make all labeling apps inherit from a unique Labeling app
+            from pyannote.audio.applications.speech_detection \
+                import SpeechActivityDetection as LabelingApp
+
+            app = LabelingApp.from_model_pt(model, training=False)
+
+            model = app.model_
+            if feature_extraction is None:
+                feature_extraction = app.feature_extraction_
+
+            if duration is None:
+                duration = app.task_.duration
+
+        self.device = torch.device('cpu') if device is None \
+                                          else torch.device(device)
+        self.model = model.eval().to(self.device)
         self.feature_extraction = feature_extraction
         self.duration = duration
         self.min_duration = min_duration
-        self.device = torch.device('cpu') if device is None else device
-        self.model = model.eval().to(self.device)
 
         generator = SlidingSegments(duration=duration, step=step,
-                                    min_duration=min_duration, source=source)
+                                    min_duration=min_duration, source='audio')
         self.step = generator.step if step is None else step
 
         super(SequenceLabeling, self).__init__(
-            generator, {'@': (self._process, self._pack)},
+            generator, {'@': (self._process, self.forward)},
             batch_size=batch_size, incomplete=False)
 
     @property
@@ -172,36 +184,56 @@ class SequenceLabeling(FileBasedBatchGenerator):
                                             mode='center', fixed=self.duration,
                                             return_data=True)
 
-    def _pack(self, sequences):
-        """
+    def forward(self, X):
+        """Process (variable-length) sequences
 
         Parameters
         ----------
-        sequences : list
-            List of `batch_size` numpy array of shape (n_samples, n_features)
+        X : `list`
+            List of input sequences
 
         Returns
         -------
-        prediction : (batch_size, n_samples, n_scores) numpy array
-            Predictions
+        fX : `numpy.ndarray`
+            Batch of sequence embeddings.
         """
 
-        X = torch.tensor(np.stack(sequences), dtype=torch.float32,
-                         device=self.device)
-        return self.model(X).data.to('cpu').numpy()
+        lengths = [len(x) for x in X]
+        variable_lengths = len(set(lengths)) > 1
 
-    def apply(self, current_file):
+        if variable_lengths:
+            _, sort = torch.sort(torch.tensor(lengths), descending=True)
+            _, unsort = torch.sort(sort)
+            sequences = [torch.tensor(X[i],
+                                      dtype=torch.float32,
+                                      device=self.device) for i in sort]
+            packed = pack_sequence(sequences)
+        else:
+            packed = torch.tensor(np.stack(X),
+                                  dtype=torch.float32,
+                                  device=self.device)
+
+        fX = self.model(packed).detach().to('cpu').numpy()
+
+        if variable_lengths:
+            return fX[unsort]
+
+        return fX
+
+    def __call__(self, current_file):
         """Compute predictions on a sliding window
 
-        Parameter
-        ---------
-        current_file : dict
+        Parameters
+        ----------
+        current_file : `dict`
+            File (from pyannote.database protocol)
 
         Returns
         -------
-        predictions : SlidingWindowFeature
+        predictions : `SlidingWindowFeature`
+            Predictions.
         """
-        
+
         # frame and sub-sequence sliding windows
         frames = self.feature_extraction.sliding_window
         batches = [batch for batch in self.from_file(current_file,

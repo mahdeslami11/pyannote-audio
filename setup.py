@@ -39,7 +39,7 @@ setup(
     install_requires=[
         'pyannote.core >= 1.3.2',
         'pyannote.metrics >= 1.8',
-        'pyannote.generators >= 1.0',
+        'pyannote.generators >= 2.0',
         'pyannote.database >= 1.5.1',
         'scikit-learn >= 0.19.1',
         'torch >= 0.4',

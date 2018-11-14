@@ -244,15 +244,15 @@ class SpeechActivityDetection(Application):
         duration = self.task_.duration
         step = .25 * duration
         sequence_labeling = SequenceLabeling(
-            model, self.feature_extraction_, duration=duration,
-            step=.25 * duration, batch_size=self.batch_size,
-            source='audio', device=self.device)
+            model=model, feature_extraction=self.feature_extraction_,
+            duration=duration, step=.25 * duration, batch_size=self.batch_size,
+            device=self.device)
 
         # extract predictions for all files.
         predictions = {}
         for current_file in validation_data:
             uri = get_unique_identifier(current_file)
-            scores = sequence_labeling.apply(current_file)
+            scores = sequence_labeling(current_file)
 
             if model.logsoftmax:
                 scores = SlidingWindowFeature(
@@ -302,9 +302,9 @@ class SpeechActivityDetection(Application):
 
         # initialize embedding extraction
         sequence_labeling = SequenceLabeling(
-            model, self.feature_extraction_, duration=duration,
-            step=.25 * duration, batch_size=self.batch_size,
-            source='audio', device=self.device)
+            model=model, feature_extraction=self.feature_extraction_,
+            duration=duration, step=.25 * duration, batch_size=self.batch_size,
+            device=self.device)
 
         sliding_window = sequence_labeling.sliding_window
         n_classes = self.task_.n_classes
@@ -323,7 +323,7 @@ class SpeechActivityDetection(Application):
         for current_file in FileFinder.protocol_file_iter(
             protocol, extra_keys=['audio']):
 
-            fX = sequence_labeling.apply(current_file)
+            fX = sequence_labeling(current_file)
             precomputed.dump(current_file, fX)
 
 

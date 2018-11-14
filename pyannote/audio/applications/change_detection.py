@@ -206,15 +206,15 @@ class SpeakerChangeDetection(SpeechActivityDetection):
         duration = self.task_.duration
         step = .25 * duration
         sequence_labeling = SequenceLabeling(
-            model, self.feature_extraction_, duration=duration,
-            step=step, batch_size=self.batch_size,
-            source='audio', device=self.device)
+            model=model, feature_extraction=self.feature_extraction_,
+            duration=duration, step=step, batch_size=self.batch_size,
+            device=self.device)
 
         # extract predictions for all files.
         predictions = {}
         for current_file in validation_data:
             uri = get_unique_identifier(current_file)
-            predictions[uri] = sequence_labeling.apply(current_file)
+            predictions[uri] = sequence_labeling(current_file)
 
         # dichotomic search to find alpha that maximizes coverage
         # while having at least `target_purity`

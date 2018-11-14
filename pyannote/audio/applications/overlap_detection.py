@@ -110,9 +110,9 @@ class OverlapDetection(SpeechActivityDetection):
         duration = self.task_.duration
         step = .25 * duration
         sequence_labeling = SequenceLabeling(
-            model, self.feature_extraction_, duration=duration,
-            step=.25 * duration, batch_size=self.batch_size,
-            source='audio', device=self.device)
+            model=model, feature_extraction=self.feature_extraction_,
+            duration=duration, step=.25 * duration, batch_size=self.batch_size,
+            device=self.device)
 
         protocol = get_protocol(protocol_name, progress=False,
                                 preprocessors=self.preprocessors_)
@@ -134,7 +134,7 @@ class OverlapDetection(SpeechActivityDetection):
             references[uri] = reference.to_annotation()
 
             # extract overlap scores
-            scores = sequence_labeling.apply(current_file)
+            scores = sequence_labeling(current_file)
 
             if model.logsoftmax:
                 scores = SlidingWindowFeature(

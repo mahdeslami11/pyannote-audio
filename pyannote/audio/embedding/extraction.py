@@ -30,9 +30,7 @@ import numpy as np
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.audio.labeling.extraction import SequenceLabeling
 from pyannote.generators.batch import batchify
-import torch
-from torch.nn.utils.rnn import pad_sequence
-from torch.nn.utils.rnn import pack_padded_sequence
+import torch.nn as nn
 
 
 class SequenceEmbedding(SequenceLabeling):
@@ -40,16 +38,21 @@ class SequenceEmbedding(SequenceLabeling):
 
     Parameters
     ----------
-    model : nn.Module
-        Pre-trained sequence embedding model.
-    feature_extraction : callable
-        Feature extractor
+    model : `nn.Module` or `str`
+        Model (or path to model). When a path, the directory structure created
+        by pyannote-speaker-embedding should be kept unchanged so that one can
+        find the corresponding configuration file automatically.
+    feature_extraction : callable, optional
+        Feature extractor. When not provided and `model` is a path, it is
+        inferred directly from the configuration file.
     duration : float, optional
-        Subsequence duration, in seconds. Defaults to 1s.
+        Subsequence duration, in seconds. When `model` is a path and `duration`
+        is not provided, it is inferred directly from the configuration file.
     min_duration : float, optional
         When provided, will do its best to yield segments of length `duration`,
         but shortest segments are also permitted (as long as they are longer
-        than `min_duration`).
+        than `min_duration`). When `model` is a path and `min_duration` is not
+        provided, it is inferred directly from the configuration file.
     step : float, optional
         Subsequence step, in seconds. Defaults to 50% of `duration`.
     batch_size : int, optional
@@ -58,67 +61,41 @@ class SequenceEmbedding(SequenceLabeling):
         Defaults to CPU.
     """
 
-    @classmethod
-    def from_model_pt(cls, model_pt,
-                      min_duration=None, step=None, source='audio',
-                      batch_size=32, device=None):
-
-        from pyannote.audio.applications.speaker_embedding \
-            import SpeakerEmbedding
-
-        app = SpeakerEmbedding.from_model_pt(model_pt, training=False)
-
-        model = app.model_
-        feature_extraction = app.feature_extraction_
-        duration = app.task_.duration
-
-        return cls(model, feature_extraction,
-                   duration=duration, min_duration=min_duration, step=step,
-                   source=source, batch_size=batch_size, device=device)
-
-    def __init__(self, model, feature_extraction,
-                 duration=1, min_duration=None, step=None, source='audio',
+    def __init__(self, model=None, feature_extraction=None,
+                 step=None, duration=None, min_duration=None,
                  batch_size=32, device=None):
 
-        super(SequenceEmbedding, self).__init__(
-            model, feature_extraction, duration=duration,
-            min_duration=min_duration, step=step, source=source,
-            batch_size=batch_size, device=device)
+        if not isinstance(model, nn.Module):
+
+            from pyannote.audio.applications.speaker_embedding \
+                import SpeakerEmbedding
+
+            # training = False is important to ensure no data augmentation
+            # is added (as it would likely degrade performance)
+            app = SpeakerEmbedding.from_model_pt(model, training=False)
+
+            model = app.model_
+
+            if feature_extraction is None:
+                feature_extraction = app.feature_extraction_
+
+            if duration is None:
+                duration = app.task_.duration
+
+            if duration is None:
+                duration = app.task_.max_duration
+                if min_duration is None:
+                    min_duration = app.task_.min_duration
+
+        super().__init__(model=model, feature_extraction=feature_extraction,
+                         step=step, duration=duration, min_duration=min_duration,
+                         batch_size=batch_size, device=device)
 
     @property
     def sliding_window(self):
         return SlidingWindow(duration=self.duration, step=self.step)
 
-    def postprocess_sequence(self, X):
-        """Embed (variable-length) sequences
-
-        Parameters
-        ----------
-        X : list
-            List of input sequences
-
-        Returns
-        -------
-        fX : numpy array
-            Batch of sequence embeddings.
-        """
-
-        lengths = torch.tensor([len(x) for x in X])
-        sorted_lengths, sort = torch.sort(lengths, descending=True)
-        _, unsort = torch.sort(sort)
-
-        sequences = [torch.tensor(X[i],
-                                  dtype=torch.float32,
-                                  device=self.device) for i in sort]
-        padded = pad_sequence(sequences, batch_first=True, padding_value=0)
-        packed = pack_padded_sequence(padded, sorted_lengths,
-                                      batch_first=True)
-
-        cpu = torch.device('cpu')
-        fX = self.model(packed).detach().to(cpu).numpy()
-        return fX[unsort]
-
-    def postprocess_ndarray(self, X):
+    def apply(self, X):
         """Embed (fixed-length) sequences
 
         Parameters
@@ -137,9 +114,7 @@ class SequenceEmbedding(SequenceLabeling):
         # this test is needed because .apply() may be called
         # with a ndarray of arbitrary size as input
         if batch_size <= self.batch_size:
-            X = torch.tensor(X, dtype=torch.float32, device=self.device)
-            cpu = torch.device('cpu')
-            return self.model(X).detach().to(cpu).numpy()
+            return self.forward(X)
 
         # if X contains too large a batch, split it in smaller batches...
         batches = batchify(iter(X), {'@': (None, np.stack)},
@@ -147,38 +122,57 @@ class SequenceEmbedding(SequenceLabeling):
                            incomplete=True, prefetch=0)
 
         # ... and process them in order, before re-concatenating them
-        return np.vstack([self.postprocess_ndarray(x) for x in batches])
+        return np.vstack([self.apply(x) for x in batches])
 
-    def apply(self, current_file, crop=None):
-        """Extract embeddings
-
-        Can process either pyannote.database protocol items (as dict) or
-        batch of precomputed feature sequences (as numpy array).
+    def __call__(self, current_file):
+        """Extract embeddings on a sliding window
 
         Parameters
         ----------
-        current_file : dict or numpy array
-            File (from pyannote.database protocol) or batch of precomputed
-            feature sequences.
-        crop : Segment or Timeline, optional
-            When provided, only extract corresponding embeddings.
+        current_file : `dict`
+            File (from pyannote.database protocol)
 
         Returns
         -------
-        embedding : SlidingWindowFeature or numpy array
+        embeddings : `SlidingWindowFeature`
+            Extracted embeddings
         """
 
-        # if current_file is in fact a batch of feature sequences
-        # use postprocess_ndarray directly.
-        if isinstance(current_file, np.ndarray):
-            return self.postprocess_ndarray(current_file)
+        # compute embedding on sliding window
+        # over the whole duration of the source
+        batches = [batch for batch in self.from_file(current_file,
+                                                     incomplete=True)]
+
+        if not batches:
+            fX = np.zeros((0, self.dimension))
+        else:
+            fX = np.vstack(batches)
+
+        subsequences = SlidingWindow(duration=self.duration,
+                                     step=self.step)
+        return SlidingWindowFeature(fX, subsequences)
+
+    def crop(self, current_file, segment):
+        """Extract embeddings from a specific time range
+
+        Parameters
+        ----------
+        current_file : `dict`
+            File (from pyannote.database protocol)
+        segment : `Segment` or `Timeline`, optional
+            Time range from which to extract embeddings.
+
+        Returns
+        -------
+        embeddings : `numpy array`
+            Extracted embeddings
+        """
 
         # HACK: change internal SlidingSegment's source to only extract
         # embeddings on provided "crop". keep track of original source
         # to set it back before the function returns
         source = self.generator.source
-        if crop is not None:
-            self.generator.source = crop
+        self.generator.source = segment
 
         # compute embedding on sliding window
         # over the whole duration of the source
@@ -188,13 +182,6 @@ class SequenceEmbedding(SequenceLabeling):
         self.generator.source = source
 
         if not batches:
-            fX = np.zeros((0, self.dimension))
-        else:
-            fX = np.vstack(batches)
+            return np.zeros((0, self.dimension))
 
-        if crop is not None:
-            return fX
-
-        subsequences = SlidingWindow(duration=self.duration,
-                                     step=self.step)
-        return SlidingWindowFeature(fX, subsequences)
+        return np.vstack(batches)

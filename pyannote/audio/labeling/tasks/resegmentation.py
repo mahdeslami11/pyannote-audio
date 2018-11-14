@@ -186,11 +186,11 @@ class Resegmentation(LabelingTask):
 
         # initialize sequence labeling with model and features
         sequence_labeling = SequenceLabeling(
-            model, self.precomputed, duration=self.duration,
-            step=.25*self.duration, batch_size=self.batch_size,
-            source='audio', device=device)
+            model=model, feature_extraction=self.precomputed,
+            duration=self.duration, step=.25 * self.duration,
+            batch_size=self.batch_size, device=device)
 
-        return sequence_labeling.apply(current_file)
+        return sequence_labeling(current_file)
 
     def _decode(self, scores):
         """Decoding
