@@ -38,7 +38,7 @@ from pyannote.audio.util import mkdir_p
 from sortedcontainers import SortedDict
 import tensorboardX
 from functools import partial
-from pyannote.audio.util import get_class_by_name
+from pyannote.core.utils.import import get_class_by_name
 import warnings
 
 

@@ -195,10 +195,10 @@ from scipy.cluster.hierarchy import fcluster
 from scipy.cluster.hierarchy import linkage
 from scipy.optimize import minimize_scalar
 
-from pyannote.audio.util import get_class_by_name
+from pyannote.core.utils.import import get_class_by_name
 
-from pyannote.audio.embedding.utils import pdist
-from pyannote.audio.embedding.utils import cdist
+from pyannote.core.utils.distance import pdist
+from pyannote.core.utils.distance import cdist
 from pyannote.audio.features.precomputed import Precomputed
 
 from pyannote.metrics.binary_classification import det_curve

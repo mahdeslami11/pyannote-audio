@@ -33,7 +33,8 @@ from pyannote.audio.generators.speaker import SpeechSegmentGenerator
 from pyannote.audio.generators.speaker import SessionWiseSpeechSegmentGenerator
 from pyannote.audio.generators.speaker import UnsupervisedSpeechSegmentGenerator
 
-from pyannote.audio.embedding.utils import to_condensed, pdist
+from pyannote.core.utils.distance import to_condensed
+from pyannote.core.utils.distance import pdist
 from scipy.spatial.distance import squareform
 from pyannote.metrics.binary_classification import det_curve
 from collections import deque

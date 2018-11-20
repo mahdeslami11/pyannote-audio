@@ -30,7 +30,8 @@ import numpy as np
 import sklearn.cluster
 from pathlib import Path
 from scipy.spatial.distance import squareform
-from pyannote.audio.embedding.utils import l2_normalize, pdist
+from pyannote.core.utils.distance import pdist
+from pyannote.core.utils.distance import l2_normalize
 
 from pyannote.audio.features import Precomputed
 from pyannote.audio.signal import Binarize, Peak
