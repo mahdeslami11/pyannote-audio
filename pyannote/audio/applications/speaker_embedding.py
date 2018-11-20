@@ -205,8 +205,8 @@ from pyannote.metrics.binary_classification import det_curve
 from pyannote.metrics.diarization import DiarizationPurityCoverageFMeasure
 
 from pyannote.audio.embedding.extraction import SequenceEmbedding
-from pyannote.audio.generators.speaker import SpeechSegmentGenerator
-from pyannote.audio.generators.speaker import SpeechTurnSubSegmentGenerator
+from pyannote.audio.embedding.generators import SpeechSegmentGenerator
+from pyannote.audio.embedding.generators import SpeechTurnSubSegmentGenerator
 
 
 class SpeakerEmbedding(Application):
