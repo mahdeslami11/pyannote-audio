@@ -195,7 +195,7 @@ from scipy.cluster.hierarchy import fcluster
 from scipy.cluster.hierarchy import linkage
 from scipy.optimize import minimize_scalar
 
-from pyannote.core.utils.import import get_class_by_name
+from pyannote.core.utils.helper import get_class_by_name
 
 from pyannote.core.utils.distance import pdist
 from pyannote.core.utils.distance import cdist

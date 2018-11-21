@@ -177,7 +177,7 @@ from pyannote.database import get_unique_identifier
 from pyannote.audio.features import Precomputed
 from pyannote.metrics.detection import DetectionErrorRate
 from pyannote.audio.labeling.extraction import SequenceLabeling
-from pyannote.core.utils.import import get_class_by_name
+from pyannote.core.utils.helper import get_class_by_name
 from functools import partial
 import multiprocessing as mp
 

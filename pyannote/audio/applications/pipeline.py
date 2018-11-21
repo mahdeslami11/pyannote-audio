@@ -87,7 +87,7 @@ Configuration file:
 
 import os
 import yaml
-from pyannote.core.utils.import import get_class_by_name
+from pyannote.core.utils.helper import get_class_by_name
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
