@@ -41,6 +41,7 @@ setup(
         'pyannote.metrics >= 1.8',
         'pyannote.generators >= 2.0',
         'pyannote.database >= 1.5.1',
+        'pyannote.pipeline >= 0.1',
         'scikit-learn >= 0.19.1',
         'torch >= 0.4',
         'pandas >= 0.18.0',
@@ -67,8 +68,7 @@ setup(
             'pyannote-speech-detection=pyannote.audio.applications.speech_detection:main',
             'pyannote-change-detection=pyannote.audio.applications.change_detection:main',
             'pyannote-overlap-detection=pyannote.audio.applications.overlap_detection:main',
-            'pyannote-speaker-embedding=pyannote.audio.applications.speaker_embedding:main',
-            'pyannote-pipeline=pyannote.audio.applications.pipeline:main']
+            'pyannote-speaker-embedding=pyannote.audio.applications.speaker_embedding:main']
     },
     # versioneer
     version=versioneer.get_version(),

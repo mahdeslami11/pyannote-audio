@@ -36,24 +36,34 @@ from pyannote.pipeline import Pipeline
 from pyannote.core import Annotation
 from pyannote.core import SlidingWindowFeature
 
-from pyannote.audio.signal import Binarize
+from pyannote.audio.signal import Peak
 from pyannote.audio.features import Precomputed
 
 from pyannote.database import get_annotated
 from pyannote.database import get_unique_identifier
-from pyannote.metrics.detection import DetectionErrorRate
+from pyannote.metrics.segmentation import SegmentationPurityCoverageFMeasure
 
 
-class SpeechActivityDetection(Pipeline):
-    """Speech activity detection pipeline
+class SpeakerChangeDetection(Pipeline):
+    """Speaker change detection pipeline
 
     Parameters
     ----------
     scores : `Path`
         Path to precomputed scores.
+    purity : `float`, optional
+        Target segments purity. Defaults to 0.95.
+
+    Hyper-parameters
+    ----------------
+    alpha : `float`
+        Peak detection threshold.
+    min_duration : `float`
+        Segment minimum duration.
     """
 
-    def __init__(self, scores: Optional[Path] = None):
+    def __init__(self, scores: Optional[Path] = None,
+                       purity: Optional[float] = 0.95):
         super().__init__()
 
         if scores is None:
@@ -62,28 +72,20 @@ class SpeechActivityDetection(Pipeline):
 
         self.scores = scores
         self.precomputed_ = Precomputed(self.scores)
+        self.purity = purity
 
         # hyper-parameters
-        self.onset = chocolate.uniform(0., 1.)
-        self.offset = chocolate.uniform(0., 1.)
-        self.min_duration_on = chocolate.uniform(0., 2.)
-        self.min_duration_off = chocolate.uniform(0., 2.)
-        self.pad_onset = chocolate.uniform(-1., 1.)
-        self.pad_offset = chocolate.uniform(-1., 1.)
+        self.alpha = chocolate.uniform(0., 1.)
+        self.min_duration = chocolate.uniform(0., 10.)
 
     def instantiate(self):
         """Instantiate pipeline with current set of parameters"""
 
-        self.binarize_ = Binarize(
-            onset=self.onset,
-            offset=self.offset,
-            min_duration_on=self.min_duration_on,
-            min_duration_off=self.min_duration_off,
-            pad_onset=self.pad_onset,
-            pad_offset=self.pad_offset)
+        self.peak_ = Peak(alpha=self.alpha,
+                          min_duration=self.min_duration)
 
     def __call__(self, current_file: dict) -> Annotation:
-        """Apply speech activity detection
+        """Apply change detection
 
         Parameters
         ----------
@@ -110,16 +112,20 @@ class SpeechActivityDetection(Pipeline):
         data = np.exp(precomputed.data) if self.log_scale_ \
                else precomputed.data
 
-        # speech vs. non-speech
-        speech_prob = SlidingWindowFeature(
-            1. - data[:, 0],
-            precomputed.sliding_window)
-        speech = self.binarize_.apply(speech_prob)
-        speech.uri = get_unique_identifier(current_file)
-        return speech.to_annotation(generator='string', modality='speech')
+        # take the final dimension
+        # (in order to support both classification and regression scores)
+        change_prob = SlidingWindowFeature(data[:, -1], precomputed.sliding_window)
+
+        # peak detection
+        change = self.peak_.apply(change_prob)
+        change.uri = get_unique_identifier(current_file)
+
+        return change.to_annotation(generator='string', modality='audio')
 
     def loss(self, current_file: dict, hypothesis: Annotation) -> float:
-        """Compute detection error rate
+        """Compute (1 - coverage) at target purity
+
+        If purity < target, return 1 + (1 - purity)
 
         Parameters
         ----------
@@ -131,10 +137,15 @@ class SpeechActivityDetection(Pipeline):
         Returns
         -------
         error : `float`
-            Detection error rate
+            1. - segment coverage.
         """
 
-        metric = DetectionErrorRate(collar=0.0, skip_overlap=False)
+        metric = SegmentationPurityCoverageFMeasure(tolerance=0.500, beta=1)
         reference  = current_file['annotation']
         uem = get_annotated(current_file)
-        return metric(reference, hypothesis, uem=uem)
+        f_measure = metric(reference, hypothesis, uem=uem)
+        purity, coverage, _ = metric.compute_metrics()
+        if purity > self.purity:
+            return 1. - coverage
+        else:
+            return 1. + (1. - purity)
