@@ -49,8 +49,8 @@ class SpeakerChangeDetection(Pipeline):
 
     Parameters
     ----------
-    scores : `Path`
-        Path to precomputed scores.
+    scores : `Path`, optional
+        Path to precomputed scores on disk.
     purity : `float`, optional
         Target segments purity. Defaults to 0.95.
 
@@ -66,12 +66,9 @@ class SpeakerChangeDetection(Pipeline):
                        purity: Optional[float] = 0.95):
         super().__init__()
 
-        if scores is None:
-            msg = 'Path to precomputed scores must be provided.'
-            raise ValueError(msg)
-
         self.scores = scores
-        self.precomputed_ = Precomputed(self.scores)
+        if self.scores is not None:
+            self.precomputed_ = Precomputed(self.scores)
         self.purity = purity
 
         # hyper-parameters
@@ -90,7 +87,8 @@ class SpeakerChangeDetection(Pipeline):
         Parameters
         ----------
         current_file : `dict`
-            File as provided by a pyannote.database protocol.
+            File as provided by a pyannote.database protocol.  May contain a
+            'scd_scores' key providing precomputed scores.
 
         Returns
         -------
@@ -98,23 +96,27 @@ class SpeakerChangeDetection(Pipeline):
             Speech regions.
         """
 
-        # extract precomputed scores
-        precomputed = self.precomputed_(current_file)
+        # precomputed SCD scores
+        scd_scores = current_file.get('scd_scores')
+        if scd_scores is None:
+            scd_scores = self.precomputed_(current_file)
 
         # if this check has not been done yet, do it once and for all
         if not hasattr(self, "log_scale_"):
             # heuristic to determine whether scores are log-scaled
-            if np.nanmean(precomputed.data) < 0:
+            if np.nanmean(scd_scores.data) < 0:
                 self.log_scale_ = True
             else:
                 self.log_scale_ = False
 
-        data = np.exp(precomputed.data) if self.log_scale_ \
-               else precomputed.data
+        data = np.exp(scd_scores.data) if self.log_scale_ \
+               else scd_scores.data
 
         # take the final dimension
         # (in order to support both classification and regression scores)
-        change_prob = SlidingWindowFeature(data[:, -1], precomputed.sliding_window)
+        change_prob = SlidingWindowFeature(
+            data[:, -1],
+            scd_scores.sliding_window)
 
         # peak detection
         change = self.peak_.apply(change_prob)

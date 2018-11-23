@@ -49,19 +49,16 @@ class SpeechActivityDetection(Pipeline):
 
     Parameters
     ----------
-    scores : `Path`
-        Path to precomputed scores.
+    scores : `Path`, optional
+        Path to precomputed scores on disk.
     """
 
     def __init__(self, scores: Optional[Path] = None):
         super().__init__()
 
-        if scores is None:
-            msg = 'Path to precomputed scores must be provided.'
-            raise ValueError(msg)
-
         self.scores = scores
-        self.precomputed_ = Precomputed(self.scores)
+        if self.scores is not None:
+            self.precomputed_ = Precomputed(self.scores)
 
         # hyper-parameters
         self.onset = chocolate.uniform(0., 1.)
@@ -88,7 +85,8 @@ class SpeechActivityDetection(Pipeline):
         Parameters
         ----------
         current_file : `dict`
-            File as provided by a pyannote.database protocol.
+            File as provided by a pyannote.database protocol. May contain a
+            'sad_scores' key providing precomputed scores.
 
         Returns
         -------
@@ -96,24 +94,26 @@ class SpeechActivityDetection(Pipeline):
             Speech regions.
         """
 
-        # extract precomputed scores
-        precomputed = self.precomputed_(current_file)
+        # precomputed SAD scores
+        sad_scores = current_file.get('sad_scores')
+        if sad_scores is None:
+            sad_scores = self.precomputed_(current_file)
 
         # if this check has not been done yet, do it once and for all
         if not hasattr(self, "log_scale_"):
             # heuristic to determine whether scores are log-scaled
-            if np.nanmean(precomputed.data) < 0:
+            if np.nanmean(sad_scores.data) < 0:
                 self.log_scale_ = True
             else:
                 self.log_scale_ = False
 
-        data = np.exp(precomputed.data) if self.log_scale_ \
-               else precomputed.data
+        data = np.exp(sad_scores.data) if self.log_scale_ \
+               else sad_scores.data
 
         # speech vs. non-speech
         speech_prob = SlidingWindowFeature(
             1. - data[:, 0],
-            precomputed.sliding_window)
+            sad_scores.sliding_window)
         speech = self.binarize_.apply(speech_prob)
         speech.uri = get_unique_identifier(current_file)
         return speech.to_annotation(generator='string', modality='speech')
