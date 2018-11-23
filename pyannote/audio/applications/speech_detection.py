@@ -180,15 +180,13 @@ from pyannote.audio.labeling.extraction import SequenceLabeling
 from pyannote.core.utils.helper import get_class_by_name
 from functools import partial
 import multiprocessing as mp
+from pyannote.audio.pipeline import SpeechActivityDetection \
+                             as SpeechActivityDetectionPipeline
 
-
-def validate_helper_func(current_file, predictions=None, binarizer=None,
-                         metric=None):
-    uri = get_unique_identifier(current_file)
+def validate_helper_func(current_file, pipeline=None, metric=None):
     reference = current_file['annotation']
     uem = get_annotated(current_file)
-    hypothesis = binarizer.apply(
-        predictions[uri], dimension=0).to_annotation()
+    hypothesis = pipeline(current_file)
     return metric(reference, hypothesis, uem=uem)
 
 class SpeechActivityDetection(Application):
@@ -241,38 +239,29 @@ class SpeechActivityDetection(Application):
         model = self.load_model(epoch).to(self.device)
         model.eval()
 
+        # compute (and store) SAD scores
         duration = self.task_.duration
         step = .25 * duration
         sequence_labeling = SequenceLabeling(
             model=model, feature_extraction=self.feature_extraction_,
             duration=duration, step=.25 * duration, batch_size=self.batch_size,
             device=self.device)
-
-        # extract predictions for all files.
-        predictions = {}
         for current_file in validation_data:
             uri = get_unique_identifier(current_file)
-            scores = sequence_labeling(current_file)
+            current_file['sad_scores'] = sequence_labeling(current_file)
 
-            if model.logsoftmax:
-                scores = SlidingWindowFeature(
-                    1. - np.exp(scores.data[:, 0]),
-                    scores.sliding_window)
-            else:
-                scores = SlidingWindowFeature(
-                    1. - scores.data[:, 0],
-                    scores.sliding_window)
-
-            predictions[uri] = scores
+        # pipeline
+        pipeline = SpeechActivityDetectionPipeline()
+        pipeline.freeze({'min_duration_on': 0.,
+                         'min_duration_off': 0.,
+                         'pad_onset': 0.,
+                         'pad_offset': 0.})
 
         def fun(threshold):
-            binarizer = Binarize(onset=threshold,
-                                 offset=threshold,
-                                 log_scale=False)
+            pipeline.with_params({'onset': threshold, 'offset': threshold})
             metric = DetectionErrorRate(parallel=True)
             validate = partial(validate_helper_func,
-                               predictions=predictions,
-                               binarizer=binarizer,
+                               pipeline=pipeline,
                                metric=metric)
             _ = self.pool_.map(validate, validation_data)
 
@@ -281,11 +270,12 @@ class SpeechActivityDetection(Application):
         res = scipy.optimize.minimize_scalar(
             fun, bounds=(0., 1.), method='bounded', options={'maxiter': 10})
 
-        return {
-            'speech_activity_detection/error': {'minimize': True,
-                                                'value': res.fun},
-            'speech_activity_detection/threshold': {'minimize': 'NA',
-                                                    'value': res.x}}
+        threshold = res.x
+        return {'metric': 'detection_error_rate',
+                'minimize': True,
+                'value': res.fun,
+                'pipeline': pipeline.with_params({'onset': threshold,
+                                                        'offset': threshold})}
 
     def apply(self, protocol_name, output_dir, step=None, subset=None):
 
