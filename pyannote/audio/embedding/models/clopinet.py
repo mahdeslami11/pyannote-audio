@@ -238,9 +238,9 @@ class ClopiNet(nn.Module):
 
         # stack linear layers
         for hidden_dim, layer in zip(self.linear, self.linear_layers_):
-            func = lambda b: F.tanh(layer(b))
+            func = lambda b: torch.tanh(layer(b))
             output = map_packed(func, output)
-            # same as F.tanh(layer(output)) except it supports PackedSequence
+            # same as torch.tanh(layer(output)) except it supports PackedSequence
 
         # n_samples, batch_size, dimension
 
@@ -249,9 +249,9 @@ class ClopiNet(nn.Module):
             attn = sequences
             for layer, hidden_dim in zip(self.attention_layers_,
                                          self.attention + [1]):
-                func = lambda b: F.tanh(layer(b))
+                func = lambda b: torch.tanh(layer(b))
                 attn = map_packed(func, attn)
-                # same as F.tanh(layer(attn)) except it supports PackedSequence
+                # same as torch.tanh(layer(attn)) except it supports PackedSequence
 
             func = lambda oa: oa[0] * F.softmax(oa[1], dim=1)
             output = operator_packed(func, (output, attn))
@@ -281,11 +281,11 @@ class ClopiNet(nn.Module):
             output = output / norm
 
         elif self.normalize == 'ball':
-            output = output / norm * F.sigmoid(self.norm_batch_norm_(norm))
+            output = output / norm * torch.sigmoid(self.norm_batch_norm_(norm))
 
         elif self.normalize == 'ring':
             norm_ = self.norm_batch_norm_(norm)
-            output = output / norm * (1 + F.sigmoid(self.norm_batch_norm_(norm)))
+            output = output / norm * (1 + torch.sigmoid(self.norm_batch_norm_(norm)))
 
         # batch_size, dimension
 

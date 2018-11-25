@@ -56,7 +56,7 @@ class Classifier(nn.Module):
         self.logsoftmax_ = nn.LogSoftmax(dim=-1)
 
     def forward(self, embedding):
-        hidden = F.tanh(self.hidden(embedding))
+        hidden = torch.tanh(self.hidden(embedding))
         return self.logsoftmax_(self.output(hidden))
 
 

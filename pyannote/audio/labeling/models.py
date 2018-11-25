@@ -171,7 +171,7 @@ class StackedRNN(nn.Module):
             output = layer(output)
 
             # apply non-linear activation function
-            output = F.tanh(output)
+            output = torch.tanh(output)
 
         # apply final classification layer
         output = self.final_layer_(output)

@@ -181,7 +181,7 @@ class TristouNet(nn.Module):
             output = layer(output)
 
             # apply non-linear activation function
-            output = F.tanh(output)
+            output = torch.tanh(output)
 
         # batch_size, dimension
 
