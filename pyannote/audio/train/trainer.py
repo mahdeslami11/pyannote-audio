@@ -26,7 +26,7 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-
+import time
 import torch
 import tempfile
 import numpy as np
@@ -591,14 +591,24 @@ class Trainer:
             pbar = tqdm(desc=f'Iteration #{iteration}', total=batches_per_epoch,
                         unit='batch', postfix={'loss': '...', 'lr': ...})
 
+            batch_generation_time = []
+            batch_processing_time = []
             for i in range(batches_per_epoch):
 
+                # get next batch (and measure how long it takes)
+                start_time = time.time()
                 batch = next(batches)
+                batch_generation_time.append(time.time() - start_time)
+
+                # process batch (and measure how long it takes)
+                # this includes: loss computation and backpropagation
+                start_time = time.time()
                 model.zero_grad()
                 loss = self.batch_loss(batch, model, device,
                                        writer=writer if log else None)
                 loss.backward()
                 optimizer.step()
+                batch_processing_time.append(time.time() - start_time)
 
                 # keep track of loss
                 batch_losses.append(loss.item())
@@ -618,6 +628,16 @@ class Trainer:
             # tensorboard: average loss
             loss_avg /= batches_per_epoch
             writer.add_scalar('train/loss', loss_avg, global_step=iteration)
+
+            # tensorboard: profiling
+            writer.add_histogram('profiling/batch_generation',
+                                 np.array(batch_generation_time),
+                                 global_step=iteration,
+                                 bins='tensorflow')
+            writer.add_histogram('profiling/batch_processing',
+                                 np.array(batch_processing_time),
+                                 global_step=iteration, 
+                                 bins='tensorflow')
 
             # tensorboard: scheduler
             if isinstance(scheduler_state, dict):
