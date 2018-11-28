@@ -26,7 +26,6 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-
 import numpy as np
 import audioread
 import librosa
@@ -35,7 +34,10 @@ from librosa.util.exceptions import ParameterError
 
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 import tempfile
+
 import scipy.io.wavfile
+import warnings
+from scipy.io.wavfile import WavFileWarning
 
 
 class PyannoteFeatureExtractionError(Exception):
@@ -246,6 +248,9 @@ class RawAudio(object):
             sample_rate = self.sample_rate
 
         else:
+
+            warnings.filterwarnings("ignore", category=WavFileWarning)
+
             # read data as memory mapped
             sample_rate, y = scipy.io.wavfile.read(current_file['audio'],
                                                    mmap=True)
