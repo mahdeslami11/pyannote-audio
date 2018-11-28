@@ -270,12 +270,12 @@ class SpeechActivityDetection(Application):
         res = scipy.optimize.minimize_scalar(
             fun, bounds=(0., 1.), method='bounded', options={'maxiter': 10})
 
-        threshold = res.x
+        threshold = res.x.item()
         return {'metric': 'detection_error_rate',
                 'minimize': True,
                 'value': res.fun,
                 'pipeline': pipeline.with_params({'onset': threshold,
-                                                        'offset': threshold})}
+                                                  'offset': threshold})}
 
     def apply(self, protocol_name, output_dir, step=None, subset=None):
 
@@ -317,7 +317,6 @@ class SpeechActivityDetection(Application):
             files = getattr(protocol, subset)()
 
         for current_file in files:
-
             fX = sequence_labeling(current_file)
             precomputed.dump(current_file, fX)
 
