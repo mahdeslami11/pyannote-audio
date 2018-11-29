@@ -167,9 +167,9 @@ class LabelingTaskGenerator(object):
 
     def samples(self):
         if self.exhaustive:
-            return self.random_samples()
-        else:
             return self.sliding_samples()
+        else:
+            return self.random_samples()
 
     def random_samples(self):
         """Random samples
