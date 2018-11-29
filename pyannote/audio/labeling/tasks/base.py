@@ -231,7 +231,7 @@ class LabelingTaskGenerator(object):
                 current_file = dict(datum['current_file'])
 
                 # compute features for the whole file
-                current_file['X'] = self.feature_extraction(current_file)
+                features = self.feature_extraction(current_file)
 
                 # randomly shift 'annotated' segments start time so that
                 # we avoid generating exactly the same subsequence twice
@@ -245,8 +245,8 @@ class LabelingTaskGenerator(object):
 
                 for sequence in sliding_segments.from_file(current_file):
 
-                    X = current_file['X'].crop(sequence, mode='center',
-                                               fixed=self.duration)
+                    X = features.crop(sequence, mode='center',
+                                      fixed=self.duration)
 
                     y = datum['y'].crop(sequence, mode='center',
                                         fixed=self.duration)
