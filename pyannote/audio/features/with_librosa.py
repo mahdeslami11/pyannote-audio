@@ -47,10 +47,6 @@ class LibrosaFeatureExtraction(FeatureExtraction):
         Defaults to 16000 (i.e. 16kHz)
     augmentation : `pyannote.audio.augmentation.Augmentation`, optional
         Data augmentation.
-    normalization : callable, optional
-        Feature normalization. See
-        `pyannote.audio.features.normalization.ShortTermStandardization` for an
-        example.
     duration : float, optional
         Defaults to 0.025.
     step : float, optional
@@ -58,11 +54,10 @@ class LibrosaFeatureExtraction(FeatureExtraction):
     """
 
     def __init__(self, sample_rate=16000, augmentation=None,
-                 normalization=None, duration=0.025, step=0.01):
+                 duration=0.025, step=0.01):
 
         super().__init__(sample_rate=sample_rate,
-                         augmentation=augmentation,
-                         normalization=normalization)
+                         augmentation=augmentation)
         self.duration = duration
         self.step = step
 
@@ -83,10 +78,6 @@ class LibrosaSpectrogram(LibrosaFeatureExtraction):
         Defaults to 16000 (i.e. 16kHz)
     augmentation : `pyannote.audio.augmentation.Augmentation`, optional
         Data augmentation.
-    normalization : callable, optional
-        Feature normalization. See
-        `pyannote.audio.features.normalization.ShortTermStandardization` for an
-        example.
     duration : float, optional
         Defaults to 0.025.
     step : float, optional
@@ -94,11 +85,10 @@ class LibrosaSpectrogram(LibrosaFeatureExtraction):
     """
 
     def __init__(self, sample_rate=16000, augmentation=None,
-                 normalization=None, duration=0.025, step=0.010):
+                 duration=0.025, step=0.010):
 
         super().__init__(sample_rate=sample_rate, augmentation=augmentation,
-                         normalization=normalization, duration=duration,
-                         step=step)
+                         duration=duration, step=step)
 
         self.n_fft_ = int(self.duration * self.sample_rate)
         self.hop_length_ = int(self.step * self.sample_rate)
@@ -137,10 +127,6 @@ class LibrosaMelSpectrogram(LibrosaFeatureExtraction):
         Defaults to 16000 (i.e. 16kHz)
     augmentation : `pyannote.audio.augmentation.Augmentation`, optional
         Data augmentation.
-    normalization : callable, optional
-        Feature normalization. See
-        `pyannote.audio.features.normalization.ShortTermStandardization` for an
-        example.
     duration : float, optional
         Defaults to 0.025.
     step : float, optional
@@ -150,11 +136,10 @@ class LibrosaMelSpectrogram(LibrosaFeatureExtraction):
     """
 
     def __init__(self, sample_rate=16000, augmentation=None,
-                 normalization=None, duration=0.025, step=0.010, n_mels=96):
+                 duration=0.025, step=0.010, n_mels=96):
 
         super().__init__(sample_rate=sample_rate, augmentation=augmentation,
-                         normalization=normalization, duration=duration,
-                         step=step)
+                         duration=duration, step=step)
 
         self.n_mels = n_mels
         self.n_fft_ = int(self.duration * self.sample_rate)
@@ -215,10 +200,6 @@ class LibrosaMFCC(LibrosaFeatureExtraction):
         Defaults to 16000 (i.e. 16kHz)
     augmentation : `pyannote.audio.augmentation.Augmentation`, optional
         Data augmentation.
-    normalization : callable, optional
-        Feature normalization. See
-        `pyannote.audio.features.normalization.ShortTermStandardization` for an
-        example.
     duration : float, optional
         Defaults to 0.025.
     step : float, optional
@@ -247,14 +228,13 @@ class LibrosaMFCC(LibrosaFeatureExtraction):
     """
 
     def __init__(self, sample_rate=16000, augmentation=None,
-                 normalization=None, duration=0.025, step=0.01,
+                 duration=0.025, step=0.01,
                  e=False, De=True, DDe=True,
                  coefs=19, D=True, DD=True,
                  fmin=0.0, fmax=None, n_mels=40):
 
         super().__init__(sample_rate=sample_rate, augmentation=augmentation,
-                         normalization=normalization, duration=duration,
-                         step=step)
+                         duration=duration, step=step)
 
         self.e = e
         self.coefs = coefs

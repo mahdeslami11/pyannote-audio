@@ -159,11 +159,7 @@ class RawAudio(object):
     """
 
     def __init__(self, sample_rate=None, mono=True,
-                 augmentation=None, normalization=None):
-
-        if normalization is not None:
-            msg = 'Feature normalization is not supported by `RawAudio`'
-            raise ValueError(msg)
+                 augmentation=None):
 
         super(RawAudio, self).__init__()
         self.sample_rate = sample_rate

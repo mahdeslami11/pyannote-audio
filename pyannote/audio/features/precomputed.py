@@ -72,14 +72,10 @@ class Precomputed(object):
 
     def __init__(self, root_dir=None, use_memmap=True,
                  sliding_window=None, dimension=None,
-                 normalization=None, augmentation=None):
+                 augmentation=None):
 
         if augmentation is not None:
             msg = 'Data augmentation is not supported by `Precomputed`.'
-            raise ValueError(msg)
-
-        if normalization is not None:
-            msg = 'Feature normalization is not supported by `Precomputed`.'
             raise ValueError(msg)
 
         super(Precomputed, self).__init__()

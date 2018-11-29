@@ -50,24 +50,16 @@ class FeatureExtraction(object):
     ----------
     augmentation : `pyannote.audio.augmentation.Augmentation`, optional
         Data augmentation.
-    normalization : callable, optional
-        Feature normalization. See
-        `pyannote.audio.features.normalization.ShortTermStandardization` for an
-        example.
     sample_rate : int, optional
         Convert audio to use this sample rate.
 
     See also
     --------
     `pyannote.audio.augmentation.AddNoise`
-    `pyannote.audio.features.normalization.ShortTermStandardization`
     """
 
-    def __init__(self, augmentation=None, normalization=None,
-                 sample_rate=None):
+    def __init__(self, augmentation=None, sample_rate=None):
         super().__init__()
-        self.augmentation = augmentation
-        self.normalization = normalization
         self.sample_rate = sample_rate
 
         # used in FeatureExtraction.crop
@@ -164,15 +156,8 @@ class FeatureExtraction(object):
             msg = f'Features extracted from "{uri}" contain NaNs.'
             warnings.warn(msg.format(uri=uri))
 
-        # wrap features in a SlidingWindowFeature instance
-        features = SlidingWindowFeature(features, self.sliding_window)
-
-        # normalization
-        if self.normalization is not None:
-            features = self.normalization(features)
-
-        # return features as `SlidingWindowFeature` instances
-        return features
+        # wrap features in a `SlidingWindowFeature` instance
+        return SlidingWindowFeature(features, self.sliding_window)
 
     def get_context_duration(self):
         """
@@ -214,8 +199,6 @@ class FeatureExtraction(object):
             duration = get_audio_duration(current_file)
 
         context = self.get_context_duration()
-        if self.normalization:
-            context += self.normalization.get_context_duration()
 
         # extend segment on both sides with requested context
         xsegment = Segment(max(0, segment.start - context),
@@ -236,11 +219,6 @@ class FeatureExtraction(object):
                 raise ValueError(msg)
 
         features = self.get_features(y, self.sample_rate)
-
-        # normalization
-        if self.normalization:
-            features = self.normalization(features,
-                                          sliding_window=self.sliding_window)
 
         # get rid of additional context before returning
         frames = self.sliding_window

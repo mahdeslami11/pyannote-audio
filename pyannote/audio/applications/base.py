@@ -144,16 +144,6 @@ class Application(object):
         else:
             augmentation = None
 
-        # feature normalization
-        if 'feature_normalization' in self.config_:
-            FeatureNormalization = get_class_by_name(
-                self.config_['feature_normalization']['name'],
-                default_module_name='pyannote.audio.features.normalization')
-            normalization = FeatureNormalization(
-                **self.config_['feature_normalization'].get('params', {}))
-        else:
-            normalization = None
-
         # feature extraction
         extraction_name = None
         if 'feature_extraction' in self.config_:
@@ -162,7 +152,7 @@ class Application(object):
                 default_module_name='pyannote.audio.features')
             self.feature_extraction_ = FeatureExtraction(
                 **self.config_['feature_extraction'].get('params', {}),
-                augmentation=augmentation, normalization=normalization)
+                augmentation=augmentation)
 
 
     def train(self, protocol_name, subset='train', restart=None, epochs=1000):
