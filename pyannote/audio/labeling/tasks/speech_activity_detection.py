@@ -77,7 +77,7 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
 
     def __init__(self, feature_extraction, overlap=False, **kwargs):
         super(SpeechActivityDetectionGenerator, self).__init__(
-            feature_extraction, exhaustive=True, **kwargs)
+            feature_extraction, exhaustive=True, shuffle=True, **kwargs)
         self.overlap = overlap
 
     def postprocess_y(self, Y):

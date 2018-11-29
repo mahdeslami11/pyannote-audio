@@ -80,7 +80,7 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
     def __init__(self, feature_extraction, collar=0.100, window='plateau', **kwargs):
 
         super(SpeakerChangeDetectionGenerator, self).__init__(
-            feature_extraction, exhaustive=True, **kwargs)
+            feature_extraction, exhaustive=True, shuffle=True, **kwargs)
 
         self.collar = collar
         self.window = window
