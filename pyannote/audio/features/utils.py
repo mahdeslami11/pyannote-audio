@@ -57,9 +57,13 @@ def get_audio_duration(current_file):
     duration : float
         Audio file duration.
     """
-    path = current_file['audio']
 
-    with audioread.audio_open(path) as f:
+    # use precomputed duration when available
+    if 'duration' in current_file:
+        return current_file['duration']
+
+    # otherwise use audioread
+    with audioread.audio_open(current_file['audio']) as f:
         duration = f.duration
 
     return duration
