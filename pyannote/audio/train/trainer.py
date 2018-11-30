@@ -632,12 +632,10 @@ class Trainer:
             # tensorboard: profiling
             writer.add_histogram('profiling/batch_generation',
                                  np.array(batch_generation_time),
-                                 global_step=iteration,
-                                 bins='tensorflow')
+                                 global_step=iteration)
             writer.add_histogram('profiling/batch_processing',
                                  np.array(batch_processing_time),
-                                 global_step=iteration, 
-                                 bins='tensorflow')
+                                 global_step=iteration)
 
             # tensorboard: scheduler
             if isinstance(scheduler_state, dict):
