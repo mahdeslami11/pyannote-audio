@@ -36,6 +36,7 @@ from glob import glob
 from pyannote.database import FileFinder
 from pyannote.database import get_protocol
 from pyannote.audio.util import mkdir_p
+from pyannote.audio.features.utils import get_audio_duration
 from sortedcontainers import SortedDict
 import tensorboardX
 from functools import partial
@@ -97,13 +98,19 @@ class Application(object):
 
         # preprocessors
         preprocessors = {}
-        PREPROCESSORS_DEFAULT = {'audio': db_yml}
-        for key, db_yml in self.config_.get('preprocessors',
+        PREPROCESSORS_DEFAULT = {'audio': db_yml,
+                                 'duration': get_audio_duration}
+
+        for key, value in self.config_.get('preprocessors',
                                             PREPROCESSORS_DEFAULT).items():
+            if callable(value):
+                preprocessors[key] = value
+                continue
+
             try:
-                preprocessors[key] = FileFinder(db_yml)
+                preprocessors[key] = FileFinder(config_yml=value)
             except FileNotFoundError as e:
-                preprocessors[key] = db_yml
+                preprocessors[key] = value
         self.preprocessors_ = preprocessors
 
         # scheduler

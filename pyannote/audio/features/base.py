@@ -168,7 +168,8 @@ class FeatureExtraction(object):
         Parameters
         ----------
         current_file : dict
-            `pyannote.database` file.
+            `pyannote.database` file. Must contain a 'duration' key that
+            provides the duration (in seconds) of the audio file.
         segment : `pyannote.core.Segment`
             Segment from which to extract features.
 
@@ -182,11 +183,13 @@ class FeatureExtraction(object):
         `pyannote.core.SlidingWindowFeature.crop`
         """
 
-        if 'waveform' in current_file:
-            y = current_file['waveform']
-            duration = len(y) / self.sample_rate
-        else:
-            duration = get_audio_duration(current_file)
+        # get_audio_duration can be very long for some file
+        # therefore, it should be computed once and for all
+        if 'duration' not in current_file:
+            msg = ('`FeatureExtraction.crop` method expects `current_file` to '
+                   'contain a precomputed "duration" key.')
+            raise ValueError(msg)
+        duration = current_file['duration']
 
         context = self.get_context_duration()
 

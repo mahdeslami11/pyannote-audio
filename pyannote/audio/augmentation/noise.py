@@ -35,7 +35,6 @@ from pyannote.generators.fragment import random_subsegment
 from pyannote.database import get_protocol
 from pyannote.database import FileFinder
 from .base import Augmentation
-from glob import glob
 
 
 class AddNoise(Augmentation):
@@ -67,19 +66,31 @@ class AddNoise(Augmentation):
         self.snr_max = snr_max
 
         # load noise database
-        self.filenames_, self.durations_ = [], []
-        preprocessors = {'audio': FileFinder(config_yml=db_yml)}
-        for c in self.collection:
-            protocol = get_protocol(c, preprocessors=preprocessors)
-            for current_file in protocol.files():
-                self.filenames_.append(current_file['audio'])
-                self.durations_.append(get_audio_duration(current_file))
-        self.durations_ = np.array(self.durations_)
+        self.files_ = []
+        preprocessors = {'audio': FileFinder(config_yml=db_yml),
+                         'duration': get_audio_duration}
+        for collection in self.collection:
+            protocol = get_protocol(collection, preprocessors=preprocessors)
+            self.files_.extend(protocol.files())
 
     def normalize(self, waveform):
         return waveform / (np.sqrt(np.mean(waveform ** 2)) + 1e-8)
 
     def __call__(self, original, sample_rate):
+        """Augment original waveform
+
+        Parameters
+        ----------
+        original : `np.ndarray`
+            (n_samples, n_channels) waveform.
+        sample_rate : `int`
+            Sample rate.
+
+        Returns
+        -------
+        augmented : `np.ndarray`
+            (n_samples, n_channels) noise-augmented waveform.
+        """
 
         raw_audio = RawAudio(sample_rate=sample_rate, mono=True)
 
@@ -91,22 +102,19 @@ class AddNoise(Augmentation):
         while left > 0:
 
             # select noise file at random
-            # chosen = np.random.choice(len(self.filenames_),
-            #                           p=self.probabilities_)
-            chosen = np.random.choice(len(self.filenames_))
-            filename = self.filenames_[chosen]
-            duration = self.durations_[chosen]
+            file = np.random.choice(self.files_)
+            duration = file['duration']
 
             # if noise file is longer than what is needed, crop it
             if duration > left:
                 segment = next(random_subsegment(Segment(0, duration), left))
-                noise = raw_audio.crop({'audio': filename}, segment,
+                noise = raw_audio.crop(file, segment,
                                        mode='center', fixed=left)
-                left -= left
+                left = 0
 
             # otherwise, take the whole file
             else:
-                noise = raw_audio({'audio': filename}).data
+                noise = raw_audio(file).data
                 left -= duration
 
             noise = self.normalize(noise)
@@ -120,5 +128,4 @@ class AddNoise(Augmentation):
         snr = (self.snr_max - self.snr_min) * np.random.random_sample() + self.snr_min
         alpha = np.exp(-np.log(10) * snr / 20)
 
-        # add noise
         return self.normalize(original) + alpha * noise
