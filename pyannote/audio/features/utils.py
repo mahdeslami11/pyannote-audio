@@ -202,9 +202,20 @@ class RawAudio(object):
             Only when `return_sr` is set to True
         """
 
-        y, sample_rate = read_audio(current_file,
-                                    sample_rate=self.sample_rate,
-                                    mono=self.mono)
+        if 'waveform' in current_file:
+            if self.sample_rate is None:
+                msg = ('`RawAudio` needs to be instantiated with an actual '
+                       '`sample_rate` if one wants to use precomputed '
+                       'waveform.')
+                raise ValueError(msg)
+
+            y = current_file['waveform']
+            sample_rate = self.sample_rate
+
+        else:
+            y, sample_rate = read_audio(current_file,
+                                        sample_rate=self.sample_rate,
+                                        mono=self.mono)
 
         if len(y.shape) < 2:
             y = y.reshape(-1, 1)
