@@ -184,18 +184,22 @@ class RawAudio(object):
     def sliding_window(self):
         return self.sliding_window_
 
-    def __call__(self, current_file):
+    def __call__(self, current_file, return_sr=False):
         """Obtain waveform
 
         Parameters
         ----------
         current_file : dict
             `pyannote.database` files.
+        return_sr : `bool`, optional
+            Return sample rate. Defaults to False
 
         Returns
         -------
         waveform : `pyannote.core.SlidingWindowFeature`
             Waveform
+        sample_rate : `int`
+            Only when `return_sr` is set to True
         """
 
         y, sample_rate = read_audio(current_file,
@@ -212,6 +216,9 @@ class RawAudio(object):
             start=-.5/sample_rate,
             duration=1./sample_rate,
             step=1./sample_rate)
+
+        if return_sr:
+            return SlidingWindowFeature(y, sliding_window), sample_rate
 
         return SlidingWindowFeature(y, sliding_window)
 
