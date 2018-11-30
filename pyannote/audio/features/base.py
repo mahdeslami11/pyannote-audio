@@ -30,7 +30,6 @@ import warnings
 import numpy as np
 
 from .utils import RawAudio
-from .utils import read_audio
 from .utils import get_audio_duration
 
 from pyannote.core import Segment
@@ -63,7 +62,9 @@ class FeatureExtraction(object):
         self.sample_rate = sample_rate
 
         # used in FeatureExtraction.crop
-        self.raw_audio_ = RawAudio(sample_rate=self.sample_rate, mono=True)
+        self.raw_audio_ = RawAudio(
+            sample_rate=self.sample_rate, mono=True,
+            augmentation=augmentation)
 
     def get_dimension(self):
         """Get dimension of feature vectors
@@ -133,22 +134,11 @@ class FeatureExtraction(object):
             Extracted features
         """
 
-        if 'waveform' in current_file:
-            # use `waveform` when provided
-            y = current_file['waveform']
-            # NOTE: we assume that sample rate is correct
-            sample_rate = self.sample_rate
+        # load waveform, re-sample, convert to mono, augment, normalize
+        y, sample_rate = self.raw_audio_(current_file, return_sr=True)
 
-        else:
-            # load waveform, re-sample, and convert to mono if needed
-            y, sample_rate = read_audio(
-                current_file, sample_rate=self.sample_rate, mono=True)
-
-        # on-the-fly data augmentation
-        if self.augmentation is not None:
-            y = self.augmentation(y, sample_rate)
-
-        features = self.get_features(y, sample_rate)
+        # compute features
+        features = self.get_features(y.data, sample_rate)
 
         # basic quality check
         if np.any(np.isnan(features)):
@@ -204,19 +194,9 @@ class FeatureExtraction(object):
         xsegment = Segment(max(0, segment.start - context),
                            min(duration, segment.end + context))
 
-        # obtain waveform on this extended segment
+        # obtain (augmented) waveform on this extended segment
         y = self.raw_audio_.crop(current_file, xsegment, mode='center',
                                  fixed=xsegment.duration)
-
-        # data augmentation
-        if self.augmentation is not None:
-            y = self.augmentation(y, self.sample_rate)
-
-            try:
-                valid = valid_audio(y[:, 0], mono=True)
-            except ParameterError as e:
-                msg = (f"Something went wrong when augmenting waveform.")
-                raise ValueError(msg)
 
         features = self.get_features(y, self.sample_rate)
 

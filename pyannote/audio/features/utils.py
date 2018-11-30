@@ -223,6 +223,12 @@ class RawAudio(object):
         if self.augmentation is not None:
             y = self.augmentation(y, sample_rate)
 
+            try:
+                valid = valid_audio(y[:, 0], mono=True)
+            except ParameterError as e:
+                msg = (f"Something went wrong when augmenting waveform.")
+                raise ValueError(msg)
+
         sliding_window = SlidingWindow(
             start=-.5/sample_rate,
             duration=1./sample_rate,
