@@ -112,6 +112,13 @@ class LabelingTaskGenerator(object):
         # loop once on all files
         for current_file in getattr(protocol, subset)():
 
+            # ensure annotation/annotated are cropped to actual file duration
+            support = Segment(start=0, end=get_audio_duration(current_file))
+            current_file['annotated'] = get_annotated(current_file).crop(
+                support, mode='intersection')
+            current_file['annotation'] = current_file['annotation'].crop(
+                support, mode='intersection')
+
             # keep track of database
             database = current_file['database']
             databases.add(database)
@@ -119,15 +126,14 @@ class LabelingTaskGenerator(object):
             # keep track of unique labels
             labels.update(current_file['annotation'].labels())
 
-            annotated = get_annotated(current_file)
-
             if isinstance(self.feature_extraction, Precomputed) and \
                not self.feature_extraction.use_memmap:
                 msg = ('Loading all precomputed features in memory. '
                        'Set "use_memmap" to True if you run out of memory.')
                 warnings.warn(msg)
 
-            segments = [s for s in annotated if s.duration > self.duration]
+            segments = [s for s in current_file['annotated']
+                          if s.duration > self.duration]
 
             # corner case where no segment is long enough
             # and we removed them all...
