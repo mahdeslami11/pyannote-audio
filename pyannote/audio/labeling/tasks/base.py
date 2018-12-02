@@ -35,6 +35,7 @@ from pyannote.database import get_unique_identifier
 from pyannote.database import get_annotated
 from pyannote.core.utils.numpy import one_hot_encoding
 from pyannote.audio.features import Precomputed
+from pyannote.audio.features.utils import get_audio_duration
 from pyannote.core import Segment
 from pyannote.core import Timeline
 from pyannote.core import SlidingWindowFeature
