@@ -111,7 +111,7 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
         Parameters
         ----------
         Y : (n_samples, n_speakers) numpy.ndarray
-            Discretized annotation returned by `pyannote.audio.util.to_numpy`.
+            Discretized annotation returned by `pyannote.core.utils.numpy.one_hot_encoding`.
 
         Returns
         -------
@@ -119,8 +119,11 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
 
         See also
         --------
-        `pyannote.audio.util.to_numpy`
+        `pyannote.core.utils.numpy.one_hot_encoding`
         """
+
+        # replace NaNs by 0s
+        Y = np.nan_to_num(Y)
 
         if self.variant in {'boundary', 'triangle'}:
 
@@ -137,22 +140,23 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
 
         elif self.variant in {'multiple'}:
 
-            n_samples, n_features = Y.shape
+            n_samples, n_speakers = Y.shape
+
             # append (half collar) empty samples at the beginning/end
             expanded_Y = np.vstack([
-                np.zeros(((self.collar_ + 1) // 2 , n_features), dtype=Y.dtype),
+                np.zeros(((self.collar_ + 1) // 2 , n_speakers), dtype=Y.dtype),
                 Y,
-                np.zeros(((self.collar_ + 1) // 2 , n_features), dtype=Y.dtype)])
+                np.zeros(((self.collar_ + 1) // 2 , n_speakers), dtype=Y.dtype)])
 
             # stride trick. data[i] is now a sliding window of collar length
             # centered at time step i.
             data = np.lib.stride_tricks.as_strided(expanded_Y,
-                shape=(n_samples, n_features, self.collar_),
+                shape=(n_samples, n_speakers, self.collar_),
                 strides=(Y.strides[0], Y.strides[1], Y.strides[0]))
 
             # y[i] = 1 if more than one speaker are speaking in the
             # corresponding window. 0 otherwise
-            y = 1 * (np.nansum(np.nansum(data, axis=2) > 0, axis=1) > 1)
+            y = 1 * (np.sum(np.sum(data, axis=2) > 0, axis=1) > 1)
             y = y.reshape(-1, 1)
 
         return y
