@@ -98,6 +98,8 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
         # number of samples in collar
         self.collar_ = \
             self.feature_extraction.sliding_window.durationToSamples(collar)
+        if variant in {'multiple'}:
+            self.collar_ *= 2
 
         # window
         if variant in {'boundary', 'triangle'}:
