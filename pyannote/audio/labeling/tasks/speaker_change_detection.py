@@ -41,10 +41,16 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
     ----------
     feature_extraction : `pyannote.audio.features.FeatureExtraction`
         Feature extraction
+    variant : {'boundary', 'multiple', 'triangle'}, optional
+        Defines how change point groundtruth labels are built.
+        'boundary' (defaults) means time steps in the neighborhood of any
+        speech turn boundary are marked as change point. 'multiple' means only
+        time steps whose neighborhood contains (at least) two speakers are
+        marked as change point. 'triangle' is the same a 'boundary' except
+        labels are not binary but in the shape of a triangle centered on speech
+        turn boundaries.
     collar : float, optional
-        Duration of "change" collar, in seconds. Default to 100ms (0.1).
-    window : {'plateau', 'triangle'}, optional
-        Defaults to 'plateau'.
+        Duration of neighborhood, in seconds. Default to 100ms (0.1).
     duration : float, optional
         Duration of sub-sequences. Defaults to 3.2s.
     batch_size : int, optional
@@ -77,22 +83,25 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
     >>>     pass
     """
 
-    def __init__(self, feature_extraction, collar=0.100, window='plateau', **kwargs):
+    def __init__(self, feature_extraction, collar=0.100, variant='boundary',
+                 **kwargs):
 
         super(SpeakerChangeDetectionGenerator, self).__init__(
             feature_extraction, **kwargs)
 
         self.collar = collar
-        self.window = window
-        if window not in {'plateau', 'triangle'}:
-            msg = "'window' must be one of {'plateau', 'triangle'}."
+        self.variant = variant
+        if variant not in {'boundary', 'multiple', 'triangle'}:
+            msg = "'variant' must be one of {boundary, multiple, triangle}."
             raise ValueError(msg)
 
-        # convert duration to number of samples
-        M = self.feature_extraction.sliding_window.durationToSamples(self.collar)
+        # number of samples in collar
+        self.collar_ = \
+            self.feature_extraction.sliding_window.durationToSamples(collar)
 
-        # triangular window
-        self.window_ = scipy.signal.triang(M)[:, np.newaxis]
+        # window
+        if variant in {'boundary', 'triangle'}:
+            self.window_ = scipy.signal.triang(self.collar_)[:, np.newaxis]
 
     def postprocess_y(self, Y):
         """Generate labels for speaker change detection
@@ -111,18 +120,40 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
         `pyannote.audio.util.to_numpy`
         """
 
-        # True = change. False = no change
-        y = np.sum(np.abs(np.diff(Y, axis=0)), axis=1, keepdims=True)
-        y = np.vstack(([[0]], y > 0))
+        if self.variant in {'boundary', 'triangle'}:
 
-        # mark change points neighborhood as positive
-        y = np.minimum(1, scipy.signal.convolve(y, self.window_, mode='same'))
+            # True = change. False = no change
+            y = np.sum(np.abs(np.diff(Y, axis=0)), axis=1, keepdims=True)
+            y = np.vstack(([[0]], y > 0))
 
-        if self.window == 'plateau':
+            # mark change points neighborhood as positive
+            y = np.minimum(1, scipy.signal.convolve(y, self.window_, mode='same'))
+
             # HACK for some reason, y rarely equals zero
-            return 1 * (y > 1e-10)
-        elif self.window == 'triangle':
-            return y
+            if self.variant == 'boundary':
+                y = 1 * (y > 1e-10)
+
+        elif self.variant in {'multiple'}:
+
+            n_samples, n_features = Y.shape
+            # append (half collar) empty samples at the beginning/end
+            expanded_Y = np.vstack([
+                np.zeros(((self.collar_ + 1) // 2 , n_features), dtype=Y.dtype),
+                Y,
+                np.zeros(((self.collar_ + 1) // 2 , n_features), dtype=Y.dtype)])
+
+            # stride trick. data[i] is now a sliding window of collar length
+            # centered at time step i.
+            data = np.lib.stride_tricks.as_strided(expanded_Y,
+                shape=(n_samples, n_features, self.collar_),
+                strides=(Y.strides[0], Y.strides[1], Y.strides[0]))
+
+            # y[i] = 1 if more than one speaker are speaking in the
+            # corresponding window. 0 otherwise
+            y = 1 * (np.nansum(np.nansum(data, axis=2) > 0, axis=1) > 1)
+            y = y.reshape(-1, 1)
+
+        return y
 
 
 class SpeakerChangeDetection(LabelingTask):
@@ -130,10 +161,16 @@ class SpeakerChangeDetection(LabelingTask):
 
     Parameters
     ----------
+    variant : {'boundary', 'multiple', 'triangle'}, optional
+        Defines how change point groundtruth labels are built.
+        'boundary' (defaults) means time steps in the neighborhood of any
+        speech turn boundary are marked as change point. 'multiple' means only
+        time steps whose neighborhood contains (at least) two speakers are
+        marked as change point. 'triangle' is the same a 'boundary' except
+        labels are not binary but in the shape of a triangle centered on speech
+        turn boundaries.
     collar : float, optional
-        Duration of "change" collar, in seconds. Default to 100ms (0.1).
-    window : {'plateau', 'triangle'}, optional
-        Defaults to 'plateau'.
+        Duration of neighborhood, in seconds. Default to 100ms (0.1).
     duration : float, optional
         Duration of sub-sequences. Defaults to 3.2s.
     batch_size : int, optional
@@ -168,26 +205,27 @@ class SpeakerChangeDetection(LabelingTask):
 
     """
 
-    def __init__(self, collar=0.100, window='plateau', **kwargs):
+    def __init__(self, collar=0.100, variant='boundary', **kwargs):
         super(SpeakerChangeDetection, self).__init__(**kwargs)
         self.collar = collar
-        self.window = window
-        if window not in {'plateau', 'triangle'}:
-            msg = "'window' must be one of {'plateau', 'triangle'}."
+        self.variant = variant
+        if variant not in {'boundary', 'multiple', 'triangle'}:
+            msg = "'variant' must be one of {boundary, multiple, triangle}."
             raise ValueError(msg)
 
-        if window == 'triangle':
+        if variant in {'triangle'}:
             self.regression_ = True
 
     def get_batch_generator(self, precomputed):
         return SpeakerChangeDetectionGenerator(
-            precomputed, collar=self.collar, window=self.window,
+            precomputed, collar=self.collar, variant=self.variant,
             duration=self.duration, batch_size=self.batch_size,
             per_epoch=self.per_epoch, parallel=self.parallel)
 
     @property
     def n_classes(self):
-        if self.window == 'plateau':
+        if self.variant in {'boundary', 'multiple'}:
             return 2
-        elif self.window == 'triangle':
+
+        elif self.variant in {'triangle'}:
             return 1
