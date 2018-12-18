@@ -205,13 +205,14 @@ class SpeechActivityDetection(Application):
 
         n_features = int(self.feature_extraction_.dimension)
         n_classes = self.task_.n_classes
+        task_type = self.task_.task_type
 
         # architecture
         Architecture = get_class_by_name(
             self.config_['architecture']['name'],
             default_module_name='pyannote.audio.labeling.models')
         self.model_ = Architecture(
-            n_features, n_classes,
+            n_features, n_classes, task_type,
             **self.config_['architecture'].get('params', {}))
 
     def validate_init(self, protocol_name, subset='development'):

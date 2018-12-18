@@ -31,6 +31,8 @@
 import numpy as np
 from .base import LabelingTask
 from .base import LabelingTaskGenerator
+from .base import TASK_REGRESSION
+from .base import TASK_CLASSIFICATION
 import scipy.signal
 
 
@@ -219,8 +221,6 @@ class SpeakerChangeDetection(LabelingTask):
             msg = "'variant' must be one of {boundary, multiple, triangle}."
             raise ValueError(msg)
 
-        if variant in {'triangle'}:
-            self.regression_ = True
 
     def get_batch_generator(self, precomputed):
         return SpeakerChangeDetectionGenerator(
@@ -235,3 +235,9 @@ class SpeakerChangeDetection(LabelingTask):
 
         elif self.variant in {'triangle'}:
             return 1
+
+    @property
+    def task_type(self):
+        if variant in {'triangle'}:
+            return TASK_REGRESSION
+        return TASK_CLASSIFICATION

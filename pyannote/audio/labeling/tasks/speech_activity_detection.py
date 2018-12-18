@@ -31,6 +31,7 @@
 import numpy as np
 from .base import LabelingTask
 from .base import LabelingTaskGenerator
+from .base import TASK_CLASSIFICATION
 
 
 class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
@@ -86,7 +87,7 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
         Parameters
         ----------
         Y : (n_samples, n_speakers) numpy.ndarray
-            Discretized annotation returned by `pyannote.audio.util.to_numpy`.
+            Discretized annotation returned by `pyannote.core.utils.numpy.one_hot_encoding`.
 
         Returns
         -------
@@ -94,7 +95,7 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
 
         See also
         --------
-        `pyannote.audio.util.to_numpy`
+        `pyannote.core.utils.numpy.one_hot_encoding`
         """
 
         # number of speakers for each frame
@@ -161,6 +162,10 @@ class SpeechActivityDetection(LabelingTask):
             precomputed, overlap=self.overlap, duration=self.duration,
             per_epoch=self.per_epoch, batch_size=self.batch_size,
             parallel=self.parallel)
+
+    @property
+    def task_type(self):
+        return TASK_CLASSIFICATION
 
     @property
     def n_classes(self):

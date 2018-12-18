@@ -33,6 +33,10 @@ import torch.nn.functional as F
 from ..train.utils import get_info
 from torch.nn.utils.rnn import PackedSequence
 
+from . import TASK_CLASSIFICATION
+from . import TASK_MULTI_LABEL_CLASSIFICATION
+from . import TASK_REGRESSION
+
 
 class StackedRNN(nn.Module):
     """Stacked recurrent neural network
@@ -43,6 +47,11 @@ class StackedRNN(nn.Module):
         Input feature dimension.
     n_classes : int
         Set number of classes.
+    task_type : {TASK_CLASSIFICATION, TASK_MULTI_LABEL_CLASSIFICATION,
+            TASK_REGRESSION}
+        Depending on which task is adressed, the final activation will vary.
+        Classification relies on log-softmax, multi-label classificatition and
+        regression use sigmoid.
     instance_normalize : boolean, optional
         Apply mean/variance normalization on input sequences.
     rnn : {'LSTM', 'GRU'}, optional
@@ -56,24 +65,32 @@ class StackedRNN(nn.Module):
     linear : list, optional
         List of hidden dimensions of linear layers. Defaults to [16, ], i.e.
         one linear layer with hidden dimension of 16.
-    logsoftmax : bool, optional
-        Apply log-softmax. Defaults to True. Has no effect when n_classes = 1.
     """
 
-    def __init__(self, n_features, n_classes, instance_normalize=False,
+    def __init__(self, n_features, n_classes, task_type, instance_normalize=False,
                  rnn='LSTM', recurrent=[16,], bidirectional=False,
-                 linear=[16, ], logsoftmax=True):
+                 linear=[16, ]):
 
         super(StackedRNN, self).__init__()
 
         self.n_features = n_features
         self.n_classes = n_classes
+        self.task_type = task_type
+        if task_type not in {TASK_CLASSIFICATION,
+                        TASK_MULTI_LABEL_CLASSIFICATION,
+                        TASK_REGRESSION}:
+
+            msg = (f"`task_type` must be one of {TASK_CLASSIFICATION}, "
+                   f"{TASK_MULTI_LABEL_CLASSIFICATION} or {TASK_REGRESSION}.")
+            raise ValueError(msg)
+
         self.instance_normalize = instance_normalize
+
         self.rnn = rnn
         self.recurrent = recurrent
         self.bidirectional = bidirectional
+
         self.linear = linear
-        self.logsoftmax = logsoftmax if self.n_classes > 1 else False
 
         self.num_directions_ = 2 if self.bidirectional else 1
 
@@ -103,21 +120,19 @@ class StackedRNN(nn.Module):
             self.linear_layers_.append(linear_layer)
             input_dim = hidden_dim
 
-        # create final classification layer (with log-softmax activation)
+        # create final classification layer
         self.final_layer_ = nn.Linear(input_dim, self.n_classes)
-
-        if self.logsoftmax:
-            self.logsoftmax_ = nn.LogSoftmax(dim=2)
 
     def get_loss(self):
 
-        if self.n_classes == 1:
-            return nn.MSELoss()
-
-        if self.logsoftmax:
+        if self.task_type == TASK_CLASSIFICATION:
             return nn.NLLLoss()
-        else:
-            return nn.CrossEntropyLoss()
+
+        if self.task_type == TASK_MULTI_LABEL_CLASSIFICATION:
+            return nn.BCELoss()
+
+        if self.task_type == TASK_REGRESSION:
+            return nn.MSELoss()
 
     def forward(self, sequences):
 
@@ -176,8 +191,11 @@ class StackedRNN(nn.Module):
         # apply final classification layer
         output = self.final_layer_(output)
 
-        # apply softmax
-        if self.logsoftmax:
-            output = self.logsoftmax_(output)
+        if self.task_type == TASK_CLASSIFICATION:
+            return torch.log_softmax(output, dim=2)
 
-        return output
+        elif self.task_type == TASK_MULTI_LABEL_CLASSIFICATION:
+            return torch.sigmoid(output)
+
+        elif self.task_type == TASK_REGRESSION:
+            return torch.sigmoid(output)

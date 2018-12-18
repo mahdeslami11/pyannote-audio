@@ -34,6 +34,7 @@ import collections
 import numpy as np
 from .base import LabelingTask
 from .base import LabelingTaskGenerator
+from .base import TASK_CLASSIFICATION
 from pyannote.database.protocol import SpeakerDiarizationProtocol
 from pyannote.audio.labeling.models import StackedRNN
 from pyannote.core.utils.numpy import one_hot_decoding
@@ -71,7 +72,7 @@ class ResegmentationGenerator(LabelingTaskGenerator):
         Parameters
         ----------
         Y : (n_samples, n_speakers) numpy.ndarray
-            Discretized annotation returned by `pyannote.audio.util.to_numpy`.
+            Discretized annotation returned by `pyannote.core.utils.numpy.one_hot_encoding`.
 
         Returns
         -------
@@ -79,7 +80,7 @@ class ResegmentationGenerator(LabelingTaskGenerator):
 
         See also
         --------
-        `pyannote.audio.util.to_numpy`
+        `pyannote.core.utils.numpy.one_hot_encoding`
         """
 
         # +1 because...
@@ -132,6 +133,10 @@ class Resegmentation(LabelingTask):
         return ResegmentationGenerator(
             precomputed, duration=self.duration, per_epoch=self.per_epoch,
             batch_size=self.batch_size, parallel=self.parallel)
+
+    @property
+    def task_type(self):
+        return TASK_CLASSIFICATION
 
     @property
     def n_classes(self):

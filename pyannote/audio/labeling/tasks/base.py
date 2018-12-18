@@ -49,6 +49,10 @@ from collections import deque
 
 from pyannote.audio.train.trainer import Trainer
 
+from .. import TASK_CLASSIFICATION
+from .. import TASK_MULTI_LABEL_CLASSIFICATION
+from .. import TASK_REGRESSION
+
 
 class LabelingTaskGenerator(object):
     """Base batch generator for various labeling tasks
@@ -360,7 +364,6 @@ class LabelingTask(Trainer):
         self.batch_size = batch_size
         self.per_epoch = per_epoch
         self.parallel = parallel
-        self.regression_ = False
 
     def get_batch_generator(self, feature_extraction):
         """This method should be overriden by subclass
@@ -377,6 +380,11 @@ class LabelingTask(Trainer):
             feature_extraction, duration=self.duration,
             per_epoch=self.per_epoch, batch_size=self.batch_size,
             parallel=self.parallel)
+
+    @property
+    def task_type(self):
+        msg = 'LabelingTask subclasses must implement task_type property'
+        raise NotImplementedError(msg)
 
     @property
     def n_classes(self):
@@ -398,18 +406,23 @@ class LabelingTask(Trainer):
 
         X = torch.tensor(batch['X'], dtype=torch.float32, device=device)
 
-        if self.regression_:
-            y = torch.tensor(batch['y'], dtype=torch.float32, device=device)
-            target = y.contiguous().view((-1, 1))
-        else:
+        if self.task_type == TASK_CLASSIFICATION:
             y = torch.tensor(batch['y'], dtype=torch.int64, device=device)
             target = y.contiguous().view((-1, ))
+
+        elif self.task_type == TASK_MULTI_LABEL_CLASSIFICATION:
+            y = torch.tensor(batch['y'], dtype=torch.float32, device=device)
+            target = y.contiguous().view((-1, self.n_classes))
+
+        elif self.task_type == TASK_REGRESSION:
+            y = torch.tensor(batch['y'], dtype=torch.float32, device=device)
+            target = y.contiguous().view((-1, self.n_classes))
 
         fX = model(X.requires_grad_())
 
         losses = self.loss_func_(fX.view((-1, self.n_classes)), target)
 
-        if writer is not None and not self.regression_:
+        if writer is not None and self.task_type == TASK_CLASSIFICATION:
             self.log_y_pred_.append(self.to_numpy(fX))
             self.log_y_true_.append(self.to_numpy(y))
 
@@ -417,8 +430,10 @@ class LabelingTask(Trainer):
 
     def on_epoch_end(self, iteration, checkpoint, writer=None, **kwargs):
 
-        if writer is None or self.regression_:
+        if writer is None or self.task_type != TASK_CLASSIFICATION:
             return
+
+        # TODO. add support for multi-class
 
         log_y_pred = np.hstack(self.log_y_pred_)
         log_y_true = np.hstack(self.log_y_true_)

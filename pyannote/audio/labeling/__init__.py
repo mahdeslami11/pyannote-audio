@@ -25,3 +25,7 @@
 
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
+
+TASK_CLASSIFICATION = 'one-class'
+TASK_MULTI_LABEL_CLASSIFICATION = 'multi-class'
+TASK_REGRESSION = 'regression'
