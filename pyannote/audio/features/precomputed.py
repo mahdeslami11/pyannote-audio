@@ -56,6 +56,8 @@ class Precomputed(object):
     dimension : `int`, optional
         Dimension of feature vectors. This is not used when `root_dir` already
         exists and contains `metadata.yml`.
+    labels : iterable, optional
+        Human-readable name for each dimension.
 
     Notes
     -----
@@ -71,7 +73,7 @@ class Precomputed(object):
         return path
 
     def __init__(self, root_dir=None, use_memmap=True,
-                 sliding_window=None, dimension=None,
+                 sliding_window=None, dimension=None, labels=None,
                  augmentation=None):
 
         if augmentation is not None:
@@ -89,11 +91,16 @@ class Precomputed(object):
                 params = yaml.load(f)
 
             self.dimension_ = params.pop('dimension')
+            self.labels_ = params.pop('labels', None)
             self.sliding_window_ = SlidingWindow(**params)
 
             if dimension is not None and self.dimension_ != dimension:
                 msg = 'inconsistent "dimension" (is: {0}, should be: {1})'
                 raise ValueError(msg.format(dimension, self.dimensions_))
+
+            if labels is not None and self.labels_ != labels:
+                msg = 'inconsistent "labels" (is {0}, should be: {1})'
+                raise ValueError(msg.format(labels, self.labels_))
 
             if ((sliding_window is not None) and
                 ((sliding_window.start != self.sliding_window_.start) or
@@ -120,12 +127,15 @@ class Precomputed(object):
                       'duration': sliding_window.duration,
                       'step': sliding_window.step,
                       'dimension': dimension}
+            if labels is not None:
+                params['labels'] = labels
 
             with io.open(path, 'w') as f:
                 yaml.dump(params, f, default_flow_style=False)
 
             self.sliding_window_ = sliding_window
             self.dimension_ = dimension
+            self.labels_ = labels
 
     @property
     def sliding_window(self):
@@ -136,6 +146,11 @@ class Precomputed(object):
     def dimension(self):
         """Dimension of feature vectors"""
         return self.dimension_
+
+    @property
+    def labels(self):
+        """Human-readable label of each dimension"""
+        return self.labels_
 
     def __call__(self, current_file):
         """Obtain features for file
