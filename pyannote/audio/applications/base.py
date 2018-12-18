@@ -246,7 +246,7 @@ class Application(object):
         validate_dir = Path(self.VALIDATE_DIR.format(
             train_dir=self.train_dir_,
             _task=f'_{task}' if task is not None else '',
-            protocol=protocol_name, subset=subset)
+            protocol=protocol_name, subset=subset))
 
         params_yml = validate_dir / 'params.yml'
         validate_dir.mkdir(parents=True, exist_ok=False)
