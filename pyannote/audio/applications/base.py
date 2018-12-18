@@ -52,7 +52,7 @@ class Application(object):
     WEIGHTS_PT = '{train_dir}/weights/{epoch:04d}.pt'
 
     # created by "validate" mode
-    VALIDATE_DIR = '{train_dir}/validate/{protocol}.{subset}'
+    VALIDATE_DIR = '{train_dir}/validate{_task}/{protocol}.{subset}'
 
     @classmethod
     def from_train_dir(cls, train_dir, db_yml=None, training=False):
@@ -241,12 +241,13 @@ class Application(object):
         raise NotImplementedError('')
 
     def validate(self, protocol_name, subset='development',
-                 every=1, start=0, end=None, in_order=False, **kwargs):
+                 every=1, start=0, end=None, in_order=False, task=None, **kwargs):
 
         validate_dir = Path(self.VALIDATE_DIR.format(
             train_dir=self.train_dir_,
-            protocol=protocol_name,
-            subset=subset))
+            _task=f'_{task}' if task is not None else '',
+            protocol=protocol_name, subset=subset)
+
         params_yml = validate_dir / 'params.yml'
         validate_dir.mkdir(parents=True, exist_ok=False)
 

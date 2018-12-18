@@ -113,7 +113,8 @@ class SpeakerChangeDetection(Pipeline):
                else scd_scores.data
 
         # take the final dimension
-        # (in order to support both classification and regression scores)
+        # (in order to support both classification, multi-class classification,
+        # and regression scores)
         change_prob = SlidingWindowFeature(
             data[:, -1],
             scd_scores.sliding_window)

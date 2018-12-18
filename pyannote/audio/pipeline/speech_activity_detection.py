@@ -111,10 +111,13 @@ class SpeechActivityDetection(Pipeline):
                else sad_scores.data
 
         # speech vs. non-speech
-        speech_prob = SlidingWindowFeature(
-            1. - data[:, 0],
-            sad_scores.sliding_window)
+        if data.shape[1] > 1:
+            speech_prob = SlidingWindowFeature(1. - data[:, 0], sad_scores.sliding_window)
+        else:
+            speech_prob = SlidingWindowFeature(data, sad_scores.sliding_window)
+
         speech = self.binarize_.apply(speech_prob)
+
         speech.uri = get_unique_identifier(current_file)
         return speech.to_annotation(generator='string', modality='speech')
 
