@@ -183,7 +183,9 @@ from docopt import docopt
 from pyannote.database import get_annotated
 from pyannote.database import get_protocol
 from pyannote.database import FileFinder
+from pyannote.database import get_unique_identifier
 
+from pyannote.core import Timeline
 from pyannote.core import SlidingWindowFeature
 from pyannote.core.utils.helper import get_class_by_name
 
@@ -203,8 +205,24 @@ from pyannote.audio.pipeline.speaker_change_detection \
 from pyannote.metrics.segmentation import SegmentationPurityCoverageFMeasure
 
 
-def validate_helper_func(current_file, pipeline=None, metric=None):
-    reference = current_file['annotation']
+def validate_helper_func(current_file, pipeline=None, metric=None,
+                         reference='annotation'):
+    """Helper function used in validation
+
+    Parameters
+    ----------
+    current_file : dict
+    pipeline : `pyannote.pipeline.Pipeline`
+    metric : `pyannote.metrics.BaseMetric`
+    reference : str
+        `current_file` key containing reference. Defaults to "annotation".
+
+    Returns
+    -------
+    value : float
+        Metric value.
+    """
+    reference = current_file[reference]
     uem = get_annotated(current_file)
     hypothesis = pipeline(current_file)
     return metric(reference, hypothesis, uem=uem)
@@ -248,10 +266,25 @@ class Segmentation(Application):
         if isinstance(self.feature_extraction_, Precomputed):
             return list(files)
 
-        # pre-compute features for each validation files
+        # pre-compute features/overlap for each validation files
         validation_data = []
         for current_file in tqdm(files, desc='Feature extraction'):
-            current_file['features'] = self.feature_extraction_(current_file)
+
+            # precompute features
+            if not isinstance(self.feature_extraction_, Precomputed):
+                current_file['features'] = self.feature_extraction_(
+                    current_file)
+
+            # precompute "overlap" reference
+            if self.task_.overlap:
+                overlap = Timeline(uri=get_unique_identifier(current_file))
+                reference = current_file['annotation']
+                for track1, track2 in reference.co_iter(reference):
+                    if track1 == track2:
+                        continue
+                    overlap.add(track1[0] & track2[0])
+                current_file['overlap'] = overlap.to_annotation()
+
             validation_data.append(current_file)
 
         return validation_data
@@ -299,6 +332,57 @@ class Segmentation(Application):
             validate = partial(validate_helper_func,
                                pipeline=pipeline,
                                metric=metric)
+            _ = self.pool_.map(validate, validation_data)
+
+            return abs(metric)
+
+        res = scipy.optimize.minimize_scalar(
+            fun, bounds=(0., 1.), method='bounded', options={'maxiter': 10})
+
+        threshold = res.x.item()
+        return {'metric': 'detection_error_rate',
+                'minimize': True,
+                'value': res.fun,
+                'pipeline': pipeline.with_params({'onset': threshold,
+                                                  'offset': threshold})}
+
+    def validate_epoch_overlap(self, epoch, protocol_name, subset='development',
+                              validation_data=None):
+
+        # load model for current epoch
+        model = self.load_model(epoch).to(self.device)
+        model.eval()
+
+        # compute (and store) SAD scores
+        duration = self.task_.duration
+        step = .25 * duration
+
+        dimension = self.task_.labels.index('overlap')
+
+        sequence_labeling = SequenceLabeling(
+            model=model, feature_extraction=self.feature_extraction_,
+            duration=duration, step=.25 * duration, batch_size=self.batch_size,
+            device=self.device)
+        for current_file in validation_data:
+            scores = sequence_labeling(current_file)
+            current_file['sad_scores'] = SlidingWindowFeature(
+                scores.data[:, dimension].reshape(-1, 1),
+                scores.sliding_window)
+
+        # pipeline
+        pipeline = SpeechActivityDetectionPipeline()
+        pipeline.freeze({'min_duration_on': 0.,
+                         'min_duration_off': 0.,
+                         'pad_onset': 0.,
+                         'pad_offset': 0.})
+
+        def fun(threshold):
+            pipeline.with_params({'onset': threshold, 'offset': threshold})
+            metric = DetectionErrorRate(parallel=True)
+            validate = partial(validate_helper_func,
+                               pipeline=pipeline,
+                               metric=metric,
+                               reference='overlap')
             _ = self.pool_.map(validate, validation_data)
 
             return abs(metric)
@@ -463,10 +547,6 @@ def main():
     if arguments['validate']:
 
         label = arguments['<label>']
-
-        if label == 'overlap':
-            msg = f'Validation of overlap speech detection not yet ready.'
-            raise NotImplementedError(msg)
 
         train_dir = Path(arguments['<train_dir>'])
         train_dir = train_dir.expanduser().resolve(strict=True)
