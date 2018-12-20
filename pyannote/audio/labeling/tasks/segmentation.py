@@ -26,8 +26,9 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-"""Speaker change detection"""
+"""Segmentation"""
 
+import torch
 import numpy as np
 from .base import LabelingTask
 from .base import LabelingTaskGenerator
@@ -163,12 +164,13 @@ class Segmentation(LabelingTask):
 
     Parameters
     ----------
-    speech : bool, optional
-        Add speech dimension.
-    overlap : bool, optional
-        Add overlapping speech dimension
-    change : bool, optional
-        Add speaker change dimensions
+    speech : `bool` or `float`, optional
+        Use speech detection task with weight `speech`. Defaults to True (= 1).
+    overlap : `bool` or `float`, optional
+        Use overlapping speech detection task with weight `overlap`.
+        Defaults to True (= 1).
+    change : `bool` or `float`, optional
+        Use change detection task with weight `change`. Defaults to True (= 1).
     collar : float, optional
         Duration of neighborhood, in seconds. Default to 100ms (0.1).
     duration : float, optional
@@ -205,17 +207,19 @@ class Segmentation(LabelingTask):
 
     """
 
-    def __init__(self, speech=True, overlap=True, change=True, collar=0.100, **kwargs):
+    def __init__(self, speech=True, overlap=True,
+                 change=True, collar=0.100, **kwargs):
         super(Segmentation, self).__init__(**kwargs)
-        self.speech = speech
-        self.overlap = overlap
-        self.change = change
+        self.speech = float(speech)
+        self.overlap = float(overlap)
+        self.change = float(change)
         self.collar = collar
 
     def get_batch_generator(self, feature_extraction):
         return SegmentationGenerator(
-            feature_extraction, speech=self.speech, overlap=self.overlap,
-            change=self.change, collar=self.collar, duration=self.duration,
+            feature_extraction, speech=self.speech > 0.,
+            overlap=self.overlap > 0., change=self.change > 0.,
+            collar=self.collar, duration=self.duration,
             batch_size=self.batch_size, per_epoch=self.per_epoch,
             parallel=self.parallel)
 
@@ -225,7 +229,15 @@ class Segmentation(LabelingTask):
 
     @property
     def n_classes(self):
-        return sum([self.speech, self.overlap, self.change])
+        return sum([self.speech > 0., self.overlap > 0., self.change > 0.])
+
+    @property
+    def weight(self):
+        weight = [w for w in [self.speech, self.overlap, self.change] if w > 0]
+        if weight:
+            return torch.tensor(np.array(weight) / np.sum(weight),
+                                dtype=torch.float32)
+        return None
 
     @property
     def labels(self):

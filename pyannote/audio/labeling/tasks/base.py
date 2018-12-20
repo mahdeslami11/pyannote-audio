@@ -392,6 +392,16 @@ class LabelingTask(Trainer):
         msg = 'LabelingTask subclass must define `n_classes` property.'
         raise NotImplementedError(msg)
 
+    @property
+    def weight(self):
+        """Class/task weights
+
+        Returns
+        -------
+        weight : None or `torch.Tensor`
+        """
+        return None
+
     def on_train_start(self, model, batches_per_epoch=None, **kwargs):
 
         if model.n_classes != self.n_classes:
@@ -405,28 +415,26 @@ class LabelingTask(Trainer):
     def batch_loss(self, batch, model, device, writer=None):
 
         X = torch.tensor(batch['X'], dtype=torch.float32, device=device)
+        fX = model(X)
 
         if self.task_type == TASK_CLASSIFICATION:
             y = torch.tensor(batch['y'], dtype=torch.int64, device=device)
             target = y.contiguous().view((-1, ))
+            fX = fX.view((-1, self.n_classes))
+            if writer is not None:
+                self.log_y_pred_.append(self.to_numpy(fX))
+                self.log_y_true_.append(self.to_numpy(y))
 
         elif self.task_type == TASK_MULTI_LABEL_CLASSIFICATION:
-            y = torch.tensor(batch['y'], dtype=torch.float32, device=device)
-            target = y.contiguous().view((-1, self.n_classes))
+            target = torch.tensor(batch['y'], dtype=torch.float32,
+                                  device=device)
 
         elif self.task_type == TASK_REGRESSION:
-            y = torch.tensor(batch['y'], dtype=torch.float32, device=device)
-            target = y.contiguous().view((-1, self.n_classes))
+            target = torch.tensor(batch['y'], dtype=torch.float32,
+                                  device=device)
 
-        fX = model(X.requires_grad_())
-
-        losses = self.loss_func_(fX.view((-1, self.n_classes)), target)
-
-        if writer is not None and self.task_type == TASK_CLASSIFICATION:
-            self.log_y_pred_.append(self.to_numpy(fX))
-            self.log_y_true_.append(self.to_numpy(y))
-
-        return torch.mean(losses)
+        return self.loss_func_(fX, target,
+                               weight=self.weight.to(device=device))
 
     def on_epoch_end(self, iteration, checkpoint, writer=None, **kwargs):
 

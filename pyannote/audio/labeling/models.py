@@ -124,15 +124,24 @@ class StackedRNN(nn.Module):
         self.final_layer_ = nn.Linear(input_dim, self.n_classes)
 
     def get_loss(self):
+        """Return loss function (with support for class weights)
+
+        Returns
+        -------
+        loss_func : callable
+            Function f(input, target, weight=None) -> loss value
+        """
 
         if self.task_type == TASK_CLASSIFICATION:
-            return nn.NLLLoss()
+            return F.nll_loss
 
         if self.task_type == TASK_MULTI_LABEL_CLASSIFICATION:
-            return nn.BCELoss()
+            return F.binary_cross_entropy
 
         if self.task_type == TASK_REGRESSION:
-            return nn.MSELoss()
+            def mse_loss(input, target, weight=None):
+                return F.mse_loss(input, target)
+            return mse_loss
 
     def forward(self, sequences):
 
