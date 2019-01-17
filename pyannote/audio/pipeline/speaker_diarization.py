@@ -158,7 +158,7 @@ class SpeakerDiarization(Pipeline):
 
         # TODO. add GMM-based resegmentation
 
-    def metric(self) -> GreedyDiarizationErrorRate:
+    def get_metric(self) -> GreedyDiarizationErrorRate:
         """Return new instance of diarization error rate metric"""
         return  GreedyDiarizationErrorRate(collar=0.0, skip_overlap=False)
 
