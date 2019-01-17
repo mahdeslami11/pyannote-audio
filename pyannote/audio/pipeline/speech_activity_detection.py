@@ -39,7 +39,6 @@ from pyannote.core import SlidingWindowFeature
 from pyannote.audio.signal import Binarize
 from pyannote.audio.features import Precomputed
 
-from pyannote.database import get_annotated
 from pyannote.database import get_unique_identifier
 from pyannote.metrics.detection import DetectionErrorRate
 
@@ -121,23 +120,6 @@ class SpeechActivityDetection(Pipeline):
         speech.uri = get_unique_identifier(current_file)
         return speech.to_annotation(generator='string', modality='speech')
 
-    def loss(self, current_file: dict, hypothesis: Annotation) -> float:
-        """Compute detection error rate
-
-        Parameters
-        ----------
-        current_file : `dict`
-            File as provided by a pyannote.database protocol.
-        hypothesis : `pyannote.core.Annotation`
-            Speech regions.
-
-        Returns
-        -------
-        error : `float`
-            Detection error rate
-        """
-
-        metric = DetectionErrorRate(collar=0.0, skip_overlap=False)
-        reference  = current_file['annotation']
-        uem = get_annotated(current_file)
-        return metric(reference, hypothesis, uem=uem)
+    def metric(self) -> DetectionErrorRate:
+        """Return new instance of detection error rate metric"""
+        return  DetectionErrorRate(collar=0.0, skip_overlap=False)

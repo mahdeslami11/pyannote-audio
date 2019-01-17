@@ -158,26 +158,9 @@ class SpeakerDiarization(Pipeline):
 
         # TODO. add GMM-based resegmentation
 
-    def loss(self, current_file: dict, hypothesis: Annotation) -> float:
-        """Compute diarization error rate
-
-        Parameters
-        ----------
-        current_file : `dict`
-            File as provided by a pyannote.database protocol.
-        hypothesis : `pyannote.core.Annotation`
-            Speaker diarization output.
-
-        Returns
-        -------
-        error : `float`
-            Diarization error rate
-        """
-
-        metric = GreedyDiarizationErrorRate(collar=0.0, skip_overlap=False)
-        reference  = current_file['annotation']
-        uem = get_annotated(current_file)
-        return metric(reference, hypothesis, uem=uem)
+    def metric(self) -> GreedyDiarizationErrorRate:
+        """Return new instance of diarization error rate metric"""
+        return  GreedyDiarizationErrorRate(collar=0.0, skip_overlap=False)
 
 
 class Yin2018(SpeakerDiarization):
