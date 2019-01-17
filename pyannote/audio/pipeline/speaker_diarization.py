@@ -57,6 +57,8 @@ class SpeakerDiarization(Pipeline):
         Metric used for comparing embeddings. Defaults to 'cosine'.
     method : {'pool', 'affinity_propagation'}
         Clustering method. Defaults to 'pool'.
+    evaluation_only : `bool`
+        Only process the evaluated regions. Default to False.
 
     Hyper-parameters
     ----------------
@@ -69,7 +71,8 @@ class SpeakerDiarization(Pipeline):
                        scd_scores: Optional[Path] = None,
                        embedding: Optional[Path] = None,
                        metric: Optional[str] = 'cosine',
-                       method: Optional[str] = 'pool'):
+                       method: Optional[str] = 'pool',
+                       evaluation_only: Optional[bool] = False):
 
         super().__init__()
 
@@ -78,6 +81,7 @@ class SpeakerDiarization(Pipeline):
         self.speech_turn_segmentation = SpeechTurnSegmentation(
             sad_scores=self.sad_scores,
             scd_scores=self.scd_scores)
+        self.evaluation_only = evaluation_only
 
         self.min_duration = Uniform(0, 10)
 
@@ -106,6 +110,15 @@ class SpeakerDiarization(Pipeline):
 
         # segmentation into speech turns
         speech_turns = self.speech_turn_segmentation(current_file)
+
+        # some files are only partially annotated and therefore one cannot
+        # evaluate speaker diarization results on the whole file.
+        # this option simply avoids trying to cluster those
+        # (potentially messy) un-annotated refions by focusing only on
+        # speech turns contained in the annotated regions.
+        if self.evaluation_only:
+            annotated = get_annotated(current_file)
+            speech_turns = speech_turns.crop(annotated, mode='intersection')
 
         # in case there is one speech turn or less, there is no need to apply
         # any kind of clustering approach.
@@ -184,17 +197,21 @@ class Yin2018(SpeakerDiarization):
         Path to precomputed embeddings.
     metric : {'euclidean', 'cosine', 'angular'}, optional
         Metric used for comparing embeddings. Defaults to 'cosine'.
+    evaluation_only : `bool`
+        Only process the evaluated regions. Default to False.
     """
     def __init__(self, sad_scores: Optional[Path] = None,
                        scd_scores: Optional[Path] = None,
                        embedding: Optional[Path] = None,
-                       metric: Optional[str] = 'cosine'):
+                       metric: Optional[str] = 'cosine',
+                       evaluation_only: Optional[bool] = False):
 
         super().__init__(sad_scores=sad_scores,
                          scd_scores=scd_scores,
                          embedding=embedding,
                          metric=metric,
-                         method='affinity_propagation')
+                         method='affinity_propagation',
+                         evaluation_only=evaluation_only)
 
         self.freeze({
             'min_duration': 0.,
