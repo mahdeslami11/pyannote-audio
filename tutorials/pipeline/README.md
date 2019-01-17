@@ -85,11 +85,10 @@ $ pyannote-pipeline train --forever ${EXPERIMENT_DIR} AMI.SpeakerDiarization.Mix
 ```
 
 This will create a bunch of files in `TRAIN_DIR` (defined below).
-One can follow along the training process using [tensorboard](https://github.com/tensorflow/tensorboard).
-```bash
+~~One can follow along the training process using [tensorboard](https://github.com/tensorflow/tensorboard).~~
+<!-- ```bash
 $ tensorboard --logdir=${EXPERIMENT_DIR}
-```
-
+``` -->
 One can run this command on several machines in parallel to speed up the hyper-parameter search.
 
 ## Application

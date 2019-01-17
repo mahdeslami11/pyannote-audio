@@ -39,11 +39,24 @@ from .speech_turn_assignment import SpeechTurnClosestAssignment
 
 from typing import Optional
 from pyannote.pipeline import Pipeline
-import chocolate
+from pyannote.pipeline.parameter import Uniform
 
 
 class SpeakerDiarization(Pipeline):
     """Speaker diarization pipeline
+
+    Parameters
+    ----------
+    sad_scores : `Path`
+        Path to precomputed SAD scores on disk
+    scd_scores : `Path`
+        Path to precomputed SCD scores on disk
+    embedding : `Path`
+        Path to precomputed embedding on disk
+    metric : {'euclidean', 'cosine', 'angular'}, optional
+        Metric used for comparing embeddings. Defaults to 'cosine'.
+    method : {'pool', 'affinity_propagation'}
+        Clustering method. Defaults to 'pool'.
 
     Hyper-parameters
     ----------------
@@ -66,7 +79,7 @@ class SpeakerDiarization(Pipeline):
             sad_scores=self.sad_scores,
             scd_scores=self.scd_scores)
 
-        self.min_duration = chocolate.uniform(0, 10)
+        self.min_duration = Uniform(0, 10)
 
         self.embedding = embedding
         self.metric = metric

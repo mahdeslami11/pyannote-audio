@@ -37,11 +37,11 @@ setup(
     namespace_packages=['pyannote'],
     packages=find_packages(),
     install_requires=[
-        'pyannote.core >= 2.0.3',
+        'pyannote.core >= 2.1',
         'pyannote.metrics >= 1.8',
         'pyannote.generators >= 2.0',
         'pyannote.database >= 1.5.5',
-        'pyannote.pipeline >= 0.2.1',
+        'pyannote.pipeline >= 0.3',
         'scikit-learn >= 0.19.1',
         'torch >= 0.4.1',
         'pandas >= 0.18.0',
@@ -55,12 +55,8 @@ setup(
         'sortedcontainers >= 2.0.4',
         'sortedcollections >= 1.0.1',
         'tensorboardX >= 1.2',
-        'chocolate >= 0.6',
         'filelock >= 3.0.4',
         'dlib >= 19.13.1',
-    ],
-    dependency_links=[
-        'git+https://github.com/AIworx-Labs/chocolate.git@master#egg=chocolate-0.6'
     ],
     entry_points = {
         'console_scripts': [

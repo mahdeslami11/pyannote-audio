@@ -13,7 +13,7 @@ $ source activate pyannote
 $ conda install -c conda-forge yaafe
 $ conda install cmake
 $ pip install -U pip setuptools
-$ pip install --process-dependency-links pyannote.audio
+$ pip install pyannote.audio
 ```
 
 ## Citation
