@@ -57,7 +57,7 @@ class SpeechTurnClustering(Pipeline):
         super().__init__()
 
         self.embedding = embedding
-        self.precomputed_ = Precomputed(self.embedding)
+        self._precomputed = Precomputed(self.embedding)
 
         self.metric = metric
         self.method = method
@@ -100,7 +100,7 @@ class SpeechTurnClustering(Pipeline):
 
         assert_string_labels(speech_turns, 'speech_turns')
 
-        embedding = self.precomputed_(current_file)
+        embedding = self._precomputed(current_file)
 
         labels = speech_turns.labels()
         X, clustered_labels, skipped_labels = [], [], []
