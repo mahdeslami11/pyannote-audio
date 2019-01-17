@@ -75,8 +75,8 @@ class SpeakerChangeDetection(Pipeline):
         self.alpha = Uniform(0., 1.)
         self.min_duration = Uniform(0., 10.)
 
-    def instantiate(self):
-        """Instantiate pipeline with current set of parameters"""
+    def initialize(self):
+        """Initialize pipeline with current set of parameters"""
 
         self._peak = Peak(alpha=self.alpha,
                           min_duration=self.min_duration)
