@@ -327,7 +327,7 @@ class Segmentation(Application):
                          'pad_offset': 0.})
 
         def fun(threshold):
-            pipeline.with_params({'onset': threshold, 'offset': threshold})
+            pipeline.instantiate({'onset': threshold, 'offset': threshold})
             metric = DetectionErrorRate(parallel=True)
             validate = partial(validate_helper_func,
                                pipeline=pipeline,
@@ -343,7 +343,7 @@ class Segmentation(Application):
         return {'metric': 'detection_error_rate',
                 'minimize': True,
                 'value': res.fun,
-                'pipeline': pipeline.with_params({'onset': threshold,
+                'pipeline': pipeline.instantiate({'onset': threshold,
                                                   'offset': threshold})}
 
     def validate_epoch_overlap(self, epoch, protocol_name, subset='development',
@@ -377,7 +377,7 @@ class Segmentation(Application):
                          'pad_offset': 0.})
 
         def fun(threshold):
-            pipeline.with_params({'onset': threshold, 'offset': threshold})
+            pipeline.instantiate({'onset': threshold, 'offset': threshold})
             metric = DetectionErrorRate(parallel=True)
             validate = partial(validate_helper_func,
                                pipeline=pipeline,
@@ -394,7 +394,7 @@ class Segmentation(Application):
         return {'metric': 'detection_error_rate',
                 'minimize': True,
                 'value': res.fun,
-                'pipeline': pipeline.with_params({'onset': threshold,
+                'pipeline': pipeline.instantiate({'onset': threshold,
                                                   'offset': threshold})}
 
     def validate_epoch_change(self, epoch, protocol_name, subset='development',
@@ -435,7 +435,7 @@ class Segmentation(Application):
         for _ in range(10):
 
             current_alpha = .5 * (lower_alpha + upper_alpha)
-            pipeline.with_params({'alpha': current_alpha})
+            pipeline.instantiate({'alpha': current_alpha})
 
             metric = SegmentationPurityCoverageFMeasure(parallel=True)
 
@@ -460,7 +460,7 @@ class Segmentation(Application):
         return {'metric': f'coverage@{self.purity:.2f}purity',
                 'minimize': False,
                 'value': best_coverage,
-                'pipeline': pipeline.with_params({'alpha': best_alpha})}
+                'pipeline': pipeline.instantiate({'alpha': best_alpha})}
 
     def apply(self, protocol_name, output_dir, step=None, subset=None):
 
