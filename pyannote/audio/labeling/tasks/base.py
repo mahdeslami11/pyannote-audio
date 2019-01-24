@@ -433,8 +433,10 @@ class LabelingTask(Trainer):
             target = torch.tensor(batch['y'], dtype=torch.float32,
                                   device=device)
 
-        return self.loss_func_(fX, target,
-                               weight=self.weight.to(device=device))
+        weight = self.weight
+        if weight is not None:
+            weight = weight.to(device=device))
+        return self.loss_func_(fX, target, weight=weight)
 
     def on_epoch_end(self, iteration, checkpoint, writer=None, **kwargs):
 
