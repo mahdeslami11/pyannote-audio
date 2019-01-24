@@ -435,7 +435,7 @@ class LabelingTask(Trainer):
 
         weight = self.weight
         if weight is not None:
-            weight = weight.to(device=device))
+            weight = weight.to(device=device)
         return self.loss_func_(fX, target, weight=weight)
 
     def on_epoch_end(self, iteration, checkpoint, writer=None, **kwargs):
