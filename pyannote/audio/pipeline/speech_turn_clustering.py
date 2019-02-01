@@ -79,7 +79,7 @@ class SpeechTurnClustering(Pipeline):
 
         else:
             self.clustering = HierarchicalAgglomerativeClustering(
-                method=self.method, metric=self.metric)
+                method=self.method, metric=self.metric, use_threshold=True)
 
     def __call__(self, current_file: dict,
                        speech_turns: Annotation) -> Annotation:
