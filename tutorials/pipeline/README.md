@@ -97,7 +97,7 @@ One can run this command on several machines in parallel to speed up the hyper-p
 The optimized pipeline can then be applied on all files of the AMI database:
 
 ```bash
-$ export TRAIN_DIR=${EXPERIMENT_DIR}/train/AMI.SpeakerDiarization.MixHeadset.train
+$ export TRAIN_DIR=${EXPERIMENT_DIR}/train/AMI.SpeakerDiarization.MixHeadset.development
 $ pyannote-pipeline apply ${TRAIN_DIR}/params.yml AMI.SpeakerDiarization.MixHeadset /path/to/pipeline/output
 ```
 
