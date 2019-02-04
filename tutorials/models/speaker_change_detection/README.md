@@ -1,6 +1,6 @@
 > The MIT License (MIT)
 >
-> Copyright (c) 2017-2018 CNRS
+> Copyright (c) 2017-2019 CNRS
 >
 > Permission is hereby granted, free of charge, to any person obtaining a copy
 > of this software and associated documentation files (the "Software"), to deal
@@ -30,7 +30,7 @@ In this tutorial, you will learn how to train, validate, and apply a speaker cha
 
 ## Table of contents
 - [Citation](#citation)
-- [AMI database](#ami-database)
+- [Databases](#databases)
 - [Configuration](#configuration)
 - [Training](#training)
 - [Validation](#validation)
@@ -54,19 +54,22 @@ If you use `pyannote-audio` for speaker change detection, please cite the follow
 }
 ```
 
-## AMI database
+## Databases
 ([↑up to table of contents](#table-of-contents))
 
 ```bash
 $ source activate pyannote
 $ pip install pyannote.db.odessa.ami
+$ pip install pyannote.db.musan
 ```
 
-This tutorial relies on the [AMI database](http://groups.inf.ed.ac.uk/ami/corpus). We first need to tell `pyannote` where the audio files are located:
+This tutorial relies on the [AMI](http://groups.inf.ed.ac.uk/ami/corpus) and [MUSAN](http://www.openslr.org/17/) databases. We first need to tell `pyannote` where the audio files are located:
 
 ```bash
 $ cat ~/.pyannote/db.yml | grep AMI
 AMI: /path/to/ami/amicorpus/*/audio/{uri}.wav
+$ cat ~/.pyannote/db.yml | grep MUSAN
+MUSAN: /path/to/musan/{uri}.wav
 ```
 
 If you want to use a different database, you might need to create your own [`pyannote.database`](http://github.com/pyannote/pyannote-database) plugin.
@@ -78,50 +81,62 @@ See [github.com/pyannote/pyannote-db-template](https://github.com/pyannote/pyann
 To ensure reproducibility, `pyannote-change-detection` relies on a configuration file defining the experimental setup:
 
 ```bash
-$ cat tutorials/change-detection/config.yml
+$ cat tutorials/models/speakker-change-detection/config.yml
 ```
 ```yaml
-# train the network for speaker change detection
-# see pyannote.audio.labeling.tasks for more details
 task:
    name: SpeakerChangeDetection
    params:
-      duration: 3.2     # sub-sequence duration
-      per_epoch: 36000  # 10 hours of audio per epoch
-      collar: 0.200     # up-sampling collar
-      batch_size: 32    # number of sub-sequences per batch
-      parallel: 4       # number of background batch generators
+      duration: 2.0      # sequences are 2s long
+      collar: 0.100      # upsampling collar = 100ms
+      non_speech: False  # do not try to detect non-speech/speaker changes
+      batch_size: 64     # 64 sequences per batch
+      per_epoch: 1       # one epoch = 1 day of audio
+      parallel: 6        # pre-fetch training data in 6 parallel generators
 
-# use precomputed features (see feature extraction tutorial)
-feature_extraction:
-   name: Precomputed
+data_augmentation:
+   name: AddNoise                                   # add noise on-the-fly
    params:
-      root_dir: tutorials/feature-extraction
+      snr_min: 10                                   # using random signal-to-noise
+      snr_max: 20                                   # ratio between 10 and 20 dBs
+      collection: MUSAN.Collection.BackgroundNoise  # use background noise from MUSAN
+                                                    # (needs pyannote.db.musan)
+feature_extraction:
+   name: LibrosaMFCC      # use MFCC from librosa
+   params:
+      e: False            # do not use energy
+      De: True            # use energy 1st derivative
+      DDe: True           # use energy 2nd derivative
+      coefs: 19           # use 19 MFCC coefficients
+      D: True             # use coefficients 1st derivative
+      DD: True            # use coefficients 2nd derivative
+      duration: 0.025     # extract MFCC from 25ms windows
+      step: 0.010         # extract MFCC every 10ms
+      sample_rate: 16000  # convert to 16KHz first (if needed)
 
-# use the StackedRNN architecture.
-# see pyannote.audio.labeling.models for more details
 architecture:
    name: StackedRNN
    params:
-     rnn: LSTM
-     recurrent: [32, 20]
-     bidirectional: True
-     linear: [40, 10]
+      instance_normalize: True  # normalize sequences
+      rnn: LSTM                 # use LSTM (could be GRU)
+      recurrent: [128, 128]     # two layers with 128 hidden states
+      bidirectional: True       # bidirectional LSTMs
+      linear: [32, 32]          # add two linear layers at the end 
 
-# use cyclic learning rate scheduler
 scheduler:
-   name: CyclicScheduler
+   name: CyclicScheduler        # use cyclic learning rate (LR) scheduler
    params:
-       learning_rate: auto
+      learning_rate: auto       # automatically guess LR upper bound
+      epochs_per_cycle: 14      # 14 epochs per cycle
 ```
 
 ## Training
 ([↑up to table of contents](#table-of-contents))
 
-The following command will train the network using the training set of AMI database for 1000 epoch:
+The following command will train the network using the training set of AMI database for 1000 epochs:
 
 ```bash
-$ export EXPERIMENT_DIR=tutorials/change-detection
+$ export EXPERIMENT_DIR=tutorials/models/speaker-change-detection
 $ pyannote-change-detection train --gpu --to=1000 ${EXPERIMENT_DIR} AMI.SpeakerDiarization.MixHeadset
 ```
 
@@ -130,6 +145,9 @@ One can follow along the training process using [tensorboard](https://github.com
 ```bash
 $ tensorboard --logdir=${EXPERIMENT_DIR}
 ```
+
+![tensorboard screenshot](tb_train.png)
+
 
 ## Validation
 ([↑up to table of contents](#table-of-contents))
@@ -143,16 +161,30 @@ $ export TRAIN_DIR=${EXPERIMENT_DIR}/train/AMI.SpeakerDiarization.MixHeadset.tra
 $ pyannote-change-detection validate --purity=0.8 ${TRAIN_DIR} AMI.SpeakerDiarization.MixHeadset
 ```
 
-By default, this validation computes the segmentation metrics.  
-You may prefer to use the option `--diarization` for diarization metrics.
+In practice, it is tuning a simple speaker change detection pipeline (pyannote.audio.pipeline.speaker_change_detection.SpeakerChangeDetection) after each epoch and stores the best hyper-parameter configuration on disk:
+
+```bash
+$ cat ${TRAIN_DIR}/validate/AMI.SpeakerDiarization.MixHeadset/params.yml
+```
+```yaml
+epoch: 870
+params:
+  alpha: 0.17578125
+  min_duration: 0.0
+```
+
+One can also use [tensorboard](https://github.com/tensorflow/tensorboard) to follow the validation process.
+
+![tensorboard screenshot](tb_validate.png)
+
 
 ## Application
 ([↑up to table of contents](#table-of-contents))
 
-Now that we know how the model is doing, we can apply it on all files of the AMI database and store raw change scores in `/path/to/scd`:
+Now that we know how the model is doing, we can apply it on all files of the AMI database and store raw change scores in `/path/to/precomputed/scd`:
 
 ```bash
-$ pyannote-change-detection apply ${TRAIN_DIR}/weights/0050.pt AMI.SpeakerDiarization.MixHeadset /path/to/scd
+$ pyannote-change-detection apply ${TRAIN_DIR}/weights/0870.pt AMI.SpeakerDiarization.MixHeadset /path/to/precomputed/scd
 ```
 
 We can then use these raw scores to perform actual speaker change detection, and [`pyannote.metrics`](http://pyannote.github.io/pyannote-metrics/) to evaluate the result:
@@ -165,13 +197,13 @@ We can then use these raw scores to perform actual speaker change detection, and
 
 # precomputed scores
 >>> from pyannote.audio.features import Precomputed
->>> precomputed = Precomputed('/path/to/scd')
+>>> precomputed = Precomputed('/path/to/precomputed/scd')
 
 # peak detection
 >>> from pyannote.audio.signal import Peak
 # alpha / min_duration are tunable parameters (and should be tuned for better performance)
 # we use log_scale = True because of the final log-softmax in the StackedRNN model
->>> peak = Peak(alpha=0.5, min_duration=1.0, log_scale=True)
+>>> peak = Peak(alpha=0.17, min_duration=0.0, log_scale=True)
 
 # evaluation metric
 >>> from pyannote.metrics.diarization import DiarizationPurityCoverageFMeasure

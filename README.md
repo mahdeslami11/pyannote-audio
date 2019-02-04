@@ -1,24 +1,26 @@
 # Announcement
-Open [Phd/postdoc positions](https://mycore.core-cloud.net/public.php?service=files&t=2b5f5a79d24ac81c3b3c371fcd80734b) at [LIMSI](https://www.limsi.fr/en/) combining machine learning, NLP, speech processing, and computer vision. 
+Open [Phd/postdoc positions](https://mycore.core-cloud.net/public.php?service=files&t=2b5f5a79d24ac81c3b3c371fcd80734b) at [LIMSI](https://www.limsi.fr/en/) combining machine learning, NLP, speech processing, and computer vision.
 
 # pyannote-audio
 
-Neural building blocks for speaker diarization
+Neural building blocks for speaker diarization: 
+* speech activity detection
+* speaker change detection
+* speaker embedding
+* speaker diarization pipeline
+
 
 ## Installation
 
 ```bash
 $ conda create --name pyannote python=3.6 anaconda
 $ source activate pyannote
-$ conda install -c conda-forge yaafe
-$ conda install cmake
-$ pip install -U pip setuptools
 $ pip install pyannote.audio
 ```
 
 ## Citation
 
-If you use `pyannote.audio` in your research, please use the following citations.
+If you use `pyannote.audio` please use the following citations.
 
   - Speech  activity and speaker change detection
     ```bibtex
@@ -56,11 +58,11 @@ If you use `pyannote.audio` in your research, please use the following citations
 
 ## Tutorials
 
- * [Feature extraction](tutorials/feature-extraction)
- * [LSTM-based speech activity detection](tutorials/speech-activity-detection)
- * [LSTM-based speaker change detection](tutorials/change-detection)
- * [_TristouNet_ neural speech turn embedding](tutorials/speaker-embedding)
- * [Speaker diarization pipeline](tutorials/pipeline)
+  * [Feature extraction](tutorials/feature-extraction)
+  * Models
+    * [LSTM-based speech activity detection](tutorials/models/speech-activity-detection)
+    * [LSTM-based speaker change detection](tutorials/models/speaker-change-detection)
+    * [LSTM-based speaker embedding](tutorials/models/speaker-embedding)
 
 ## Documentation
 

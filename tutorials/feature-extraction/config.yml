@@ -36,8 +36,3 @@ feature_extraction:
       duration: 0.025               # one 25ms-long windows
       step: 0.010                   # and a step of 10ms
       sample_rate: 16000
-
-normalization:
-   name: ShortTermStandardization   # apply short term standardization
-   params:
-      duration: 3                   # using a 3s-long sliding window

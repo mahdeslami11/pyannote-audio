@@ -20,7 +20,7 @@
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
 >
-> AUTHOR  
+> AUTHOR
 > Hervé Bredin - http://herve.niderb.fr
 
 # Feature extraction with `pyannote.audio`
@@ -73,10 +73,6 @@ feature_extraction:
       step: 0.010                   # and a step of 10ms
       sample_rate: 16000
 
-normalization:
-   name: ShortTermStandardization   # apply short term standardization
-   params:
-      duration: 3                   # using a 3s-long sliding window
 ```
 
 ## Extraction

@@ -1,6 +1,6 @@
 > The MIT License (MIT)
 >
-> Copyright (c) 2017-2018 CNRS
+> Copyright (c) 2017-2019 CNRS
 >
 > Permission is hereby granted, free of charge, to any person obtaining a copy
 > of this software and associated documentation files (the "Software"), to deal
@@ -20,16 +20,16 @@
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
 >
-> AUTHOR  
+> AUTHOR
 > Hervé Bredin - http://herve.niderb.fr
 
 # Neural speech turn embedding with `pyannote.audio`
 
-In this tutorial, you will learn how to train a [_TristouNet_](http://arxiv.org/abs/1609.04301) speech turn embedding using `pyannote-speaker-embedding` command line tool.
+In this tutorial, you will learn how to train a speech turn embedding using `pyannote-speaker-embedding` command line tool.
 
 ## Table of contents
 - [Citation](#citation)
-- [AMI database](#ami-database)
+- [Databases](#databases)
 - [Configuration](#configuration)
 - [Training](#training)
 - [Validation](#validation)
@@ -51,19 +51,25 @@ If you use `pyannote-audio` for speaker (or audio) neural embedding, please cite
 }
 ```
 
-## AMI database
+## Databases
 ([↑up to table of contents](#table-of-contents))
 
 ```bash
 $ source activate pyannote
 $ pip install pyannote.db.odessa.ami
+$ pip install pyannote.db.musan
+$ pip install pyannote.db.voxceleb
 ```
 
-This tutorial relies on the [AMI database](http://groups.inf.ed.ac.uk/ami/corpus). We first need to tell `pyannote` where the audio files are located:
+This tutorial relies on the [VoxCeleb](http://www.robots.ox.ac.uk/~vgg/data/voxceleb/), [AMI](http://groups.inf.ed.ac.uk/ami/corpus) and [MUSAN](http://www.openslr.org/17/) databases. We first need to tell `pyannote` where the audio files are located:
 
 ```bash
+$ cat ~/.pyannote/db.yml | grep VoxCeleb
+VoxCeleb: /path/to/voxceleb1/*/wav/{uri}.wav
 $ cat ~/.pyannote/db.yml | grep AMI
 AMI: /path/to/ami/amicorpus/*/audio/{uri}.wav
+$ cat ~/.pyannote/db.yml | grep MUSAN
+MUSAN: /path/to/musan/{uri}.wav
 ```
 
 If you want to use a different database, you might need to create your own [`pyannote.database`](http://github.com/pyannote/pyannote-database) plugin.
@@ -75,54 +81,70 @@ See [github.com/pyannote/pyannote-db-template](https://github.com/pyannote/pyann
 To ensure reproducibility, `pyannote-speaker-embedding` relies on a configuration file defining the experimental setup:
 
 ```bash
-$ cat tutorials/speaker-embedding/config.yml
+$ cat tutorials/models/speaker-embedding/config.yml
 ```
 ```yaml
-# train the network using triplet loss
-# see pyannote.audio.embedding.approaches for more details
-approach:
-  name: TripletLoss
-  params:
-    metric: cosine    # embeddings are optimized for cosine metric
-    clamp: positive   # triplet loss variant
-    margin: 0.2       # triplet loss margin
-    duration: 2       # sequence duration
-    sampling: all     # triplet sampling strategy
-    per_fold: 40      # number of speakers per fold
-    per_label: 3      # number of sequences per speaker
-
-# use precomputed features (see feature extraction tutorial)
 feature_extraction:
-  name: Precomputed
-  params:
-     root_dir: tutorials/feature-extraction
+   name: LibrosaMFCC
+   params:
+      e: False
+      De: True
+      DDe: True
+      coefs: 19
+      D: True
+      DD: True
+      duration: 0.025
+      step: 0.010
+      sample_rate: 16000
 
-# use the TristouNet architecture.
-# see pyannote.audio.embedding.models for more details
+data_augmentation:
+   name: AddNoise
+   params:
+     snr_min: 10
+     snr_max: 20
+     collection: MUSAN.Collection.BackgroundNoise
+
 architecture:
-  name: TristouNet
-  params:
-    rnn: LSTM
-    recurrent: [16]
-    bidirectional: True
-    pooling: sum
-    linear: [16, 16]
+   name: ClopiNet
+   params:
+     instance_normalize: True
+     rnn: LSTM
+     recurrent: [256, 256, 256]
+     linear: [256]
+     bidirectional: True
+     pooling: sum
+     batch_normalize: True
+     normalize: True
+     
+approach:
+   name: TripletLoss
+   params:
+     metric: cosine
+     clamp: sigmoid
+     margin: 0.0
+     min_duration: 0.500
+     max_duration: 1.500
+     sampling: all
+     per_fold: 20
+     per_label: 3
+     per_epoch: 1
+     parallel: 4
+     label_min_duration: 60
 
-# use cyclic learning rate scheduler
 scheduler:
-  name: CyclicScheduler
-  params:
-      learning_rate: auto
+   name: CyclicScheduler
+   params:
+      epochs_per_cycle: 14
 ```
 
 ## Training
 ([↑up to table of contents](#table-of-contents))
 
-The following command will train the network using the training set of the AMI database for 1000 epochs (one epoch = every speaker seen at least once)
+The following command will train the network using VoxCeleb1 for 1000 epochs (one epoch = one day of audio)
 
 ```bash
-$ export EXPERIMENT_DIR=tutorials/speaker-embedding
-$ pyannote-speaker-embedding train --gpu --to=1000 ${EXPERIMENT_DIR} AMI.SpeakerDiarization.MixHeadset
+$ export EXPERIMENT_DIR=tutorials/models/speaker-embedding
+$ pyannote-speaker-embedding train --gpu --to=1000 ${EXPERIMENT_DIR} VoxCeleb.SpeakerVerification.VoxCeleb1
 ```
 
 This will create a bunch of files in `TRAIN_DIR` (defined below).
@@ -130,8 +152,6 @@ One can follow along the training process using [tensorboard](https://github.com
 ```bash
 $ tensorboard --logdir=${EXPERIMENT_DIR}
 ```
-
-Among other things, it allows to visualize the evolution of (intra/inter-speaker) distance distributions epoch after epoch:
 
 ![tensorboard screenshot](tb_train.png)
 
@@ -144,17 +164,21 @@ It can (should!) be run in parallel to training and evaluates the model epoch af
 One can use [tensorboard](https://github.com/tensorflow/tensorboard) to follow the validation process.
 
 ```bash
-$ export TRAIN_DIR=${EXPERIMENT_DIR}/train/AMI.SpeakerDiarization.MixHeadset.train
-$ pyannote-speaker-embedding validate ${TRAIN_DIR} AMI.SpeakerDiarization.MixHeadset
+$ export TRAIN_DIR=${EXPERIMENT_DIR}/train/VoxCeleb.SpeakerVerification.VoxCeleb1.train
+$ pyannote-speaker-embedding validate --subset=test ${TRAIN_DIR} VoxCeleb.SpeakerDiarization.VoxCeleb1
 ```
+
+![tensorboard screenshot](tb_validate.png)
+
+This model reaches approximately 7% EER on VoxCeleb1.
 
 ## Application
 ([↑up to table of contents](#table-of-contents))
 
-Now that we know how the model is doing, we can apply it on all files of the AMI database and store raw SAD scores in `/path/to/emb`:
+Now that we know how the model is doing, we can apply it on all files of the AMI database store embeddings in `/path/to/precomputed/emb`:
 
 ```bash
-$ pyannote-speaker-embedding apply ${TRAIN_DIR}/weights/0050.pt AMI.SpeakerDiarization.MixHeadset /path/to/emb
+$ pyannote-speaker-embedding apply ${TRAIN_DIR}/weights/2000.pt AMI.SpeakerDiarization.MixHeadset /path/to/precomputed/emb
 ```
 
 We can then use these extracted embeddings like this:
@@ -168,7 +192,7 @@ We can then use these extracted embeddings like this:
 
 # precomputed embeddings as pyannote.core.SlidingWindowFeature
 >>> from pyannote.audio.features import Precomputed
->>> precomputed = Precomputed('/path/to/emb')
+>>> precomputed = Precomputed('/path/to/precomputed/emb')
 >>> embeddings = precomputed(test_file)
 
 # iterate over all embeddings
