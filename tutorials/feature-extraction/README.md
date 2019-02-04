@@ -1,6 +1,6 @@
 > The MIT License (MIT)
 >
-> Copyright (c) 2017-2018 CNRS
+> Copyright (c) 2017-2019 CNRS
 >
 > Permission is hereby granted, free of charge, to any person obtaining a copy
 > of this software and associated documentation files (the "Software"), to deal
@@ -61,7 +61,7 @@ To ensure reproducibility, `pyannote-speech-feature` relies on a configuration f
 ```bash
 $ cat tutorials/feature-extraction/config.yml
 feature_extraction:
-   name: YaafeMFCC                  # extract MFCCs using Yaafe
+   name: LibrosaMFCC                # extract MFCCs using Yaafe
    params:
       e: False                      # no energy
       De: True                      # energy 1st derivative
@@ -72,13 +72,12 @@ feature_extraction:
       duration: 0.025               # one 25ms-long windows
       step: 0.010                   # and a step of 10ms
       sample_rate: 16000
-
 ```
 
 ## Extraction
 ([↑up to table of contents](#table-of-contents))
 
-The following command will extract features for all files the `TV` protocol of the ETAPE database.
+The following command will extract features for all files of the `MixHeadset` protocol of the AMI database.
 
 ```bash
 $ export EXPERIMENT_DIR=tutorials/feature-extraction
