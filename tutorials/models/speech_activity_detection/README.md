@@ -80,7 +80,7 @@ See [github.com/pyannote/pyannote-db-template](https://github.com/pyannote/pyann
 To ensure reproducibility, `pyannote-speech-detection` relies on a configuration file defining the experimental setup:
 
 ```bash
-$ cat tutorials/models/speech-activity-detection/config.yml
+$ cat tutorials/models/speech_activity_detection/config.yml
 ```
 ```yaml
 task:
@@ -133,7 +133,7 @@ scheduler:
 The following command will train the network using the training set of AMI database for 1000 epochs:
 
 ```bash
-$ export EXPERIMENT_DIR=tutorials/models/speech-activity-detection
+$ export EXPERIMENT_DIR=tutorials/models/speech_activity_detection
 $ pyannote-speech-detection train --gpu --to=1000 ${EXPERIMENT_DIR} AMI.SpeakerDiarization.MixHeadset
 ```
 

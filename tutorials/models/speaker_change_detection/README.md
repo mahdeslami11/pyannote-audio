@@ -81,7 +81,7 @@ See [github.com/pyannote/pyannote-db-template](https://github.com/pyannote/pyann
 To ensure reproducibility, `pyannote-change-detection` relies on a configuration file defining the experimental setup:
 
 ```bash
-$ cat tutorials/models/speakker-change-detection/config.yml
+$ cat tutorials/models/speakker_change_detection/config.yml
 ```
 ```yaml
 task:

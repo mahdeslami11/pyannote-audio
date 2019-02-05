@@ -81,7 +81,7 @@ See [github.com/pyannote/pyannote-db-template](https://github.com/pyannote/pyann
 To ensure reproducibility, `pyannote-speaker-embedding` relies on a configuration file defining the experimental setup:
 
 ```bash
-$ cat tutorials/models/speaker-embedding/config.yml
+$ cat tutorials/models/speaker_embedding/config.yml
 ```
 ```yaml
 feature_extraction:
@@ -143,7 +143,7 @@ scheduler:
 The following command will train the network using VoxCeleb1 for 1000 epochs (one epoch = one day of audio)
 
 ```bash
-$ export EXPERIMENT_DIR=tutorials/models/speaker-embedding
+$ export EXPERIMENT_DIR=tutorials/models/speaker_embedding
 $ pyannote-speaker-embedding train --gpu --to=1000 ${EXPERIMENT_DIR} VoxCeleb.SpeakerVerification.VoxCeleb1
 ```
 

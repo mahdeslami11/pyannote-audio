@@ -59,7 +59,7 @@ If you use `pyannote-audio` for speech activity detection, please cite the follo
 To ensure reproducibility, `pyannote-pipeline` relies on a configuration file defining the experimental setup:
 
 ```bash
-$ cat tutorials/pipeline/config.yml
+$ cat tutorials/pipelines/speech_activity_detection/config.yml
 ```
 ```yaml
 pipeline:
@@ -76,7 +76,7 @@ This configuration file assumes that you have already been through the speech ac
 The following command will run hyper-parameter optimization on the development subset of the AMI database:
 
 ```bash
-$ export EXPERIMENT_DIR=tutorials/pipeline
+$ export EXPERIMENT_DIR=tutorials/pipelines/speech_activity_detection
 $ pyannote-pipeline train --forever ${EXPERIMENT_DIR} AMI.SpeakerDiarization.MixHeadset
 ```
 

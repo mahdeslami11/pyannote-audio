@@ -57,7 +57,7 @@ If you use `pyannote-audio` for speaker diarization, please cite the following p
 To ensure reproducibility, `pyannote-pipeline` relies on a configuration file defining the experimental setup:
 
 ```bash
-$ cat tutorials/pipeline/config.yml
+$ cat tutorials/pipelines/speaker_diarization/config.yml
 ```
 ```yaml
 pipeline:
@@ -96,7 +96,7 @@ This configuration file assumes that you have already been through the other tut
 The following command will run hyper-parameter optimization on the development subset of the AMI database:
 
 ```bash
-$ export EXPERIMENT_DIR=tutorials/pipeline
+$ export EXPERIMENT_DIR=tutorials/pipelines/speaker_diarization
 $ pyannote-pipeline train --forever ${EXPERIMENT_DIR} AMI.SpeakerDiarization.MixHeadset
 ```
 
