@@ -80,7 +80,7 @@ feature_extraction:
 The following command will extract features for all files of the `MixHeadset` protocol of the AMI database.
 
 ```bash
-$ export EXPERIMENT_DIR=tutorials/feature-extraction
+$ export EXPERIMENT_DIR=tutorials/feature_extraction
 $ pyannote-speech-feature ${EXPERIMENT_DIR} AMI.SpeakerDiarization.MixHeadset
 Development set: 21it [01:28,  4.21s/it]
 Test set: 22it [01:39,  4.53s/it]
@@ -107,14 +107,14 @@ EN2002b.Mix-Headset.npy
 
 Now that features are extracted, they can be used by other command line tools (instead of re-computing them on-the-fly).
 
-For instance, the `feature_extraction` section of the configuration file of the [speech activity detection tutorial](/tutorials/speech-activity-detection) can be updated to look like that:
+For instance, the `feature_extraction` section of the configuration file of the [speech activity detection tutorial](/tutorials/models/speech_activity_detection) can be updated to look like that:
 
 ```bash
-$ cat tutorials/speech-activity-detection/config.yml
+$ cat tutorials/models/speech_activity_detection/config.yml
 feature_extraction:
    name: Precomputed
    params:
-      root_dir: tutorials/feature-extraction
+      root_dir: tutorials/feature_extraction
 
 [...]
 ```
@@ -124,7 +124,7 @@ feature_extraction:
 
 ```python
 >>> from pyannote.audio.features import Precomputed
->>> precomputed = Precomputed('tutorials/feature-extraction')
+>>> precomputed = Precomputed('tutorials/feature_extraction')
 >>> from pyannote.database import get_protocol
 >>> protocol = get_protocol('AMI.SpeakerDiarization.MixHeadset')
 >>> for current_file in protocol.test():
