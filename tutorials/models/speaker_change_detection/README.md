@@ -136,7 +136,7 @@ scheduler:
 The following command will train the network using the training set of AMI database for 1000 epochs:
 
 ```bash
-$ export EXPERIMENT_DIR=tutorials/models/speaker-change-detection
+$ export EXPERIMENT_DIR=tutorials/models/speaker_change_detection
 $ pyannote-change-detection train --gpu --to=1000 ${EXPERIMENT_DIR} AMI.SpeakerDiarization.MixHeadset
 ```
 
