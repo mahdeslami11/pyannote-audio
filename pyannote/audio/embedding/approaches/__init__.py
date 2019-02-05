@@ -31,4 +31,3 @@ from .centroid_loss import CentroidLoss
 from .softmax import Softmax
 # from .agg_triplet_loss import AggTripletLoss
 # from .wtf_triplet_loss import WTFTripletLoss
-# from .domain_adversarial_triplet_loss import DomainAdversarialTripletLoss
