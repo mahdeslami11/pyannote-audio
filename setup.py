@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016-2018 CNRS
+# Copyright (c) 2016-2019 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -38,15 +38,15 @@ setup(
     packages=find_packages(),
     install_requires=[
         'pyannote.core >= 2.1',
-        'pyannote.metrics >= 1.8',
+        'pyannote.metrics >= 1.8.1',
         'pyannote.generators >= 2.0',
         'pyannote.database >= 1.5.5',
-        'pyannote.pipeline >= 0.3',
-        'scikit-learn >= 0.19.1',
-        'torch >= 0.4.1',
+        'pyannote.pipeline >= 1.0',
+        'scikit-learn >= 0.20.2',
+        'torch >= 1.0.0',
         'pandas >= 0.18.0',
         'audioread >= 2.1.5',
-        'librosa >= 0.6',
+        'librosa >= 0.6.2',
         'python_speech_features == 0.6',
         'sphfile == 1.0.0',
         'pyYAML >= 3.12',
@@ -54,9 +54,9 @@ setup(
         'tqdm >= 4.11.2',
         'sortedcontainers >= 2.0.4',
         'sortedcollections >= 1.0.1',
-        'tensorboardX >= 1.2',
+        'tensorboardX >= 1.6',
         'filelock >= 3.0.4',
-        'dlib >= 19.13.1',
+        'dlib >= 19.16.0',
     ],
     entry_points = {
         'console_scripts': [
