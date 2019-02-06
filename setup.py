@@ -31,33 +31,15 @@ import versioneer
 
 from setuptools import setup, find_packages
 
+with open('requirements.txt') as f:
+    requirements = f.read().splitlines()
+
 setup(
 
     # package
     namespace_packages=['pyannote'],
     packages=find_packages(),
-    install_requires=[
-        'pyannote.core >= 2.1',
-        'pyannote.metrics >= 1.8.1',
-        'pyannote.generators >= 2.0',
-        'pyannote.database >= 1.5.5',
-        'pyannote.pipeline >= 1.0',
-        'scikit-learn >= 0.20.2',
-        'torch >= 1.0.0',
-        'pandas >= 0.18.0',
-        'audioread >= 2.1.5',
-        'librosa >= 0.6.2',
-        'python_speech_features == 0.6',
-        'sphfile == 1.0.0',
-        'pyYAML >= 3.12',
-        'cachetools >= 2.0.0',
-        'tqdm >= 4.11.2',
-        'sortedcontainers >= 2.0.4',
-        'sortedcollections >= 1.0.1',
-        'tensorboardX >= 1.6',
-        'filelock >= 3.0.4',
-        'dlib >= 19.16.0',
-    ],
+    install_requires=requirements,
     entry_points = {
         'console_scripts': [
             'pyannote-speech-feature=pyannote.audio.applications.feature_extraction:main',
