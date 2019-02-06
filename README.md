@@ -9,7 +9,6 @@ Neural building blocks for speaker diarization:
 * speaker embedding
 * speaker diarization pipeline
 
-
 ## Installation
 
 ```bash
@@ -60,14 +59,16 @@ If you use `pyannote.audio` please use the following citations.
 
   * [Feature extraction](tutorials/feature_extraction)
   * Models
-    * [LSTM-based speech activity detection](tutorials/models/speech_activity_detection)
-    * [LSTM-based speaker change detection](tutorials/models/speaker_change_detection)
-    * [LSTM-based speaker embedding](tutorials/models/speaker_embedding)
+    * [Training LSTM-based speech activity detection](tutorials/models/speech_activity_detection)
+    * [Training LSTM-based speaker change detection](tutorials/models/speaker_change_detection)
+    * [Training LSTM-based speaker embedding](tutorials/models/speaker_embedding)
+    * [Using pre-trained models](tutorials/models/pretrained)
+
   * Pipelines
-    * [Speech activity detection pipeline](tutorials/pipelines/speech_activity_detection)
-    * [Speaker diarization pipeline](tutorials/pipelines/speaker_diarization)
-
-
+    * [Tuning speech activity detection pipeline](tutorials/pipelines/speech_activity_detection)
+    * [Tuning speaker diarization pipeline](tutorials/pipelines/speaker_diarization)
+  
 ## Documentation
 
-The API is unfortunately not documented yet.
+Part of the API is described in [this](tutorials/models/pretrained) tutorial.  
+Other than that, there is still a lot to do (contribute?) documentation-wise...
