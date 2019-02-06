@@ -31,6 +31,9 @@ import versioneer
 
 from setuptools import setup, find_packages
 
+with open('README.md') as f:
+    long_description = f.read()
+
 with open('requirements.txt') as f:
     requirements = f.read().splitlines()
 
@@ -55,6 +58,9 @@ setup(
     # PyPI
     name='pyannote.audio',
     description='Neural building blocks for speaker diarization',
+    long_description=long_description,
+    long_description_content_type='text/markdown',
+
     author='Hervé Bredin',
     author_email='bredin@limsi.fr',
     url='https://github.com/pyannote/pyannote-audio',
