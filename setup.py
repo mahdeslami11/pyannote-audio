@@ -39,7 +39,7 @@ with open('requirements.txt') as f:
 
 setup(
 
-    # package
+    name='pyannote.audio',
     namespace_packages=['pyannote'],
     packages=find_packages(),
     install_requires=requirements,
@@ -52,11 +52,10 @@ setup(
             'pyannote-segmentation=pyannote.audio.applications.segmentation:main',
             'pyannote-speaker-embedding=pyannote.audio.applications.speaker_embedding:main']
     },
-    # versioneer
+
     version=versioneer.get_version(),
     cmdclass=versioneer.get_cmdclass(),
-    # PyPI
-    name='pyannote.audio',
+
     description='Neural building blocks for speaker diarization',
     long_description=long_description,
     long_description_content_type='text/markdown',
