@@ -57,7 +57,8 @@ setup(
     description='Neural building blocks for speaker diarization',
     author='Hervé Bredin',
     author_email='bredin@limsi.fr',
-    url='http://herve.niderb.fr/',
+    url='https://github.com/pyannote/pyannote-audio',
+
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Science/Research",
