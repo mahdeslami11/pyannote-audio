@@ -17,4 +17,4 @@ sortedcontainers >= 2.0.4
 sphfile == 1.0.0
 tensorboardX >= 1.6
 torch >= 1.0.0
-tqdm >= 4.11.2
+tqdm >= 4.29.1
