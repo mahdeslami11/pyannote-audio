@@ -54,6 +54,9 @@ If you use `pyannote.audio` please use the following citations.
 
 ## Tutorials
 
+:warning: These tutorials assumes that you installed the [`develop` branch](https://github.com/pyannote/pyannote-audio/issues/145) of `pyannote.audio`.   
+:warning: They are most likely [broken](https://github.com/pyannote/pyannote-audio/issues/151) in `pyannote.audio 1.x`.
+
   * [Feature extraction](tutorials/feature_extraction)
   * Models
     * [Training LSTM-based speech activity detection](tutorials/models/speech_activity_detection)
