@@ -26,19 +26,28 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
+"""
+# Noise-based data augmentation
+"""
+
 
 import numpy as np
 from pyannote.core import Segment
 from pyannote.audio.features.utils import RawAudio
 from pyannote.audio.features.utils import get_audio_duration
 from pyannote.generators.fragment import random_subsegment
+from pyannote.generators.fragment import random_segment
 from pyannote.database import get_protocol
+from pyannote.database import get_annotated
 from pyannote.database import FileFinder
 from .base import Augmentation
 
 
+normalize = lambda wav: wav / (np.sqrt(np.mean(wav ** 2)) + 1e-8)
+
+
 class AddNoise(Augmentation):
-    """Add noise
+    """Additive noise data augmentation
 
     Parameters
     ----------
@@ -72,9 +81,6 @@ class AddNoise(Augmentation):
         for collection in self.collection:
             protocol = get_protocol(collection, preprocessors=preprocessors)
             self.files_.extend(protocol.files())
-
-    def normalize(self, waveform):
-        return waveform / (np.sqrt(np.mean(waveform ** 2)) + 1e-8)
 
     def __call__(self, original, sample_rate):
         """Augment original waveform
@@ -117,7 +123,7 @@ class AddNoise(Augmentation):
                 noise = raw_audio(file).data
                 left -= duration
 
-            noise = self.normalize(noise)
+            noise = normalize(noise)
             noises.append(noise)
 
         # concatenate
@@ -128,4 +134,107 @@ class AddNoise(Augmentation):
         snr = (self.snr_max - self.snr_min) * np.random.random_sample() + self.snr_min
         alpha = np.exp(-np.log(10) * snr / 20)
 
-        return self.normalize(original) + alpha * noise
+        return normalize(original) + alpha * noise
+
+
+class AddNoiseFromGaps(Augmentation):
+    """Additive noise data augmentation.
+
+    While AddNoise assumes that files contain only noise, this class uses
+    non-speech regions (= gaps) as noise. This is expected to generate more
+    realistic noises.
+
+    Parameters
+    ----------
+    protocol : `str`
+        Protocol name (e.g. AMI.SpeakerDiarization.MixHeadset)
+    subset : {'train', 'development', 'test'}, optional
+        Use this subset. Defaults to 'train'.
+    db_yml : str, optional
+        Path to `pyannote.database` configuration file.
+    snr_min, snr_max : int, optional
+        Defines Signal-to-Noise Ratio (SNR) range in dB. Defaults to [5, 20].
+
+    See also
+    --------
+    `AddNoise`
+    """
+
+    def __init__(self, protocol=None, subset='train', db_yml=None,
+                 snr_min=5, snr_max=20):
+        super().__init__()
+
+        self.protocol = protocol
+        self.subset = subset
+        self.db_yml = db_yml
+
+        self.snr_min = snr_min
+        self.snr_max = snr_max
+
+        # returns gaps in annotation as pyannote.core.Timeline instance
+        get_gaps = lambda f: f['annotation'].get_timeline().gaps(
+            support=get_annotated(f))
+
+        preprocessors = {
+            'audio': FileFinder(config_yml=db_yml),
+            'duration': get_audio_duration,
+            'gaps': get_gaps}
+
+        protocol = get_protocol(self.protocol,
+                                preprocessors=preprocessors)
+        self.files_ = list(getattr(protocol, self.subset)())
+
+    def __call__(self, original, sample_rate):
+        """Augment original waveform
+
+        Parameters
+        ----------
+        original : `np.ndarray`
+            (n_samples, n_channels) waveform.
+        sample_rate : `int`
+            Sample rate.
+
+        Returns
+        -------
+        augmented : `np.ndarray`
+            (n_samples, n_channels) noise-augmented waveform.
+        """
+
+        raw_audio = RawAudio(sample_rate=sample_rate, mono=True)
+
+        original_duration = len(original) / sample_rate
+
+        # accumulate enough noise to cover duration of original waveform
+        noises = []
+        left = original_duration
+        while left > 0:
+
+            # select noise file at random
+            file = np.random.choice(self.files_)
+
+            # select noise segment at random
+            segment = next(random_segment(file['gaps'], weighted=False))
+            duration = segment.duration
+
+            # if noise segment is longer than what is needed, crop it at random
+            if duration > left:
+                segment = next(random_subsegment(segment, left))
+                duration = left
+
+            noise = raw_audio.crop(file, segment,
+                                   mode='center', fixed=duration)
+
+            left -= duration
+
+            noise = normalize(noise)
+            noises.append(noise)
+
+        # concatenate
+        # FIXME: use fade-in between concatenated noises
+        noise = np.vstack(noises)
+
+        # select SNR at random
+        snr = (self.snr_max - self.snr_min) * np.random.random_sample() + self.snr_min
+        alpha = np.exp(-np.log(10) * snr / 20)
+
+        return normalize(original) + alpha * noise
