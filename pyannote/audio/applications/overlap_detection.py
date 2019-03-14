@@ -39,7 +39,6 @@ Usage:
 Common options:
   <database.task.protocol>   Experimental protocol (e.g. "AMI.SpeakerDiarization.MixHeadset")
   --database=<db.yml>        Path to database configuration file.
-                             [default: ~/.pyannote/db.yml]
   --subset=<subset>          Set subset (train|developement|test).
                              Defaults to "train" in "train" mode. Defaults to
                              "development" in "validate" mode. Defaults to all subsets in
@@ -257,7 +256,7 @@ class OverlapDetection(SpeechActivityDetection):
 
             precision = DetectionPrecision(parallel=True)
             recall = DetectionRecall(parallel=True)
-            
+
             validate = partial(validate_helper_func,
                                pipeline=pipeline,
                                precision=precision,
@@ -291,9 +290,7 @@ def main():
 
     arguments = docopt(__doc__, version='Overlap detection')
 
-    db_yml = Path(arguments['--database'])
-    db_yml = db_yml.expanduser().resolve(strict=True)
-
+    db_yml = arguments['--database']
     protocol_name = arguments['<database.task.protocol>']
     subset = arguments['--subset']
 
