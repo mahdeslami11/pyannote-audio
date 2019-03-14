@@ -89,7 +89,6 @@ task:
       duration: 2.0      # sequences are 2s long
       batch_size: 64     # 64 sequences per batch
       per_epoch: 1       # one epoch = 1 day of audio
-      parallel: 6        # pre-fetch training data in 6 parallel generators
 
 data_augmentation:
    name: AddNoise                                   # add noise on-the-fly

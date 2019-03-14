@@ -91,7 +91,6 @@ Configuration file:
           per_epoch: 1      # 1 day of audio per epoch
           collar: 0.200     # upsampling collar
           batch_size: 32    # number of sub-sequences per batch
-          parallel: 4       # number of background generators
 
     # use precomputed features (see feature extraction tutorial)
     feature_extraction:

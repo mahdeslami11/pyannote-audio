@@ -6,7 +6,6 @@ task:
       non_speech: False  # do not try to detect non-speech/speaker changes
       batch_size: 64     # 64 sequences per batch
       per_epoch: 1       # one epoch = 1 day of audio
-      parallel: 6        # pre-fetch training data in 6 parallel generators
 
 data_augmentation:
    name: AddNoise                                   # add noise on-the-fly
@@ -35,11 +34,10 @@ architecture:
       rnn: LSTM                 # use LSTM (could be GRU)
       recurrent: [128, 128]     # two layers with 128 hidden states
       bidirectional: True       # bidirectional LSTMs
-      linear: [32, 32]          # add two linear layers at the end 
+      linear: [32, 32]          # add two linear layers at the end
 
 scheduler:
    name: CyclicScheduler        # use cyclic learning rate (LR) scheduler
    params:
       learning_rate: auto       # automatically guess LR upper bound
       epochs_per_cycle: 14      # 14 epochs per cycle
-      

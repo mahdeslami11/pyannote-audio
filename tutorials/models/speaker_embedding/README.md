@@ -128,7 +128,6 @@ approach:
      per_fold: 20
      per_label: 3
      per_epoch: 1
-     parallel: 4
      label_min_duration: 60
 
 scheduler:
