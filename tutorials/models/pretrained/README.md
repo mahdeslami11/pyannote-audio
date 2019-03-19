@@ -108,7 +108,7 @@ scd_scores = scd(test_file)
 from pyannote.audio.signal import Peak
 peak = Peak(alpha=0.08, min_duration=0.40, log_scale=True)
 partition = peak.apply(scd_scores, dimension=1)
-for segment, _ in partition.itertracks():
+for segment in partition:
     print(segment.start, segment.end)
 ```
 ```
