@@ -64,16 +64,14 @@ $ pip install pyannote.db.voxceleb
 This tutorial relies on the [VoxCeleb](http://www.robots.ox.ac.uk/~vgg/data/voxceleb/), [AMI](http://groups.inf.ed.ac.uk/ami/corpus) and [MUSAN](http://www.openslr.org/17/) databases. We first need to tell `pyannote` where the audio files are located:
 
 ```bash
-$ cat ~/.pyannote/db.yml | grep VoxCeleb
-VoxCeleb: /path/to/voxceleb1/*/wav/{uri}.wav
-$ cat ~/.pyannote/db.yml | grep AMI
-AMI: /path/to/ami/amicorpus/*/audio/{uri}.wav
-$ cat ~/.pyannote/db.yml | grep MUSAN
-MUSAN: /path/to/musan/{uri}.wav
+$ cat ~/.pyannote/database.yml
+Databases:
+  VoxCeleb: /path/to/voxceleb1/*/wav/{uri}.wav
+  AMI: /path/to/ami/amicorpus/*/audio/{uri}.wav
+  MUSAN: /path/to/musan/{uri}.wav
 ```
 
-If you want to use a different database, you might need to create your own [`pyannote.database`](http://github.com/pyannote/pyannote-database) plugin.
-See [github.com/pyannote/pyannote-db-template](https://github.com/pyannote/pyannote-db-template) for details on how to do so. You might also use `pip search pyannote` to browse existing plugins.
+Have a look at `pyannote.database` [documentation](http://github.com/pyannote/pyannote-database) to learn how to use other datasets.
 
 ## Configuration
 ([↑up to table of contents](#table-of-contents))
