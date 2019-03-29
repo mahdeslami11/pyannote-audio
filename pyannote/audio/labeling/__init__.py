@@ -26,6 +26,10 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
+"""
+# Frame-based audio labeling
+"""
+
 TASK_CLASSIFICATION = 'one-class'
 TASK_MULTI_LABEL_CLASSIFICATION = 'multi-class'
 TASK_REGRESSION = 'regression'
