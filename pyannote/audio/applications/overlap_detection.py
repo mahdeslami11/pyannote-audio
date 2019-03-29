@@ -206,7 +206,7 @@ class OverlapDetection(SpeechActivityDetection):
                     continue
                 overlap.add(track1[0] & track2[0])
             current_file['annotation'] = overlap.support().to_annotation()
-
+            # TODO. make 'annotated' focus on speech regions only
         return validation_data
 
     def validate_epoch(self, epoch, protocol_name, subset='development',
