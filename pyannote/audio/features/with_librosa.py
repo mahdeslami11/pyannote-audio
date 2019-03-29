@@ -27,8 +27,7 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 """
-Feature extraction with librosa
--------------------------------
+Feature extraction using [`librosa`](https://librosa.github.io/librosa/)
 """
 
 import librosa
@@ -48,9 +47,9 @@ class LibrosaFeatureExtraction(FeatureExtraction):
     augmentation : `pyannote.audio.augmentation.Augmentation`, optional
         Data augmentation.
     duration : float, optional
-        Defaults to 0.025.
+        Defaults to 0.025 (25ms).
     step : float, optional
-        Defaults to 0.010.
+        Defaults to 0.010 (10ms).
     """
 
     def __init__(self, sample_rate=16000, augmentation=None,
