@@ -168,7 +168,9 @@ TS3007c.Mix-Headset                  32.48  2902.49  2031.22   69.98       71.36
 TS3007d.Mix-Headset                  39.55  3038.00  2044.97   67.31      208.42        6.86           715.14            23.54    277.89      9.15
 TOTAL                                33.47 45854.38 31864.48   69.49     1356.14        2.96          9045.95            19.73   4943.95     10.78
 ```
-This pipeline reaches 33.5% DER (with no collar).
+
+This pipeline reaches 33.5% DER with no collar (or 15.3% DER with +/- 250ms collar and without scoring overlap regions).
+
 
 ## More options
 
