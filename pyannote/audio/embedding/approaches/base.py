@@ -1,0 +1,131 @@
+#!/usr/bin/env python
+# encoding: utf-8
+
+# The MIT License (MIT)
+
+# Copyright (c) 2019 CNRS
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# AUTHORS
+# Hervé BREDIN - http://herve.niderb.fr
+
+
+import torch
+import torch.nn.functional as F
+from torch.nn.utils.rnn import pack_sequence
+from pyannote.audio.train.trainer import Trainer
+import numpy as np
+
+
+class EmbeddingApproach(Trainer):
+
+    @property
+    def max_distance(self):
+        if self.metric == 'cosine':
+            return 2.
+        elif self.metric == 'angular':
+            return np.pi
+        elif self.metric == 'euclidean':
+            # FIXME. incorrect if embedding are not unit-normalized
+            return 2.
+        else:
+            msg = "'metric' must be one of {'euclidean', 'cosine', 'angular'}."
+            raise ValueError(msg)
+
+    def pdist(self, fX):
+        """Compute pdist à-la scipy.spatial.distance.pdist
+
+        Parameters
+        ----------
+        fX : (n, d) torch.Tensor
+            Embeddings.
+
+        Returns
+        -------
+        distances : (n * (n-1) / 2,) torch.Tensor
+            Condensed pairwise distance matrix
+        """
+
+        n_sequences, _ = fX.size()
+        distances = []
+
+        # FIXME. with 'euclidean' metric, use torch.nn.functional.pdist()
+
+        for i in range(n_sequences - 1):
+
+            if self.metric in ('cosine', 'angular'):
+                d = 1. - F.cosine_similarity(
+                    fX[i, :].expand(n_sequences - 1 - i, -1),
+                    fX[i+1:, :], dim=1, eps=1e-8)
+
+                if self.metric == 'angular':
+                    d = torch.acos(torch.clamp(1. - d, -1 + 1e-6, 1 - 1e-6))
+
+            elif self.metric == 'euclidean':
+                d = F.pairwise_distance(
+                    fX[i, :].expand(n_sequences - 1 - i, -1),
+                    fX[i+1:, :], p=2, eps=1e-06).view(-1)
+
+            distances.append(d)
+
+        return torch.cat(distances)
+
+    def forward(self, batch):
+        """Forward pass on current batch
+
+        Parameters
+        ----------
+        batch : `dict`
+            ['X'] (`list`of `numpy.ndarray`)
+
+        Returns
+        -------
+        fX : `torch.Tensor`
+            self.model_(batch['X'])
+        """
+
+        lengths = [len(x) for x in batch['X']]
+        variable_lengths = len(set(lengths)) > 1
+
+        if variable_lengths:
+            _, sort = torch.sort(torch.tensor(lengths), descending=True)
+            _, unsort = torch.sort(sort)
+            sequences = [torch.tensor(batch['X'][i],
+                                      dtype=torch.float32,
+                                      device=self.device_) for i in sort]
+            batch['X'] = pack_sequence(sequences)
+        else:
+            batch['X'] = torch.tensor(np.stack(batch['X']),
+                                      dtype=torch.float32,
+                                      device=self.device_)
+
+        # forward pass
+        fX = self.model_(batch['X'])
+
+        # TODO. add support for structured fX
+        if variable_lengths:
+            fX = fX[unsort]
+
+        return fX
+
+    def to_numpy(self, tensor):
+        """Convert torch.Tensor to numpy array"""
+        cpu = torch.device('cpu')
+        return tensor.detach().to(cpu).numpy()
