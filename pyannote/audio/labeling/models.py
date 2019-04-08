@@ -66,6 +66,9 @@ class StackedRNN(nn.Module):
     bidirectional : bool, optional
         Use bidirectional recurrent layers. Defaults to False, i.e. use
         mono-directional RNNs.
+    pooling : {None, 'sum', 'max'}
+        Apply temporal pooling before linear layers. Defaults to no pooling.
+        This is useful for tasks expecting just one label per sequence.
     linear : list, optional
         List of hidden dimensions of linear layers. Defaults to [16, ], i.e.
         one linear layer with hidden dimension of 16.
@@ -73,7 +76,7 @@ class StackedRNN(nn.Module):
 
     def __init__(self, specifications, instance_normalize=False,
                  rnn='LSTM', recurrent=[16,], bidirectional=False,
-                 linear=[16, ]):
+                 linear=[16, ], pooling=None):
 
         super(StackedRNN, self).__init__()
 
@@ -101,6 +104,7 @@ class StackedRNN(nn.Module):
         self.recurrent = recurrent
         self.bidirectional = bidirectional
 
+        self.pooling = pooling
         self.linear = linear
 
         self.num_directions_ = 2 if self.bidirectional else 1
@@ -188,6 +192,12 @@ class StackedRNN(nn.Module):
                 output = .5 * (output[:, :, :hidden_dim] + \
                                output[:, :, hidden_dim:])
 
+        if self.pooling is not None:
+            if self.pooling == 'sum':
+                output = output.sum(dim=1)
+            elif self.pooling == 'max':
+                output, _ = output.max(dim=1)
+
         # stack linear layers
         for hidden_dim, layer in zip(self.linear, self.linear_layers_):
 
@@ -201,7 +211,7 @@ class StackedRNN(nn.Module):
         output = self.final_layer_(output)
 
         if self.task_type_ == TASK_CLASSIFICATION:
-            return torch.log_softmax(output, dim=2)
+            return torch.log_softmax(output, dim=-1)
 
         elif self.task_type_ == TASK_MULTI_LABEL_CLASSIFICATION:
             return torch.sigmoid(output)

@@ -119,7 +119,7 @@ class LabelingTaskGenerator(object):
         y, _ = one_hot_encoding(current_file['annotation'],
                                 get_annotated(current_file),
                                 self.feature_extraction.sliding_window,
-                                labels=self.original_classes_, mode='center')
+                                labels=self.segment_labels_, mode='center')
 
         return SlidingWindowFeature(self.postprocess_y(y.data),
                                     y.sliding_window)
@@ -152,15 +152,15 @@ class LabelingTaskGenerator(object):
              'current_file': <protocol dictionary>,
              'y': <labels as numpy array>}
 
-        databases_ : list
-            Sorted list of (unique) databases in protocol.
+        segment_labels_ : list
+            Sorted list of (unique) labels in protocol.
 
-        labels_ : list
-            Sorted list of (unique) lables in protocol.
+        file_labels_ : dict of list
+            Sorted lists of (unique) file labels in protocol
         """
 
         self.data_ = {}
-        labels, databases = set(), set()
+        segment_labels, file_labels = set(), dict()
 
         # loop once on all files
         for current_file in getattr(protocol, subset)():
@@ -172,18 +172,16 @@ class LabelingTaskGenerator(object):
             current_file['annotation'] = current_file['annotation'].crop(
                 support, mode='intersection')
 
-            # keep track of database
-            database = current_file['database']
-            databases.add(database)
+            # keep track of unique segment labels
+            segment_labels.update(current_file['annotation'].labels())
 
-            # keep track of unique labels
-            labels.update(current_file['annotation'].labels())
-
-            if isinstance(self.feature_extraction, Precomputed) and \
-               not self.feature_extraction.use_memmap:
-                msg = ('Loading all precomputed features in memory. '
-                       'Set "use_memmap" to True if you run out of memory.')
-                warnings.warn(msg)
+            # keep track of unique file labels
+            for key, value in current_file.items():
+                if key in ['annotation', 'annotated']:
+                    continue
+                if key not in file_labels:
+                    file_labels[key] = set()
+                file_labels[key].add(value)
 
             segments = [s for s in current_file['annotated']
                           if s.duration > self.duration]
@@ -204,8 +202,8 @@ class LabelingTaskGenerator(object):
             uri = get_unique_identifier(current_file)
             self.data_[uri] = datum
 
-        self.databases_ = sorted(databases)
-        self.original_classes_ = sorted(labels)
+        self.file_labels_ = {k: sorted(file_labels[k]) for k in file_labels}
+        self.segment_labels_ = sorted(segment_labels)
 
         for current_file in getattr(protocol, subset)():
             uri = get_unique_identifier(current_file)
@@ -216,7 +214,7 @@ class LabelingTaskGenerator(object):
         return {
             'task': None,
             'X': {'dimension': self.feature_extraction.dimension},
-            'y': {'classes': self.original_classes_},
+            'y': {'classes': self.segment_labels_},
         }
 
     def _samples(self):

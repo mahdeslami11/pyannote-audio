@@ -29,6 +29,5 @@
 from .speech_activity_detection import SpeechActivityDetection
 from .overlap_detection import OverlapDetection
 from .speaker_change_detection import SpeakerChangeDetection
-
-
+from .domain_classification import DomainClassification
 from .resegmentation import Resegmentation

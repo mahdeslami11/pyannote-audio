@@ -242,6 +242,12 @@ class SequenceLabeling(FileBasedBatchGenerator):
         fX = np.vstack(batches)
         subsequences = SlidingWindow(duration=self.duration, step=self.step)
 
+        # this happens for tasks that expects just one label per sequence
+        # (rather than one label per frame)
+        if fX.ndim == 2:
+            return SlidingWindowFeature(fX, subsequences)
+        # else: fX.ndim == 3
+
         # get total number of frames
         if isinstance(self.feature_extraction, Precomputed):
             n_frames, _ = self.feature_extraction.shape(current_file)
