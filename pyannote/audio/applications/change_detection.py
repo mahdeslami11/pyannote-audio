@@ -243,7 +243,7 @@ class SpeakerChangeDetection(BaseLabeling):
         return {'metric': f'coverage@{self.purity:.2f}purity',
                 'minimize': False,
                 'value': best_coverage if best_coverage \
-                         else purity - self.purity
+                         else purity - self.purity,
                 'pipeline': pipeline.instantiate({'alpha': best_alpha,
                                                   'min_duration': 0.})}
 
