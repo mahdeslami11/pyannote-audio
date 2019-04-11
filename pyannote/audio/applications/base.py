@@ -122,8 +122,8 @@ class Application(object):
             scheduler_cfg['name'],
             default_module_name='pyannote.audio.train.schedulers')
         scheduler_params = scheduler_cfg.get('params', {})
+        self.learning_rate_ = scheduler_params.pop('learning_rate', 'auto')
         self.get_scheduler_ = partial(Scheduler, **scheduler_params)
-        self.learning_rate_ = scheduler_params.get('learning_rate', 'auto')
 
         # optimizer
         OPTIMIZER_DEFAULT = {

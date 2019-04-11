@@ -35,7 +35,6 @@ from pyannote.audio.train.schedulers import ConstantScheduler
 from pyannote.audio.train.checkpoint import Checkpoint
 from tensorboardX import SummaryWriter
 from .logging import Logging
-from .auto_lr import AutoLR
 from .callback import Callbacks
 
 ARBITRARY_LR = 0.1
@@ -151,7 +150,7 @@ class Trainer:
             and `max_lr=...` as input and returns a learning rate scheduler.
             Defaults to `pyannote.audio.train.schedulers.ConstantScheduler`.
         learning_rate : {float, 'auto'}, optional
-            Defaults to 'auto'.
+            Base learning rate. Defaults to 'auto'.
         log_dir : str, optional
             Directory where models and other log files are stored.
             Defaults to not store anything.
@@ -193,23 +192,20 @@ class Trainer:
         # OPTIMIZER
         if get_optimizer is None:
             get_optimizer = SGD
-        lr = ARBITRARY_LR if learning_rate == 'auto' else learning_rate
-        self.optimizer_ = get_optimizer(self.model_.parameters(), lr=lr)
+        self.optimizer_ = get_optimizer(
+            self.model_.parameters(),
+            lr=ARBITRARY_LR if learning_rate == 'auto' else learning_rate)
+        self.base_learning_rate_ = learning_rate
 
         # SCHEDULER
         if get_scheduler is None:
             get_scheduler = ConstantScheduler
-        self.scheduler_ = get_scheduler(min_lr=None, max_lr=lr)
 
         callbacks = [
             Checkpoint(),  # checkpoint has to go first
+            get_scheduler(),
             Logging(epochs),
-            self.scheduler_,
         ]
-
-        # AUTOMATIC LEARNING RATE
-        if learning_rate == 'auto':
-            callbacks.append(AutoLR())
 
         callbacks = Callbacks(callbacks)
 
