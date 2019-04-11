@@ -150,15 +150,12 @@ class BaseSchedulerCallback(Callback):
             lrs.append(trainer.optimizer_.param_groups[0]['lr'])
             losses.append(loss.detach().cpu().item())
 
+            # TODO. use moving average loss
+
             # update progress bar
             pbar.update(1)
             pbar.set_postfix(
                 ordered_dict={'loss': losses[-1], 'lr': lrs[-1]})
-
-            trainer.tensorboard_.add_scalar(
-                f'auto_lr/loss', losses[-1], global_step=i)
-            trainer.tensorboard_.add_scalar(
-                f'auto_lr/lr', lrs[-1], global_step=i)
 
             # increase learning rate
             for param_group in trainer.optimizer_.param_groups:
@@ -171,7 +168,55 @@ class BaseSchedulerCallback(Callback):
         # reload model using its initial state
         trainer.load(trainer.epoch_)
 
-        return self.choose_lr(lrs, losses)
+        lr = self.choose_lr(lrs, losses)
+
+        try:
+
+            # import matplotlib with headless backend
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+
+            # create AutoLR loss = f(learning_rate) curve
+            fig, ax = plt.subplots()
+            ax.semilogx(lrs, losses)
+            ax.set_xlabel('Learning rate')
+            ax.set_ylabel('Loss')
+
+            # indicate selected learning rate by a vertical line
+            ax.plot([lr, lr], [np.nanmin(losses), np.nanmax(losses)])
+
+            # zoom on meaningful part of the curve
+            m = np.nanmin(losses)
+            M = np.nanpercentile(losses, 98)
+            ax.set_ylim(m, M + 0.1 * (M - m))
+
+            # indicate selected learning rate in the figure title
+            ax.set_title(f'AutoLR = {lr:g}')
+
+            # send matplotlib figure to Tensorboard
+            trainer.tensorboard_.add_figure(
+                'auto_lr', fig,
+                global_step=trainer.epoch_,
+                close=True)
+
+        except ImportError as e:
+            msg = (
+                'Something went wrong when trying to send AutoLR figure '
+                'to Tensorboard. Did you install matplotlib?'
+            )
+            print(msg)
+
+        except Exception as e:
+            msg = (
+                'Something went wrong when trying to send AutoLR figure '
+                'to Tensorboard. It is OK but you might want to have a '
+                'look at why this happened...'
+            )
+            print(msg)
+
+        return lr
+
 
 class ConstantScheduler(BaseSchedulerCallback):
     """Constant learning rate"""
