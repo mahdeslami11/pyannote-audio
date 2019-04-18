@@ -45,6 +45,14 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
         Feature extraction
     protocol : `pyannote.database.Protocol`
     subset : {'train', 'development', 'test'}
+    frame_info : `pyannote.core.SlidingWindow`, optional
+        Override `feature_extraction.sliding_window`. This is useful for
+        models that include the feature extraction step (e.g. SincNet) and
+        therefore output a lower sample rate than that of the input.
+    frame_crop : {'center', 'loose', 'strict'}, optional
+        Which mode to use when cropping labels. This is useful for models
+        that include the feature extraction step (e.g. SincNet) and
+        therefore use a different cropping mode. Defaults to 'center'.
     collar : float, optional
         Duration of positive collar, in seconds. Default to 0.1 (i.e. frames
         less than 100ms away from the actual change are also labeled as
@@ -69,21 +77,24 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
     """
 
     def __init__(self, feature_extraction, protocol, subset='train',
-                 collar=0.100, regression=False, non_speech=False, **kwargs):
+                 frame_info=None, frame_crop=None, collar=0.100,
+                 regression=False, non_speech=False, **kwargs):
 
         self.collar = collar
         self.regression = regression
         self.non_speech = non_speech
 
         # number of samples in collar
-        self.collar_ = \
-            feature_extraction.sliding_window.durationToSamples(collar)
+        if frame_info is None:
+            frame_info = feature_extraction.sliding_window
+        self.collar_ = frame_info.durationToSamples(collar)
 
         # window
         self.window_ = scipy.signal.triang(self.collar_)[:, np.newaxis]
 
         super(SpeakerChangeDetectionGenerator, self).__init__(
-            feature_extraction, protocol, subset=subset, **kwargs)
+            feature_extraction, protocol, subset=subset,
+            frame_info=frame_info, frame_crop=frame_crop, **kwargs)
 
 
     def postprocess_y(self, Y):
@@ -218,10 +229,21 @@ class SpeakerChangeDetection(LabelingTask):
         self.regression = regression
         self.non_speech = non_speech
 
-    def get_batch_generator(self, feature_extraction, protocol, subset='train'):
+    def get_batch_generator(self, feature_extraction, protocol, subset='train',
+                            frame_info=None, frame_crop=None):
+        """
+        frame_info : `pyannote.core.SlidingWindow`, optional
+            Override `feature_extraction.sliding_window`. This is useful for
+            models that include the feature extraction step (e.g. SincNet) and
+            therefore output a lower sample rate than that of the input.
+        frame_crop : {'center', 'loose', 'strict'}, optional
+            Which mode to use when cropping labels. This is useful for models
+            that include the feature extraction step (e.g. SincNet) and
+            therefore use a different cropping mode. Defaults to 'center'.
+        """
         return SpeakerChangeDetectionGenerator(
-            feature_extraction,
-            protocol, subset='train', collar=self.collar,
+            feature_extraction, protocol, frame_info=frame_info,
+            frame_crop=frame_crop, subset='train', collar=self.collar,
             regression=self.regression, non_speech=self.non_speech,
             duration=self.duration, batch_size=self.batch_size,
             per_epoch=self.per_epoch, parallel=self.parallel)

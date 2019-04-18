@@ -43,6 +43,14 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
         Feature extraction
     protocol : `pyannote.database.Protocol`
     subset : {'train', 'development', 'test'}
+    frame_info : `pyannote.core.SlidingWindow`, optional
+        Override `feature_extraction.sliding_window`. This is useful for
+        models that include the feature extraction step (e.g. SincNet) and
+        therefore output a lower sample rate than that of the input.
+    frame_crop : {'center', 'loose', 'strict'}, optional
+        Which mode to use when cropping labels. This is useful for models
+        that include the feature extraction step (e.g. SincNet) and
+        therefore use a different cropping mode. Defaults to 'center'.
     overlap : bool, optional
         Switch to 3 classes "non-speech vs. one speaker vs. 2+ speakers".
         Defaults to 2 classes "non-speech vs. speech".
@@ -61,11 +69,12 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
     """
 
     def __init__(self, feature_extraction, protocol, subset='train',
-                 overlap=False, **kwargs):
+                 frame_info=None, frame_crop=None, overlap=False, **kwargs):
 
         self.overlap = overlap
         super().__init__(
-            feature_extraction, protocol, subset=subset, **kwargs)
+            feature_extraction, protocol, subset=subset,
+            frame_info=frame_info, frame_crop=frame_crop, **kwargs)
 
     def postprocess_y(self, Y):
         """Generate labels for speech activity detection
@@ -133,10 +142,23 @@ class SpeechActivityDetection(LabelingTask):
         super().__init__(**kwargs)
         self.overlap = overlap
 
-    def get_batch_generator(self, feature_extraction, protocol, subset='train'):
+    def get_batch_generator(self, feature_extraction, protocol, subset='train',
+                            frame_info=None, frame_crop=None):
+        """
+        frame_info : `pyannote.core.SlidingWindow`, optional
+            Override `feature_extraction.sliding_window`. This is useful for
+            models that include the feature extraction step (e.g. SincNet) and
+            therefore output a lower sample rate than that of the input.
+        frame_crop : {'center', 'loose', 'strict'}, optional
+            Which mode to use when cropping labels. This is useful for models
+            that include the feature extraction step (e.g. SincNet) and
+            therefore use a different cropping mode. Defaults to 'center'.
+        """
         return SpeechActivityDetectionGenerator(
             feature_extraction,
             protocol, subset=subset,
+            frame_info=frame_info,
+            frame_crop=frame_crop,
             overlap=self.overlap,
             duration=self.duration,
             per_epoch=self.per_epoch,

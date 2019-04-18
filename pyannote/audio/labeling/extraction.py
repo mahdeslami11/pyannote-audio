@@ -82,6 +82,17 @@ class SequenceLabeling(FileBasedBatchGenerator):
                                           else torch.device(device)
         self.model = model.eval().to(self.device)
         self.feature_extraction = feature_extraction
+
+        if hasattr(self.model, 'frame_info_'):
+            self.frame_info_ = self.model.frame_info_
+        else:
+            self.frame_info_ = self.feature_extraction.sliding_window
+
+        if hasattr(self.model, 'frame_crop'):
+            self.frame_crop_ = self.model.frame_crop
+        else:
+            self.frame_crop_ = 'center'
+
         self.duration = duration
         self.min_duration = min_duration
 
@@ -104,7 +115,7 @@ class SequenceLabeling(FileBasedBatchGenerator):
 
     @property
     def sliding_window(self):
-        return self.feature_extraction.sliding_window
+        return self.frame_info_
 
     def preprocess(self, current_file):
         """On-demand feature extraction
@@ -232,7 +243,7 @@ class SequenceLabeling(FileBasedBatchGenerator):
         """
 
         # frame and sub-sequence sliding windows
-        frames = self.feature_extraction.sliding_window
+        frames = self.frame_info_
         batches = [batch for batch in self.from_file(current_file,
                                                      incomplete=True)]
         if not batches:
@@ -248,14 +259,10 @@ class SequenceLabeling(FileBasedBatchGenerator):
             return SlidingWindowFeature(fX, subsequences)
         # else: fX.ndim == 3
 
-        # get total number of frames
-        if isinstance(self.feature_extraction, Precomputed):
-            n_frames, _ = self.feature_extraction.shape(current_file)
-        elif 'features' in current_file:
-            n_frames, _ = current_file['features'].data.shape
-        else:
-            uri = get_unique_identifier(current_file)
-            n_frames, _ = self.preprocessed_[uri].data.shape
+        # get total number of frames (based on last window end time)
+        n_subsequences = len(fX)
+        n_frames =  frames.samples(subsequences[n_subsequences].end,
+                                   mode='center')
 
         # data[i] is the sum of all predictions for frame #i
         data = np.zeros((n_frames, self.dimension), dtype=np.float32)
@@ -267,7 +274,7 @@ class SequenceLabeling(FileBasedBatchGenerator):
 
             # indices of frames overlapped by subsequence
             indices = frames.crop(subsequence,
-                                  mode='center',
+                                  mode=self.frame_crop_,
                                   fixed=self.duration)
 
             # accumulate the outputs

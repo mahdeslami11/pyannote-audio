@@ -64,6 +64,15 @@ class LabelingTaskGenerator(object):
         Feature extraction
     protocol : `pyannote.database.Protocol`
     subset : {'train', 'development', 'test'}
+    frame_info : `pyannote.core.SlidingWindow`, optional
+        Override `feature_extraction.sliding_window`. This is useful for
+        models that include the feature extraction step (e.g. SincNet) and
+        therefore output a lower sample rate than that of the input.
+        Defaults to `feature_extraction.sliding_window`
+    frame_crop : {'center', 'loose', 'strict'}, optional
+        Which mode to use when cropping labels. This is useful for models that
+        include the feature extraction step (e.g. SincNet) and therefore use a
+        different cropping mode. Defaults to 'center'.
     duration : float, optional
         Duration of sub-sequences. Defaults to 3.2s.
     batch_size : int, optional
@@ -83,12 +92,22 @@ class LabelingTaskGenerator(object):
     """
 
     def __init__(self, feature_extraction, protocol, subset='train',
-                 duration=3.2, batch_size=32, per_epoch=1, parallel=1,
+                 frame_info=None, frame_crop=None, duration=3.2,
+                 batch_size=32, per_epoch=1, parallel=1,
                  exhaustive=False, shuffle=False):
 
         super(LabelingTaskGenerator, self).__init__()
 
         self.feature_extraction = feature_extraction
+
+        if frame_info is None:
+            frame_info = self.feature_extraction.sliding_window
+        self.frame_info = frame_info
+
+        if frame_crop is None:
+            frame_crop = 'center'
+        self.frame_crop = frame_crop
+
         self.duration = duration
         self.batch_size = batch_size
         self.per_epoch = per_epoch
@@ -118,8 +137,9 @@ class LabelingTaskGenerator(object):
         """
         y, _ = one_hot_encoding(current_file['annotation'],
                                 get_annotated(current_file),
-                                self.feature_extraction.sliding_window,
-                                labels=self.segment_labels_, mode='center')
+                                self.frame_info,
+                                labels=self.segment_labels_,
+                                mode='center')
 
         return SlidingWindowFeature(self.postprocess_y(y.data),
                                     y.sliding_window)
@@ -140,7 +160,8 @@ class LabelingTaskGenerator(object):
             y for specified
         """
 
-        return np.squeeze(y.crop(segment, mode='center', fixed=self.duration))
+        return np.squeeze(y.crop(segment, mode=self.frame_crop,
+                                 fixed=self.duration))
 
     def _load_metadata(self, protocol, subset='train'):
         """Gather the following information about the training subset:
@@ -389,12 +410,26 @@ class LabelingTask(Trainer):
         self.per_epoch = per_epoch
         self.parallel = parallel
 
-    def get_batch_generator(self, feature_extraction, protocol, subset='train'):
+
+    def get_batch_generator(self, feature_extraction, protocol, subset='train',
+                            frame_info=None, frame_crop=None):
         """This method should be overriden by subclass
 
         Parameters
         ----------
         feature_extraction : `pyannote.audio.features.FeatureExtraction`
+        protocol : `str`
+            Name of pyannote.database protocol.
+        subset : {'train', 'development'}, optional
+            Defaults to 'train'.
+        frame_info : `pyannote.core.SlidingWindow`, optional
+            Override `feature_extraction.sliding_window`. This is useful for
+            models that include the feature extraction step (e.g. SincNet) and
+            therefore output a lower sample rate than that of the input.
+        frame_crop : {'center', 'loose', 'strict'}, optional
+            Which mode to use when cropping labels. This is useful for models
+            that include the feature extraction step (e.g. SincNet) and
+            therefore use a different cropping mode. Defaults to 'center'.
 
         Returns
         -------
@@ -402,6 +437,7 @@ class LabelingTask(Trainer):
         """
         return LabelingTaskGenerator(
             feature_extraction, protocol, subset=subset,
+            frame_info=frame_info, frame_crop=frame_crop,
             duration=self.duration, per_epoch=self.per_epoch,
             batch_size=self.batch_size, parallel=self.parallel)
 

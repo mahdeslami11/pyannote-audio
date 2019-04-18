@@ -163,7 +163,7 @@ class Application(object):
                 augmentation=augmentation)
 
     def train(self, protocol_name, subset='train', restart=0, epochs=1000):
-        """
+        """Trainer model
 
         Parameters
         ----------
@@ -171,8 +171,10 @@ class Application(object):
         subset : {'train', 'development', 'test'}, optional
             Defaults to 'train'.
         restart : `int`, optional
-
-
+            Restart training at `restart`th epoch. Defaults to training from
+            scratch.
+        epochs : `int`, optional
+            Train for that many epochs. Defaults to 1000.
         """
 
         train_dir = self.TRAIN_DIR.format(
@@ -202,7 +204,8 @@ class Application(object):
         protocol = get_protocol(protocol_name, progress=True,
                                 preprocessors=self.preprocessors_)
         batch_generator = self.task_.get_batch_generator(
-            self.feature_extraction_, protocol, subset=subset)
+            self.feature_extraction_, protocol, subset=subset,
+            frame_info=self.frame_info_, frame_crop=self.frame_crop_)
 
         self.task_.fit(
             self.get_model_, batch_generator,

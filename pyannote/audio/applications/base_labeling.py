@@ -56,9 +56,18 @@ class BaseLabeling(Application):
         Architecture = get_class_by_name(
             self.config_['architecture']['name'],
             default_module_name='pyannote.audio.labeling.models')
-        self.get_model_ = partial(
-            Architecture,
-            **self.config_['architecture'].get('params', {}))
+        params = self.config_['architecture'].get('params', {})
+        self.get_model_ = partial(Architecture, **params)
+
+        if hasattr(Architecture, 'get_frame_info'):
+            self.frame_info_ = Architecture.get_frame_info(**params)
+        else:
+            self.frame_info_ = None
+
+        if hasattr(Architecture, 'frame_crop'):
+            self.frame_crop_ = Architecture.frame_crop
+        else:
+            self.frame_crop_ = None
 
     def validate_init(self, protocol_name, subset='development'):
 

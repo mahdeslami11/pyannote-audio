@@ -55,6 +55,14 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
         Feature extraction
     protocol : `pyannote.database.Protocol`
     subset : {'train', 'development', 'test'}
+    frame_info : `pyannote.core.SlidingWindow`, optional
+        Override `feature_extraction.sliding_window`. This is useful for
+        models that include the feature extraction step (e.g. SincNet) and
+        therefore output a lower sample rate than that of the input.
+    frame_crop : {'center', 'loose', 'strict'}, optional
+        Which mode to use when cropping labels. This is useful for models
+        that include the feature extraction step (e.g. SincNet) and
+        therefore use a different cropping mode. Defaults to 'center'.
     duration : float, optional
         Duration of sub-sequences. Defaults to 3.2s.
     snr_min, snr_max : int, optional
@@ -71,7 +79,8 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
     """
 
     def __init__(self, feature_extraction, protocol, subset='train',
-                 duration=3.2, snr_min=0, snr_max=10,
+                 frame_info=None, frame_crop=None, duration=3.2,
+                 snr_min=0, snr_max=10,
                  batch_size=32, per_epoch=1, parallel=1):
 
         self.snr_min = snr_min
@@ -79,6 +88,7 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
         self.raw_audio_ = RawAudio(sample_rate=feature_extraction.sample_rate)
 
         super().__init__(feature_extraction, protocol, subset=subset,
+                         frame_info=frame_info, frame_crop=frame_crop,
                          duration=duration,
                          batch_size=batch_size, per_epoch=per_epoch,
                          parallel=parallel, shuffle=True)
@@ -119,7 +129,7 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
                                      mode='center', fixed=duration)
 
             # get corresponding labels
-            y = datum['y'].crop(sequence, mode='center', fixed=duration)
+            y = datum['y'].crop(sequence, mode=self.frame_crop, fixed=duration)
 
             yield {'waveform': normalize(X),
                    'y': y}
@@ -175,7 +185,7 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
                     X = waveform.crop(sequence, mode='center',
                                       fixed=self.duration)
 
-                    y = datum['y'].crop(sequence, mode='center',
+                    y = datum['y'].crop(sequence, mode=self.frame_crop,
                                         fixed=self.duration)
 
                     sample = {'waveform': normalize(X),
@@ -227,7 +237,7 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
                 n_overlap = len(overlap['waveform'])
 
                 # randomly choose were to add overlap
-                i = np.random.randint(2*n_samples) - n_samples
+                i = np.random.randint(2 * n_samples) - n_samples
                 l = max(i, 0)
                 r = min(max(i + n_overlap, 0), n_samples)
 
@@ -262,7 +272,6 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
                 del original['duration']
 
                 yield original
-
 
         generators = []
 
@@ -352,10 +361,23 @@ class OverlapDetection(LabelingTask):
     def __init__(self, **kwargs):
         super(OverlapDetection, self).__init__(**kwargs)
 
-    def get_batch_generator(self, feature_extraction, protocol, subset='train'):
+    def get_batch_generator(self, feature_extraction, protocol, subset='train',
+                            frame_info=None, frame_crop=None):
+        """
+        frame_info : `pyannote.core.SlidingWindow`, optional
+            Override `feature_extraction.sliding_window`. This is useful for
+            models that include the feature extraction step (e.g. SincNet) and
+            therefore output a lower sample rate than that of the input.
+        frame_crop : {'center', 'loose', 'strict'}, optional
+            Which mode to use when cropping labels. This is useful for models
+            that include the feature extraction step (e.g. SincNet) and
+            therefore use a different cropping mode. Defaults to 'center'.
+        """
         return OverlapDetectionGenerator(
             feature_extraction,
             protocol, subset=subset,
+            frame_info=frame_info,
+            frame_crop=frame_crop,
             duration=self.duration,
             per_epoch=self.per_epoch,
             batch_size=self.batch_size,
