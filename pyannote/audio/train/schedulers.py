@@ -54,7 +54,7 @@ class BaseSchedulerCallback(Callback):
 
     def on_epoch_start(self, trainer):
         trainer.tensorboard_.add_scalar(
-            f'lr', self.learning_rate,
+            f'train/lr', self.learning_rate,
             global_step=trainer.epoch_)
 
     def on_epoch_end(self, trainer):
@@ -196,7 +196,7 @@ class BaseSchedulerCallback(Callback):
 
             # send matplotlib figure to Tensorboard
             trainer.tensorboard_.add_figure(
-                'auto_lr', fig,
+                'train/auto_lr', fig,
                 global_step=trainer.epoch_,
                 close=True)
 

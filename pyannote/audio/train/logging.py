@@ -98,7 +98,7 @@ class Logging(Callback):
     def on_epoch_end(self, trainer):
 
         trainer.tensorboard_.add_scalar(
-            'loss', self.loss,
+            'train/loss', self.loss,
             global_step=trainer.epoch_)
 
         trainer.tensorboard_.add_histogram(
