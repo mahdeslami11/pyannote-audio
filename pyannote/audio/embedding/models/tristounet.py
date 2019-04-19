@@ -62,6 +62,8 @@ class TristouNet(nn.Module):
     ICASSP 2017 (https://arxiv.org/abs/1609.04301)
     """
 
+    supports_packed = True
+
     def __init__(self, specifications,
                  rnn='LSTM', recurrent=[16], bidirectional=False,
                  pooling='sum', linear=[16, 16]):

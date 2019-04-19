@@ -87,6 +87,7 @@ class EmbeddingApproach(Trainer):
 
         return torch.cat(distances)
 
+
     def forward(self, batch):
         """Forward pass on current batch
 
@@ -104,26 +105,39 @@ class EmbeddingApproach(Trainer):
         lengths = [len(x) for x in batch['X']]
         variable_lengths = len(set(lengths)) > 1
 
+        # if sequences have variable lengths
         if variable_lengths:
+
+            # sort them in order of length
             _, sort = torch.sort(torch.tensor(lengths), descending=True)
             _, unsort = torch.sort(sort)
             sequences = [torch.tensor(batch['X'][i],
                                       dtype=torch.float32,
                                       device=self.device_) for i in sort]
-            batch['X'] = pack_sequence(sequences)
-        else:
-            batch['X'] = torch.tensor(np.stack(batch['X']),
-                                      dtype=torch.float32,
-                                      device=self.device_)
 
-        # forward pass
-        fX = self.model_(batch['X'])
+            # pack them if model supports PackedSequences
+            if getattr(self.model_, 'supports_packed', False):
+                batch['X'] = pack_sequence(sequences)
+                fX = self.model_(batch['X'])
 
-        # TODO. add support for structured fX
-        if variable_lengths:
-            fX = fX[unsort]
+            # process them separately if model does not
+            else:
+                import warnings
+                msg = (
+                    'Model does not support variable lengths batch, so we are '
+                    'processing sequences separately...'
+                )
+                warnings.warn(msg)
+                fX = torch.stack([self.model_(x.unsqueeze(0))
+                                  for x in sequences])
 
-        return fX
+            return fX[unsort]
+
+        # if sequences share the same length
+        batch['X'] = torch.tensor(np.stack(batch['X']),
+                                  dtype=torch.float32,
+                                  device=self.device_)
+        return self.model_(batch['X'])
 
     def to_numpy(self, tensor):
         """Convert torch.Tensor to numpy array"""

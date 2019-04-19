@@ -81,6 +81,8 @@ class ClopiNet(nn.Module):
     >>> embedding = model(sequence)
     """
 
+    supports_packed = True
+
     def __init__(self, specifications,
                  rnn='LSTM', recurrent=[64, 64, 64], bidirectional=False,
                  pooling='sum', instance_normalize=False, batch_normalize=True,
