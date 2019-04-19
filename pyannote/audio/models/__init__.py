@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016-2018 CNRS
+# Copyright (c) 2019 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -26,10 +26,9 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-"""
-# Frame-based audio labeling
-"""
 
-from ..models  import TASK_MULTI_CLASS_CLASSIFICATION
-from ..models import TASK_MULTI_LABEL_CLASSIFICATION
-from ..models import TASK_REGRESSION
+TASK_MULTI_CLASS_CLASSIFICATION = 'multi_class_classification'
+TASK_MULTI_LABEL_CLASSIFICATION = 'multi_label_classification'
+TASK_REGRESSION = 'regression'
+TASK_REPRESENTATION_LEARNING = 'representation_learning'
+

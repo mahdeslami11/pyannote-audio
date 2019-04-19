@@ -31,7 +31,7 @@
 import numpy as np
 from .base import LabelingTask
 from .base import LabelingTaskGenerator
-from .base import TASK_CLASSIFICATION
+from .base import TASK_MULTI_CLASS_CLASSIFICATION
 
 
 class DomainClassificationGenerator(LabelingTaskGenerator):
@@ -85,7 +85,7 @@ class DomainClassificationGenerator(LabelingTaskGenerator):
     @property
     def specifications(self):
         return {
-            'task': TASK_CLASSIFICATION,
+            'task': TASK_MULTI_CLASS_CLASSIFICATION,
             'X': {'dimension': self.feature_extraction.dimension},
             'y': {'classes': self.file_labels_[self.domain]},
         }

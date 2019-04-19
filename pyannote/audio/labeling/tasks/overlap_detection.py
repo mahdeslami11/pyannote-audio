@@ -40,7 +40,7 @@ from pyannote.audio.features import RawAudio
 
 from .base import LabelingTask
 from .base import LabelingTaskGenerator
-from .base import TASK_CLASSIFICATION
+from .base import TASK_MULTI_CLASS_CLASSIFICATION
 
 
 normalize = lambda wav: wav / (np.sqrt(np.mean(wav ** 2)) + 1e-8)
@@ -313,7 +313,7 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
     @property
     def specifications(self):
         return {
-            'task': TASK_CLASSIFICATION,
+            'task': TASK_MULTI_CLASS_CLASSIFICATION,
             'X': {'dimension': self.feature_extraction.dimension},
             'y': {'classes': ['non_overlap', 'overlap']},
         }

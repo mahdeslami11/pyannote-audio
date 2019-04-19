@@ -32,7 +32,7 @@ import numpy as np
 from .base import LabelingTask
 from .base import LabelingTaskGenerator
 from .base import TASK_REGRESSION
-from .base import TASK_CLASSIFICATION
+from .base import TASK_MULTI_CLASS_CLASSIFICATION
 import scipy.signal
 
 
@@ -167,7 +167,7 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
 
         else:
             return {
-                'task': TASK_CLASSIFICATION,
+                'task': TASK_MULTI_CLASS_CLASSIFICATION,
                 'X': {'dimension': self.feature_extraction.dimension},
                 'y': {'classes': ['non_change', 'change']},
             }

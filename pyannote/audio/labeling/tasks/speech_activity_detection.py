@@ -31,7 +31,7 @@
 import numpy as np
 from .base import LabelingTask
 from .base import LabelingTaskGenerator
-from .base import TASK_CLASSIFICATION
+from .base import TASK_MULTI_CLASS_CLASSIFICATION
 
 
 class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
@@ -111,7 +111,7 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
         if self.overlap:
             classes.append('overlap')
         return {
-            'task': TASK_CLASSIFICATION,
+            'task': TASK_MULTI_CLASS_CLASSIFICATION,
             'X': {'dimension': self.feature_extraction.dimension},
             'y': {'classes': classes},
         }

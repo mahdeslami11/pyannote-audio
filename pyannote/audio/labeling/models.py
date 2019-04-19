@@ -33,7 +33,7 @@ import torch.nn.functional as F
 from ..train.utils import get_info
 from torch.nn.utils.rnn import PackedSequence
 
-from . import TASK_CLASSIFICATION
+from . import TASK_MULTI_CLASS_CLASSIFICATION
 from . import TASK_MULTI_LABEL_CLASSIFICATION
 from . import TASK_REGRESSION
 
@@ -51,7 +51,7 @@ class StackedRNN(nn.Module):
         where
             * DIMENSION is the input feature dimension
             * CLASSES is the list of (human-readable) output classes
-            * TASK_TYPE is either TASK_CLASSIFICATION, TASK_REGRESSION, or
+            * TASK_TYPE is either TASK_MULTI_CLASS_CLASSIFICATION, TASK_REGRESSION, or
                 TASK_MULTI_LABEL_CLASSIFICATION. Depending on which task is
                 adressed, the final activation will vary. Classification relies
                 on log-softmax, multi-label classificatition and regression use
@@ -89,11 +89,11 @@ class StackedRNN(nn.Module):
         self.n_classes_ = n_classes
 
         task_type = specifications['task']
-        if task_type not in {TASK_CLASSIFICATION,
+        if task_type not in {TASK_MULTI_CLASS_CLASSIFICATION,
                         TASK_MULTI_LABEL_CLASSIFICATION,
                         TASK_REGRESSION}:
 
-            msg = (f"`task_type` must be one of {TASK_CLASSIFICATION}, "
+            msg = (f"`task_type` must be one of {TASK_MULTI_CLASS_CLASSIFICATION}, "
                    f"{TASK_MULTI_LABEL_CLASSIFICATION} or {TASK_REGRESSION}.")
             raise ValueError(msg)
         self.task_type_ = task_type
@@ -210,7 +210,7 @@ class StackedRNN(nn.Module):
         # apply final classification layer
         output = self.final_layer_(output)
 
-        if self.task_type_ == TASK_CLASSIFICATION:
+        if self.task_type_ == TASK_MULTI_CLASS_CLASSIFICATION:
             return torch.log_softmax(output, dim=-1)
 
         elif self.task_type_ == TASK_MULTI_LABEL_CLASSIFICATION:

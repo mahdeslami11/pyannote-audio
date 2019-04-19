@@ -46,7 +46,7 @@ from pyannote.generators.fragment import SlidingSegments
 
 from pyannote.audio.train.trainer import Trainer
 
-from .. import TASK_CLASSIFICATION
+from .. import TASK_MULTI_CLASS_CLASSIFICATION
 from .. import TASK_MULTI_LABEL_CLASSIFICATION
 from .. import TASK_REGRESSION
 
@@ -459,7 +459,7 @@ class LabelingTask(Trainer):
 
         self.task_type_ = self.model_.specifications['task']
 
-        if self.task_type_ == TASK_CLASSIFICATION:
+        if self.task_type_ == TASK_MULTI_CLASS_CLASSIFICATION:
             self.n_classes_ = len(self.model_.specifications['y']['classes'])
             self.loss_func_ = F.nll_loss
 
@@ -479,7 +479,7 @@ class LabelingTask(Trainer):
                          device=self.device_)
         fX = self.model_(X)
 
-        if self.task_type_ == TASK_CLASSIFICATION:
+        if self.task_type_ == TASK_MULTI_CLASS_CLASSIFICATION:
             fX = fX.view((-1, self.n_classes_))
 
             target = torch.tensor(
