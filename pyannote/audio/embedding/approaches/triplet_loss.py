@@ -313,7 +313,8 @@ class TripletLoss(EmbeddingApproach):
             return loss
 
     def get_batch_generator(self, feature_extraction,
-                            protocol, subset='train'):
+                            protocol, subset='train',
+                            frame_info=None, frame_crop=None):
         """Get batch generator
 
         Parameters

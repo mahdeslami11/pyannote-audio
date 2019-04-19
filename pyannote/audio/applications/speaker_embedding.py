@@ -208,20 +208,30 @@ class SpeakerEmbedding(Application):
         super(SpeakerEmbedding, self).__init__(
             experiment_dir, db_yml=db_yml, training=training)
 
-        # architecture
-        Architecture = get_class_by_name(
-            self.config_['architecture']['name'],
-            default_module_name='pyannote.audio.embedding.models')
-        self.get_model_ = partial(
-            Architecture,
-            **self.config_['architecture'].get('params', {}))
-
         # training approach
         Approach = get_class_by_name(
             self.config_['approach']['name'],
             default_module_name='pyannote.audio.embedding.approaches')
         self.task_ = Approach(
             **self.config_['approach'].get('params', {}))
+
+        # architecture
+        Architecture = get_class_by_name(
+            self.config_['architecture']['name'],
+            default_module_name='pyannote.audio.embedding.models')
+        params = self.config_['architecture'].get('params', {})
+        self.get_model_ = partial(Architecture, **params)
+
+        if hasattr(Architecture, 'get_frame_info'):
+            self.frame_info_ = Architecture.get_frame_info(**params)
+        else:
+            self.frame_info_ = None
+
+        if hasattr(Architecture, 'frame_crop'):
+            self.frame_crop_ = Architecture.frame_crop
+        else:
+            self.frame_crop_ = None
+
 
     def validate_init(self, protocol_name, subset='development'):
 
