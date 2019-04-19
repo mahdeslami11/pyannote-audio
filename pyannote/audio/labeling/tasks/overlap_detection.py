@@ -120,16 +120,20 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
             # proportional to its duration
             segment = next(random_segment(datum['segments'], weighted=True))
 
-            # choose random duration subsegment at random
-            duration = np.random.rand() * self.duration
-            sequence = next(random_subsegment(segment, duration))
+            # choose random subsegment
+            # duration = np.random.rand() * self.duration
+            sequence = next(random_subsegment(segment, self.duration))
 
             # get corresponding waveform
-            X = self.raw_audio_.crop(current_file, sequence,
-                                     mode='center', fixed=duration)
+            X = self.raw_audio_.crop(current_file,
+                                     sequence,
+                                     mode='center',
+                                     fixed=self.duration)
 
             # get corresponding labels
-            y = datum['y'].crop(sequence, mode=self.frame_crop, fixed=duration)
+            y = datum['y'].crop(sequence,
+                                mode=self.frame_crop,
+                                fixed=self.duration)
 
             yield {'waveform': normalize(X),
                    'y': y}
@@ -154,9 +158,10 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
 
         while True:
 
+            # shuffle files
             np.random.shuffle(uris)
 
-            # loop on all files
+            # loop on shuffled files
             for uri in uris:
 
                 datum = self.data_[uri]
@@ -226,41 +231,25 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
 
             while True:
 
-                # get original sequence
+                # get fixed duration random sequence
                 original = next(sliding_samples)
 
-                n_samples = len(original['waveform'])
-                n_labels = len(original['y'])
+                if np.random.rand() < 0.5:
+                    pass
 
-                # get sample to overlap
-                overlap = next(overlap_samples)
-                n_overlap = len(overlap['waveform'])
+                else:
+                    # get random overlapping sequence
+                    overlap = next(overlap_samples)
 
-                # randomly choose were to add overlap
-                i = np.random.randint(2 * n_samples) - n_samples
-                l = max(i, 0)
-                r = min(max(i + n_overlap, 0), n_samples)
+                    # select SNR at random
+                    snr = (self.snr_max - self.snr_min) * np.random.random_sample() + self.snr_min
+                    alpha = np.exp(-np.log(10) * snr / 20)
 
-                # select SNR at random
-                snr = (self.snr_max - self.snr_min) * np.random.random_sample() + self.snr_min
-                alpha = np.exp(-np.log(10) * snr / 20)
-
-                # add overlap
-                original['waveform'][l:r] += alpha * overlap['waveform'][:r-l]
-
-                # update "who speaks when" labels
-                l = int(l * n_labels / n_samples)
-                r = int(r * n_labels / n_samples)
-
-                if r-l > len(overlap['y']):
-                    r = r-1
-                original['y'][l:r] += overlap['y'][:r-l]
+                    original['waveform'] += alpha * overlap['waveform']
+                    original['y'] += overlap['y']
 
                 speaker_count = np.sum(original['y'], axis=1, keepdims=True)
                 original['y'] = np.int64(speaker_count > 1)
-
-                # run feature extraction
-                #original['X'] = self.feature_extraction(original).data
 
                 # run feature extraction
                 original['duration'] = self.duration
