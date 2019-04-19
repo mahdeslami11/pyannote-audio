@@ -81,9 +81,9 @@ class LabelingTaskGenerator(object):
         Total audio duration per epoch, in days.
         Defaults to one day (1).
     parallel : int, optional
-        Number of prefetching background generators. Defaults to 1.
-        Each generator will prefetch enough batches to cover a whole epoch.
-        Set `parallel` to 0 to not use background generators.
+        Number of prefetching background generators. Defaults to 1. Each
+        generator will prefetch enough batches to cover a whole epoch. Set
+        `parallel` to 0 to not use background generators.
     exhaustive : bool, optional
         Ensure training files are covered exhaustively (useful in case of
         non-uniform label distribution).

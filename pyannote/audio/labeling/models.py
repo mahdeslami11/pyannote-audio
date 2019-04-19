@@ -148,6 +148,19 @@ class StackedRNN(nn.Module):
         return len(self.specifications['y']['classes'])
 
     def forward(self, sequences):
+        """
+
+        Parameters
+        ----------
+        sequences : (batch_size, n_samples, n_features) `torch.tensor`
+            Batch of sequences.
+
+        Returns
+        -------
+        predictions : `torch.tensor`
+            Shape is (batch_size, n_samples, n_classes) without pooling, and
+            (batch_size, n_classes) with pooling.
+        """
 
         if isinstance(sequences, PackedSequence):
             msg = (f'{self.__class__.__name__} does not support batches '
