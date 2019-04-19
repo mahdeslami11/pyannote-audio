@@ -212,10 +212,12 @@ class OverlapDetection(BaseLabeling):
 
         # compute (and store) overlap scores
         duration = self.task_.duration
+        warm_up = getattr(self.task_, 'warm_up', 0.)
+
         sequence_labeling = SequenceLabeling(
             model=model, feature_extraction=self.feature_extraction_,
-            duration=duration, step=.25 * duration, batch_size=self.batch_size,
-            device=self.device)
+            duration=duration, warm_up=warm_up, step=.25 * duration,
+            batch_size=self.batch_size, device=self.device)
         for current_file in validation_data:
             uri = get_unique_identifier(current_file)
             current_file['ovl_scores'] = sequence_labeling(current_file)

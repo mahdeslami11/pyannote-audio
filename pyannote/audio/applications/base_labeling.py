@@ -96,6 +96,8 @@ class BaseLabeling(Application):
         if step is None:
             step = 0.25 * duration
 
+        warm_up = getattr(self.task_, 'warm_up', 0.)
+
         # do not use memmap as this would lead to too many open files
         if isinstance(self.feature_extraction_, Precomputed):
             self.feature_extraction_.use_memmap = False
@@ -103,8 +105,8 @@ class BaseLabeling(Application):
         # initialize embedding extraction
         sequence_labeling = SequenceLabeling(
             model=model, feature_extraction=self.feature_extraction_,
-            duration=duration, step=.25 * duration, batch_size=self.batch_size,
-            device=self.device)
+            duration=duration, warm_up=warm_up, step=.25 * duration,
+            batch_size=self.batch_size, device=self.device)
 
         sliding_window = sequence_labeling.sliding_window
 

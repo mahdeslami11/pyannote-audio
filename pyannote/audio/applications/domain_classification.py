@@ -235,10 +235,12 @@ class DomainClassification(BaseLabeling):
         domains = model.specifications['y']['classes']
 
         duration = self.task_.duration
+        warm_up = getattr(self.task_, 'warm_up', 0.)
+
         sequence_labeling = SequenceLabeling(
             model=model, feature_extraction=self.feature_extraction_,
-            duration=duration, step=.25 * duration, batch_size=self.batch_size,
-            device=self.device)
+            duration=duration, warm_up=warm_up, step=.25 * duration,
+            batch_size=self.batch_size, device=self.device)
 
         y_true_file, y_pred_file = [], []
 
@@ -249,7 +251,6 @@ class DomainClassification(BaseLabeling):
 
             y_true = domains.index(current_file[domain])
             y_true_file.append(y_true)
-
 
         # Compute confusion matrix
         cm = confusion_matrix(y_true, y_pred)

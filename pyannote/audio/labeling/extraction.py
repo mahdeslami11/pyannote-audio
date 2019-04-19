@@ -55,6 +55,13 @@ class SequenceLabeling(FileBasedBatchGenerator):
     duration : float, optional
         Subsequence duration, in seconds. When `model` is a path and `duration`
         is not provided, it is inferred directly from the configuration file.
+    warm_up : float, optional
+        Use a "warm-up" period at the beginning of each sequence during which
+        the model predictions are not used. Provided as `duration` ratio (e.g.
+        0.1 for 10% of `duration`). When model is bi-directional, two "warm-up"
+        periods are used (one at the beginning, and one at the end of each
+        sequence). When `model` is a path and `warm_up` is not provided, it is
+        inferred directly from the configuration file (or set to 0.)
     step : float, optional
         Subsequence step, in seconds. Defaults to 50% of `duration`.
     batch_size : int, optional
@@ -63,8 +70,10 @@ class SequenceLabeling(FileBasedBatchGenerator):
         Defaults to CPU.
     """
 
-    def __init__(self, model=None, feature_extraction=None, duration=1,
-                 min_duration=None, step=None, batch_size=32, device=None):
+    def __init__(self, model=None, feature_extraction=None,
+                 duration=None, min_duration=None,
+                 warm_up=None, step=None,
+                 batch_size=32, device=None):
 
         if not isinstance(model, nn.Module):
 
@@ -77,6 +86,9 @@ class SequenceLabeling(FileBasedBatchGenerator):
 
             if duration is None:
                 duration = app.task_.duration
+
+            if warm_up is None:
+                warm_up = getattr(app.task_, 'warm_up', 0.)
 
         self.device = torch.device('cpu') if device is None \
                                           else torch.device(device)
@@ -96,6 +108,10 @@ class SequenceLabeling(FileBasedBatchGenerator):
         self.duration = duration
         self.min_duration = min_duration
 
+        if warm_up is None:
+            warm_up = 0.
+        self.warm_up = warm_up
+
         generator = SlidingSegments(duration=duration, step=step,
                                     min_duration=min_duration, source='audio')
         self.step = generator.step if step is None else step
@@ -103,6 +119,27 @@ class SequenceLabeling(FileBasedBatchGenerator):
         super(SequenceLabeling, self).__init__(
             generator, {'@': (self._process, self.forward)},
             batch_size=batch_size, incomplete=False)
+
+    def warm_up():
+        doc = '"warm up" period'
+        def fget(self):
+            return self.warm_up_
+        def fset(self, warm_up):
+            self.warm_up_ = warm_up
+            if warm_up == 0:
+                self.warmed_up_ = 1
+                return
+            # estimate "warm up" mask based on warm_up.
+            n_samples = self.frame_info_.samples(self.duration,
+                                                 mode=self.frame_crop_)
+            n_warm_up = int(n_samples * self.warm_up_)
+            self.warmed_up_ = np.zeros((n_samples, 1), dtype=np.int8)
+            if getattr(self.model, 'bidirectional', False):
+                self.warmed_up_[n_warm_up:n_samples-n_warm_up] = 1.
+            else:
+                self.warmed_up_[n_warm_up:] = 1
+        return locals()
+    warm_up = property(**warm_up())
 
     @property
     def dimension(self):
@@ -278,11 +315,10 @@ class SequenceLabeling(FileBasedBatchGenerator):
                                   fixed=self.duration)
 
             # accumulate the outputs
-            data[indices] += fX_
+            data[indices] += fX_ * self.warmed_up_
 
             # keep track of the number of overlapping sequence
-            # TODO - use smarter weights (e.g. Hamming window)
-            k[indices] += 1
+            k[indices] += 1 * self.warmed_up_
 
         # compute average embedding of each frame
         data = data / np.maximum(k, 1)

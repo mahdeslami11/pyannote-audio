@@ -127,6 +127,12 @@ class SpeechActivityDetection(LabelingTask):
         Defaults to 2 classes "non-speech vs. speech".
     duration : float, optional
         Duration of sub-sequences. Defaults to 3.2s.
+    warm_up : float, optional
+        Use a "warm-up" period at the beginning of each sequence during which
+        the model is not evaluated. Provided as `duration` ratio (e.g. 0.1 for
+        10% of `duration`). Defaults to 0 (i.e. no "warm-up" period).
+        When model is bi-directional, two "warm-up" periods are used (one at
+        the beginning, and one at the end of each sequence).
     batch_size : int, optional
         Batch size. Defaults to 32.
     per_epoch : float, optional

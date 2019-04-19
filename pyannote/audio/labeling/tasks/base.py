@@ -391,6 +391,12 @@ class LabelingTask(Trainer):
     ----------
     duration : float, optional
         Duration of sub-sequences. Defaults to 3.2s.
+    warm_up : float, optional
+        Use a "warm-up" period at the beginning of each sequence during which
+        the model is not evaluated. Provided as `duration` ratio (e.g. 0.1 for
+        10% of `duration`). Defaults to 0 (i.e. no "warm-up" period).
+        When model is bi-directional, two "warm-up" periods are used (one at
+        the beginning, and one at the end of each sequence).
     batch_size : int, optional
         Batch size. Defaults to 32.
     per_epoch : float, optional
@@ -402,10 +408,11 @@ class LabelingTask(Trainer):
         Set `parallel` to 0 to not use background generators.
     """
 
-    def __init__(self, duration=3.2, batch_size=32, per_epoch=1,
-                 parallel=1):
+    def __init__(self, duration=3.2, warm_up=0.,
+                 batch_size=32, per_epoch=1, parallel=1):
         super(LabelingTask, self).__init__()
         self.duration = duration
+        self.warm_up = warm_up
         self.batch_size = batch_size
         self.per_epoch = per_epoch
         self.parallel = parallel
@@ -471,19 +478,27 @@ class LabelingTask(Trainer):
                 return F.mse_loss(input, target)
             self.loss_func_ = mse_loss
 
+        _, n_samples, _ = next(self.batches_)['X'].shape
+        n_warm_up = int(n_samples * self.warm_up)
+
+        if getattr(self.model_, 'bidirectional', False):
+            self.warmed_up_ = slice(n_warm_up, n_samples - n_warm_up)
+        else:
+            self.warmed_up_ = slice(n_warm_up, n_samples)
+
     def batch_loss(self, batch):
 
         # forward pass
         X = torch.tensor(batch['X'],
                          dtype=torch.float32,
                          device=self.device_)
-        fX = self.model_(X)
+        fX = self.model_(X)[:, self.warmed_up_]
 
         if self.task_type_ == TASK_MULTI_CLASS_CLASSIFICATION:
-            fX = fX.view((-1, self.n_classes_))
+            fX = fX.contiguous().view((-1, self.n_classes_))
 
             target = torch.tensor(
-                batch['y'],
+                batch['y'][:, self.warmed_up_],
                 dtype=torch.int64,
                 device=self.device_).contiguous().view((-1, ))
 
@@ -491,7 +506,7 @@ class LabelingTask(Trainer):
                                  TASK_REGRESSION]:
 
             target = torch.tensor(
-                batch['y'],
+                batch['y'][:, self.warmed_up_],
                 dtype=torch.float32,
                 device=self.device_)
 
