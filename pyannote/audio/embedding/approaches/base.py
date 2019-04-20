@@ -26,7 +26,7 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-
+import warnings
 import torch
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_sequence
@@ -120,16 +120,26 @@ class EmbeddingApproach(Trainer):
                 batch['X'] = pack_sequence(sequences)
                 fX = self.model_(batch['X'])
 
-            # process them separately if model does not
+            # process them separately if model does not support PackedSequence
             else:
-                import warnings
-                msg = (
-                    'Model does not support variable lengths batch, so we are '
-                    'processing sequences separately...'
-                )
-                warnings.warn(msg)
-                fX = torch.stack([self.model_(x.unsqueeze(0))
-                                  for x in sequences])
+                try:
+                    fX = torch.stack([self.model_(x.unsqueeze(0))
+                                      for x in sequences])
+                    msg = (
+                        'Model does not support variable lengths batch, '
+                        'so we are processing sequences separately...'
+                    )
+                    warnings.warn(msg)
+
+                except ValueError as e:
+                    min_length = min(lengths)
+                    fX = self.model_(torch.stack([x[:min_length]
+                                                  for x in sequences]))
+                    msg = (
+                        'Model does not support variable lengths batch, '
+                        'so we cropped them all to the shortest one.'
+                    )
+                    warnings.warn(msg)
 
             return fX[unsort]
 
