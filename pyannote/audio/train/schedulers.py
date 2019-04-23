@@ -112,7 +112,7 @@ class BaseSchedulerCallback(Callback):
         # so we'd rather bound the learning rate slighgly before stop - K
         return lrs[int(stop - 1.1 * K)]
 
-    def auto_lr(self, trainer):
+    def auto_lr(self, trainer, beta=0.98):
 
         trainer.save()
 
@@ -133,7 +133,8 @@ class BaseSchedulerCallback(Callback):
             unit='batch',
             position=1)
 
-        losses, lrs = [], []
+        loss_moving_avg = 0.
+        losses, losses_smoothened, lrs = [], [], []
 
         # loop on n_batches batches
         for i in range(AUTO_LR_BATCHES):
@@ -148,27 +149,30 @@ class BaseSchedulerCallback(Callback):
             trainer.optimizer_.zero_grad()
 
             lrs.append(trainer.optimizer_.param_groups[0]['lr'])
-            losses.append(loss.detach().cpu().item())
 
-            # TODO. use moving average loss
+            loss = loss.detach().cpu().item()
+            losses.append(loss)
+
+            loss_moving_avg = beta * loss_moving_avg + (1 - beta) * loss
+            losses_smoothened.append(loss_moving_avg / (1 - beta ** (i + 1)))
 
             # update progress bar
             pbar.update(1)
             pbar.set_postfix(
-                ordered_dict={'loss': losses[-1], 'lr': lrs[-1]})
+                ordered_dict={'loss': losses_smoothened[-1], 'lr': lrs[-1]})
 
             # increase learning rate
             for param_group in trainer.optimizer_.param_groups:
                 param_group['lr'] *= factor
 
             # stop AutoLR early when loss starts to explode
-            if i > 1 and losses[-1] > 100 * np.nanmin(losses):
+            if i > 1 and losses_smoothened[-1] > 100 * np.nanmin(losses_smoothened):
                 break
 
         # reload model using its initial state
         trainer.load(trainer.epoch_)
 
-        lr = self.choose_lr(lrs, losses)
+        lr = self.choose_lr(lrs, losses_smoothened)
 
         try:
 
@@ -179,17 +183,21 @@ class BaseSchedulerCallback(Callback):
 
             # create AutoLR loss = f(learning_rate) curve
             fig, ax = plt.subplots()
-            ax.semilogx(lrs, losses)
+            ax.semilogx(lrs, losses, '.', alpha=0.3, label='Raw loss')
+            ax.semilogx(lrs, losses_smoothened, linewidth=2, label='Smoothened loss')
             ax.set_xlabel('Learning rate')
             ax.set_ylabel('Loss')
+            ax.legend()
 
             # indicate selected learning rate by a vertical line
-            ax.plot([lr, lr], [np.nanmin(losses), np.nanmax(losses)])
+            ax.plot([lr, lr], [np.nanmin(losses_smoothened),
+                               np.nanmax(losses_smoothened)],
+                               linewidth=3)
 
             # zoom on meaningful part of the curve
-            m = np.nanmin(losses)
-            M = np.nanpercentile(losses, 98)
-            ax.set_ylim(m, M + 0.1 * (M - m))
+            m = np.nanmin(losses_smoothened)
+            M = 1.1 * losses_smoothened[10]
+            ax.set_ylim(m, M)
 
             # indicate selected learning rate in the figure title
             ax.set_title(f'AutoLR = {lr:g}')
