@@ -32,3 +32,5 @@ TASK_MULTI_LABEL_CLASSIFICATION = 'multi_label_classification'
 TASK_REGRESSION = 'regression'
 TASK_REPRESENTATION_LEARNING = 'representation_learning'
 
+from .models import PyanNet
+from .models import ClopiNet
