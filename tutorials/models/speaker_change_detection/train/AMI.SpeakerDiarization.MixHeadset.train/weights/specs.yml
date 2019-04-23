@@ -1,6 +1,6 @@
 X:
   dimension: 59
-task: one-class
+task: multi_class_classification
 y:
   classes:
   - non_change

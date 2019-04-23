@@ -1,5 +1,6 @@
 X:
   dimension: 59
+task: representation_learning
 y:
   classes:
   - id10001
