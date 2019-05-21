@@ -60,6 +60,7 @@ class Callbacks(object):
         self.callbacks = callbacks
 
     def load_epoch(self, trainer, epoch):
+        trainer.load_epoch(epoch)
         for callback in self.callbacks:
             callback.load_epoch(trainer, epoch)
 
@@ -70,22 +71,27 @@ class Callbacks(object):
 
     def on_epoch_start(self, trainer):
         trainer.epoch_ += 1
+        trainer.on_epoch_start()
         for callback in self.callbacks:
             callback.on_epoch_start(trainer)
 
     def on_batch_start(self, trainer, batch):
+        batch = trainer.on_batch_start(batch)
         for callback in self.callbacks:
             batch = callback.on_batch_start(trainer, batch)
         return batch
 
     def on_batch_end(self, trainer, loss):
+        trainer.on_batch_end(loss)
         for callback in self.callbacks:
             callback.on_batch_end(trainer, loss)
 
     def on_epoch_end(self, trainer):
+        trainer.on_epoch_end()
         for callback in self.callbacks:
             callback.on_epoch_end(trainer)
 
     def on_train_end(self, trainer):
+        trainer.on_train_end()
         for callback in self.callbacks:
             callback.on_train_end(trainer)

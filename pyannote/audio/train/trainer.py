@@ -75,7 +75,72 @@ class Trainer:
                    self.OPTIMIZER_PT.format(log_dir=self.log_dir_,
                                             epoch=self.epoch_))
 
+    def parameters(self, model, specifications):
+        """Initialize trainable trainer parameters
+
+        Parameters
+        ----------
+        model : `nn.Module`
+            Model.
+        specifications : `dict`
+            Batch specs.
+
+        Returns
+        -------
+        parameters : iterable
+            Trainable trainer parameters.
+        """
+        return []
+
+    def load_epoch(self, epoch):
+        """Load trainer-specific parameters
+
+        Parameters
+        ----------
+        epoch : `int`
+            Epoch number.
+        """
+        pass
+
     def on_train_start(self):
+        """Called just before training starts"""
+        pass
+
+    def on_epoch_start(self):
+        """Called just before epoch starts"""
+        pass
+
+    def on_batch_start(self, batch):
+        """Called just before batch is processed
+
+        Parameters
+        ----------
+        batch : `dict`
+            Current batch.
+
+        Returns
+        -------
+        batch : `dict`
+            Updated batch.
+        """
+        return batch
+
+    def on_batch_end(self, loss):
+        """Called just after loss is computed
+
+        Parameters
+        ----------
+        loss : `torch.Tensor`
+            Loss
+        """
+        pass
+
+    def on_epoch_end(self):
+        """Called when epoch ends"""
+        pass
+
+    def on_train_end(self):
+        """Called when training stops"""
         pass
 
     def fit(self, model, batch_generator, restart=0, epochs=1000,
@@ -194,6 +259,8 @@ class Trainer:
 
         # gather parameters from model AND from trainer
         parameters = list(self.model_.parameters())
+        parameters.extend(self.parameters(self.model_, specifications))
+
         self.optimizer_ = get_optimizer(
             parameters,
             lr=ARBITRARY_LR if learning_rate == 'auto' else learning_rate)
