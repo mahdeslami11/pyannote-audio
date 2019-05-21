@@ -260,6 +260,13 @@ class Embedding(nn.Module):
 
         return embedding
 
+    def dimension():
+        doc = "Output dimension."
+        def fget(self):
+            return self.n_features
+        return locals()
+    dimension = property(**dimension())
+
 
 class PyanNet(nn.Module):
     """waveform -> SincNet -> RNN [-> merge] [-> time_pool] -> FC -> output
@@ -364,6 +371,16 @@ class PyanNet(nn.Module):
         output = self.linear_(output)
         output = self.activation_(output)
         return output
+
+    @property
+    def dimension(self):
+        if self.task_ == TASK_REPRESENTATION_LEARNING:
+            return self.embedding_.dimension
+        msg = (
+            "Only representation learning models "
+            "have a 'dimension' attribute."
+        )
+        raise NotImplementedError(msg)
 
     @property
     def classes(self):
