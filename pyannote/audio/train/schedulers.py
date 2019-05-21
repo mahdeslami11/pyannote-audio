@@ -114,7 +114,7 @@ class BaseSchedulerCallback(Callback):
 
     def auto_lr(self, trainer, beta=0.98):
 
-        trainer.save()
+        trainer.save_epoch()
 
         # initialize optimizer with a low learning rate
         for param_group in trainer.optimizer_.param_groups:
@@ -170,7 +170,7 @@ class BaseSchedulerCallback(Callback):
                 break
 
         # reload model using its initial state
-        trainer.load(trainer.epoch_)
+        trainer.load_epoch(trainer.epoch_)
 
         lr = self.choose_lr(lrs, losses_smoothened)
 

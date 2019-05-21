@@ -48,8 +48,17 @@ class Trainer:
     WEIGHTS_PT = '{log_dir}/weights/{epoch:04d}.pt'
     OPTIMIZER_PT = '{log_dir}/weights/{epoch:04d}.optimizer.pt'
 
-    def load(self, epoch):
+    def load_epoch(self, epoch):
+        """Load model from disk
 
+        This method needs to be overriden in case
+        the trainer has its own set of parameters
+
+        Parameters
+        ----------
+        epoch : `int`
+            Epoch Number
+        """
         # TODO. check that model specs are coherent
 
         # load model
@@ -66,14 +75,30 @@ class Trainer:
 
         self.epoch_ = epoch
 
-    def save(self):
+    def save_epoch(self, epoch=None):
+        """Save model to disk
+
+        This method needs to be overriden in case
+        the trainer has its own set of parameters
+
+        Parameters
+        ----------
+        epoch : `int`, optional
+            Epoch number. Defaults to self.epoch_
+
+        """
+
+        if epoch is None:
+            epoch = self.epoch_
 
         torch.save(self.model_.state_dict(),
                    self.WEIGHTS_PT.format(log_dir=self.log_dir_,
-                                          epoch=self.epoch_))
+                                          epoch=epoch))
+
         torch.save(self.optimizer_.state_dict(),
                    self.OPTIMIZER_PT.format(log_dir=self.log_dir_,
-                                            epoch=self.epoch_))
+                                            epoch=epoch))
+
 
     def parameters(self, model, specifications):
         """Initialize trainable trainer parameters

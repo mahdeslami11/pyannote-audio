@@ -41,7 +41,7 @@ class Checkpoint(Callback):
         mkdir_p(trainer.log_dir_)
 
     def load_epoch(self, trainer, epoch):
-        trainer.load(epoch)
+        trainer.load_epoch(epoch)
 
     def on_epoch_end(self, trainer):
-        trainer.save()
+        trainer.save_epoch()
