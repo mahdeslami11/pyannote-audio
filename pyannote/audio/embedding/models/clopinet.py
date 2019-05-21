@@ -54,7 +54,7 @@ class ClopiNet(nn.Module):
         Defaults to 'LSTM'.
     recurrent : list, optional
         List of hidden dimensions of stacked recurrent layers. Defaults to
-        [64, 64, 64], i.e. three recurrent layers with hidden dimension of 64.
+        [256, 256, 256], i.e. three recurrent layers with hidden dimension of 64.
     bidirectional : bool, optional
         Use bidirectional recurrent layers. Defaults to False, i.e. use
         mono-directional RNNs.
@@ -84,7 +84,7 @@ class ClopiNet(nn.Module):
     supports_packed = True
 
     def __init__(self, specifications,
-                 rnn='LSTM', recurrent=[64, 64, 64], bidirectional=False,
+                 rnn='LSTM', recurrent=[256, 256, 256], bidirectional=False,
                  pooling='sum', instance_normalize=False, batch_normalize=True,
                  normalize=False, weighted=False, linear=None, attention=None):
 

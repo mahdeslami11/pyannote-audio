@@ -379,7 +379,7 @@ class ClopiNet(PyanNet):
 
         rnn = {
             'unit': 'LSTM',
-            'hidden_size': 64,
+            'hidden_size': 256,
             'num_layers': 3,
             'bidirectional': True,
             'concatenate': True,
