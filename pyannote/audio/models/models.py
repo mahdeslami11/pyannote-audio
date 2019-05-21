@@ -367,11 +367,23 @@ class PyanNet(nn.Module):
 
     @property
     def classes(self):
-        return self.specifications['y']['classes']
+        if self.task_ != TASK_REPRESENTATION_LEARNING:
+            return self.specifications['y']['classes']
+        msg = (
+            "Representation learning models "
+            "do not have a 'classes' attribute."
+        )
+        raise NotImplementedError(msg)
 
     @property
     def n_classes(self):
-        return len(self.specifications['y']['classes'])
+        if self.task_ != TASK_REPRESENTATION_LEARNING:
+            return len(self.specifications['y']['classes'])
+        msg = (
+            "Representation learning models "
+            "do not have a 'n_classes' attribute."
+        )
+        raise NotImplementedError(msg)
 
 
 class ClopiNet(PyanNet):
