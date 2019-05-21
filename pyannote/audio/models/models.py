@@ -232,7 +232,8 @@ class Embedding(nn.Module):
     batch_normalize : `boolean`, optional
         Apply batch normalization. This is more or less equivalent to
         embedding whitening.
-    normalize : `boolean`, optional
+    unit_normalize : `boolean`, optional
+        Normalize embeddings. Defaults to False.
     """
 
     def __init__(self, n_features, batch_normalize=False, unit_normalize=False):
