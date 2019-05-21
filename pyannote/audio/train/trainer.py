@@ -159,10 +159,8 @@ class Trainer:
 
         Yields
         ------
-        result : dict
-            ['epoch'] (int): current epoch
-            ['iteration'] (int): current iteration
-            ['model']  (torch.nn.Module): model at current iteration
+        model : `torch.nn.Module`
+            Model at current iteration
         """
 
         # LOGGING
@@ -183,17 +181,21 @@ class Trainer:
         # MODEL
         specifications = self.batch_generator_.specifications
         self.model_ = get_model(specifications)
+        self.model_ = self.model_.to(self.device_)
+
+        # save specifications to disk
         specs_yml = self.SPECS_YML.format(log_dir=self.log_dir_)
         with io.open(specs_yml, 'w') as fp:
-            yaml.dump(specifications, fp,
-                      default_flow_style=False)
-        self.model_ = self.model_.to(self.device_)
+            yaml.dump(specifications, fp, default_flow_style=False)
 
         # OPTIMIZER
         if get_optimizer is None:
             get_optimizer = SGD
+
+        # gather parameters from model AND from trainer
+        parameters = list(self.model_.parameters())
         self.optimizer_ = get_optimizer(
-            self.model_.parameters(),
+            parameters,
             lr=ARBITRARY_LR if learning_rate == 'auto' else learning_rate)
         self.base_learning_rate_ = learning_rate
 
@@ -201,17 +203,17 @@ class Trainer:
         if get_scheduler is None:
             get_scheduler = ConstantScheduler
 
-        callbacks = [
-            Checkpoint(),  # checkpoint has to go first
+        callbacks = Callbacks([
+            Checkpoint(),        # checkpoint has to go first
             get_scheduler(),
             Logging(epochs),
-        ]
-
-        callbacks = Callbacks(callbacks)
+        ])
 
         if restart:
+            # warm restart
             callbacks.load_epoch(self, restart)
         else:
+            # cold start
             self.epoch_ = 0
 
         callbacks.on_train_start(self)
@@ -226,6 +228,7 @@ class Trainer:
                 callbacks.on_batch_start(self, batch)
 
                 loss = self.batch_loss(batch)
+
                 loss.backward()
                 self.optimizer_.step()
                 self.optimizer_.zero_grad()
