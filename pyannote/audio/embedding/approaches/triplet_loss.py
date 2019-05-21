@@ -36,16 +36,7 @@ from .base import EmbeddingApproach
 
 
 class TripletLoss(EmbeddingApproach):
-    """
-
-    delta = d(anchor, positive) - d(anchor, negative)
-
-    * with 'positive' clamping:
-        loss = max(0, delta + margin x D)
-    * with 'sigmoid' clamping:
-        loss = sigmoid(10 * delta)
-
-    where d(., .) varies in range [0, D] (e.g. D=2 for euclidean distance).
+    """Train embeddings using triplet loss
 
     Parameters
     ----------
@@ -82,6 +73,18 @@ class TripletLoss(EmbeddingApproach):
         Number of prefetching background generators. Defaults to 1.
         Each generator will prefetch enough batches to cover a whole epoch.
         Set `parallel` to 0 to not use background generators.
+
+    Notes
+    -----
+    delta = d(anchor, positive) - d(anchor, negative)
+
+    * with 'positive' clamping:
+        loss = max(0, delta + margin x D)
+    * with 'sigmoid' clamping:
+        loss = sigmoid(10 * delta)
+
+    where d(., .) varies in range [0, D] (e.g. D=2 for euclidean distance).
+
     """
 
     def __init__(self, duration=None, min_duration=None, max_duration=None,
