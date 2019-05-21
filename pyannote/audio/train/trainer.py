@@ -100,7 +100,7 @@ class Trainer:
                                             epoch=epoch))
 
 
-    def parameters(self, model, specifications):
+    def parameters(self, model, specifications, device):
         """Initialize trainable trainer parameters
 
         Parameters
@@ -109,6 +109,8 @@ class Trainer:
             Model.
         specifications : `dict`
             Batch specs.
+        device : `torch.device`
+            Device
 
         Returns
         -------
@@ -284,7 +286,9 @@ class Trainer:
 
         # gather parameters from model AND from trainer
         parameters = list(self.model_.parameters())
-        parameters.extend(self.parameters(self.model_, specifications))
+        parameters.extend(self.parameters(self.model_,
+                                          specifications,
+                                          self.device_))
 
         self.optimizer_ = get_optimizer(
             parameters,
