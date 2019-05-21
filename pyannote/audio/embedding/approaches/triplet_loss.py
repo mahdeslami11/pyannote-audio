@@ -335,9 +335,6 @@ class TripletLoss(EmbeddingApproach):
             min_duration=self.min_duration, max_duration=self.max_duration,
             parallel=self.parallel)
 
-    def aggregate(self, batch):
-        return batch
-
     def batch_loss(self, batch):
         """Compute loss for current `batch`
 
@@ -355,18 +352,12 @@ class TripletLoss(EmbeddingApproach):
 
         fX = self.forward(batch)
 
-        batch['fX'] = fX
-        batch = self.aggregate(batch)
-
-        fX = batch['fX']
-        y = batch['y']
-
         # pre-compute pairwise distances
         distances = self.pdist(fX)
 
         # sample triplets
         triplets = getattr(self, 'batch_{0}'.format(self.sampling))
-        anchors, positives, negatives = triplets(y, distances)
+        anchors, positives, negatives = triplets(batch['y'], distances)
 
         # compute loss for each triplet
         losses, deltas, _, _ = self.triplet_loss(
