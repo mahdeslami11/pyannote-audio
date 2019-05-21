@@ -89,7 +89,7 @@ class TripletLoss(EmbeddingApproach):
                  sampling='all', per_label=3, per_fold=None, per_epoch=7,
                  parallel=1, label_min_duration=0.):
 
-        super(TripletLoss, self).__init__()
+        super().__init__()
 
         self.metric = metric
         self.margin = margin
