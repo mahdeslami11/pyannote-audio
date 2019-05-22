@@ -57,14 +57,6 @@ class BaseSchedulerCallback(Callback):
             f'train/lr', self.learning_rate,
             global_step=trainer.epoch_)
 
-    def on_epoch_end(self, trainer):
-        # TODO. save state to dict
-        pass
-
-    def load_epoch(self, trainer, epoch):
-        # TODO. load state from dict
-        pass
-
     def learning_rate():
         doc = "Learning rate."
         def fget(self):
