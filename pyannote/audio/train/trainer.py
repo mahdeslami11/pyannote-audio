@@ -119,16 +119,6 @@ class Trainer:
         """
         return []
 
-    def load_epoch(self, epoch):
-        """Load trainer-specific parameters
-
-        Parameters
-        ----------
-        epoch : `int`
-            Epoch number.
-        """
-        pass
-
     def on_train_start(self):
         """Called just before training starts"""
         pass
