@@ -37,6 +37,7 @@ from . import TASK_REPRESENTATION_LEARNING
 
 from .sincnet import SincNet
 
+
 class RNN(nn.Module):
     """Recurrent layers
 
@@ -114,49 +115,80 @@ class RNN(nn.Module):
 
         self.pool = pool
 
-    def forward(self, features):
+    def forward(self, features, return_intermediate=False):
         """Apply recurrent layer (and optional temporal pooling)
 
         Parameters
         ----------
         features : `torch.Tensor`
             Features shaped as (batch_size, n_frames, n_features)
+        return_intermediate : `boolean`, optional
+            Return intermediate RNN hidden state.
 
         Returns
         -------
         output : `torch.Tensor`
             TODO. Shape depends on parameters...
-
+        intermediate : `torch.Tensor`
+            (num_layers, batch_size, hidden_size * num_directions)
         """
+
+        if return_intermediate:
+            num_directions = 2 if self.bidirectional else 1
 
         if self.concatenate:
 
+            if return_intermediate:
+                msg = (
+                    '"return_intermediate" is not supported '
+                    'when "concatenate" is True'
+                )
+                raise NotADirectoryError(msg)
+
             outputs = []
+
+            # apply each layer separately...
             for i, rnn in enumerate(self.rnn_):
                 if i > 0:
                     output, hidden = rnn(output, hidden)
                 else:
                     output, hidden = rnn(features)
                 outputs.append(output)
+
+            # ... and concatenate their output
             output = torch.cat(outputs, dim=2)
 
         else:
-            output, _ = self.rnn_(features)
+            output, hidden = self.rnn_(features)
 
-        if self.pool is None:
-            return output
+            if return_intermediate:
+                if self.unit == 'LSTM':
+                    h = hidden[0]
+                elif self.unit == 'GRU':
+                    h = hidden
 
-        elif self.pool == 'sum':
-            return output.sum(dim=1)
+                # to (num_layers, batch_size, num_directions * hidden_size)
+                h = h.view(
+                    self.num_layers, num_directions, -1, self.hidden_size)
+                intermediate = h.transpose(2, 1).contiguous().view(
+                    self.num_layers, -1, num_directions * self.hidden_size)
+
+        if self.pool == 'sum':
+            output = output.sum(dim=1)
 
         elif self.pool == 'max':
-            return output.max(dim=1)[0]
+            output = output.max(dim=1)[0]
 
         elif self.pool == 'last':
             if self.bidirectional:
                 raise NotImplementedError()
                 # return ...
-            return output[:, -1]
+            output = output[:, -1]
+
+        if return_intermediate:
+            return output, intermediate
+
+        return output
 
     def dimension():
         doc = "Output features dimension."
@@ -169,6 +201,13 @@ class RNN(nn.Module):
             return dimension
         return locals()
     dimension = property(**dimension())
+
+    def intermediate_dimension(self, layer):
+        dimension = self.hidden_size
+        if self.bidirectional:
+            dimension *= 2
+        return dimension
+
 
 
 class FF(nn.Module):
@@ -277,7 +316,6 @@ class PyanNet(nn.Module):
     rnn : `dict`, optional
     ff : `dict`, optional
     embedding : `dict`, optional
-
     """
 
     frame_crop = SincNet.frame_crop
@@ -346,31 +384,46 @@ class PyanNet(nn.Module):
             msg = f'Unsupported task type: {self.task_}'
             raise NotImplementedError(msg)
 
-
-    def forward(self, waveforms, return_sincnet=False):
+    def forward(self, waveforms, return_intermediate=None):
         """
 
         Parameters
         ----------
         waveforms : (batch_size, n_samples, 1)
             Batch of waveforms
-        return_sincnet : `boolean`, optional
-            Return SincNet output instead of final output.
-            Defaults to False.
+        return_intermediate : `int`, optional
+            Index of RNN layer. Returns RNN intermediate hidden state.
+            Defaults to only return the final output.
 
+        Returns
+        -------
+        output : `torch.Tensor`
+            Final network output.
+        intermediate : `torch.Tensor`
+            Intermediate network output (only when `return_intermediate`
+            is provided).
         """
-
         output = self.sincnet_(waveforms)
-        if return_sincnet:
-            return output
-        output = self.rnn_(output)
+
+        if return_intermediate is None:
+            output = self.rnn_(output)
+        else:
+            # get RNN final AND intermediate outputs
+            output, intermediate = self.rnn_(output, return_intermediate=True)
+            # only keep hidden state of requested layer
+            intermediate = intermediate[return_intermediate]
+
         output = self.ff_(output)
+
         if self.task_ == TASK_REPRESENTATION_LEARNING:
             return self.embedding_(output)
 
         output = self.linear_(output)
         output = self.activation_(output)
-        return output
+
+        if return_intermediate is None:
+            return output
+        return output, intermediate
 
     @property
     def dimension(self):
@@ -381,6 +434,9 @@ class PyanNet(nn.Module):
             "have a 'dimension' attribute."
         )
         raise NotImplementedError(msg)
+
+    def intermediate_dimension(self, layer):
+        return self.rnn_.intermediate_dimension(layer)
 
     @property
     def classes(self):
