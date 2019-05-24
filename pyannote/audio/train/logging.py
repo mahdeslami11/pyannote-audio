@@ -90,7 +90,7 @@ class Logging(Callback):
 
         self.loss = dict()
         for key in batch_loss:
-            if not key.startwith('loss'):
+            if not key.startswith('loss'):
                 continue
             loss = batch_loss[key].detach().cpu().item()
             self.loss_moving_avg_[key] = \
