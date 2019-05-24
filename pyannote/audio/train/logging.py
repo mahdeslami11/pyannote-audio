@@ -55,7 +55,7 @@ class Logging(Callback):
 
         # loss moving average
         self.n_batches_ = 0
-        self.loss_moving_avg_ = 0
+        self.loss_moving_avg_ = dict()
 
         self.epochs_pbar_.update(1)
         self.batches_pbar_ = tqdm(
@@ -78,8 +78,6 @@ class Logging(Callback):
 
     def on_batch_end(self, trainer, batch_loss):
 
-        loss = batch_loss['loss'].detach().cpu().item()
-
         # mark time just after forward/backward
         self.t_batch_end_ = time.time()
 
@@ -89,19 +87,27 @@ class Logging(Callback):
         )
 
         self.n_batches_ += 1
-        self.loss_moving_avg_ = \
-            self.beta * self.loss_moving_avg_ + (1 - self.beta) * loss
 
-        self.loss = self.loss_moving_avg_ / (1 - self.beta ** self.n_batches_)
+        self.loss = dict()
+        for key in batch_loss:
+            if not key.startwith('loss'):
+                continue
+            loss = batch_loss[key].detach().cpu().item()
+            self.loss_moving_avg_[key] = \
+                self.beta * self.loss_moving_avg_.setdefault(key, 0.) + \
+                (1 - self.beta) * loss
+            self.loss[key] = \
+                self.loss_moving_avg_[key] / (1 - self.beta ** self.n_batches_)
 
-        self.batches_pbar_.set_postfix(ordered_dict={'loss': self.loss})
+        self.batches_pbar_.set_postfix(ordered_dict=self.loss)
         self.batches_pbar_.update(1)
 
     def on_epoch_end(self, trainer):
 
-        trainer.tensorboard_.add_scalar(
-            'train/loss', self.loss,
-            global_step=trainer.epoch_)
+        for key, loss in self.loss.items():
+            trainer.tensorboard_.add_scalar(
+                f'train/{key}', loss,
+                global_step=trainer.epoch_)
 
         trainer.tensorboard_.add_histogram(
             'profiling/model', np.array(self.t_model_),
