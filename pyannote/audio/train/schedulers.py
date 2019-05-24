@@ -132,7 +132,7 @@ class BaseSchedulerCallback(Callback):
         for i in range(AUTO_LR_BATCHES):
 
             batch = next(trainer.batches_)
-            loss = trainer.batch_loss(batch)
+            loss = trainer.batch_loss(batch)['loss']
             loss.backward()
 
             # TODO. use closure
