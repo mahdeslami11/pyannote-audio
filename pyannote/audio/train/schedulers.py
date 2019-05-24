@@ -248,10 +248,11 @@ class DavisKingScheduler(BaseSchedulerCallback):
         maxlen = 10 * self.patience * trainer.batches_per_epoch_
         self.losses_ = deque([], maxlen=maxlen)
 
-    def on_batch_end(self, trainer, loss):
-        super().on_batch_end(trainer, loss)
+    def on_batch_end(self, trainer, batch_loss):
+        super().on_batch_end(trainer, batch_loss)
 
         # store current batch loss
+        loss = batch_loss['loss'].detach().cpu().item()
         self.losses_.append(loss)
 
         # compute statistics on batch loss trend

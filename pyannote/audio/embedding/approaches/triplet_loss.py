@@ -349,8 +349,8 @@ class TripletLoss(EmbeddingApproach):
 
         Returns
         -------
-        loss : `torch.Tensor`
-            Triplet loss.
+        batch_loss : `dict`
+            ['loss'] (`torch.Tensor`) : Triplet loss
         """
 
         fX = self.forward(batch)
@@ -368,4 +368,4 @@ class TripletLoss(EmbeddingApproach):
             return_delta=True)
 
         # average over all triplets
-        return torch.mean(losses)
+        return {'loss': torch.mean(losses)}

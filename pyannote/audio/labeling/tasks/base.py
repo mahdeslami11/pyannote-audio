@@ -472,6 +472,19 @@ class LabelingTask(Trainer):
             self.loss_func_ = mse_loss
 
     def batch_loss(self, batch):
+        """Compute loss for current `batch`
+
+        Parameters
+        ----------
+        batch : `dict`
+            ['X'] (`numpy.ndarray`)
+            ['y'] (`numpy.ndarray`)
+
+        Returns
+        -------
+        batch_loss : `dict`
+            ['loss'] (`torch.Tensor`) : Loss
+        """
 
         # forward pass
         X = torch.tensor(batch['X'],
@@ -499,4 +512,4 @@ class LabelingTask(Trainer):
         if weight is not None:
             weight = weight.to(device=self.device_)
 
-        return self.loss_func_(fX, target, weight=weight)
+        return {'loss': self.loss_func_(fX, target, weight=weight)}

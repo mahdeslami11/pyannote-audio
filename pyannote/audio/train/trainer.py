@@ -147,8 +147,8 @@ class Trainer:
 
         Parameters
         ----------
-        loss : `torch.Tensor`
-            Loss
+        loss : `dict`
+            ['loss'] (`torch.Tensor`)
         """
         pass
 
@@ -314,12 +314,10 @@ class Trainer:
                 callbacks.on_batch_start(self, batch)
 
                 loss = self.batch_loss(batch)
-
-                loss.backward()
+                loss['loss'].backward()
                 self.optimizer_.step()
                 self.optimizer_.zero_grad()
 
-                loss = loss.detach().cpu().item()
                 callbacks.on_batch_end(self, loss)
 
             callbacks.on_epoch_end(self)

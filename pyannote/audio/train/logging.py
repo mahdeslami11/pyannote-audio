@@ -76,7 +76,9 @@ class Logging(Callback):
             self.t_batch_start_ - self.t_batch_end_
         )
 
-    def on_batch_end(self, trainer, loss):
+    def on_batch_end(self, trainer, batch_loss):
+
+        loss = batch_loss['loss'].detach().cpu().item()
 
         # mark time just after forward/backward
         self.t_batch_end_ = time.time()

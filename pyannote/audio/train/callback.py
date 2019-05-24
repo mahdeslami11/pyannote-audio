@@ -45,6 +45,13 @@ class Callback(object):
         return batch
 
     def on_batch_end(self, trainer, loss):
+        """Called after parameters update
+
+        Parameters
+        ----------
+        trainer : `Trainer`
+        loss : `dict`
+        """
         pass
 
     def on_epoch_end(self, trainer):
@@ -82,6 +89,13 @@ class Callbacks(object):
         return batch
 
     def on_batch_end(self, trainer, loss):
+        """Called after parameters update
+
+        Parameters
+        ----------
+        trainer : `Trainer`
+        loss : `dict`
+        """
         trainer.on_batch_end(loss)
         for callback in self.callbacks:
             callback.on_batch_end(trainer, loss)
