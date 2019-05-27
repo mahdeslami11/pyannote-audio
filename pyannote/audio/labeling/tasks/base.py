@@ -231,12 +231,37 @@ class LabelingTaskGenerator(object):
             self.data_[uri]['y'] = self.initialize_y(current_file)
 
     @property
+    def signature(self):
+        signature = {'X': {'@': (None, np.stack)},
+                     'y': {'@': (None, np.stack)}}
+
+        for key in self.file_labels_:
+            signature[key] = {'@': (None, np.stack)}
+
+        return signature
+
+    @property
     def specifications(self):
-        return {
+        """Task & sample specifications
+
+        Returns
+        -------
+        specs : `dict`
+            ['task'] (`str`) : task name
+            ['X']['dimension'] (`int`) : features dimension
+            ['y']['classes'] (`list`) : list of classes
+        """
+
+        specs = {
             'task': None,
             'X': {'dimension': self.feature_extraction.dimension},
             'y': {'classes': self.segment_labels_},
         }
+
+        for key, classes in self.file_labels_.items():
+            specs[key] = {'classes': classes}
+
+        return specs
 
     def _samples(self):
         if self.exhaustive:
@@ -273,12 +298,17 @@ class LabelingTaskGenerator(object):
             # choose fixed-duration subsegment at random
             subsegment = next(random_subsegment(segment, self.duration))
 
-            yield {
+            sample = {
                 'X': self.feature_extraction.crop(current_file,
                                                   subsegment, mode='center',
                                                   fixed=self.duration),
                 'y': self.crop_y(datum['y'], subsegment),
             }
+
+            for key, classes in self.file_labels_.items():
+                sample[key] = classes.index(current_file[key])
+
+            yield sample
 
     def _sliding_samples(self):
 
@@ -321,6 +351,8 @@ class LabelingTaskGenerator(object):
                                       fixed=self.duration)
                     y = self.crop_y(datum['y'], subsegment)
                     sample = {'X': X, 'y': y}
+                    for key, classes in self.file_labels_.items():
+                        sample[key] = classes.index(current_file[key])
 
                     if self.shuffle:
                         samples.append(sample)
@@ -331,11 +363,6 @@ class LabelingTaskGenerator(object):
                     np.random.shuffle(samples)
                     for sample in samples:
                         yield sample
-
-    @property
-    def signature(self):
-        return {'X': {'@': (None, np.stack)},
-                'y': {'@': (None, np.stack)}}
 
     @property
     def batches_per_epoch(self):
