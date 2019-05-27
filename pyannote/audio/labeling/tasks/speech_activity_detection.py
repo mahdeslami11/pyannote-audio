@@ -142,3 +142,131 @@ class SpeechActivityDetection(LabelingTask):
             per_epoch=self.per_epoch,
             batch_size=self.batch_size,
             parallel=self.parallel)
+
+
+class DomainAwareSpeechActivityDetection(SpeechActivityDetection):
+    """Domain-aware speech activity detection
+
+    Trains speech activity detection and domain classification jointly.
+
+    Parameters
+    ----------
+    domain : `str`, optional
+        Batch key to use as domain. Defaults to 'domain'.
+        Could be 'database' or 'uri' for instance.
+    attachment : `int`, optional
+        Intermediate level where to attach the domain classifier.
+        Defaults to -1. Passed to `return_intermediate` in models supporting it.
+    """
+
+    DOMAIN_PT = '{log_dir}/weights/{epoch:04d}.domain.pt'
+
+    def __init__(self, domain='domain', attachment=-1, **kwargs):
+        super().__init__(**kwargs)
+        self.domain = domain
+        self.attachment = attachment
+
+        self.logsoftmax_ = nn.LogSoftmax(dim=1)
+        self.domain_loss_ = nn.NLLLoss()
+
+    def parameters(self, model, specifications, device):
+        """Initialize trainable trainer parameters
+
+        Parameters
+        ----------
+        specifications : `dict`
+            Batch specs.
+
+        Returns
+        -------
+        parameters : iterable
+            Trainable trainer parameters
+        """
+
+        self.domain_classifier_ = nn.Linear(
+            model.intermediate_dimension(self.attachment),
+            len(specifications[self.domain]['classes']),
+            bias=True).to(device)
+
+        return list(self.domain_classifier_.parameters())
+
+    def load_epoch(self, epoch):
+        """Load model and classifier from disk
+
+        Parameters
+        ----------
+        epoch : `int`
+            Epoch number.
+        """
+
+        super().load_epoch(epoch)
+
+        domain_classifier_state = torch.load(
+            self.DOMAIN_PT.format(log_dir=self.log_dir_, epoch=epoch),
+            map_location=lambda storage, loc: storage)
+        self.domain_classifier_.load_state_dict(domain_classifier_state)
+
+    def save_epoch(self, epoch=None):
+        """Save model to disk
+
+        Parameters
+        ----------
+        epoch : `int`, optional
+            Epoch number. Defaults to self.epoch_
+
+        """
+
+        if epoch is None:
+            epoch = self.epoch_
+
+        torch.save(self.domain_classifier_.state_dict(),
+                   self.DOMAIN_PT.format(log_dir=self.log_dir_,
+                                             epoch=epoch))
+
+        super().save_epoch(epoch=epoch)
+
+    def batch_loss(self, batch):
+        """Compute loss for current `batch`
+
+        Parameters
+        ----------
+        batch : `dict`
+            ['X'] (`numpy.ndarray`)
+            ['y'] (`numpy.ndarray`)
+
+        Returns
+        -------
+        batch_loss : `dict`
+            ['loss'] (`torch.Tensor`) : Loss
+        """
+
+        # forward pass
+        X = torch.tensor(batch['X'],
+                         dtype=torch.float32,
+                         device=self.device_)
+        fX, intermediate = self.model_(X, return_intermediate=self.attachment)
+
+        # speech activity detection
+        fX = fX.view((-1, self.n_classes_))
+        target = torch.tensor(
+            batch['y'],
+            dtype=torch.int64,
+            device=self.device_).contiguous().view((-1, ))
+
+        weight = self.weight
+        if weight is not None:
+            weight = weight.to(device=self.device_)
+        loss = self.loss_func_(fX, target, weight=weight)
+
+        # domain classification
+        domain_target = torch.tensor(
+            batch[self.domain],
+            dtype=torch.int64,
+            device=self.device_)
+
+        domain_scores = self.logsoftmax_(self.domain_classifier_(intermediate))
+        domain_loss = self.domain_loss_(domain_scores, domain_target)
+
+        return {'loss': loss + domain_loss,
+                'loss_domain': domain_loss,
+                'loss_task': loss}
