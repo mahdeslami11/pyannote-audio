@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2018 CNRS
+# Copyright (c) 2018-2019 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -29,6 +29,8 @@
 """Speech activity detection"""
 
 import numpy as np
+import torch
+import torch.nn as nn
 from .base import LabelingTask
 from .base import LabelingTaskGenerator
 from .base import TASK_MULTI_CLASS_CLASSIFICATION
@@ -51,9 +53,6 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
         Which mode to use when cropping labels. This is useful for models
         that include the feature extraction step (e.g. SincNet) and
         therefore use a different cropping mode. Defaults to 'center'.
-    overlap : bool, optional
-        Switch to 3 classes "non-speech vs. one speaker vs. 2+ speakers".
-        Defaults to 2 classes "non-speech vs. speech".
     duration : float, optional
         Duration of sub-sequences. Defaults to 3.2s.
     batch_size : int, optional
@@ -65,16 +64,7 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
         Number of prefetching background generators. Defaults to 1.
         Each generator will prefetch enough batches to cover a whole epoch.
         Set `parallel` to 0 to not use background generators.
-
     """
-
-    def __init__(self, feature_extraction, protocol, subset='train',
-                 frame_info=None, frame_crop=None, overlap=False, **kwargs):
-
-        self.overlap = overlap
-        super().__init__(
-            feature_extraction, protocol, subset=subset,
-            frame_info=frame_info, frame_crop=frame_crop, **kwargs)
 
     def postprocess_y(self, Y):
         """Generate labels for speech activity detection
@@ -97,24 +87,20 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
         speaker_count = np.sum(Y, axis=1, keepdims=True)
 
         # mark speech regions as such
-        speech = np.int64(speaker_count > 0)
-        if self.overlap:
-            # mark overlap regions as such
-            overlap = np.int64(speaker_count > 1)
-            return speech + overlap
+        return np.int64(speaker_count > 0)
 
-        return speech
 
     @property
     def specifications(self):
-        classes = ['non_speech', 'speech']
-        if self.overlap:
-            classes.append('overlap')
-        return {
+        specs = {
             'task': TASK_MULTI_CLASS_CLASSIFICATION,
             'X': {'dimension': self.feature_extraction.dimension},
-            'y': {'classes': classes},
+            'y': {'classes': ['non_speech', 'speech']},
         }
+        for key, classes in self.file_labels_.items():
+            specs[key] = {'classes': classes}
+
+        return specs
 
 
 class SpeechActivityDetection(LabelingTask):
@@ -122,9 +108,6 @@ class SpeechActivityDetection(LabelingTask):
 
     Parameters
     ----------
-    overlap : bool, optional
-        Switch to 3 classes "non-speech vs. one speaker vs. 2+ speakers".
-        Defaults to 2 classes "non-speech vs. speech".
     duration : float, optional
         Duration of sub-sequences. Defaults to 3.2s.
     batch_size : int, optional
@@ -137,10 +120,6 @@ class SpeechActivityDetection(LabelingTask):
         Each generator will prefetch enough batches to cover a whole epoch.
         Set `parallel` to 0 to not use background generators.
     """
-
-    def __init__(self, overlap=False, **kwargs):
-        super().__init__(**kwargs)
-        self.overlap = overlap
 
     def get_batch_generator(self, feature_extraction, protocol, subset='train',
                             frame_info=None, frame_crop=None):
@@ -159,7 +138,6 @@ class SpeechActivityDetection(LabelingTask):
             protocol, subset=subset,
             frame_info=frame_info,
             frame_crop=frame_crop,
-            overlap=self.overlap,
             duration=self.duration,
             per_epoch=self.per_epoch,
             batch_size=self.batch_size,
