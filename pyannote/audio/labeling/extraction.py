@@ -108,10 +108,11 @@ class SequenceLabeling(FileBasedBatchGenerator):
     def dimension(self):
         if hasattr(self.model, 'n_classes'):
             return self.model.n_classes
-        elif hasattr(self.model, 'output_dim'):
-            return self.model.output_dim
+        elif hasattr(self.model, 'dimension'):
+            return self.model.dimension
         else:
-            raise ValueError('Model has no n_classes nor output_dim attribute.')
+            msg = 'Model has no "n_classes" nor "dimension" attribute.'
+            raise ValueError(msg)
 
     @property
     def sliding_window(self):

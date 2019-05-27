@@ -43,7 +43,7 @@ class VGGVox(nn.Module):
 
     """
 
-    def __init__(self, specifications, output_dim=256):
+    def __init__(self, specifications, dimension=256):
 
         super().__init__()
         self.specifications = specifications
@@ -54,7 +54,7 @@ class VGGVox(nn.Module):
                    f'(here, n_features = {n_features:d})')
             raise ValueError(msg)
 
-        self.output_dim = output_dim
+        self.dimension = dimension
 
         h = self.n_features_  # 512 in VoxCeleb paper. 201 in practice.
         w = 301 # typically 3s with 10ms steps
@@ -112,7 +112,7 @@ class VGGVox(nn.Module):
         h, w = get_conv2d_output_shape((h, w), (h, 1), stride=(1, 1))
 
         self.fc7_ = nn.Linear(4096, 1024)
-        self.fc8_ = nn.Linear(1024, self.output_dim)
+        self.fc8_ = nn.Linear(1024, self.dimension)
 
 
     def forward(self, sequences):
@@ -125,7 +125,7 @@ class VGGVox(nn.Module):
 
         Returns
         -------
-        embeddings : torch.Tensor (batch_size, output_dim)
+        embeddings : torch.Tensor (batch_size, dimension)
             Batch of embeddings.
         """
 

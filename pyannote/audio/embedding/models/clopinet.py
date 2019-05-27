@@ -170,7 +170,7 @@ class ClopiNet(nn.Module):
             self.attention_layers_.append(attention_layer)
 
     @property
-    def output_dim(self):
+    def dimension(self):
         if self.linear:
             return self.linear[-1]
         return sum(self.recurrent) * (2 if self.bidirectional else 1)

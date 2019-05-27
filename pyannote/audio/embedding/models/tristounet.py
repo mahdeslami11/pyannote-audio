@@ -110,7 +110,7 @@ class TristouNet(nn.Module):
             input_dim = hidden_dim
 
     @property
-    def output_dim(self):
+    def dimension(self):
         if self.linear:
             return self.linear[-1]
         return self.recurrent[-1] * (2 if self.bidirectional else 1)
