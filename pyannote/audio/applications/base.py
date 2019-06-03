@@ -341,7 +341,10 @@ class Application(object):
             # if current epoch leads to the best metric so far
             # store both epoch number and best pipeline parameter to disk
             if best_epoch == epoch:
-                best = {'epoch': epoch}
+                best = {
+                    metric: best_value,
+                    'epoch': epoch,
+                }
                 if 'pipeline' in details:
                     pipeline = details['pipeline']
                     best['params'] = pipeline.parameters(instantiated=True)
