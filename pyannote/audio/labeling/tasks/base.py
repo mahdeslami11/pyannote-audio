@@ -445,8 +445,7 @@ class LabelingTask(Trainer):
         Parameters
         ----------
         feature_extraction : `pyannote.audio.features.FeatureExtraction`
-        protocol : `str`
-            Name of pyannote.database protocol.
+        protocol : `pyannote.database.Protocol`
         subset : {'train', 'development'}, optional
             Defaults to 'train'.
         frame_info : `pyannote.core.SlidingWindow`, optional
