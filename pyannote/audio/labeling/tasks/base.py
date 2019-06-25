@@ -156,12 +156,12 @@ class LabelingTaskGenerator(object):
 
         Returns
         -------
-        cropped_y :  (n_samples, ) or (n_samples, dim) `np.ndarray`
-            y for specified
+        cropped_y : (n_samples, dim) `np.ndarray`
+            y for specified `segment`
         """
 
-        return np.squeeze(y.crop(segment, mode=self.frame_crop,
-                                 fixed=self.duration))
+        return y.crop(segment, mode=self.frame_crop,
+                      fixed=self.duration)
 
     def _load_metadata(self, protocol, subset='train'):
         """Gather the following information about the training subset:
