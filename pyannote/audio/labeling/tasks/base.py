@@ -298,13 +298,13 @@ class LabelingTaskGenerator(object):
             # choose fixed-duration subsegment at random
             subsegment = next(random_subsegment(segment, self.duration))
 
-            sample = {
-                'X': self.feature_extraction.crop(current_file,
-                                                  subsegment, mode='center',
-                                                  fixed=self.duration),
-                'y': self.crop_y(datum['y'], subsegment),
-            }
+            X = self.feature_extraction.crop(current_file,
+                                             subsegment, mode='center',
+                                             fixed=self.duration)
 
+            y = self.crop_y(datum['y'], subsegment)
+
+            sample = {'X': X, 'y': y}
             for key, classes in self.file_labels_.items():
                 sample[key] = classes.index(current_file[key])
 
