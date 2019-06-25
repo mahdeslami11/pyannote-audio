@@ -72,7 +72,8 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
         Parameters
         ----------
         Y : (n_samples, n_speakers) numpy.ndarray
-            Discretized annotation returned by `pyannote.core.utils.numpy.one_hot_encoding`.
+            Discretized annotation returned by
+            `pyannote.core.utils.numpy.one_hot_encoding`.
 
         Returns
         -------
@@ -88,7 +89,6 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
 
         # mark speech regions as such
         return np.int64(speaker_count > 0)
-
 
     @property
     def specifications(self):
