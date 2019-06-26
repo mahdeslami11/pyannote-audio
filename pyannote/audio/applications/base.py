@@ -153,7 +153,6 @@ class Application(object):
             augmentation = None
 
         # feature extraction
-        extraction_name = None
         if 'feature_extraction' in self.config_:
             FeatureExtraction = get_class_by_name(
                 self.config_['feature_extraction']['name'],
