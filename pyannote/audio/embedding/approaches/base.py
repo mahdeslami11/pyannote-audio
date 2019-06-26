@@ -87,7 +87,6 @@ class EmbeddingApproach(Trainer):
 
         return torch.cat(distances)
 
-
     def forward(self, batch):
         """Forward pass on current batch
 

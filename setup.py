@@ -49,6 +49,7 @@ setup(
             'pyannote-speech-detection=pyannote.audio.applications.speech_detection:main',
             'pyannote-change-detection=pyannote.audio.applications.change_detection:main',
             'pyannote-overlap-detection=pyannote.audio.applications.overlap_detection:main',
+            'pyannote-local-diarization=pyannote.audio.applications.local_diarization:main',
             'pyannote-domain-classification=pyannote.audio.applications.domain_classification:main',
             'pyannote-speaker-embedding=pyannote.audio.applications.speaker_embedding:main',
         ],

@@ -28,4 +28,5 @@
 
 
 from .classification import Classification
+from .arcface import AngularSoftmax
 from .triplet_loss import TripletLoss

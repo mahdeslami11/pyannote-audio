@@ -28,8 +28,12 @@
 
 from .speech_activity_detection import SpeechActivityDetection
 from .speech_activity_detection import DomainAwareSpeechActivityDetection
+from .speech_activity_detection import DomainAdversarialSpeechActivityDetection
 
 from .overlap_detection import OverlapDetection
 from .speaker_change_detection import SpeakerChangeDetection
+
+from .local_diarization import LocalDiarization
+
 from .domain_classification import DomainClassification
 from .resegmentation import Resegmentation
