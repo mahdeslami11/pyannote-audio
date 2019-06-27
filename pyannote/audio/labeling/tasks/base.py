@@ -29,6 +29,8 @@
 import warnings
 import torch
 import numpy as np
+from pyannote.core import Timeline
+from pyannote.core import Annotation
 from pyannote.database import get_unique_identifier
 from pyannote.database import get_annotated
 from pyannote.core.utils.numpy import one_hot_encoding
@@ -204,7 +206,7 @@ class LabelingTaskGenerator(object):
 
             # keep track of unique file labels
             for key, value in current_file.items():
-                if key in ['annotation', 'annotated']:
+                if isinstance(value, (Annotation, Timeline)):
                     continue
                 if key not in file_labels:
                     file_labels[key] = set()
