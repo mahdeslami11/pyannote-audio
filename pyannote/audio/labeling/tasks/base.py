@@ -349,7 +349,7 @@ class LabelingTaskGenerator(object):
 
                     X = features.crop(sequence, mode='center',
                                       fixed=self.duration)
-                    y = self.crop_y(datum['y'], subsegment)
+                    y = self.crop_y(datum['y'], sequence)
                     sample = {'X': X, 'y': y}
                     for key, classes in self.file_labels_.items():
                         sample[key] = classes.index(current_file[key])
