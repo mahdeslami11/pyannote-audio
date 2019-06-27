@@ -345,9 +345,13 @@ class LabelingTaskGenerator(object):
 
                 # randomly shift 'annotated' segments start time so that
                 # we avoid generating exactly the same subsequence twice
-                annotated = Timeline(
-                    [Segment(s.start + np.random.random() * self.duration,
-                             s.end) for s in get_annotated(current_file)])
+                annotated = Timeline()
+                for segment in get_annotated(current_file):
+                    shifted_segment = Segment(
+                        segment.start + np.random.random() * self.duration,
+                        segment.end)
+                    if shifted_segment:
+                        annotated.add(shifted_segment)
                 current_file['annotated'] = annotated
 
                 if self.shuffle:
