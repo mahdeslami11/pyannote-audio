@@ -74,6 +74,9 @@ class LabelingTaskGenerator(object):
         different cropping mode. Defaults to 'center'.
     duration : float, optional
         Duration of sub-sequences. Defaults to 3.2s.
+    step : `float`, optional
+        Sub-sequences step. Defaults to `duration`.
+        Only used when `exhaustive` is True.
     batch_size : int, optional
         Batch size. Defaults to 32.
     per_epoch : float, optional
@@ -91,7 +94,8 @@ class LabelingTaskGenerator(object):
     """
 
     def __init__(self, feature_extraction, protocol, subset='train',
-                 frame_info=None, frame_crop=None, duration=3.2,
+                 frame_info=None, frame_crop=None,
+                 duration=3.2, step=None,
                  batch_size=32, per_epoch=1, parallel=1,
                  exhaustive=False, shuffle=False):
 
@@ -108,6 +112,9 @@ class LabelingTaskGenerator(object):
         self.frame_crop = frame_crop
 
         self.duration = duration
+        if step is None:
+            step = duration
+        self.step = step
         self.batch_size = batch_size
         self.per_epoch = per_epoch
         self.parallel = parallel
@@ -316,7 +323,7 @@ class LabelingTaskGenerator(object):
         probabilities = durations / np.sum(durations)
 
         sliding_segments = SlidingSegments(duration=self.duration,
-                                           step=self.duration,
+                                           step=self.step,
                                            source='annotated')
 
         while True:
