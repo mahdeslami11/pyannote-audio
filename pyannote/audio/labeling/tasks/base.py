@@ -29,7 +29,6 @@
 import warnings
 import torch
 import numpy as np
-from tqdm import tqdm
 from pyannote.database import get_unique_identifier
 from pyannote.database import get_annotated
 from pyannote.core.utils.numpy import one_hot_encoding
