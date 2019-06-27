@@ -498,16 +498,35 @@ class LabelingTask(Trainer):
         self.task_type_ = self.model_.specifications['task']
 
         if self.task_type_ == TASK_MULTI_CLASS_CLASSIFICATION:
+
             self.n_classes_ = len(self.model_.specifications['y']['classes'])
-            self.loss_func_ = F.nll_loss
+
+            def loss_func(input, target, weight=None, mask=None):
+                if mask is None:
+                    return F.nll_loss(input, target, weight=weight,
+                                      reduction='mean')
+                msg = 'masking is not supported yet.'
+                raise NotImplementedError(msg)
 
         if self.task_type_ == TASK_MULTI_LABEL_CLASSIFICATION:
-            self.loss_func_ = F.binary_cross_entropy
+
+            def loss_func(input, target, weight=None, mask=None):
+                if mask is None:
+                    return F.binary_cross_entropy(input, target, weight=weight,
+                                                  reduction='mean')
+                msg = 'masking is not supported yet.'
+                raise NotImplementedError(msg)
 
         if self.task_type_ == TASK_REGRESSION:
-            def mse_loss(input, target, weight=None):
-                return F.mse_loss(input, target)
-            self.loss_func_ = mse_loss
+
+            def loss_func(input, target, weight=None, mask=None):
+                if mask is None:
+                    return F.mse_loss(input, target,
+                                      reduction='mean')
+                msg = 'masking is not supported yet.'
+                raise NotImplementedError(msg)
+
+        self.loss_func_ = loss_func
 
     def batch_loss(self, batch):
         """Compute loss for current `batch`
