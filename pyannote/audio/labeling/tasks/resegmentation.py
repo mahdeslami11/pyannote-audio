@@ -35,6 +35,7 @@ import numpy as np
 from .base import LabelingTask
 from .base import LabelingTaskGenerator
 from .base import TASK_MULTI_CLASS_CLASSIFICATION
+from pyannote.core import SlidingWindowFeature
 from pyannote.database.protocol import SpeakerDiarizationProtocol
 from pyannote.audio.labeling.models import StackedRNN
 from pyannote.core.utils.numpy import one_hot_decoding
@@ -47,6 +48,8 @@ from pyannote.audio.features import Precomputed
 from pyannote.audio.features.utils import get_audio_duration
 from pyannote.audio.util import mkdir_p
 from pathlib import Path
+from pyannote.audio.signal import Binarize
+
 
 class ResegmentationGenerator(LabelingTaskGenerator):
     """Batch generator for resegmentation self-training
@@ -244,6 +247,45 @@ class Resegmentation(LabelingTask):
             frame_info=frame_info, frame_crop=frame_crop,
             duration=self.duration, batch_size=self.batch_size)
 
+    def _decode(self, current_file, hypothesis, scores, labels):
+
+        N, K = scores.data.shape
+
+        if self.keep_sad:
+
+            # K = 1 <~~> only non-speech
+            # K = 2 <~~> just one speaker
+            if K < 3:
+                return hypothesis
+
+            # sequence of most likely speaker index
+            # (even when non-speech is the most likely class)
+            best_speaker_indices = np.argmax(scores.data[:, 1:], axis=1) + 1
+
+            # reconstruct annotation
+            new_hypothesis = one_hot_decoding(
+                best_speaker_indices, scores.sliding_window, labels=labels)
+
+            # revert non-speech regions back to original
+            speech = hypothesis.get_timeline().support()
+            new_hypothesis = new_hypothesis.crop(speech)
+
+        else:
+
+            # K = 1 <~~> only non-speech
+            if K < 2:
+                return hypothesis
+
+            # sequence of most likely class index (including 0=non-speech)
+            best_class_indices = np.argmax(scores.data, axis=1)
+
+            # reconstruct annotation
+            new_hypothesis = one_hot_decoding(
+                best_class_indices, scores.sliding_window, labels=labels)
+
+        new_hypothesis.uri = hypothesis.uri
+        return new_hypothesis
+
     def apply(self, current_file, hypothesis=None):
         """Apply resegmentation using self-supervised sequence labeling
 
@@ -311,23 +353,100 @@ class Resegmentation(LabelingTask):
                 current_model.train()
 
         # ensemble scores
-        scores = np.mean([s.data for s in scores], axis=0)
+        scores = SlidingWindowFeature(
+            np.mean([s.data for s in scores], axis=0),
+            scores[-1].sliding_window)
 
         # speaker labels
         labels = batch_generator.specifications['y']['classes'][1:]
 
-        # features sliding window
-        window = self.feature_extraction.sliding_window
+        return self._decode(current_file, hypothesis, scores, labels)
+
+
+class ResegmentationWithOverlap(Resegmentation):
+    """Re-segmentation with overlap
+
+    Parameters
+    ----------
+    feature_extraction : `pyannote.audio.features.FeatureExtraction`
+        Feature extraction.
+    get_model : callable
+        Callable that takes `specifications` as input and returns a
+        `nn.Module` instance.
+    overlap_threshold : `float`, optional
+        Defaults to 0.5.
+    keep_sad: `boolean`, optional
+        Keep speech/non-speech state unchanged. Defaults to False.
+    epochs : `int`, optional
+        (Self-)train for that many epochs. Defaults to 30.
+    ensemble : `int`, optional
+        Average output of last `ensemble` epochs. Defaults to no ensembling.
+    duration : `float`, optional
+    batch_size : `int`, optional
+    device : `torch.device`, optional
+    """
+
+    def __init__(self, feature_extraction, get_model, keep_sad=False,
+                 overlap_threshold=0.5, epochs=30, learning_rate=0.1,
+                 ensemble=1, device=None, duration=3.2, batch_size=32):
+
+        super().__init__(feature_extraction,
+                         get_model,
+                         keep_sad=keep_sad,
+                         epochs=epochs,
+                         learning_rate=learning_rate,
+                         ensemble=ensemble,
+                         device=device,
+                         duration=duration,
+                         batch_size=batch_size)
+
+        self.overlap_threshold = overlap_threshold
+        self.binarizer_ = Binarize(onset=self.overlap_threshold,
+                                   offset=self.overlap_threshold,
+                                   scale='absolute',
+                                   log_scale=True)
+
+    def _decode(self, current_file, hypothesis, scores, labels):
+
+        # obtain overlapped speech regions
+        overlap = self.binarizer_.apply(current_file['overlap'], dimension=1)
+
+        frames = scores.sliding_window
+        N, K = scores.data.shape
 
         if self.keep_sad:
 
-            # sequence of most likely speaker index
-            # (even when non-speech is the most likely class)
-            best_speaker_indices = np.argmax(scores[:, 1:], axis=1) + 1
+            # K = 1 <~~> only non-speech
+            # K = 2 <~~> just one speaker
+            if K < 3:
+                return hypothesis
+
+            # sequence of two most likely speaker indices
+            # (even when non-speech is in fact the most likely class)
+            best_speakers_indices = np.argsort(
+                -scores.data[:, 1:], axis=1)[:, :2]
+
+            active_speakers = np.zeros((N, K-1), dtype=np.int64)
+
+            # start by assigning most likely speaker...
+            for t, k in enumerate(best_speakers_indices[:, 0]):
+                active_speakers[t, k] = 1
+
+            # ... then add second most likely speaker in overlap regions
+            T = frames.crop(overlap, mode='strict')
+
+            # because overlap may use a different feature extraction step
+            # it might happen that T contains indices slightly large than
+            # the actual number of frames. the line below remove any such
+            # indices.
+            T = T[T < N]
+
+            # mark second most likely speaker as active
+            active_speakers[T, best_speakers_indices[T, 1]] = 1
 
             # reconstruct annotation
             new_hypothesis = one_hot_decoding(
-                best_speaker_indices, window, labels=labels)
+                active_speakers, frames, labels=labels)
 
             # revert non-speech regions back to original
             speech = hypothesis.get_timeline().support()
@@ -335,12 +454,41 @@ class Resegmentation(LabelingTask):
 
         else:
 
-            # sequence of most likely class index (including 0=non-speech)
-            best_class_indices = np.argmax(scores, axis=1)
+            # K = 1 <~~> only non-speech
+            if K < 2:
+                return hypothesis
+
+            # sequence of two most likely class indices
+            # (including 0=non-speech)
+            best_speakers_indices = np.argsort(
+                -scores.data, axis=1)[:, :2]
+
+            active_speakers = np.zeros((N, K-1), dtype=np.int64)
+
+            # start by assigning the most likely speaker...
+            for t, k in enumerate(best_speakers_indices[:, 0]):
+                # k = 0 is for non-speech
+                if k > 0:
+                    active_speakers[t, k-1] = 1
+
+            # ... then add second most likely speaker in overlap regions
+            T = frames.crop(overlap, mode='strict')
+
+            # because overlap may use a different feature extraction step
+            # it might happen that T contains indices slightly large than
+            # the actual number of frames. the line below remove any such
+            # indices.
+            T = T[T < N]
+
+            # remove timesteps where second most likely class is non-speech
+            T = T[best_speaker_indices[T, 1] > 0]
+
+            # mark second most likely speaker as active
+            active_speakers[T, best_speakers_indices[T, 1] - 1] = 1
 
             # reconstruct annotation
             new_hypothesis = one_hot_decoding(
-                best_class_indices, window, labels=labels)
+                active_speakers, window, labels=labels)
 
         new_hypothesis.uri = hypothesis.uri
         return new_hypothesis

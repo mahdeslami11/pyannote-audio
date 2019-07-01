@@ -37,12 +37,16 @@ from pyannote.core.utils.helper import get_class_by_name
 from pyannote.pipeline import Pipeline
 from pyannote.pipeline.parameter import Integer
 from pyannote.pipeline.parameter import LogUniform
+from pyannote.pipeline.parameter import Uniform
 
 from pyannote.core import Annotation
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
 
 from pyannote.audio.labeling.tasks.resegmentation \
     import Resegmentation as _Resegmentation
+from pyannote.audio.labeling.tasks.resegmentation \
+    import ResegmentationWithOverlap as _ResegmentationWithOverlap
+
 
 class Resegmentation(Pipeline):
     """Resegmentation pipeline
@@ -53,6 +57,10 @@ class Resegmentation(Pipeline):
         Configuration dict for feature extraction.
     architecture : `dict`, optional
         Configuration dict for network architecture.
+    overlap : `boolean`, optional
+        Assign overlapped speech segments. Defaults to False.
+    keep_sad: `boolean`, optional
+        Keep speech/non-speech state unchanged. Defaults to False.
     duration : `float`, optional
         Defaults to 2s.
     batch_size : `int`, optional
@@ -65,23 +73,32 @@ class Resegmentation(Pipeline):
     pipeline:
         name: ResegmentationPipeline
         params:
-            duration: ...
-            batch_size: ...
-            gpu: ...
+            duration: 3
+            batch_size: 32
+            gpu: True
+            overlap: True
+            keep_sad: True
             feature_extraction:
-               name: ...
-               params: ...
+               name: Precomputed
+               params:
+                  root_dir: /path/to/precomputed/features
             architecture:
-               name: ...
-               params: ...
+               name: StackedLSTM
+               params:
+                  rnn: LSTM
 
     preprocessors:
+        audio: /path/to/database.yml
         hypothesis:
            name: pyannote.database.util.RTTMLoader
            params:
               train: /path/to/input.train.rttm
               development: /path/to/input.development.rttm
               test: /path/to/input.test.rttm
+        overlap:
+           name: pyannote.audio.features.Precomputed
+           params:
+              root_dir: /path/to/precomputed/overlap_scores
 
     """
 
@@ -90,6 +107,8 @@ class Resegmentation(Pipeline):
     # TODO. add support for data augmentation
     def __init__(self, feature_extraction: Optional[dict] = None,
                        architecture: Optional[dict] = None,
+                       overlap: Optional[bool] = False,
+                       keep_sad: Optional[bool] = False,
                        duration: Optional[float] = 2.0,
                        batch_size: Optional[float] = 32,
                        gpu: Optional[bool] = False):
@@ -131,30 +150,52 @@ class Resegmentation(Pipeline):
             params = architecture.get('params', {})
             self.get_model_ = partial(Architecture, **params)
 
+        self.overlap = overlap
+        self.keep_sad = keep_sad
+
         self.duration = duration
         self.batch_size = batch_size
         self.gpu = gpu
         self.device_ = torch.device('cuda') if self.gpu else torch.device('cpu')
 
         # hyper-parameters
-        self.learning_rate = LogUniform(1e-5, 1e-1)
-        self.epochs = Integer(1, 50)
+        self.learning_rate = LogUniform(1e-3, 1)
+        self.epochs = Integer(10, 50)
         self.ensemble = Integer(1, 5)
+        if self.overlap:
+            self.overlap_threshold = Uniform(0, 1)
 
     def initialize(self):
         """Initialize pipeline with current set of parameters"""
 
         ensemble = min(self.epochs, self.ensemble)
-        self._resegmentation = _Resegmentation(
-            self.feature_extraction_,
-            self.get_model_,
-            epochs=self.epochs,
-            learning_rate=self.learning_rate,
-            ensemble=ensemble,
-            device=self.device_,
-            duration=self.duration,
-            batch_size=self.batch_size,
-        )
+
+        if self.overlap:
+            self._resegmentation = _ResegmentationWithOverlap(
+                self.feature_extraction_,
+                self.get_model_,
+                keep_sad=self.keep_sad,
+                overlap_threshold=self.overlap_threshold,
+                epochs=self.epochs,
+                learning_rate=self.learning_rate,
+                ensemble=ensemble,
+                device=self.device_,
+                duration=self.duration,
+                batch_size=self.batch_size,
+            )
+
+        else:
+            self._resegmentation = _Resegmentation(
+                self.feature_extraction_,
+                self.get_model_,
+                keep_sad=self.keep_sad,
+                epochs=self.epochs,
+                learning_rate=self.learning_rate,
+                ensemble=ensemble,
+                device=self.device_,
+                duration=self.duration,
+                batch_size=self.batch_size,
+            )
 
     def __call__(self, current_file: dict) -> Annotation:
         """Apply speech activity detection
@@ -163,7 +204,8 @@ class Resegmentation(Pipeline):
         ----------
         current_file : `dict`
             File as provided by a pyannote.database protocol. Should contain a
-            'hypothesis' key providing diarization before resegmentation.
+            'hypothesis' key providing diarization before resegmentation (and
+            a 'overlap' key in case overlap handling).
 
         Returns
         -------
