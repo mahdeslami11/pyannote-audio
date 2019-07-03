@@ -61,6 +61,10 @@ class Resegmentation(Pipeline):
         Assign overlapped speech segments. Defaults to False.
     keep_sad: `boolean`, optional
         Keep speech/non-speech state unchanged. Defaults to False.
+    mask : `dict`, optional
+        Configuration dict for masking.
+        - dimension : `int`, optional
+        - log_scale : `bool`, optional
     duration : `float`, optional
         Defaults to 2s.
     batch_size : `int`, optional
@@ -86,6 +90,9 @@ class Resegmentation(Pipeline):
                name: StackedLSTM
                params:
                   rnn: LSTM
+            mask:
+                dimension: 0
+                log_scale: True
 
     preprocessors:
         audio: /path/to/database.yml
@@ -99,6 +106,10 @@ class Resegmentation(Pipeline):
            name: pyannote.audio.features.Precomputed
            params:
               root_dir: /path/to/precomputed/overlap_scores
+        mask:
+           name: pyannote.audio.features.Precomputed
+           params:
+              root_dir: /path/to/precomputed/overlap_scores
 
     """
 
@@ -109,6 +120,7 @@ class Resegmentation(Pipeline):
                        architecture: Optional[dict] = None,
                        overlap: Optional[bool] = False,
                        keep_sad: Optional[bool] = False,
+                       mask: Optional[dict] = None,
                        duration: Optional[float] = 2.0,
                        batch_size: Optional[float] = 32,
                        gpu: Optional[bool] = False):
@@ -153,6 +165,14 @@ class Resegmentation(Pipeline):
         self.overlap = overlap
         self.keep_sad = keep_sad
 
+        self.mask = mask
+        if mask is None:
+            self.mask_dimension_ = None
+            self.mask_logscale_ = False
+        else:
+            self.mask_dimension_ = mask['dimension']
+            self.mask_logscale_ = mask['log_scale']
+
         self.duration = duration
         self.batch_size = batch_size
         self.gpu = gpu
@@ -175,6 +195,8 @@ class Resegmentation(Pipeline):
                 self.feature_extraction_,
                 self.get_model_,
                 keep_sad=self.keep_sad,
+                mask_dimension=self.mask_dimension_,
+                mask_logscale=self.mask_logscale_,
                 overlap_threshold=self.overlap_threshold,
                 epochs=self.epochs,
                 learning_rate=self.learning_rate,
@@ -189,6 +211,8 @@ class Resegmentation(Pipeline):
                 self.feature_extraction_,
                 self.get_model_,
                 keep_sad=self.keep_sad,
+                mask_dimension=self.mask_dimension_,
+                mask_logscale=self.mask_logscale_,
                 epochs=self.epochs,
                 learning_rate=self.learning_rate,
                 ensemble=ensemble,
