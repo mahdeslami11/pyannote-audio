@@ -73,11 +73,24 @@ class ResegmentationGenerator(LabelingTaskGenerator):
         Duration of sub-sequences. Defaults to 3.2s.
     batch_size : int, optional
         Batch size. Defaults to 32.
+    mask_dimension : `int`, optional
+        When set, batches will have a "mask" key that provides a mask that has
+        the same length as "y". This "mask" will be passed to the loss function
+        has a way to weigh samples according to their "mask" value. The actual
+        value of `mask_dimension` is used to select which dimension to use.
+        This option assumes that `current_file["mask"]` contains a
+        `SlidingWindowFeature` that can be used as masking. Defaults to not use
+        masking.
+    mask_logscale : `bool`, optional
+        Set to True to indicate that mask values are log scaled. Will apply
+        exponential. Defaults to False. Has not effect when `mask_dimension`
+        is not set.
     """
 
     def __init__(self, precomputed, current_file,
                  frame_info=None, frame_crop=None,
-                 duration=3.2, batch_size=32):
+                 duration=3.2, batch_size=32,
+                 mask_dimension=None, mask_logscale=False):
 
         if 'duration' not in current_file:
             msg = (
@@ -92,7 +105,8 @@ class ResegmentationGenerator(LabelingTaskGenerator):
             precomputed, self.get_dummy_protocol(current_file), subset='train',
             frame_info=frame_info, frame_crop=frame_crop,
             duration=duration, step=0.25*duration, batch_size=batch_size,
-            exhaustive=True, shuffle=True, parallel=1)
+            exhaustive=True, shuffle=True, parallel=1,
+            mask_dimension=mask_dimension, mask_logscale=mask_logscale)
 
     def get_dummy_protocol(self, current_file):
         """Get dummy protocol containing only `current_file`
@@ -201,11 +215,24 @@ class Resegmentation(LabelingTask):
     duration : `float`, optional
     batch_size : `int`, optional
     device : `torch.device`, optional
+    mask_dimension : `int`, optional
+        When set, batches will have a "mask" key that provides a mask that has
+        the same length as "y". This "mask" will be passed to the loss function
+        has a way to weigh samples according to their "mask" value. The actual
+        value of `mask_dimension` is used to select which dimension to use.
+        This option assumes that `current_file["mask"]` contains a
+        `SlidingWindowFeature` that can be used as masking. Defaults to not use
+        masking.
+    mask_logscale : `bool`, optional
+        Set to True to indicate that mask values are log scaled. Will apply
+        exponential. Defaults to False. Has not effect when `mask_dimension`
+        is not set.
     """
 
     def __init__(self, feature_extraction, get_model, keep_sad=False,
                  epochs=30, learning_rate=0.1, ensemble=1, device=None,
-                 duration=3.2, batch_size=32):
+                 duration=3.2, batch_size=32,
+                 mask_dimension=None, mask_logscale=False):
 
         self.feature_extraction = feature_extraction
         self.get_model = get_model
@@ -213,6 +240,9 @@ class Resegmentation(LabelingTask):
         self.epochs = epochs
         self.learning_rate = learning_rate
         self.ensemble = ensemble
+
+        self.mask_dimension = mask_dimension
+        self.mask_logscale = mask_logscale
 
         self.device = torch.device('cpu') if device is None else device
 
@@ -245,7 +275,9 @@ class Resegmentation(LabelingTask):
         return ResegmentationGenerator(
             self.feature_extraction, current_file,
             frame_info=frame_info, frame_crop=frame_crop,
-            duration=self.duration, batch_size=self.batch_size)
+            duration=self.duration, batch_size=self.batch_size,
+            mask_dimension=self.mask_dimension,
+            mask_logscale=self.mask_logscale)
 
     def _decode(self, current_file, hypothesis, scores, labels):
 
@@ -384,11 +416,24 @@ class ResegmentationWithOverlap(Resegmentation):
     duration : `float`, optional
     batch_size : `int`, optional
     device : `torch.device`, optional
+    mask_dimension : `int`, optional
+        When set, batches will have a "mask" key that provides a mask that has
+        the same length as "y". This "mask" will be passed to the loss function
+        has a way to weigh samples according to their "mask" value. The actual
+        value of `mask_dimension` is used to select which dimension to use.
+        This option assumes that `current_file["mask"]` contains a
+        `SlidingWindowFeature` that can be used as masking. Defaults to not use
+        masking.
+    mask_logscale : `bool`, optional
+        Set to True to indicate that mask values are log scaled. Will apply
+        exponential. Defaults to False. Has not effect when `mask_dimension`
+        is not set.
     """
 
     def __init__(self, feature_extraction, get_model, keep_sad=False,
                  overlap_threshold=0.5, epochs=30, learning_rate=0.1,
-                 ensemble=1, device=None, duration=3.2, batch_size=32):
+                 ensemble=1, device=None, duration=3.2, batch_size=32,
+                 mask_dimension=None, mask_logscale=False):
 
         super().__init__(feature_extraction,
                          get_model,
@@ -398,7 +443,9 @@ class ResegmentationWithOverlap(Resegmentation):
                          ensemble=ensemble,
                          device=device,
                          duration=duration,
-                         batch_size=batch_size)
+                         batch_size=batch_size,
+                         mask_dimension=mask_dimension,
+                         mask_logscale=mask_logscale)
 
         self.overlap_threshold = overlap_threshold
         self.binarizer_ = Binarize(onset=self.overlap_threshold,

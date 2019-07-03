@@ -29,8 +29,11 @@
 import warnings
 import torch
 import numpy as np
+import scipy.signal
+
 from pyannote.core import Timeline
 from pyannote.core import Annotation
+from pyannote.core import SlidingWindowFeature
 from pyannote.database import get_unique_identifier
 from pyannote.database import get_annotated
 from pyannote.core.utils.numpy import one_hot_encoding
@@ -93,13 +96,26 @@ class LabelingTaskGenerator(object):
         non-uniform label distribution).
     shuffle : bool, optional
         Shuffle exhaustive samples. Defaults to False.
+    mask_dimension : `int`, optional
+        When set, batches will have a "mask" key that provides a mask that has
+        the same length as "y". This "mask" will be passed to the loss function
+        has a way to weigh samples according to their "mask" value. The actual
+        value of `mask_dimension` is used to select which dimension to use.
+        This option assumes that `current_file["mask"]` contains a
+        `SlidingWindowFeature` that can be used as masking. Defaults to not use
+        masking.
+    mask_logscale : `bool`, optional
+        Set to True to indicate that mask values are log scaled. Will apply
+        exponential. Defaults to False. Has not effect when `mask_dimension`
+        is not set.
     """
 
     def __init__(self, feature_extraction, protocol, subset='train',
                  frame_info=None, frame_crop=None,
                  duration=3.2, step=None,
                  batch_size=32, per_epoch=1, parallel=1,
-                 exhaustive=False, shuffle=False):
+                 exhaustive=False, shuffle=False,
+                 mask_dimension=None, mask_logscale=False):
 
         super(LabelingTaskGenerator, self).__init__()
 
@@ -122,6 +138,9 @@ class LabelingTaskGenerator(object):
         self.parallel = parallel
         self.exhaustive = exhaustive
         self.shuffle = shuffle
+
+        self.mask_dimension = mask_dimension
+        self.mask_logscale = mask_logscale
 
         self._load_metadata(protocol, subset=subset)
 
@@ -206,7 +225,7 @@ class LabelingTaskGenerator(object):
 
             # keep track of unique file labels
             for key, value in current_file.items():
-                if isinstance(value, (Annotation, Timeline)):
+                if isinstance(value, (Annotation, Timeline, SlidingWindowFeature)):
                     continue
                 if key not in file_labels:
                     file_labels[key] = set()
@@ -242,6 +261,9 @@ class LabelingTaskGenerator(object):
     def signature(self):
         signature = {'X': {'@': (None, np.stack)},
                      'y': {'@': (None, np.stack)}}
+
+        if self.mask_dimension is not None:
+            signature['mask'] = {'@': (None, np.stack)}
 
         for key in self.file_labels_:
             signature[key] = {'@': (None, np.stack)}
@@ -311,8 +333,27 @@ class LabelingTaskGenerator(object):
                                              fixed=self.duration)
 
             y = self.crop_y(datum['y'], subsegment)
-
             sample = {'X': X, 'y': y}
+
+            if self.mask_dimension is not None:
+
+                # extract mask for current sub-segment
+                mask = current_file['mask'].crop(subsegment,
+                                                 mode='center',
+                                                 fixed=self.duration)
+
+                # use requested dimension (e.g. non-overlap scores)
+                mask = mask[:, self.mask_dimension]
+                if self.mask_logscale:
+                    mask = np.exp(mask)
+
+                # it might happen that "mask" and "y" use different sliding
+                # windows. therefore, we simply resample "mask" to match "y"
+                if len(mask) != len(y):
+                    mask = scipy.signal.resample(mask, len(y), axis=0)
+
+                sample['mask'] = mask
+
             for key, classes in self.file_labels_.items():
                 sample[key] = classes.index(current_file[key])
 
@@ -363,6 +404,26 @@ class LabelingTaskGenerator(object):
                                       fixed=self.duration)
                     y = self.crop_y(datum['y'], sequence)
                     sample = {'X': X, 'y': y}
+
+                    if self.mask_dimension is not None:
+
+                        # extract mask for current sub-segment
+                        mask = current_file['mask'].crop(sequence,
+                                                         mode='center',
+                                                         fixed=self.duration)
+
+                        # use requested dimension (e.g. non-overlap scores)
+                        mask = mask[:, self.mask_dimension]
+                        if self.mask_logscale:
+                            mask = np.exp(mask)
+
+                        # it might happen that "mask" and "y" use different
+                        # sliding windows. therefore, we simply resample "mask"
+                        # to match "y"
+                        if len(mask) != len(y):
+                            mask = scipy.signal.resample(mask, len(y), axis=0)
+                        sample['mask'] = mask
+
                     for key, classes in self.file_labels_.items():
                         sample[key] = classes.index(current_file[key])
 
@@ -476,7 +537,7 @@ class LabelingTask(Trainer):
         return LabelingTaskGenerator(
             feature_extraction, protocol, subset=subset,
             frame_info=frame_info, frame_crop=frame_crop,
-            duration=self.duration, per_epoch=self.per_epoch,
+            duration=self.duration, step=self.step, per_epoch=self.per_epoch,
             batch_size=self.batch_size, parallel=self.parallel)
 
     @property
@@ -505,8 +566,11 @@ class LabelingTask(Trainer):
                 if mask is None:
                     return F.nll_loss(input, target, weight=weight,
                                       reduction='mean')
-                msg = 'masking is not supported yet.'
-                raise NotImplementedError(msg)
+                else:
+                    return torch.mean(
+                        mask * F.nll_loss(input, target,
+                                          weight=weight,
+                                          reduction='none'))
 
         if self.task_type_ == TASK_MULTI_LABEL_CLASSIFICATION:
 
@@ -514,8 +578,11 @@ class LabelingTask(Trainer):
                 if mask is None:
                     return F.binary_cross_entropy(input, target, weight=weight,
                                                   reduction='mean')
-                msg = 'masking is not supported yet.'
-                raise NotImplementedError(msg)
+                else:
+                    return torch.mean(
+                        mask * F.binary_cross_entropy(input, target,
+                                                      weight=weight,
+                                                      reduction='none'))
 
         if self.task_type_ == TASK_REGRESSION:
 
@@ -523,8 +590,10 @@ class LabelingTask(Trainer):
                 if mask is None:
                     return F.mse_loss(input, target,
                                       reduction='mean')
-                msg = 'masking is not supported yet.'
-                raise NotImplementedError(msg)
+                else:
+                    return torch.mean(
+                        mask * F.mse_loss(input, target,
+                                          reduction='none'))
 
         self.loss_func_ = loss_func
 
@@ -536,6 +605,7 @@ class LabelingTask(Trainer):
         batch : `dict`
             ['X'] (`numpy.ndarray`)
             ['y'] (`numpy.ndarray`)
+            ['mask'] (`numpy.ndarray`, optional)
 
         Returns
         -------
@@ -549,13 +619,22 @@ class LabelingTask(Trainer):
                          device=self.device_)
         fX = self.model_(X)
 
+        mask = None
         if self.task_type_ == TASK_MULTI_CLASS_CLASSIFICATION:
+
             fX = fX.view((-1, self.n_classes_))
 
             target = torch.tensor(
                 batch['y'],
                 dtype=torch.int64,
                 device=self.device_).contiguous().view((-1, ))
+
+            if 'mask' in batch:
+                mask = torch.tensor(
+                    batch['mask'],
+                    dtype=torch.float32,
+                    device=self.device_).contiguous().view((-1, ))
+
 
         elif self.task_type_ in [TASK_MULTI_LABEL_CLASSIFICATION,
                                  TASK_REGRESSION]:
@@ -565,8 +644,18 @@ class LabelingTask(Trainer):
                 dtype=torch.float32,
                 device=self.device_)
 
+            if 'mask' in batch:
+                mask = torch.tensor(
+                    batch['mask'],
+                    dtype=torch.float32,
+                    device=self.device_)
+
         weight = self.weight
         if weight is not None:
             weight = weight.to(device=self.device_)
 
-        return {'loss': self.loss_func_(fX, target, weight=weight)}
+        return {
+            'loss': self.loss_func_(fX, target,
+                                    weight=weight,
+                                    mask=mask),
+        }
