@@ -9,12 +9,15 @@ Neural building blocks for speaker diarization:
 ## Installation
 
 ```bash
+# create a conda environment with Python 3.6 or later
 $ conda create --name pyannote python=3.6
 $ source activate pyannote
-$ pip install pyannote.audio
 
-# support Yaafe feature extraction (optional)
-$ conda install -c conda-forge yaafe
+# install from source in the "develop" branch
+$ git clone https://github.com/pyannote/pyannote-audio.git
+$ cd pyannote-audio
+$ git checkout develop
+$ pip install .
 ```
 
 ## Citation
@@ -57,7 +60,7 @@ If you use `pyannote.audio` please use the following citations.
 
 ## Tutorials
 
-:warning: These tutorials assumes that you installed the [`develop` branch](https://github.com/pyannote/pyannote-audio/issues/145) of `pyannote.audio`.   
+:warning: These tutorials assumes that you installed the [`develop` branch](https://github.com/pyannote/pyannote-audio/issues/145) of `pyannote.audio`.  
 :warning: They are most likely [broken](https://github.com/pyannote/pyannote-audio/issues/151) in `pyannote.audio 1.x`.
 
   * [Feature extraction](tutorials/feature_extraction)
