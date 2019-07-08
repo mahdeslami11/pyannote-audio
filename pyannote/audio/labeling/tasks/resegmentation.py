@@ -535,7 +535,7 @@ class ResegmentationWithOverlap(Resegmentation):
 
             # reconstruct annotation
             new_hypothesis = one_hot_decoding(
-                active_speakers, window, labels=labels)
+                active_speakers, frames, labels=labels)
 
         new_hypothesis.uri = hypothesis.uri
         return new_hypothesis
