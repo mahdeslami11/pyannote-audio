@@ -528,7 +528,7 @@ class ResegmentationWithOverlap(Resegmentation):
             T = T[T < N]
 
             # remove timesteps where second most likely class is non-speech
-            T = T[best_speaker_indices[T, 1] > 0]
+            T = T[best_speakers_indices[T, 1] > 0]
 
             # mark second most likely speaker as active
             active_speakers[T, best_speakers_indices[T, 1] - 1] = 1
