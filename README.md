@@ -3,6 +3,7 @@
 Neural building blocks for speaker diarization: 
 * speech activity detection
 * speaker change detection
+* overlapped speech detection
 * speaker embedding
 * speaker diarization pipeline
 
@@ -67,6 +68,7 @@ If you use `pyannote.audio` please use the following citations.
   * Models
     * [Training LSTM-based speech activity detection](tutorials/models/speech_activity_detection)
     * [Training LSTM-based speaker change detection](tutorials/models/speaker_change_detection)
+    * [Training LSTM-based overlapped speech detection](tutorials/models/overlap_detection)
     * [Training LSTM-based speaker embedding](tutorials/models/speaker_embedding)
 
   * Pipelines
