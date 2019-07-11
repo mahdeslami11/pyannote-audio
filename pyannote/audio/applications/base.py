@@ -438,6 +438,10 @@ class Application(object):
                 # yield next epoch to process
                 yield next_epoch_to_validate
 
+                # stop validation when the last epoch has been reached
+                if next_epoch_to_validate >= end:
+                    return
+
                 # remember which epoch was processed
                 validated_epochs.add(next_epoch_to_validate)
 
