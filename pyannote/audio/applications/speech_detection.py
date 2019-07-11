@@ -160,7 +160,6 @@ import scipy.optimize
 from docopt import docopt
 from .base_labeling import BaseLabeling
 from pyannote.database import get_annotated
-from pyannote.database import get_unique_identifier
 from pyannote.metrics.detection import DetectionErrorRate
 from pyannote.audio.labeling.extraction import SequenceLabeling
 from pyannote.audio.pipeline import SpeechActivityDetection \
@@ -190,7 +189,6 @@ class SpeechActivityDetection(BaseLabeling):
             duration=duration, step=.25 * duration, batch_size=self.batch_size,
             device=self.device)
         for current_file in validation_data:
-            uri = get_unique_identifier(current_file)
             current_file['sad_scores'] = sequence_labeling(current_file)
 
         # pipeline

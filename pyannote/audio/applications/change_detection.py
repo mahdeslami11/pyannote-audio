@@ -166,7 +166,6 @@ import numpy as np
 from docopt import docopt
 from .base_labeling import BaseLabeling
 from pyannote.database import get_annotated
-from pyannote.database import get_unique_identifier
 from pyannote.metrics.diarization import DiarizationPurityCoverageFMeasure
 from pyannote.metrics.segmentation import SegmentationPurityCoverageFMeasure
 
@@ -198,7 +197,6 @@ class SpeakerChangeDetection(BaseLabeling):
             duration=duration, step=.25 * duration, batch_size=self.batch_size,
             device=self.device)
         for current_file in validation_data:
-            uri = get_unique_identifier(current_file)
             current_file['scd_scores'] = sequence_labeling(current_file)
 
         # pipeline

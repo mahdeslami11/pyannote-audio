@@ -39,7 +39,6 @@ from pyannote.core import SlidingWindowFeature
 from pyannote.database.protocol import SpeakerDiarizationProtocol
 from pyannote.audio.labeling.models import StackedRNN
 from pyannote.core.utils.numpy import one_hot_decoding
-from pyannote.database import get_unique_identifier
 from pyannote.database import get_annotated
 from pyannote.audio.labeling.extraction import SequenceLabeling
 from pyannote.audio.train.schedulers import ConstantScheduler
