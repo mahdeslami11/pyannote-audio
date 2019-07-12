@@ -95,7 +95,7 @@ class Application(object):
         # load configuration
         config_yml = self.CONFIG_YML.format(experiment_dir=self.experiment_dir)
         with open(config_yml, 'r') as fp:
-            self.config_ = yaml.load(fp, Loader=yaml.BaseLoader)
+            self.config_ = yaml.load(fp)
 
         # preprocessors
         preprocessors = {}
@@ -231,7 +231,7 @@ class Application(object):
         # initialize model from specs stored on disk
         specs_yml = self.task_.SPECS_YML.format(log_dir=train_dir)
         with io.open(specs_yml, 'r') as fp:
-            specifications = yaml.load(fp, Loader=yaml.BaseLoader)
+            specifications = yaml.load(fp)
         self.model_ = self.get_model_(specifications)
 
         import torch
