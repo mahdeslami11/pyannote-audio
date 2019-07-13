@@ -37,6 +37,7 @@ from pyannote.generators.batch import FileBasedBatchGenerator
 from pyannote.generators.fragment import SlidingSegments
 from pyannote.database import get_unique_identifier
 from pyannote.audio.features import Precomputed
+from pyannote.audio.features import RawAudio
 
 
 class SequenceLabeling(FileBasedBatchGenerator):
@@ -139,7 +140,7 @@ class SequenceLabeling(FileBasedBatchGenerator):
 
         # if "features" are precomputed on disk, do nothing
         # as "process_segment" will load just the part we need
-        if isinstance(self.feature_extraction, Precomputed):
+        if isinstance(self.feature_extraction, (Precomputed, RawAudio)):
             return current_file
 
         # if (by chance) current_file already contains "features"
@@ -188,7 +189,7 @@ class SequenceLabeling(FileBasedBatchGenerator):
                                  return_data=True)
 
         # this line will only happen when self.feature_extraction is a
-        # pyannote.audio.features.Precomputed instance
+        # pyannote.audio.features.{Precomputed | RawAudio} instance
         return self.feature_extraction.crop(current_file, segment,
                                             mode='center', fixed=self.duration,
                                             return_data=True)
