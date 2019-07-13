@@ -185,14 +185,12 @@ class SequenceLabeling(FileBasedBatchGenerator):
         # use in-memory "features" whenever they are available
         if 'features' in current_file:
             features = current_file['features']
-            return features.crop(segment, mode='center', fixed=self.duration,
-                                 return_data=True)
+            return features.crop(segment, mode='center', fixed=self.duration)
 
         # this line will only happen when self.feature_extraction is a
         # pyannote.audio.features.{Precomputed | RawAudio} instance
         return self.feature_extraction.crop(current_file, segment,
-                                            mode='center', fixed=self.duration,
-                                            return_data=True)
+                                            mode='center', fixed=self.duration)
 
     def forward(self, X):
         """Process (variable-length) sequences
