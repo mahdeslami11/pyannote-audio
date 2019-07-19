@@ -250,8 +250,9 @@ class DomainClassification(BaseLabeling):
             y_true_file.append(y_true)
 
         accuracy = np.mean(np.array(y_true_file) == np.array(y_pred_file))
-        return {'metric': 'accuracy', 'minimize': False, 'value': accuracy}
-
+        return {'metric': 'accuracy',
+                'minimize': False,
+                'value': float(accuracy)}
 
 def main():
     arguments = docopt(__doc__, version='Domain classification')
