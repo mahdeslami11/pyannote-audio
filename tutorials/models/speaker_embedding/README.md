@@ -175,10 +175,10 @@ This model reaches approximately 7% EER on VoxCeleb1.
 Now that we know how the model is doing, we can apply it on all files of the AMI database store embeddings in `/path/to/precomputed/emb`:
 
 ```bash
-$ pyannote-speaker-embedding apply ${TRAIN_DIR}/weights/2000.pt AMI.SpeakerDiarization.MixHeadset /path/to/precomputed/emb
+$ pyannote-speaker-embedding apply --duration=1.0 --step=0.5 ${TRAIN_DIR}/weights/2000.pt AMI.SpeakerDiarization.MixHeadset /path/to/precomputed/emb
 ```
 
-We can then use these extracted embeddings like this:
+In the above example, embeddings are extracted every 500ms using a 1s sliding window. We can then use these extracted embeddings like this:
 
 
 ```python
