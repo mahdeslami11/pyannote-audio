@@ -61,7 +61,7 @@ class RNN(nn.Module):
     concatenate : `boolean`, optional
         Concatenate output of each layer instead of using only the last one
         (which is the default behavior).
-    pool : {'sum', 'max', 'last'}, optional
+    pool : {'sum', 'max', 'last', 'x-vector'}, optional
         Temporal pooling strategy. Defaults to no pooling.
     """
 
@@ -185,6 +185,11 @@ class RNN(nn.Module):
                 # return ...
             output = output[:, -1]
 
+        elif self.pool == 'x-vector':
+            output = torch.cat((torch.mean(output, dim=1),
+                                torch.std(output, dim=1)),
+                               dim=1)
+
         if return_intermediate:
             return output, intermediate
 
@@ -198,6 +203,8 @@ class RNN(nn.Module):
                 dimension *= 2
             if self.concatenate:
                 dimension *= self.num_layers
+            if self.pool == 'x-vector':
+                dimension *= 2
             return dimension
         return locals()
     dimension = property(**dimension())
@@ -207,7 +214,6 @@ class RNN(nn.Module):
         if self.bidirectional:
             dimension *= 2
         return dimension
-
 
 
 class FF(nn.Module):
