@@ -98,20 +98,31 @@ class Application(object):
             self.config_ = yaml.load(fp, Loader=yaml.SafeLoader)
 
         # preprocessors
-        preprocessors = {}
-        PREPROCESSORS_DEFAULT = {'audio': db_yml,
-                                 'duration': get_audio_duration}
+        preprocessors = {'audio': FileFinder(db_yml),
+                         'duration': get_audio_duration}
 
-        for key, value in self.config_.get('preprocessors',
-                                            PREPROCESSORS_DEFAULT).items():
-            if callable(value):
-                preprocessors[key] = value
+        for key, preprocessor in self.config_.get('preprocessors', {}).items():
+            # preprocessors:
+            #    key:
+            #       name: package.module.ClassName
+            #       params:
+            #          param1: value1
+            #          param2: value2
+            if isinstance(preprocessor, dict):
+                Klass = get_class_by_name(preprocessor['name'])
+                preprocessors[key] = Klass(**preprocessor.get('params', {}))
                 continue
 
             try:
-                preprocessors[key] = FileFinder(config_yml=value)
+                # preprocessors:
+                #    key: /path/to/database.yml
+                preprocessors[key] = FileFinder(preprocessor)
+
             except FileNotFoundError as e:
-                preprocessors[key] = value
+                # preprocessors:
+                #    key: /path/to/{uri}.wav
+                preprocessors[key] = preprocessor
+
         self.preprocessors_ = preprocessors
 
         # scheduler
