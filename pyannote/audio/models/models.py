@@ -181,9 +181,12 @@ class RNN(nn.Module):
 
         elif self.pool == 'last':
             if self.bidirectional:
-                raise NotImplementedError()
-                # return ...
-            output = output[:, -1]
+                output = torch.cat(
+                    hidden.view(self.num_layers, num_directions,
+                                -1, self.hidden_size)[-1],
+                    dim=0)
+            else:
+                output = output[:, -1]
 
         elif self.pool == 'x-vector':
             output = torch.cat((torch.mean(output, dim=1),
