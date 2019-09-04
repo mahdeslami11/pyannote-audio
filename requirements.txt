@@ -13,5 +13,4 @@ sortedcollections >= 1.0.1
 sortedcontainers >= 2.0.4
 soundfile >= 0.10.2
 tensorboardX >= 1.7
-torch >= 1.0.0
 tqdm >= 4.29.1
