@@ -363,13 +363,6 @@ class PyanNet(nn.Module):
 
         n_features = specifications['X']['dimension']
 
-        if n_features != 1:
-            msg = (
-                f'PyanNet only supports mono waveforms. '
-                f'Here, waveform has {n_features} channels.'
-            )
-            raise ValueError(msg)
-
         if sincnet is None:
             sincnet = dict()
         self.sincnet = sincnet
@@ -377,6 +370,13 @@ class PyanNet(nn.Module):
         if sincnet.get('skip', False):
             pass
         else:
+            if n_features != 1:
+                msg = (
+                    f'SincNet only supports mono waveforms. '
+                    f'Here, waveform has {n_features} channels.'
+                )
+                raise ValueError(msg)
+
             self.sincnet_ = SincNet(**sincnet)
             self.frame_info_ = self.sincnet_.get_frame_info(**sincnet)
             n_features = self.sincnet_.dimension
