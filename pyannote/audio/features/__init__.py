@@ -39,14 +39,6 @@ except Exception as e:
             f'because something went wrong when importing them: "{e}".')
         print(msg)
 
-try:
-    from .with_python_speech_features import PySpeechFeaturesMFCC
-except Exception as e:
-        msg = (
-            f'Feature extractors based on "python_speech_features" are not available '
-            f'because something went wrong when importing them: "{e}".')
-        print(msg)
-
 from .precomputed import Precomputed
 from .precomputed import PrecomputedHTK
 
