@@ -46,7 +46,8 @@ class RNN(nn.Module):
     n_features : `int`
         Input feature shape.
     unit : {'LSTM', 'GRU'}, optional
-    hidden_size : `int`, optional
+        Defaults to 'LSTM'.
+    hidden_size : `int`, optional
         Number of features in the hidden state h. Defaults to 16.
     num_layers : `int`, optional
         Number of recurrent layers. Defaults to 1.
@@ -316,15 +317,24 @@ class Embedding(nn.Module):
     dimension = property(**dimension())
 
 
+
 class PyanNet(nn.Module):
     """waveform -> SincNet -> RNN [-> merge] [-> time_pool] -> FC -> output
 
     Parameters
     ----------
     sincnet : `dict`, optional
+        SincNet parameters. Defaults to `pyannote.audio.models.sincnet.SincNet`
+        default parameters. Use {'skip': True} to use handcrafted features
+        instead of waveforms: [ waveform -> SincNet -> RNN -> ... ] then
+        becomes [ features -> RNN -> ...].
     rnn : `dict`, optional
+        Recurrent network parameters. Defaults to `RNN` default parameters.
     ff : `dict`, optional
+        Feed-forward layers parameters. Defaults to `FF` default parameters.
     embedding : `dict`, optional
+        Embedding parameters. Defaults to `Embedding` default parameters. This
+        only has effect when model is used for representation learning.
     """
 
     frame_crop = SincNet.frame_crop
@@ -332,8 +342,17 @@ class PyanNet(nn.Module):
     supports_packed = False
 
     @staticmethod
-    def get_frame_info(**kwargs):
-        return SincNet.get_frame_info(**kwargs)
+    def get_frame_info(sincnet=None, **kwargs):
+        """
+        """
+
+        if sincnet is None:
+            sincnet = dict()
+
+        if sincnet.get('skip', False):
+            return None
+
+        return SincNet.get_frame_info(**sincnet)
 
     def __init__(self, specifications, sincnet=None, rnn=None, ff=None,
                  embedding=None):
@@ -354,9 +373,13 @@ class PyanNet(nn.Module):
         if sincnet is None:
             sincnet = dict()
         self.sincnet = sincnet
-        self.sincnet_ = SincNet(**sincnet)
-        self.frame_info_ = self.sincnet_.get_frame_info(**sincnet)
-        n_features = self.sincnet_.dimension
+
+        if sincnet.get('skip', False):
+            pass
+        else:
+            self.sincnet_ = SincNet(**sincnet)
+            self.frame_info_ = self.sincnet_.get_frame_info(**sincnet)
+            n_features = self.sincnet_.dimension
 
         if rnn is None:
             rnn = dict()
@@ -394,12 +417,13 @@ class PyanNet(nn.Module):
             raise NotImplementedError(msg)
 
     def forward(self, waveforms, return_intermediate=None):
-        """
+        """Forward pass
 
         Parameters
         ----------
-        waveforms : (batch_size, n_samples, 1)
-            Batch of waveforms
+        waveforms : (batch_size, n_samples, 1) `torch.Tensor`
+            Batch of waveforms. In case SincNet is skipped, a tensor with shape
+            (batch_size, n_samples, n_features) is expected.
         return_intermediate : `int`, optional
             Index of RNN layer. Returns RNN intermediate hidden state.
             Defaults to only return the final output.
@@ -412,7 +436,11 @@ class PyanNet(nn.Module):
             Intermediate network output (only when `return_intermediate`
             is provided).
         """
-        output = self.sincnet_(waveforms)
+
+        if self.sincnet.get('skip', False):
+            output = waveforms
+        else:
+            output = self.sincnet_(waveforms)
 
         if return_intermediate is None:
             output = self.rnn_(output)
