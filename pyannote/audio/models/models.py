@@ -266,7 +266,9 @@ class FF(nn.Module):
     def dimension():
         doc = "Output dimension."
         def fget(self):
-            return self.hidden_size[-1]
+            if self.hidden_size:
+                return self.hidden_size[-1]
+            return self.n_features
         return locals()
     dimension = property(**dimension())
 
