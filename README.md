@@ -84,5 +84,5 @@ If you use `pyannote.audio` please use the following citations.
   
 ## Documentation
 
-Part of the API is described in [this](tutorials/models/pretrained) tutorial.  
+Part of the API is described in [this](tutorials/own_data/pretrained) tutorial.  
 Other than that, there is still a lot to do (contribute?) documentation-wise...
