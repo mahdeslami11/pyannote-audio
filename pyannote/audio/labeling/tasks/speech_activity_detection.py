@@ -35,7 +35,7 @@ from .base import LabelingTask
 from .base import LabelingTaskGenerator
 from .base import TASK_MULTI_CLASS_CLASSIFICATION
 from ..gradient_reversal import GradientReversal
-
+from pyannote.audio.models.models import RNN
 
 class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
     """Batch generator for training speech activity detection
@@ -158,17 +158,40 @@ class DomainAwareSpeechActivityDetection(SpeechActivityDetection):
     attachment : `int`, optional
         Intermediate level where to attach the domain classifier.
         Defaults to -1. Passed to `return_intermediate` in models supporting it.
+    rnn: `dict`, optional 
+        Parameters of the RNN used in the domain classifier.
+        See `pyannote.audio.models.models.RNN` for details. 
     """
 
     DOMAIN_PT = '{log_dir}/weights/{epoch:04d}.domain.pt'
 
-    def __init__(self, domain='domain', attachment=-1, **kwargs):
+    def __init__(self, 
+                 domain='domain', attachment=-1, 
+                 rnn=None, domain_loss="NLLLoss", 
+                 **kwargs):
         super().__init__(**kwargs)
         self.domain = domain
         self.attachment = attachment
 
-        self.logsoftmax_ = nn.LogSoftmax(dim=1)
-        self.domain_loss_ = nn.NLLLoss()
+        if rnn is None:
+            rnn = dict()
+        self.rnn = rnn
+
+        self.domain_loss = domain_loss
+        if self.domain_loss == "NLLLoss":
+            # Default value
+            self.domain_loss_ = nn.NLLLoss()
+            self.activation_ = nn.LogSoftmax(dim=1)
+            
+        elif self.domain_loss == "MSELoss":
+            self.domain_loss_ = nn.MSELoss()
+            self.activation_ = nn.Sigmoid()
+        
+        else:
+            msg = (
+                f'{domain_loss} has not been implemented yet.'
+            )
+            raise NotImplementedError(msg)
 
     def parameters(self, model, specifications, device):
         """Initialize trainable trainer parameters
@@ -183,11 +206,17 @@ class DomainAwareSpeechActivityDetection(SpeechActivityDetection):
         parameters : iterable
             Trainable trainer parameters
         """
+        domain_classifier_rnn = RNN(
+            n_features=model.intermediate_dimension(self.attachment), 
+            **self.rnn)
 
-        self.domain_classifier_ = nn.Linear(
-            model.intermediate_dimension(self.attachment),
+        domain_classifier_linear = nn.Linear(
+            domain_classifier_rnn.dimension,
             len(specifications[self.domain]['classes']),
             bias=True).to(device)
+
+        self.domain_classifier_ = nn.Sequential(domain_classifier_rnn, 
+                                                domain_classifier_linear).to(device)
 
         return list(self.domain_classifier_.parameters())
 
@@ -265,7 +294,8 @@ class DomainAwareSpeechActivityDetection(SpeechActivityDetection):
             dtype=torch.int64,
             device=self.device_)
 
-        domain_scores = self.logsoftmax_(self.domain_classifier_(intermediate))
+        domain_scores = self.activation_(self.domain_classifier_(intermediate))
+
         domain_loss = self.domain_loss_(domain_scores, domain_target)
 
         return {'loss': loss + domain_loss,
@@ -274,12 +304,12 @@ class DomainAwareSpeechActivityDetection(SpeechActivityDetection):
 
 
 class DomainAdversarialSpeechActivityDetection(DomainAwareSpeechActivityDetection):
+    """TODO: docstring"""
 
     def __init__(self, domain='domain', attachment=-1, alpha=1., **kwargs):
         super().__init__(domain=domain, attachment=attachment, **kwargs)
         self.alpha = alpha
         self.gradient_reversal_ = GradientReversal()
-
 
     def batch_loss(self, batch):
         """Compute loss for current `batch`
@@ -295,15 +325,16 @@ class DomainAdversarialSpeechActivityDetection(DomainAwareSpeechActivityDetectio
         batch_loss : `dict`
             ['loss'] (`torch.Tensor`) : Loss
         """
-
         # forward pass
         X = torch.tensor(batch['X'],
                          dtype=torch.float32,
                          device=self.device_)
+
         fX, intermediate = self.model_(X, return_intermediate=self.attachment)
 
         # speech activity detection
         fX = fX.view((-1, self.n_classes_))
+
         target = torch.tensor(
             batch['y'],
             dtype=torch.int64,
@@ -312,6 +343,7 @@ class DomainAdversarialSpeechActivityDetection(DomainAwareSpeechActivityDetectio
         weight = self.weight
         if weight is not None:
             weight = weight.to(device=self.device_)
+
         loss = self.loss_func_(fX, target, weight=weight)
 
         # domain classification
@@ -320,8 +352,15 @@ class DomainAdversarialSpeechActivityDetection(DomainAwareSpeechActivityDetectio
             dtype=torch.int64,
             device=self.device_)
 
-        domain_scores = self.logsoftmax_(self.domain_classifier_(
+        domain_scores = self.activation_(self.domain_classifier_(
             self.gradient_reversal_(intermediate)))
+
+        if self.domain_loss == "MSELoss":
+            # One hot encode domain_target for Mean Squared Error Loss
+            nb_domains = domain_scores.shape[1]
+            identity_mat = torch.sparse.torch.eye(nb_domains, device=self.device_)
+            domain_target = identity_mat.index_select(dim=0, index=domain_target)
+
         domain_loss = self.domain_loss_(domain_scores, domain_target)
 
         return {'loss': loss + self.alpha * domain_loss,

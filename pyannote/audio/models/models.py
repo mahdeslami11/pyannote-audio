@@ -459,10 +459,15 @@ class PyanNet(nn.Module):
         if return_intermediate is None:
             output = self.rnn_(output)
         else:
-            # get RNN final AND intermediate outputs
-            output, intermediate = self.rnn_(output, return_intermediate=True)
-            # only keep hidden state of requested layer
-            intermediate = intermediate[return_intermediate]
+            if return_intermediate == 0:
+                intermediate = output
+                output = self.rnn_(output)
+            else:
+                return_intermediate -= 1
+                # get RNN final AND intermediate outputs
+                output, intermediate = self.rnn_(output, return_intermediate=True)
+                # only keep hidden state of requested layer
+                intermediate = intermediate[return_intermediate]
 
         output = self.ff_(output)
 
@@ -487,7 +492,9 @@ class PyanNet(nn.Module):
         raise NotImplementedError(msg)
 
     def intermediate_dimension(self, layer):
-        return self.rnn_.intermediate_dimension(layer)
+        if layer == 0:
+            return self.sincnet_.dimension
+        return self.rnn_.intermediate_dimension(layer-1)
 
     @property
     def classes(self):
