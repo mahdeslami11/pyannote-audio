@@ -33,6 +33,7 @@ import numpy as np
 from pyannote.pipeline import Pipeline
 from pyannote.pipeline.parameter import Uniform
 
+from pyannote.core import Timeline
 from pyannote.core import Annotation
 from pyannote.core import SlidingWindowFeature
 
@@ -41,6 +42,7 @@ from pyannote.audio.features import Precomputed
 
 from pyannote.metrics.detection import DetectionPrecision
 from pyannote.metrics.detection import DetectionRecall
+
 
 class OverlapDetection(Pipeline):
     """Overlap detection pipeline
