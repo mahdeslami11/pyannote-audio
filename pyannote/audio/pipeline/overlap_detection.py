@@ -158,7 +158,7 @@ class OverlapDetection(Pipeline):
         recall = DetectionRecall()
 
         # build overlap reference
-        reference = Timeline(uri=uri)
+        reference = Timeline(uri=current_file['uri'])
         turns = current_file['annotation']
         for track1, track2 in turns.co_iter(turns):
             if track1 == track2:
