@@ -355,9 +355,10 @@ def main():
         application.n_jobs = n_jobs
         application.precision = precision
 
-        application.validate(protocol_name, subset=subset,
-                             start=start, end=end, every=every,
-                             in_order=in_order)
+        task = f'precision={100*precision:.0f}%'
+        application.validate(
+            protocol_name, subset=subset, task=task,
+            start=start, end=end, every=every, in_order=in_order)
 
     if arguments['apply']:
 
