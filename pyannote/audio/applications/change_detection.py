@@ -323,9 +323,10 @@ def main():
         application.purity = purity
         application.diarization = diarization
 
-        application.validate(protocol_name, subset=subset,
-                             start=start, end=end, every=every,
-                             in_order=in_order)
+        task = f'purity={100*purity:.0f}%'
+        application.validate(
+            protocol_name, subset=subset, task=task,
+            start=start, end=end, every=every, in_order=in_order)
 
     if arguments['apply']:
 
