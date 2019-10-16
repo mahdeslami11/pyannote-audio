@@ -73,6 +73,9 @@ class ResegmentationGenerator(LabelingTaskGenerator):
         Duration of sub-sequences. Defaults to 3.2s.
     batch_size : int, optional
         Batch size. Defaults to 32.
+    keep_singleton : `boolean`, optional
+        Keep clusters containing only one speech turn (i.e. singletons).
+        Defaults to not use them.
     mask_dimension : `int`, optional
         When set, batches will have a "mask" key that provides a mask that has
         the same length as "y". This "mask" will be passed to the loss function
@@ -97,6 +100,7 @@ class ResegmentationGenerator(LabelingTaskGenerator):
                  frame_crop=None,
                  duration=3.2,
                  batch_size=32,
+                 keep_singleton=False,
                  mask_dimension=None,
                  mask_logscale=False,
                  augmentation=False):
@@ -107,6 +111,16 @@ class ResegmentationGenerator(LabelingTaskGenerator):
                 'provides the audio file duration in seconds.'
             )
             raise ValueError(msg)
+
+        # (optionally) remove singletons support from generator
+        self.keep_singleton = keep_singleton
+        if not self.keep_singleton:
+            annotation = current_file['annotation']
+            annotated = get_annotated(current_file)
+            singletons = [label for label in annotation.labels()
+                          if len(annotation.label_timeline(label)) == 1]
+            singletons = annotation.subset(singletons).get_timeline()
+            current_file['annotated'] = singletons.gaps(support=annotated)
 
         self.current_file = current_file
         dummy_protocol = self.get_dummy_protocol(current_file)
@@ -143,7 +157,7 @@ class ResegmentationGenerator(LabelingTaskGenerator):
 
         Returns
         -------
-        protocol : SpeakerDiarizationProtocol instance
+        protocol : `pyannote.database.protocols.SpeakerDiarizationProtocol`
             Dummy protocol containing only `current_file` in both train,
             dev., and test sets.
 
@@ -234,6 +248,9 @@ class Resegmentation(LabelingTask):
         `nn.Module` instance.
     keep_sad: `boolean`, optional
         Keep speech/non-speech state unchanged. Defaults to False.
+    keep_singleton: `boolean`, optional
+        Keep clusters containing only one speech turn (i.e. singletons).
+        Defaults to not use them.
     epochs : `int`, optional
         (Self-)train for that many epochs. Defaults to 30.
     ensemble : `int`, optional
@@ -262,6 +279,7 @@ class Resegmentation(LabelingTask):
                  feature_extraction,
                  get_model,
                  keep_sad=False,
+                 keep_singleton=False,
                  epochs=30,
                  learning_rate=0.1,
                  ensemble=1,
@@ -275,6 +293,7 @@ class Resegmentation(LabelingTask):
         self.feature_extraction = feature_extraction
         self.get_model = get_model
         self.keep_sad = keep_sad
+        self.keep_singleton = keep_singleton
         self.epochs = epochs
         self.learning_rate = learning_rate
         self.ensemble = ensemble
@@ -319,6 +338,7 @@ class Resegmentation(LabelingTask):
             frame_crop=frame_crop,
             duration=self.duration,
             batch_size=self.batch_size,
+            keep_singleton=self.keep_singleton,
             mask_dimension=self.mask_dimension,
             mask_logscale=self.mask_logscale,
             augmentation=self.augmentation)
@@ -456,6 +476,9 @@ class ResegmentationWithOverlap(Resegmentation):
         Defaults to 0.5.
     keep_sad: `boolean`, optional
         Keep speech/non-speech state unchanged. Defaults to False.
+    keep_singleton: `boolean`, optional
+        Keep clusters containing only one speech turn (i.e. singletons).
+        Defaults to not use them.
     epochs : `int`, optional
         (Self-)train for that many epochs. Defaults to 30.
     ensemble : `int`, optional
@@ -484,6 +507,7 @@ class ResegmentationWithOverlap(Resegmentation):
                  feature_extraction,
                  get_model,
                  keep_sad=False,
+                 keep_singleton=False,
                  overlap_threshold=0.5,
                  epochs=30,
                  learning_rate=0.1,
@@ -498,6 +522,7 @@ class ResegmentationWithOverlap(Resegmentation):
         super().__init__(feature_extraction,
                          get_model,
                          keep_sad=keep_sad,
+                         keep_singleton=keep_singleton,
                          epochs=epochs,
                          learning_rate=learning_rate,
                          ensemble=ensemble,

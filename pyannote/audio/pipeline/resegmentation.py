@@ -30,7 +30,6 @@ from typing import Optional
 from pathlib import Path
 import yaml
 
-import torch
 from functools import partial
 from pyannote.core.utils.helper import get_class_by_name
 
@@ -61,6 +60,9 @@ class Resegmentation(Pipeline):
         Assign overlapped speech segments. Defaults to False.
     keep_sad: `boolean`, optional
         Keep speech/non-speech state unchanged. Defaults to False.
+    keep_singleton : `boolean`, optional
+        Keep clusters containing only one speech turn (i.e. singletons).
+        Defaults to not use them.
     mask : `dict`, optional
         Configuration dict for masking.
         - dimension : `int`, optional
@@ -123,6 +125,7 @@ class Resegmentation(Pipeline):
                        architecture: Optional[dict] = None,
                        overlap: Optional[bool] = False,
                        keep_sad: Optional[bool] = False,
+                       keep_singleton: Optional[bool] = False,
                        mask: Optional[dict] = None,
                        augmentation: Optional[bool] = False,
                        duration: Optional[float] = 2.0,
@@ -168,6 +171,7 @@ class Resegmentation(Pipeline):
 
         self.overlap = overlap
         self.keep_sad = keep_sad
+        self.keep_singleton = keep_singleton
 
         self.mask = mask
         if mask is None:
@@ -182,6 +186,8 @@ class Resegmentation(Pipeline):
         self.duration = duration
         self.batch_size = batch_size
         self.gpu = gpu
+
+        import torch
         self.device_ = torch.device('cuda') if self.gpu else torch.device('cpu')
 
         # hyper-parameters
@@ -201,6 +207,7 @@ class Resegmentation(Pipeline):
                 self.feature_extraction_,
                 self.get_model_,
                 keep_sad=self.keep_sad,
+                keep_singleton=self.keep_singleton,
                 mask_dimension=self.mask_dimension_,
                 mask_logscale=self.mask_logscale_,
                 overlap_threshold=self.overlap_threshold,
@@ -217,6 +224,7 @@ class Resegmentation(Pipeline):
                 self.feature_extraction_,
                 self.get_model_,
                 keep_sad=self.keep_sad,
+                keep_singleton=self.keep_singleton,
                 mask_dimension=self.mask_dimension_,
                 mask_logscale=self.mask_logscale_,
                 epochs=self.epochs,
