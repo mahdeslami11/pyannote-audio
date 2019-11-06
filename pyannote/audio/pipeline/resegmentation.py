@@ -149,20 +149,22 @@ class Resegmentation(Pipeline):
 
         # network architecture
         if architecture is None:
-            from pyannote.audio.labeling.models import StackedRNN
+            from pyannote.audio.models import PyanNet
             self.get_model_ = partial(
-                StackedRNN,
-                instance_normalize=False,
-                rnn='LSTM',
-                recurrent=[64, 32,],
-                bidirectional=True,
-                linear=[32, ],
+                PyanNet, sincnet={'skip': True},
+                # FIXME
+                # rnn=dict(),
+                # instance_normalize=False,
+                # rnn='LSTM',
+                # recurrent=[64, 32,],
+                # bidirectional=True,
+                # linear=[32, ],
             )
 
         else:
             Architecture = get_class_by_name(
                 architecture['name'],
-                default_module_name='pyannote.audio.labeling.models')
+                default_module_name='pyannote.audio.models')
             params = architecture.get('params', {})
             self.get_model_ = partial(Architecture, **params)
 

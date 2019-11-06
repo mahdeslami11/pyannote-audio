@@ -93,15 +93,10 @@ Configuration file:
        params:
           root_dir: tutorials/feature-extraction
 
-    # use the StackedRNN architecture.
-    # see pyannote.audio.labeling.models for more details
+    # use the PyanNet architecture.
+    # see pyannote.audio.models for more details
     architecture:
-       name: StackedRNN
-       params:
-         rnn: LSTM
-         recurrent: [32, 20]
-         bidirectional: True
-         linear: [40, 10]
+       name: PyanNet
 
     # use cyclic learning rate scheduler
     scheduler:

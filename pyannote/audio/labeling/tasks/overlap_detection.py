@@ -324,27 +324,6 @@ class OverlapDetection(LabelingTask):
         Number of prefetching background generators. Defaults to 1.
         Each generator will prefetch enough batches to cover a whole epoch.
         Set `parallel` to 0 to not use background generators.
-
-    Usage
-    -----
-    >>> task = OverlapDetection()
-
-    # precomputed features
-    >>> from pyannote.audio.features import Precomputed
-    >>> precomputed = Precomputed('/path/to/features')
-
-    # model architecture
-    >>> from pyannote.audio.labeling.models import StackedRNN
-    >>> model = StackedRNN(precomputed.dimension, task.n_classes)
-
-    # evaluation protocol
-    >>> from pyannote.database import get_protocol
-    >>> protocol = get_protocol('Etape.SpeakerDiarization.TV')
-
-    # train model using protocol training set
-    >>> for epoch, model in task.fit_iter(model, precomputed, protocol):
-    ...     pass
-
     """
 
     def __init__(self, **kwargs):

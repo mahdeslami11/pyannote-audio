@@ -37,7 +37,6 @@ from .base import LabelingTaskGenerator
 from .base import TASK_MULTI_CLASS_CLASSIFICATION
 from pyannote.core import SlidingWindowFeature
 from pyannote.database.protocol import SpeakerDiarizationProtocol
-from pyannote.audio.labeling.models import StackedRNN
 from pyannote.audio.augmentation import AddNoiseFromGaps
 from pyannote.core.utils.numpy import one_hot_decoding
 from pyannote.database import get_annotated
