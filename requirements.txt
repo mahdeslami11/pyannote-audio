@@ -14,3 +14,4 @@ sortedcontainers >= 2.0.4
 soundfile >= 0.10.2
 tensorboardX >= 1.7
 tqdm >= 4.29.1
+typing_extensions >= 3.7.4
