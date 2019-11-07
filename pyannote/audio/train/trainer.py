@@ -33,7 +33,7 @@ import tempfile
 from torch.optim import SGD
 from pyannote.audio.train.schedulers import ConstantScheduler
 from pyannote.audio.train.checkpoint import Checkpoint
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from .logging import Logging
 from .callback import Callbacks
 
@@ -255,7 +255,7 @@ class Trainer:
             self.log_dir_ = tempfile.mkdtemp()
         else:
             self.log_dir_ = log_dir
-        self.tensorboard_ = SummaryWriter(logdir=self.log_dir_)
+        self.tensorboard_ = SummaryWriter(log_dir=self.log_dir_)
 
         # BATCH GENERATOR
         self.batch_generator_ = batch_generator

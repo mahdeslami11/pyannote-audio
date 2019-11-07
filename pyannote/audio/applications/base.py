@@ -42,7 +42,7 @@ from pyannote.database import get_protocol
 from pyannote.audio.util import mkdir_p
 from pyannote.audio.features.utils import get_audio_duration
 from sortedcontainers import SortedDict
-import tensorboardX
+from torch.utils.tensorboard import SummaryWriter
 from functools import partial
 from pyannote.core.utils.helper import get_class_by_name
 import warnings
@@ -327,7 +327,7 @@ class Application(object):
         params_yml = validate_dir / 'params.yml'
         validate_dir.mkdir(parents=True, exist_ok=False)
 
-        writer = tensorboardX.SummaryWriter(logdir=str(validate_dir))
+        writer = SummaryWriter(log_dir=str(validate_dir))
 
         validation_data = self.validate_init(protocol_name, subset=subset,
                                              **kwargs)
