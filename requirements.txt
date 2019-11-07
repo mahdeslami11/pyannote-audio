@@ -1,10 +1,10 @@
 cachetools >= 2.0.0
-librosa >= 0.6.2
+librosa >= 0.7.0
 pandas >= 0.18.0
 pyannote.core >= 3.0
 pyannote.database >= 2.3.1
 pyannote.generators >= 2.0
-pyannote.metrics >= 1.8.1
+pyannote.metrics >= 2.1
 pyannote.pipeline >= 1.2
 pyYAML >= 3.12
 scikit-learn >= 0.20.2
