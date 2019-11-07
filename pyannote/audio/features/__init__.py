@@ -40,7 +40,6 @@ except Exception as e:
         print(msg)
 
 from .precomputed import Precomputed
-from .precomputed import PrecomputedHTK
 
 try:
     from .utils import RawAudio
