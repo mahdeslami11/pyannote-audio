@@ -29,9 +29,18 @@
 
 import numpy as np
 from collections import deque
-from dlib import count_steps_without_decrease
-from dlib import count_steps_without_decrease_robust
-from dlib import probability_that_sequence_is_increasing
+
+try:
+    from dlib import count_steps_without_decrease
+    from dlib import count_steps_without_decrease_robust
+    from dlib import probability_that_sequence_is_increasing
+except ImportError as e:
+    msg = (
+        f'`DavisKingScheduler` and "AutoLR" are not supported '
+        f'because `dlib` was not installed correctly: "{e}"'
+    )
+    print(msg)
+
 from .callback import Callback
 from tqdm import tqdm
 from scipy.signal import convolve
