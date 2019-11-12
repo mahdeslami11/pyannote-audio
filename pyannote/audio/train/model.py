@@ -190,14 +190,14 @@ class Model(Module):
     def n_features(self) -> int:
         """Number of input features
 
-        Shortcut for self.specifications['X']['n_features']
+        Shortcut for self.specifications['X']['dimension']
 
         Returns
         -------
         n_features : `int`
             Number of input features
         """
-        return self.specifications['X']['n_features']
+        return self.specifications['X']['dimension']
 
     @property
     def dimension(self) -> int:
