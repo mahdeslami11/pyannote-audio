@@ -393,23 +393,23 @@ class PyanNet(Model):
              rnn : Optional[dict] = None,
              ff : Optional[dict] = None,
              embedding : Optional[dict] = None):
-    """waveform -> SincNet -> RNN [-> merge] [-> time_pool] -> FC -> output
+        """waveform -> SincNet -> RNN [-> merge] [-> time_pool] -> FC -> output
 
-    Parameters
-    ----------
-    sincnet : `dict`, optional
-        SincNet parameters. Defaults to `pyannote.audio.models.sincnet.SincNet`
-        default parameters. Use {'skip': True} to use handcrafted features
-        instead of waveforms: [ waveform -> SincNet -> RNN -> ... ] then
-        becomes [ features -> RNN -> ...].
-    rnn : `dict`, optional
-        Recurrent network parameters. Defaults to `RNN` default parameters.
-    ff : `dict`, optional
-        Feed-forward layers parameters. Defaults to `FF` default parameters.
-    embedding : `dict`, optional
-        Embedding parameters. Defaults to `Embedding` default parameters. This
-        only has effect when model is used for representation learning.
-    """
+        Parameters
+        ----------
+        sincnet : `dict`, optional
+            SincNet parameters. Defaults to `pyannote.audio.models.sincnet.SincNet`
+            default parameters. Use {'skip': True} to use handcrafted features
+            instead of waveforms: [ waveform -> SincNet -> RNN -> ... ] then
+            becomes [ features -> RNN -> ...].
+        rnn : `dict`, optional
+            Recurrent network parameters. Defaults to `RNN` default parameters.
+        ff : `dict`, optional
+            Feed-forward layers parameters. Defaults to `FF` default parameters.
+        embedding : `dict`, optional
+            Embedding parameters. Defaults to `Embedding` default parameters. This
+            only has effect when model is used for representation learning.
+        """
 
         n_features = self.n_features
 
