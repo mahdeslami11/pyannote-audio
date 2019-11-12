@@ -377,13 +377,13 @@ class PyanNet(Model):
         if rnn is None:
             rnn = {'pool': None}
 
-        if rnn['pool'] is not None:
+        if rnn.get('pool', None) is not None:
             return RESOLUTION_CHUNK
 
         if sincnet is None:
             sincnet = {'skip': False}
 
-        if sincnet['skip']:
+        if sincnet.get('skip', False):
             return RESOLUTION_FRAME
 
         return SincNet.get_resolution(**sincnet)
