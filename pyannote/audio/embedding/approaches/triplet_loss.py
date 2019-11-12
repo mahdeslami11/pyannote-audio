@@ -319,17 +319,18 @@ class TripletLoss(EmbeddingApproach):
 
     def get_batch_generator(self, feature_extraction,
                             protocol, subset='train',
-                            frame_info=None, frame_crop=None):
+                            **kwargs):
         """Get batch generator
 
         Parameters
         ----------
         feature_extraction : `pyannote.audio.features.FeatureExtraction`
+        protocol : `pyannote.database.Protocol`
+        subset : {'train', 'development', 'test'}, optional
 
         Returns
         -------
         generator : `pyannote.audio.embedding.generators.SpeechSegmentGenerator`
-
         """
 
         return SpeechSegmentGenerator(

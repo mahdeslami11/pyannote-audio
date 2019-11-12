@@ -64,7 +64,7 @@ class LibrosaFeatureExtraction(FeatureExtraction):
                                              duration=self.duration,
                                              step=self.step)
 
-    def get_frame_info(self):
+    def get_resolution(self):
         return self.sliding_window_
 
 

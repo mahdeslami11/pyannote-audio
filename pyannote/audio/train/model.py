@@ -66,7 +66,7 @@ class Model(Module):
     specifications : `dict`
         Task specifications.
     **architecture_params : `dict`
-        Architecture parameters.
+        Architecture hyper-parameters.
     """
 
     def __init__(self,
@@ -74,6 +74,24 @@ class Model(Module):
                  **architecture_params):
         super().__init__()
         self.specifications = specifications
+        self.resolution_ = self.get_resolution(**architecture_params)
+        self.alignment_ = self.get_alignment(**architecture_params)
+        self.init(**architecture_params)
+
+    def init(self, **architecture_params):
+        """Initialize model architecture
+
+        This method is called by Model.__init__ after attributes
+        'specifications', 'resolution_', and 'alignment_' have been set.
+
+        Parameters
+        ----------
+        **architecture_params : `dict`
+            Architecture hyper-parameters
+
+        """
+        msg = 'Method "init" must be overriden.'
+        raise NotImplementedError(msg)
 
     def forward(self, sequences, **kwargs):
         """TODO
@@ -100,8 +118,7 @@ class Model(Module):
         """
         return self.specifications['task']
 
-    @staticmethod
-    def get_resolution(**architecture_params) -> Resolution:
+    def get_resolution(self, **architecture_params) -> Resolution:
         """Get target resolution
 
         This method is called by `BatchGenerator` instances to determine how
@@ -142,8 +159,11 @@ class Model(Module):
             msg = f"{self.task} tasks are not supported."
             raise NotImplementedError(msg)
 
-    @staticmethod
-    def get_alignment(**architecture_params) -> Alignment:
+    @property
+    def resolution(self) -> Resolution:
+        return self.resolution_
+
+    def get_alignment(self, **architecture_params) -> Alignment:
         """Get target alignment
 
         This method is called by `BatchGenerator` instances to dermine how
@@ -161,6 +181,23 @@ class Model(Module):
         """
 
         return ALIGNMENT_CENTER
+
+    @property
+    def alignment(self) -> Alignment:
+        return self.alignment_
+
+    @property
+    def n_features(self) -> int:
+        """Number of input features
+
+        Shortcut for self.specifications['X']['n_features']
+
+        Returns
+        -------
+        n_features : `int`
+            Number of input features
+        """
+        return self.specifications['X']['n_features']
 
     @property
     def dimension(self) -> int:

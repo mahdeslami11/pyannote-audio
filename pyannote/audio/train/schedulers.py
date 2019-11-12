@@ -31,15 +31,10 @@ import numpy as np
 from collections import deque
 
 try:
-    from dlib import count_steps_without_decrease
-    from dlib import count_steps_without_decrease_robust
-    from dlib import probability_that_sequence_is_increasing
+    import dlib
+    DLIB_NOT_AVAILABLE = False
 except ImportError as e:
-    msg = (
-        f'`DavisKingScheduler` and "AutoLR" are not supported '
-        f'because `dlib` was not installed correctly: "{e}"'
-    )
-    print(msg)
+    DLIB_NOT_AVAILABLE = True
 
 from .callback import Callback
 from tqdm import tqdm
@@ -104,7 +99,7 @@ class BaseSchedulerCallback(Callback):
                           mode='same', method='auto')
 
         # probability that loss has decreased in the last `K` steps.
-        probability = [probability_that_sequence_is_increasing(-losses[i-K:i])
+        probability = [dlib.probability_that_sequence_is_increasing(-losses[i-K:i])
                        if i > K else np.NAN for i in range(len(losses))]
         probability = np.array(probability)
 
@@ -123,6 +118,14 @@ class BaseSchedulerCallback(Callback):
         return lrs[int(stop - 1.1 * K)]
 
     def auto_lr(self, trainer, beta=0.98):
+
+        if DLIB_NOT_AVAILABLE:
+            msg = (
+                '"auto" learning rate is not supported because "dlib" is not '
+                'available. If you would like to contribute a fix, visit '
+                'https://github.com/pyannote/pyannote-audio/issues/223.'
+            )
+            raise NotImplementedError(msg)
 
         trainer.save_epoch()
 
@@ -261,6 +264,14 @@ class DavisKingScheduler(BaseSchedulerCallback):
         self.factor = factor
         self.patience = patience
 
+        if DLIB_NOT_AVAILABLE:
+            msg = (
+                '"DavisKing" scheduler is not supported because "dlib" is not '
+                'available. If you would like to contribute a fix, visit '
+                'https://github.com/pyannote/pyannote-audio/issues/223.'
+            )
+            raise NotImplementedError(msg)
+
     def on_train_start(self, trainer):
         super().on_train_start(trainer)
         maxlen = 10 * self.patience * trainer.batches_per_epoch_
@@ -274,8 +285,8 @@ class DavisKingScheduler(BaseSchedulerCallback):
         self.losses_.append(loss)
 
         # compute statistics on batch loss trend
-        count = count_steps_without_decrease(self.losses_)
-        count_robust = count_steps_without_decrease_robust(self.losses_)
+        count = dlib.count_steps_without_decrease(self.losses_)
+        count_robust = dlib.count_steps_without_decrease_robust(self.losses_)
 
         # if batch loss hasn't been decreasing for a while
         patience = self.patience * trainer.batches_per_epoch_

@@ -26,16 +26,27 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
+from typing import Optional, Iterator, Callable, Union
+try:
+    from typing import Literal
+except ImportError as e:
+    from typing_extensions import Literal
+from pathlib import Path
 import io
 import yaml
 import torch
 import tempfile
-from torch.optim import SGD
-from pyannote.audio.train.schedulers import ConstantScheduler
-from pyannote.audio.train.checkpoint import Checkpoint
+from torch.nn import Module
+from torch.optim import Optimizer, SGD
 from torch.utils.tensorboard import SummaryWriter
 from .logging import Logging
 from .callback import Callbacks
+from .checkpoint import Checkpoint
+from .schedulers import BaseSchedulerCallback
+from .schedulers import ConstantScheduler
+from .generator import BatchGenerator
+from .model import Model
+
 
 ARBITRARY_LR = 0.1
 
@@ -160,49 +171,64 @@ class Trainer:
         """Called when training stops"""
         pass
 
-    def fit(self, model, batch_generator, restart=0, epochs=1000,
-            get_optimizer=None, get_scheduler=None, learning_rate='auto',
-            log_dir=None, quiet=False, device=None):
+    def fit(self,
+            model: Model,
+            batch_generator: BatchGenerator,
+            restart: int = 0,
+            epochs: int = 1000,
+            get_optimizer: Optional[Callable[..., Optimizer]] = None,
+            scheduler: Optional[BaseSchedulerCallback] = None,
+            learning_rate: Union[Literal['auto'], float] = 'auto',
+            log_dir: Optional[Path] = None,
+            quiet: bool = False,
+            device: Optional[torch.device] = None,
+            ) -> Model:
         """Train model
 
         Parameters
         ----------
-        model : torch.nn.Module
-            Sequence labeling/embedding model.
-        batch_generator : `callable`
-
-        restart : int, optional
-            Restart training at this epoch. Defaults to train from scratch.
-        epochs : int, optional
+        model : `Model`
+            Model.
+        batch_generator : `BatchGenerator`
+            Batch generator.
+        restart : `int`, optional
+            Restart training at this epoch. Default behavior (0) is to train the
+            model from scratch.
+        epochs : `int`, optional
             Train model for that many epochs. Defaults to 1000.
-        get_optimizer : callable, optional
-            Function that takes `model.parameters()` and `lr=...` as input and
-            returns an optimizer. Defaults to `torch.optim.SGD`.
-        get_scheduler : callable, optional
-            Function that takes `optimizer`, `batches_per_epoch`, `min_lr=...`,
-            and `max_lr=...` as input and returns a learning rate scheduler.
-            Defaults to `pyannote.audio.train.schedulers.ConstantScheduler`.
+        get_optimizer : `callable`, optional
+            Callable taking model parameters as input and returns an instance of
+            `torch.optim.Optimizer`. May also support `lr` keyword argument.
+            Defaults to `torch.optim.SGD`.
+        scheduler : `BaseSchedulerCallback`, optional
+            Learning rate scheduler. Defaults to `ConstantScheduler`.
         learning_rate : {float, 'auto'}, optional
-            Defaults to 'auto'.
-        log_dir : str, optional
+            Learning rate. Default behavior ('auto') is to use the AutoLR
+            heuristic to determine the learning rate automatically.
+        log_dir : `Path`, optional
             Directory where models and other log files are stored.
             Defaults to not store anything.
         quiet : `boolean`, optional
             Do not show progress on stdout. Defaults to False.
-        device : torch.device, optional
-            Defaults to torch.device('cpu')
+        device : `torch.device`, optional
+            Device on which the model will be allocated. Defaults to using CPU.
 
         Returns
         -------
-        model : torch.nn.Module
+        model : `Model`
             Trained model.
         """
 
         iterations = self.fit_iter(
-            model, batch_generator,
-            restart=restart, epochs=epochs,
-            get_optimizer=get_optimizer, get_scheduler=get_scheduler,
-            learning_rate=learning_rate, log_dir=log_dir, quiet=quiet,
+            model,
+            batch_generator,
+            restart=restart,
+            epochs=epochs,
+            get_optimizer=get_optimizer,
+            scheduler=scheduler,
+            learning_rate=learning_rate,
+            log_dir=log_dir,
+            quiet=quiet,
             device=device)
 
         for _ in iterations:
@@ -210,43 +236,51 @@ class Trainer:
 
         return self.model_
 
-    def fit_iter(self, get_model, batch_generator,
-                 restart=0, epochs=1000,
-                 get_optimizer=None, get_scheduler=None, learning_rate='auto',
-                 log_dir=None, quiet=False, device=None):
+    def fit_iter(self,
+                 model : Model,
+                 batch_generator : BatchGenerator,
+                 restart : Union[int, str] = 0,
+                 epochs: int = 1000,
+                 get_optimizer: Optional[Callable[..., Optimizer]] = None,
+                 scheduler: Optional[BaseSchedulerCallback] = None,
+                 learning_rate: Union[Literal['auto'], float] = 'auto',
+                 log_dir: Optional[Path] = None,
+                 quiet: bool = False,
+                 device: Optional[torch.device] = None,
+                 ) -> Iterator[Model]:
         """Train model
 
         Parameters
         ----------
-        get_model : callable
-            Callable that takes batch generator specification as input and
-            returns a nn.Module instance
-        batch_generator : callable
-
-        restart : int, optional
-            Restart training at this epoch. Defaults to train from scratch.
-        epochs : int, optional
+        model : `Model`
+            Model.
+        batch_generator : `BatchGenerator`
+            Batch generator.
+        restart : `int`, optional
+            Restart training at this epoch. Default behavior (0) is to train the
+            model from scratch.
+        epochs : `int`, optional
             Train model for that many epochs. Defaults to 1000.
-        get_optimizer : callable, optional
-            Function that takes `model.parameters()` and `lr=...` as input and
-            returns an optimizer. Defaults to `torch.optim.SGD`.
-        get_scheduler : callable, optional
-            Function that takes `optimizer`, `batches_per_epoch`, `min_lr=...`,
-            and `max_lr=...` as input and returns a learning rate scheduler.
-            Defaults to `pyannote.audio.train.schedulers.ConstantScheduler`.
+        get_optimizer : `callable`, optional
+            Callable taking model parameters as input and returns an instance of
+            `torch.optim.Optimizer`. May also support `lr` keyword argument.
+            Defaults to `torch.optim.SGD`.
+        scheduler : `BaseSchedulerCallback`, optional
+            Learning rate scheduler. Defaults to `ConstantScheduler`.
         learning_rate : {float, 'auto'}, optional
-            Base learning rate. Defaults to 'auto'.
-        log_dir : str, optional
+            Learning rate. Default behavior ('auto') is to use the AutoLR
+            heuristic to determine the learning rate automatically.
+        log_dir : `Path`, optional
             Directory where models and other log files are stored.
             Defaults to not store anything.
         quiet : `boolean`, optional
             Do not show progress on stdout. Defaults to False.
-        device : torch.device, optional
-            Defaults to torch.device('cpu')
+        device : `torch.device`, optional
+            Device on which the model will be allocated. Defaults to using CPU.
 
         Yields
         ------
-        model : `torch.nn.Module`
+        model : `Model`
             Model at current iteration
         """
 
@@ -266,14 +300,15 @@ class Trainer:
         self.device_ = torch.device('cpu') if device is None else device
 
         # MODEL
-        specifications = self.batch_generator_.specifications
-        self.model_ = get_model(specifications)
-        self.model_ = self.model_.to(self.device_)
+        self.model_ = model.to(self.device_)
 
         # save specifications to disk
+        specifications = self.batch_generator_.specifications
         specs_yml = self.SPECS_YML.format(log_dir=self.log_dir_)
         with io.open(specs_yml, 'w') as fp:
-            yaml.dump(specifications, fp, default_flow_style=False)
+            specifications_ = dict(specifications)
+            specifications_['task'] = str(specifications_['task'])
+            yaml.dump(specifications_, fp, default_flow_style=False)
 
         # OPTIMIZER
         if get_optimizer is None:
@@ -291,12 +326,12 @@ class Trainer:
         self.base_learning_rate_ = learning_rate
 
         # SCHEDULER
-        if get_scheduler is None:
-            get_scheduler = ConstantScheduler
+        if scheduler is None:
+            scheduler = ConstantScheduler()
 
         callbacks = [
             Checkpoint(),        # checkpoint has to go first
-            get_scheduler(),
+            scheduler,
         ]
 
         if not quiet:

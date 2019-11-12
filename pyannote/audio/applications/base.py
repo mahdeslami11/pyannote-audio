@@ -31,7 +31,7 @@ import os
 import sys
 import time
 import yaml
-from typing import Optional
+from typing import Optional, Union
 from pathlib import Path
 from os.path import dirname, basename
 import numpy as np
@@ -46,9 +46,11 @@ from torch.utils.tensorboard import SummaryWriter
 from functools import partial
 from pyannote.core.utils.helper import get_class_by_name
 import warnings
+from pyannote.audio.train.task import Task
 
 
-class Application(object):
+
+class Application:
 
     CONFIG_YML = '{experiment_dir}/config.yml'
     TRAIN_DIR = '{experiment_dir}/train/{protocol}.{subset}'
@@ -84,7 +86,7 @@ class Application(object):
 
         # load params.yml file from validate directory
         with open(validate_dir / 'params.yml', 'r') as fp:
-            params_yml = yaml.load(fp)
+            params_yml = yaml.load(fp, Loader=yaml.SafeLoader)
 
         # build path to best epoch model
         epoch = params_yml['epoch']
@@ -112,7 +114,6 @@ class Application(object):
         training : boolean, optional
             When False, data augmentation is disabled.
         """
-        super(Application, self).__init__()
 
         self.experiment_dir = experiment_dir
 
@@ -188,23 +189,47 @@ class Application(object):
             augmentation = None
 
         # feature extraction
-        if 'feature_extraction' in self.config_:
-            FeatureExtraction = get_class_by_name(
-                self.config_['feature_extraction']['name'],
-                default_module_name='pyannote.audio.features')
-            self.feature_extraction_ = FeatureExtraction(
-                **self.config_['feature_extraction'].get('params', {}),
-                augmentation=augmentation)
+        FEATURE_DEFAULT = {'name': 'RawAudio',
+                           'params': {'sample_rate': 16000}}
+        feature_cfg = self.config_.get('feature_extraction', FEATURE_DEFAULT)
+        FeatureExtraction = get_class_by_name(
+            feature_cfg['name'],
+            default_module_name='pyannote.audio.features')
+        feature_params = feature_cfg.get('params', {})
+        self.feature_extraction_ = FeatureExtraction(
+            **feature_params,
+            augmentation=augmentation)
 
-    def train(self, protocol_name, subset='train', restart=0, epochs=1000):
-        """Trainer model
+        # task
+        Task = get_class_by_name(
+            self.config_[self.config_main_section]['name'],
+            default_module_name=self.config_default_module)
+        self.task_ = Task(
+            **self.config_[self.config_main_section].get('params', {}))
+
+        # architecture
+        Architecture = get_class_by_name(
+            self.config_['architecture']['name'],
+            default_module_name='pyannote.audio.models')
+        params = self.config_['architecture'].get('params', {})
+
+        self.get_model_from_specs_ = partial(Architecture, **params)
+        self.model_resolution_ = Architecture.get_resolution(**params)
+        self.model_alignment_ =  Architecture.get_alignment(**params)
+
+
+    def train(self, protocol_name: str,
+                    subset: str = 'train',
+                    restart: Union[int, str] = 0,
+                    epochs: int = 1000):
+        """Train model
 
         Parameters
         ----------
-        protocol_name : `str`
+        protocol_name : `str`
         subset : {'train', 'development', 'test'}, optional
             Defaults to 'train'.
-        restart : `int`, optional
+        restart : `int` or `str`, optional
             Restart training at `restart`th epoch. Defaults to training from
             scratch.
         epochs : `int`, optional
@@ -216,7 +241,7 @@ class Application(object):
             protocol=protocol_name,
             subset=subset)
 
-        if not restart:
+        if isinstance(restart, str) or restart == 0:
 
             weights_dir = self.task_.WEIGHTS_DIR.format(log_dir=train_dir)
             try:
@@ -238,18 +263,29 @@ class Application(object):
         protocol = get_protocol(protocol_name, progress=True,
                                 preprocessors=self.preprocessors_)
         batch_generator = self.task_.get_batch_generator(
-            self.feature_extraction_, protocol, subset=subset,
-            frame_info=self.frame_info_, frame_crop=self.frame_crop_)
+            self.feature_extraction_,
+            protocol,
+            subset=subset,
+            resolution=self.model_resolution_,
+            alignment=self.model_alignment_)
+
+        # initialize model architecture based on specifications
+        model = self.get_model_from_specs_(batch_generator.specifications)
 
         self.task_.fit(
-            self.get_model_, batch_generator,
-            restart=restart, epochs=epochs,
+            model,
+            batch_generator,
+            restart=restart,
+            epochs=epochs,
             get_optimizer=self.get_optimizer_,
             scheduler=self.scheduler_,
             learning_rate=self.learning_rate_,
-            log_dir=train_dir, device=self.device)
+            log_dir=train_dir,
+            device=self.device)
 
-    def load_model(self, epoch, train_dir=None):
+    def load_model(self,
+                   epoch: int,
+                   train_dir: Optional[Path] = None):
         """Load pretrained model
 
         Parameters
@@ -267,7 +303,8 @@ class Application(object):
         specs_yml = self.task_.SPECS_YML.format(log_dir=train_dir)
         with io.open(specs_yml, 'r') as fp:
             specifications = yaml.load(fp, Loader=yaml.SafeLoader)
-        self.model_ = self.get_model_(specifications)
+        specifications['task'] = Task.from_str(specifications['task'])
+        self.model_ = self.get_model_from_specs_(specifications)
 
         import torch
         weights_pt = self.WEIGHTS_PT.format(

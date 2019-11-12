@@ -205,35 +205,13 @@ from pyannote.audio.embedding.extraction import SequenceEmbedding
 
 class SpeakerEmbedding(Application):
 
-    def __init__(self, experiment_dir, db_yml=None, training=False):
+    @property
+    def config_main_section(self):
+        return 'approach'
 
-        super(SpeakerEmbedding, self).__init__(
-            experiment_dir, db_yml=db_yml, training=training)
-
-        # training approach
-        Approach = get_class_by_name(
-            self.config_['approach']['name'],
-            default_module_name='pyannote.audio.embedding.approaches')
-        self.task_ = Approach(
-            **self.config_['approach'].get('params', {}))
-
-        # architecture
-        Architecture = get_class_by_name(
-            self.config_['architecture']['name'],
-            default_module_name='pyannote.audio.embedding.models')
-        params = self.config_['architecture'].get('params', {})
-        self.get_model_ = partial(Architecture, **params)
-
-        if hasattr(Architecture, 'get_frame_info'):
-            self.frame_info_ = Architecture.get_frame_info(**params)
-        else:
-            self.frame_info_ = None
-
-        if hasattr(Architecture, 'get_frame_crop'):
-            self.frame_crop_ = Architecture.get_frame_crop(**params)
-        else:
-            self.frame_crop_ = None
-
+    @property
+    def config_default_module(self):
+        return 'pyannote.audio.embedding.approaches'
 
     def validate_init(self, protocol_name, subset='development'):
 
@@ -516,10 +494,10 @@ class SpeakerEmbedding(Application):
                     best_coverage = coverage
                     best_threshold = current_threshold
 
+        value = best_coverage if best_coverage else purity - self.purity
         return {'metric': f'coverage@{self.purity:.2f}purity',
                 'minimize': False,
-                'value': best_coverage if best_coverage \
-                         else purity - self.purity}
+                'value': float(value)}
 
 
     def apply(self, protocol_name: str,

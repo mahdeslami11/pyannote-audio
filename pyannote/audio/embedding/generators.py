@@ -31,7 +31,7 @@ import numpy as np
 from pyannote.generators.fragment import random_segment
 from pyannote.generators.fragment import random_subsegment
 from pyannote.generators.batch import batchify
-from ..models import TASK_REPRESENTATION_LEARNING
+from pyannote.audio.train.task import Task, TaskType, TaskOutput
 from pyannote.audio.features import RawAudio
 
 
@@ -290,7 +290,8 @@ class SpeechSegmentGenerator(object):
         return {
             'X': {'dimension': self.feature_extraction.dimension},
             'y': {'classes': self.segment_labels_},
-            'task': TASK_REPRESENTATION_LEARNING,
+            'task': Task(type=TaskType.REPRESENTATION_LEARNING,
+                         output=TaskOutput.VECTOR),
         }
 
     def __call__(self):

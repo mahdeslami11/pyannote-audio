@@ -108,6 +108,8 @@ class EmbeddingApproach(Trainer):
         # if sequences have variable lengths
         if variable_lengths:
 
+            # TODO: use new pytorch feature that handle sorting automatically
+
             # sort them in order of length
             _, sort = torch.sort(torch.tensor(lengths), descending=True)
             _, unsort = torch.sort(sort)

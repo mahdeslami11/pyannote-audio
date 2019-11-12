@@ -86,12 +86,6 @@ Configuration file:
           per_epoch: 1      # 1 day of audio per epoch
           batch_size: 32    # number of sub-sequences per batch
 
-    # use precomputed features (see feature extraction tutorial)
-    feature_extraction:
-       name: Precomputed
-       params:
-          root_dir: tutorials/feature-extraction
-
     # use the PyanNet architecture.
     # see pyannote.audio.models for more details
     architecture:
@@ -99,9 +93,9 @@ Configuration file:
 
     # use cyclic learning rate scheduler
     scheduler:
-       name: CyclicScheduler
+       name: ConstantScheduler
        params:
-           learning_rate: auto
+           learning_rate: 0.1
     ...................................................................
 
 "train" mode:

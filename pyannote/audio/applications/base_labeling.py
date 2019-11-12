@@ -43,36 +43,29 @@ import multiprocessing as mp
 
 class BaseLabeling(Application):
 
-    def __init__(self, experiment_dir, db_yml=None, training=False):
+    @property
+    def config_main_section(self):
+        return 'task'
 
-        super(BaseLabeling, self).__init__(
-            experiment_dir, db_yml=db_yml, training=training)
-
-        # task
-        Task = get_class_by_name(
-            self.config_['task']['name'],
-            default_module_name='pyannote.audio.labeling.tasks')
-        self.task_ = Task(
-            **self.config_['task'].get('params', {}))
-
-        # architecture
-        Architecture = get_class_by_name(
-            self.config_['architecture']['name'],
-            default_module_name='pyannote.audio.labeling.models')
-        params = self.config_['architecture'].get('params', {})
-        self.get_model_ = partial(Architecture, **params)
-
-        if hasattr(Architecture, 'get_frame_info'):
-            self.frame_info_ = Architecture.get_frame_info(**params)
-        else:
-            self.frame_info_ = None
-
-        if hasattr(Architecture, 'get_frame_crop'):
-            self.frame_crop_ = Architecture.get_frame_crop(**params)
-        else:
-            self.frame_crop_ = None
+    @property
+    def config_default_module(self):
+        return 'pyannote.audio.labeling.tasks'
 
     def validate_init(self, protocol_name, subset='development'):
+        """Initialize validation data
+
+        Parameters
+        ----------
+        protocol_name : `str`
+        subset : {'train', 'development', 'test'}
+            Defaults to 'development'.
+
+        Returns
+        -------
+        validation_data : object
+            Validation data.
+
+        """
 
         protocol = get_protocol(protocol_name, progress=False,
                                 preprocessors=self.preprocessors_)
@@ -93,7 +86,23 @@ class BaseLabeling(Application):
 
     def apply(self, protocol_name: str,
                     step: Optional[float] = None,
-                    subset: Optional[str] = "test"):
+                    subset: Optional[str] = "test",
+                    return_intermediate: Optional[int] = None):
+        """Apply pre-trained model
+
+
+
+        Parameters
+        ----------
+        protocol_name : `str`
+        step : `float`, optional
+            Time step. Defaults to 25% of sequence duration.
+        subset : {'train', 'development', 'test'}
+            Defaults to 'test'
+        return_intermediate : `int`, optional
+            Index of intermediate layer. Returns intermediate hidden state.
+            Defaults to returning the final output.
+        """
 
         model = self.model_.to(self.device)
         model.eval()
@@ -114,15 +123,13 @@ class BaseLabeling(Application):
         sequence_labeling = SequenceLabeling(
             model=model, feature_extraction=self.feature_extraction_,
             duration=duration, step=step, batch_size=self.batch_size,
-            device=self.device)
-
-        sliding_window = sequence_labeling.sliding_window
+            device=self.device, return_intermediate=return_intermediate)
 
         # create metadata file at root that contains
         # sliding window and dimension information
         precomputed = Precomputed(
             root_dir=output_dir,
-            sliding_window=sliding_window,
+            sliding_window=sequence_labeling.sliding_window,
             labels=model.classes)
 
         # file generator
@@ -135,7 +142,7 @@ class BaseLabeling(Application):
 
         # do not proceed with the full pipeline
         # when there is no such thing for current task
-        if not hasattr(self, 'pipeline_params_'):
+        if not hasattr(self, 'Pipeline'):
             return
 
         # instantiate pipeline
