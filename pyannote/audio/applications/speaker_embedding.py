@@ -439,7 +439,7 @@ class SpeakerEmbedding(Application):
                 if len(x_) < 1:
                     x_ = embedding.crop(turn, mode='loose')
                 if len(x_) < 1:
-                    msg = (f'No embedding for {turn:s} in {uri:s}.')
+                    msg = (f'No embedding for {turn} in {uri:s}.')
                     raise ValueError(msg)
 
                 # each speech turn is represented by its average embedding

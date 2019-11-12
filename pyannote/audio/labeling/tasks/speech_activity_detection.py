@@ -163,6 +163,8 @@ class DomainAwareSpeechActivityDetection(SpeechActivityDetection):
     rnn: `dict`, optional
         Parameters of the RNN used in the domain classifier.
         See `pyannote.audio.models.models.RNN` for details.
+    domain_loss : `str`, optional
+        Loss function to use. Defaults to 'NLLLoss'.
     """
 
     DOMAIN_PT = '{log_dir}/weights/{epoch:04d}.domain.pt'
@@ -306,7 +308,19 @@ class DomainAwareSpeechActivityDetection(SpeechActivityDetection):
 
 
 class DomainAdversarialSpeechActivityDetection(DomainAwareSpeechActivityDetection):
-    """TODO: docstring"""
+    """Domain Adversarial speech activity detection
+
+    Parameters
+    ----------
+    domain : `str`, optional
+        Batch key to use as domain. Defaults to 'domain'.
+        Could be 'database' or 'uri' for instance.
+    attachment : `int`, optional
+        Intermediate level where to attach the domain classifier.
+        Defaults to -1. Passed to `return_intermediate` in models supporting it.
+    alpha : `float`, optional
+        Coefficient multiplied with the domain loss
+    """
 
     def __init__(self, domain='domain', attachment=-1, alpha=1., **kwargs):
         super().__init__(domain=domain, attachment=attachment, **kwargs)
