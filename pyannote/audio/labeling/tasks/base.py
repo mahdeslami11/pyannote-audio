@@ -26,23 +26,23 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-import warnings
 import torch
+import torch.nn.functional as F
+
 import numpy as np
 import scipy.signal
 
+from pyannote.core import Segment
 from pyannote.core import Timeline
 from pyannote.core import Annotation
 from pyannote.core import SlidingWindowFeature
+
 from pyannote.database import get_unique_identifier
 from pyannote.database import get_annotated
+
 from pyannote.core.utils.numpy import one_hot_encoding
-from pyannote.audio.features import Precomputed
 from pyannote.audio.features import RawAudio
 from pyannote.audio.features.utils import get_audio_duration
-from pyannote.core import Segment
-from pyannote.core import Timeline
-from pyannote.core import SlidingWindowFeature
 
 from pyannote.generators.batch import batchify
 from pyannote.generators.fragment import random_segment
@@ -52,7 +52,6 @@ from pyannote.generators.fragment import SlidingSegments
 from pyannote.audio.train.trainer import Trainer
 from pyannote.audio.train.generator import BatchGenerator
 
-import torch.nn.functional as F
 
 
 class LabelingTaskGenerator(BatchGenerator):
