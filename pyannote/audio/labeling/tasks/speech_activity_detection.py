@@ -46,7 +46,8 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
     feature_extraction : `pyannote.audio.features.FeatureExtraction`
         Feature extraction
     protocol : `pyannote.database.Protocol`
-    subset : {'train', 'development', 'test'}
+    subset : {'train', 'development', 'test'}, optional
+        Protocol and subset
     resolution : `pyannote.core.SlidingWindow`, optional
         Override `feature_extraction.sliding_window`. This is useful for
         models that include the feature extraction step (e.g. SincNet) and
@@ -94,13 +95,15 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
 
     @property
     def specifications(self):
-        specs = {
-            'task': Task(type=TaskType.MULTI_CLASS_CLASSIFICATION,
-                         output=TaskOutput.SEQUENCE),
-            'X': {'dimension': self.feature_extraction.dimension},
-            'y': {'classes': ['non_speech', 'speech']},
-        }
+
+        specs = LabelingTaskGenerator.specifications.fget(self)
+
         for key, classes in self.file_labels_.items():
+
+            # TODO. add an option to handle this list
+            # TODO. especially useful for domain-adversarial stuff
+            if key in ['duration', 'audio', 'uri']:
+                continue
             specs[key] = {'classes': classes}
 
         return specs
