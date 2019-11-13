@@ -52,6 +52,7 @@ from pyannote.generators.fragment import SlidingSegments
 from pyannote.audio.train.trainer import Trainer
 from pyannote.audio.train.generator import BatchGenerator
 
+from pyannote.audio.train.task import Task, TaskType, TaskOutput
 
 
 class LabelingTaskGenerator(BatchGenerator):
@@ -65,6 +66,7 @@ class LabelingTaskGenerator(BatchGenerator):
         Feature extraction
     protocol : `pyannote.database.Protocol`
     subset : {'train', 'development', 'test'}, optional
+        Protocol and subset.
     resolution : `pyannote.core.SlidingWindow`, optional
         Override `feature_extraction.sliding_window`. This is useful for
         models that include the feature extraction step (e.g. SincNet) and
@@ -315,15 +317,11 @@ class LabelingTaskGenerator(BatchGenerator):
         """
 
         specs = {
-            'task': None,
+            'task': Task(type=TaskType.MULTI_CLASS_CLASSIFICATION,
+                         output=TaskOutput.SEQUENCE),
             'X': {'dimension': self.feature_extraction.dimension},
             'y': {'classes': self.segment_labels_},
         }
-
-        for key, classes in self.file_labels_.items():
-            if key in ['duration', 'audio']:
-                continue
-            specs[key] = {'classes': classes}
 
         return specs
 
