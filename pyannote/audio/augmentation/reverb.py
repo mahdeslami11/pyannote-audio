@@ -27,7 +27,11 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 from typing import Tuple
+from typing import Optional
+from .utils import NoiseCollection
+
 from .base import Augmentation
+from .utils import Noise
 import pyroomacoustics as pra
 import numpy as np
 
@@ -60,8 +64,8 @@ class Reverb(Augmentation):
                  width: Tuple[float, float] = (1.0, 10.0),
                  height: Tuple[float, float] = (2.0, 5.0),
                  absorption: Tuple[float, float] = (0.2, 0.9),
-                 # noise_from: Optional[Union[str, List[str]]] = None,
-                 # snr: Tuple[float, float] = (5.0, 15.0),
+                 noise: Optional[NoiseCollection] = None,
+                 snr: Tuple[float, float] = (5.0, 15.0),
                  ):
 
         super().__init__()
@@ -71,6 +75,10 @@ class Reverb(Augmentation):
         self.absorption = absorption
         self.max_order_ = 17
 
+        self.noise = noise
+        self.snr = snr
+        self.noise_ = Noise(collection=self.noise)
+
     @staticmethod
     def random(m: float, M: float):
         return (M - m) * np.random.random_sample() + m
@@ -79,7 +87,7 @@ class Reverb(Augmentation):
                  original: np.ndarray,
                  sample_rate: int) -> np.ndarray:
 
-        original = normalize(original).squeeze(axis=None)
+        original = normalize(original).squeeze()
         n_samples = len(original)
 
         # generate a room at random
@@ -96,7 +104,23 @@ class Reverb(Augmentation):
         source = [self.random(0, depth),
                   self.random(0, width),
                   self.random(0, height)]
-        room.add_source(source, signal=original, delay=0.)
+        room.add_source(source,
+                        signal=original,
+                        delay=0.)
+
+        # generate noise with random SNR
+        noise = self.noise_(n_samples, sample_rate)
+        snr = self.random(*self.snr)
+        alpha = np.exp(-np.log(10) * snr / 20)
+        noise *= alpha
+
+        # play noise at a random location within the room
+        noise_source = [self.random(0, depth),
+                        self.random(0, width),
+                        self.random(0, height)]
+        room.add_source(noise_source,
+                        signal=noise.squeeze(),
+                        delay=0.)
 
         # place the microphone at a random location within the room
         microphone = [self.random(0, depth),
