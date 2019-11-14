@@ -14,3 +14,4 @@ soundfile >= 0.10.2
 tqdm >= 4.29.1
 tensorboard >= 2.0.0
 typing_extensions >= 3.7.4
+pyroomacoustics >= 0.3.1
