@@ -33,6 +33,7 @@ import torch
 import zipfile
 import shutil
 from pathlib import Path
+from typing import Optional
 
 from pyannote.audio.util import mkdir_p
 from pyannote.audio.labeling.extraction import SequenceLabeling
