@@ -98,8 +98,11 @@ def speech_activity_detection(corpus: str = "AMI.MixHeadset",
         hub_zip = hub_dir / f"{hash_prefix}.zip"
         mkdir_p(hub_zip.parent)
         try:
+            msg = f'Downloading "{url}" to {hub_zip}'
+            print(msg)
             torch.hub.download_url_to_file(url, hub_zip,
-                                           hash_prefix=hash_prefix)
+                                           hash_prefix=hash_prefix,
+                                           progress=True)
         except RuntimeError as e:
             shutil.rmtree(hub_dir)
             msg = f'Failed to download model. Please try again.'
