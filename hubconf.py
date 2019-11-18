@@ -45,12 +45,11 @@ MODELS = {
         "AMI.MixHeadset": {
             "url": "https://github.com/pyannote/pyannote-audio/releases/download/2.0.0-wip/sad.zip",
             "hash_prefix": "2c626e8021",
-            "protocol": "AMI.SpeakerDiarization.MixHeadset",
         },
     },
 }
 
-def speech_activity_detection(corpus: str = "AMI.MixHeadset",
+def speech_activity_detection(version: str = "AMI.MixHeadset",
                               device: Optional[str] = None,
                               batch_size: int = 32,
                               force_reload: bool = False) -> SequenceLabeling:
@@ -58,7 +57,7 @@ def speech_activity_detection(corpus: str = "AMI.MixHeadset",
 
     Parameters
     ----------
-    corpus : str
+    version : str
         One of "AMI.MixHeadset", "DIHARD", and "ETAPE.TV".
     device : torch.device, optional
         Device used for inference.
@@ -66,7 +65,7 @@ def speech_activity_detection(corpus: str = "AMI.MixHeadset",
         Batch size used for inference.
     force_reload : bool
         Whether to discard the existing cache and force a fresh download.
-        Default is False
+        Defaults to use existing cache.
 
     Returns
     -------
@@ -76,14 +75,13 @@ def speech_activity_detection(corpus: str = "AMI.MixHeadset",
     -----
     >>> model = torch.hub.load('pyannote/pyannote-audio',
                                'speech_activity_detection',
-                               corpus='AMI.MixHeadset',
+                               version='AMI.MixHeadset',
                                device='cuda')
     >>> scores = model({'audio': '/path/to/audio.wav'})
     """
 
-    hash_prefix = MODELS['speech_activity_detection'][corpus]['hash_prefix']
-    url = MODELS['speech_activity_detection'][corpus]['url']
-    protocol = MODELS['speech_activity_detection'][corpus]['protocol']
+    hash_prefix = MODELS['speech_activity_detection'][version]['hash_prefix']
+    url = MODELS['speech_activity_detection'][version]['url']
 
     # path where pre-trained model is downloaded
     hub_dir = Path(os.environ.get("PYANNOTE_AUDIO_HUB",
@@ -112,16 +110,20 @@ def speech_activity_detection(corpus: str = "AMI.MixHeadset",
         with zipfile.ZipFile(hub_zip) as z:
             z.extractall(path=hub_dir)
 
-    # {hub_dir}/config.yml
-    # {hub_dir}/train/{protocol_name}.train/validate/{protocol_name}/params.yml
-    # {hub_dir}/train/{protocol_name}.train/weights/specs.yml
-    # {hub_dir}/train/{protocol_name}.train/weights/{epoch}.pt
-    # {hub_dir}/train/{protocol_name}.train/weights/{epoch}.optimizer.pt
+    # content of {hub_dir} directory
+    # config.yml
+    # train/{training_set}/weights/specs.yml
+    # train/{training_set}/weights/{epoch}*.pt
+    # train/{training_set}/validate/{development_set}/params.yml
 
-    validate_dir = hub_dir / 'train' / f'{protocol}.train' \
-                           / 'validate' / f'{protocol}.development'
+    params_yml, = hub_dir.glob('*/*/*/*/params.yml')
 
-    app = SpeechActivityDetection.from_validate_dir(validate_dir,
+    # TODO: print a message to the user providing information about it
+    # *_, train, _, development, _ = params_yml.parts
+    # msg = 'Model trained on {train}'
+    # print(msg)
+
+    app = SpeechActivityDetection.from_validate_dir(params_yml.parent,
                                                     training=False)
 
     feature_extraction = app.feature_extraction_
