@@ -31,6 +31,7 @@ import os
 import sys
 import time
 import yaml
+import zipfile
 from typing import Optional, Union
 from pathlib import Path
 from os.path import dirname, basename
@@ -364,6 +365,11 @@ class Application:
         params_yml = validate_dir / 'params.yml'
         validate_dir.mkdir(parents=True, exist_ok=False)
 
+        xp_dir = Path(self.experiment_dir)
+        config_yml = Path(self.CONFIG_YML.format(experiment_dir=xp_dir))
+        specs_yml = Path(self.task_.SPECS_YML.format(log_dir=self.train_dir_))
+        pt_dir = Path(self.WEIGHTS_DIR.format(train_dir=self.train_dir_))
+
         writer = SummaryWriter(log_dir=str(validate_dir))
 
         validation_data = self.validate_init(protocol_name, subset=subset,
@@ -412,6 +418,7 @@ class Application:
             # if current epoch leads to the best metric so far
             # store both epoch number and best pipeline parameter to disk
             if best_epoch == epoch:
+
                 best = {
                     metric: best_value,
                     'epoch': epoch,
@@ -421,6 +428,20 @@ class Application:
                     best['params'] = pipeline.parameters(instantiated=True)
                 with open(params_yml, mode='w') as fp:
                     fp.write(yaml.dump(best, default_flow_style=False))
+
+                # create zip file containing:
+                # config.yml
+                # {self.train_dir_}/weights/specs.yml
+                # {self.train_dir_}/weights/{epoch:04d}*.pt
+                # {self.validate_dir_}/params.yml
+
+                hub_zip = validate_dir / 'hub.zip'
+                with zipfile.ZipFile(hub_zip, 'w') as z:
+                    z.write(config_yml, arcname=config_yml.relative_to(xp_dir))
+                    z.write(specs_yml, arcname=specs_yml.relative_to(xp_dir))
+                    z.write(params_yml, arcname=params_yml.relative_to(xp_dir))
+                    for pt in pt_dir.glob(f'{best_epoch:04d}*.pt'):
+                        z.write(pt, arcname=pt.relative_to(xp_dir))
 
             # progress bar
             desc = (f'{metric} | '
