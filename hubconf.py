@@ -42,14 +42,22 @@ from pyannote.audio.applications.speech_detection import SpeechActivityDetection
 
 MODELS = {
     "speech_activity_detection": {
-        "AMI.MixHeadset": {
-            "url": "https://github.com/pyannote/pyannote-audio/releases/download/2.0.0-wip/sad.zip",
-            "hash_prefix": "2c626e8021",
+        "AMI": {
+            "url": "https://github.com/pyannote/pyannote-audio/releases/download/2.0.0-wip/SAD.AMI.d534ec1eb2.zip",
+            "hash_prefix": "d534ec1eb2",
+        },
+        "DIHARD": {
+            "url": "https://github.com/pyannote/pyannote-audio/releases/download/2.0.0-wip/SAD.DIHARD.bc770a4290.zip",
+            "hash_prefix": "bc770a4290",
+        },
+        "ETAPE": {
+            "url": "https://github.com/pyannote/pyannote-audio/releases/download/2.0.0-wip/SAD.ETAPE.0585a5507a.zip",
+            "hash_prefix": "0585a5507a",
         },
     },
 }
 
-def speech_activity_detection(version: str = "AMI.MixHeadset",
+def speech_activity_detection(version: str = "AMI",
                               device: Optional[str] = None,
                               batch_size: int = 32,
                               force_reload: bool = False) -> SequenceLabeling:
@@ -58,7 +66,7 @@ def speech_activity_detection(version: str = "AMI.MixHeadset",
     Parameters
     ----------
     version : str
-        One of "AMI.MixHeadset", "DIHARD", and "ETAPE.TV".
+        One of "AMI", "DIHARD", and "ETAPE".
     device : torch.device, optional
         Device used for inference.
     batch_size : int, optional
@@ -75,8 +83,7 @@ def speech_activity_detection(version: str = "AMI.MixHeadset",
     -----
     >>> model = torch.hub.load('pyannote/pyannote-audio',
                                'speech_activity_detection',
-                               version='AMI.MixHeadset',
-                               device='cuda')
+                               version='AMI', device='cuda')
     >>> scores = model({'audio': '/path/to/audio.wav'})
     """
 
