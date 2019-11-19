@@ -141,3 +141,22 @@ def speech_activity_detection(version: str = "AMI.MixHeadset",
         return_intermediate=None)
 
     return labeling
+
+if __name__ == '__main__':
+    DOCOPT = """Create torch.hub zip file from validation directory
+
+Usage:
+  hubconf.py <validate_dir>
+  hubconf.py (-h | --help)
+  hubconf.py --version
+
+Options:
+  -h --help     Show this screen.
+  --version     Show version.
+    """
+    from docopt import docopt
+    from pyannote.audio.applications.base import create_zip
+    arguments = docopt(DOCOPT, version='hubconf')
+    validate_dir = Path(arguments['<validate_dir>'])
+    hub_zip = create_zip(validate_dir)
+    print(f'Created file "{hub_zip.name}" in directory "{validate_dir}".')
