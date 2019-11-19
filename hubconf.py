@@ -40,18 +40,21 @@ from pyannote.audio.labeling.extraction import SequenceLabeling
 from pyannote.audio.applications.speech_detection import SpeechActivityDetection
 
 
+URL = "https://github.com/pyannote/pyannote-audio/releases/download"
+RELEASE = "2.0.0-wip"
+
 MODELS = {
     "speech_activity_detection": {
         "AMI": {
-            "url": "https://github.com/pyannote/pyannote-audio/releases/download/2.0.0-wip/SAD.AMI.d534ec1eb2.zip",
+            "url": f"{URL}/{RELEASE}/SAD.AMI.d534ec1eb2.zip",
             "hash_prefix": "d534ec1eb2",
         },
-        "DIHARD": {
-            "url": "https://github.com/pyannote/pyannote-audio/releases/download/2.0.0-wip/SAD.DIHARD.bc770a4290.zip",
+        "ETAPE": {
+            "url": f"{URL}/{RELEASE}/SAD.ETAPE.bc770a4290.zip",
             "hash_prefix": "bc770a4290",
         },
-        "ETAPE": {
-            "url": "https://github.com/pyannote/pyannote-audio/releases/download/2.0.0-wip/SAD.ETAPE.0585a5507a.zip",
+        "DIHARD": {
+            "url": f"{URL}/{RELEASE}/SAD.DIHARD.0585a5507a.zip",
             "hash_prefix": "0585a5507a",
         },
     },
