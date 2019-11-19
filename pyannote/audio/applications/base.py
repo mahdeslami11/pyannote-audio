@@ -32,6 +32,7 @@ import sys
 import time
 import yaml
 import zipfile
+import hashlib
 from typing import Optional, Union
 from pathlib import Path
 from os.path import dirname, basename
@@ -49,6 +50,58 @@ from pyannote.core.utils.helper import get_class_by_name
 import warnings
 from pyannote.audio.train.task import Task
 
+
+def create_zip(validate_dir: Path):
+    """
+
+    # create zip file containing:
+    # config.yml
+    # {self.train_dir_}/weights/specs.yml
+    # {self.train_dir_}/weights/{epoch:04d}*.pt
+    # {self.validate_dir_}/params.yml
+
+    """
+
+    existing_zips = list(validate_dir.glob('*.zip'))
+    if len(existing_zips) == 1:
+        existing_zips[0].unlink()
+    elif len(existing_zips) > 1:
+        msg = (
+            f'Looks like there are too many torch.hub zip files '
+            f'in {validate_dir}.')
+        raise NotImplementedError(msg)
+
+    params_yml = validate_dir / 'params.yml'
+
+    with open(params_yml, 'r') as fp:
+        params = yaml.load(fp, Loader=yaml.SafeLoader)
+        epoch = params['epoch']
+
+    xp_dir = validate_dir.parents[3]
+    config_yml = xp_dir / 'config.yml'
+
+    train_dir = validate_dir.parents[1]
+    weights_dir = train_dir / 'weights'
+    specs_yml = weights_dir / 'specs.yml'
+
+    hub_zip = validate_dir / 'hub.zip'
+    with zipfile.ZipFile(hub_zip, 'w') as z:
+        z.write(config_yml, arcname=config_yml.relative_to(xp_dir))
+        z.write(specs_yml, arcname=specs_yml.relative_to(xp_dir))
+        z.write(params_yml, arcname=params_yml.relative_to(xp_dir))
+        for pt in weights_dir.glob(f'{epoch:04d}*.pt'):
+            z.write(pt, arcname=pt.relative_to(xp_dir))
+
+    sha256_hash = hashlib.sha256()
+    with open(hub_zip,"rb") as fp:
+        for byte_block in iter(lambda: fp.read(4096),b""):
+            sha256_hash.update(byte_block)
+
+    hash_prefix = sha256_hash.hexdigest()[:10]
+    target = validate_dir / f"{hash_prefix}.zip"
+    hub_zip.rename(target)
+
+    return target
 
 
 class Application:
@@ -365,11 +418,6 @@ class Application:
         params_yml = validate_dir / 'params.yml'
         validate_dir.mkdir(parents=True, exist_ok=False)
 
-        xp_dir = Path(self.experiment_dir)
-        config_yml = Path(self.CONFIG_YML.format(experiment_dir=xp_dir))
-        specs_yml = Path(self.task_.SPECS_YML.format(log_dir=self.train_dir_))
-        pt_dir = Path(self.WEIGHTS_DIR.format(train_dir=self.train_dir_))
-
         writer = SummaryWriter(log_dir=str(validate_dir))
 
         validation_data = self.validate_init(protocol_name, subset=subset,
@@ -429,19 +477,8 @@ class Application:
                 with open(params_yml, mode='w') as fp:
                     fp.write(yaml.dump(best, default_flow_style=False))
 
-                # create zip file containing:
-                # config.yml
-                # {self.train_dir_}/weights/specs.yml
-                # {self.train_dir_}/weights/{epoch:04d}*.pt
-                # {self.validate_dir_}/params.yml
-
-                hub_zip = validate_dir / 'hub.zip'
-                with zipfile.ZipFile(hub_zip, 'w') as z:
-                    z.write(config_yml, arcname=config_yml.relative_to(xp_dir))
-                    z.write(specs_yml, arcname=specs_yml.relative_to(xp_dir))
-                    z.write(params_yml, arcname=params_yml.relative_to(xp_dir))
-                    for pt in pt_dir.glob(f'{best_epoch:04d}*.pt'):
-                        z.write(pt, arcname=pt.relative_to(xp_dir))
+                # create/update zip file for later upload to torch.hub
+                hub_zip = create_zip(validate_dir)
 
             # progress bar
             desc = (f'{metric} | '
