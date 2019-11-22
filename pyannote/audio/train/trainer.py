@@ -36,12 +36,12 @@ import io
 import yaml
 import torch
 import tempfile
+from itertools import chain
 from torch.nn import Module
 from torch.optim import Optimizer, SGD
 from torch.utils.tensorboard import SummaryWriter
 from .logging import Logging
 from .callback import Callbacks
-from .checkpoint import Checkpoint
 from .schedulers import BaseSchedulerCallback
 from .schedulers import ConstantScheduler
 from .generator import BatchGenerator
@@ -52,80 +52,108 @@ ARBITRARY_LR = 0.1
 
 
 class Trainer:
-    """Trainer"""
+    """Trainer
 
-    SPECS_YML = '{log_dir}/weights/specs.yml'
-    WEIGHTS_DIR = '{log_dir}/weights'
-    WEIGHTS_PT = '{log_dir}/weights/{epoch:04d}.pt'
-    OPTIMIZER_PT = '{log_dir}/weights/{epoch:04d}.optimizer.pt'
 
-    def load_epoch(self, epoch):
-        """Load model from disk
 
-        This method needs to be overriden in case
-        the trainer has its own set of parameters
+    Attributes
+    ----------
+    model : Model
+    specifications : dict
+    device : torch.device
+    """
+
+    SPECS_YML = '{train_dir}/weights/specs.yml'
+    MODEL_PT = '{train_dir}/weights/{epoch:04d}.pt'
+    OPTIMIZER_PT = '{train_dir}/weights/{epoch:04d}.optimizer.pt'
+
+    def load_state(self, model_pt: Optional[Path] = None):
+        """Load model and optimizer states from disk
 
         Parameters
         ----------
-        epoch : `int`
-            Epoch Number
+        model_pt : `Path`, optional
+            Path to file containing model state.
+            Defaults to guessing it from trainer status.
         """
-        # TODO. check that model specs are coherent
 
-        # load model
+        if model_pt is None:
+            _model_pt = self.MODEL_PT.format(
+                train_dir=self.train_dir_, epoch=self.epoch_)
+            optimizer_pt = self.OPTIMIZER_PT.format(
+                train_dir=self.train_dir_, epoch=self.epoch_)
+
+        else:
+            _model_pt = model_pt
+            msg = 'TODO: infer optimizer_pt from model_pt'
+            raise NotImplementedError(msg)
+            # optimizer_pt = f(model_pt)
+
         model_state = torch.load(
-            self.WEIGHTS_PT.format(log_dir=self.log_dir_, epoch=epoch),
-            map_location=lambda storage, loc: storage)
+            _model_pt, map_location=lambda storage, loc: storage)
         self.model_.load_state_dict(model_state)
 
-        # load optimizer
         optimizer_state = torch.load(
-            self.OPTIMIZER_PT.format(log_dir=self.log_dir_, epoch=epoch),
-            map_location=lambda storage, loc: storage)
+            optimizer_pt, map_location=lambda storage, loc: storage)
         self.optimizer_.load_state_dict(optimizer_state)
 
-        self.epoch_ = epoch
+        self.load_more(model_pt=model_pt)
 
-    def save_epoch(self, epoch=None):
-        """Save model to disk
+    def load_more(self, model_pt=None):
+        """Called after model and optimizer states are loaded
 
-        This method needs to be overriden in case
-        the trainer has its own set of parameters
+        This method can be overriden to load additional states.
+        For instance, it can be used to load the state of a domain classifier
+        in domain-adversarial training, or the class centers in center loss.
 
         Parameters
         ----------
-        epoch : `int`, optional
-            Epoch number. Defaults to self.epoch_
-
+        model_pt : `Path`, optional
+            Path to file containing model state.
+            Defaults to guessing it from trainer status.
         """
+        pass
 
-        if epoch is None:
-            epoch = self.epoch_
+    def save_state(self):
+        """Save model and optimizer states to disk"""
 
-        torch.save(self.model_.state_dict(),
-                   self.WEIGHTS_PT.format(log_dir=self.log_dir_,
-                                          epoch=epoch))
+        # save model state
+        model_pt = self.MODEL_PT.format(train_dir=self.train_dir_,
+                                        epoch=self.epoch_)
+        torch.save(self.model_.state_dict(), model_pt)
 
-        torch.save(self.optimizer_.state_dict(),
-                   self.OPTIMIZER_PT.format(log_dir=self.log_dir_,
-                                            epoch=epoch))
+        # save optimizer state
+        optimizer_pt = self.OPTIMIZER_PT.format(train_dir=self.train_dir_,
+                                                epoch=self.epoch_)
+        torch.save(self.optimizer_.state_dict(), optimizer_pt)
 
+        self.save_more()
 
-    def parameters(self, model, specifications, device):
-        """Initialize trainable trainer parameters
+    def save_more(self):
+        """Called after model and optimizer states are saves
 
-        Parameters
-        ----------
-        model : `nn.Module`
-            Model.
-        specifications : `dict`
-            Batch specs.
-        device : `torch.device`
-            Device
+        This method can be overriden to save additional states.
+        For instance, it can be used to save the state of a domain classifier
+        in domain-adversarial training, or the class centers in center loss.
+        """
+        pass
 
-        Returns
-        -------
-        parameters : iterable
+    def parameters(self):
+        return chain(self.model_.parameters(), self.more_parameters())
+
+    def more_parameters(self):
+        """Called by `parameters` method
+
+        This method can be overriden to define additional modules.
+        For instance, it can be used to define a domain classifier for
+        for domain-adversarial training.
+
+        It should be an iterator yielding the parameters of these additional
+        modules.
+
+        Yields
+        ------
+        parameter : nn.Parameter
             Trainable trainer parameters.
         """
         return []
@@ -171,81 +199,32 @@ class Trainer:
         """Called when training stops"""
         pass
 
-    def fit(self,
-            model: Model,
-            batch_generator: BatchGenerator,
-            restart: int = 0,
-            epochs: int = 1000,
-            get_optimizer: Optional[Callable[..., Optimizer]] = None,
-            scheduler: Optional[BaseSchedulerCallback] = None,
-            learning_rate: Union[Literal['auto'], float] = 'auto',
-            log_dir: Optional[Path] = None,
-            quiet: bool = False,
-            device: Optional[torch.device] = None,
-            ) -> Model:
-        """Train model
-
-        Parameters
-        ----------
-        model : `Model`
-            Model.
-        batch_generator : `BatchGenerator`
-            Batch generator.
-        restart : `int`, optional
-            Restart training at this epoch. Default behavior (0) is to train the
-            model from scratch.
-        epochs : `int`, optional
-            Train model for that many epochs. Defaults to 1000.
-        get_optimizer : `callable`, optional
-            Callable taking model parameters as input and returns an instance of
-            `torch.optim.Optimizer`. May also support `lr` keyword argument.
-            Defaults to `torch.optim.SGD`.
-        scheduler : `BaseSchedulerCallback`, optional
-            Learning rate scheduler. Defaults to `ConstantScheduler`.
-        learning_rate : {float, 'auto'}, optional
-            Learning rate. Default behavior ('auto') is to use the AutoLR
-            heuristic to determine the learning rate automatically.
-        log_dir : `Path`, optional
-            Directory where models and other log files are stored.
-            Defaults to not store anything.
-        quiet : `boolean`, optional
-            Do not show progress on stdout. Defaults to False.
-        device : `torch.device`, optional
-            Device on which the model will be allocated. Defaults to using CPU.
-
-        Returns
-        -------
-        model : `Model`
-            Trained model.
-        """
-
-        iterations = self.fit_iter(
-            model,
-            batch_generator,
-            restart=restart,
-            epochs=epochs,
-            get_optimizer=get_optimizer,
-            scheduler=scheduler,
-            learning_rate=learning_rate,
-            log_dir=log_dir,
-            quiet=quiet,
-            device=device)
-
-        for _ in iterations:
-            pass
-
+    @property
+    def model(self):
         return self.model_
 
+    @property
+    def specifications(self):
+        return self.batch_generator_.specifications
+
+    @property
+    def device(self):
+        return self.device_
+
+    @property
+    def epoch(self):
+        return self.epoch_
+
     def fit_iter(self,
-                 model : Model,
-                 batch_generator : BatchGenerator,
-                 restart : Union[int, str] = 0,
+                 model: Model,
+                 batch_generator: BatchGenerator,
+                 restart: Union[int, str] = 0,
                  epochs: int = 1000,
-                 get_optimizer: Optional[Callable[..., Optimizer]] = None,
+                 get_optimizer: Callable[..., Optimizer] = SGD,
                  scheduler: Optional[BaseSchedulerCallback] = None,
                  learning_rate: Union[Literal['auto'], float] = 'auto',
-                 log_dir: Optional[Path] = None,
-                 quiet: bool = False,
+                 train_dir: Optional[Path] = None,
+                 verbosity: int = 2,
                  device: Optional[torch.device] = None,
                  ) -> Iterator[Model]:
         """Train model
@@ -270,11 +249,14 @@ class Trainer:
         learning_rate : {float, 'auto'}, optional
             Learning rate. Default behavior ('auto') is to use the AutoLR
             heuristic to determine the learning rate automatically.
-        log_dir : `Path`, optional
+        train_dir : `Path`, optional
             Directory where models and other log files are stored.
-            Defaults to not store anything.
-        quiet : `boolean`, optional
-            Do not show progress on stdout. Defaults to False.
+            Defaults to a temporary directory.
+        verbosity : `int`, optional
+            Set level of verbosity.
+            Use 0 (default) to not show any progress bar.
+            Use 1 to show a progress bar updated at the end of each epoch.
+            Use 2 to add a second progress bar updated at the end of each batch.
         device : `torch.device`, optional
             Device on which the model will be allocated. Defaults to using CPU.
 
@@ -284,12 +266,10 @@ class Trainer:
             Model at current iteration
         """
 
-        # LOGGING
-        if log_dir is None:
-            self.log_dir_ = tempfile.mkdtemp()
-        else:
-            self.log_dir_ = log_dir
-        self.tensorboard_ = SummaryWriter(log_dir=self.log_dir_)
+        #
+        if train_dir is None:
+            train_dir = tempfile.mkdtemp()
+        self.train_dir_ = train_dir
 
         # BATCH GENERATOR
         self.batch_generator_ = batch_generator
@@ -304,68 +284,83 @@ class Trainer:
 
         # save specifications to disk
         specifications = self.batch_generator_.specifications
-        specs_yml = self.SPECS_YML.format(log_dir=self.log_dir_)
+        specs_yml = self.SPECS_YML.format(train_dir=self.train_dir_)
         with io.open(specs_yml, 'w') as fp:
             specifications_ = dict(specifications)
             specifications_['task'] = str(specifications_['task'])
             yaml.dump(specifications_, fp, default_flow_style=False)
 
         # OPTIMIZER
-        if get_optimizer is None:
-            get_optimizer = SGD
 
-        # gather parameters from model AND from trainer
-        parameters = list(self.model_.parameters())
-        parameters.extend(self.parameters(self.model_,
-                                          specifications,
-                                          self.device_))
-
-        self.optimizer_ = get_optimizer(
-            parameters,
-            lr=ARBITRARY_LR if learning_rate == 'auto' else learning_rate)
+        lr = ARBITRARY_LR if learning_rate == 'auto' else learning_rate
+        self.optimizer_ = get_optimizer(self.parameters(), lr=lr)
         self.base_learning_rate_ = learning_rate
+
+        callbacks = []
 
         # SCHEDULER
         if scheduler is None:
             scheduler = ConstantScheduler()
+        callbacks.append(scheduler)
 
-        callbacks = [
-            Checkpoint(),        # checkpoint has to go first
-            scheduler,
-        ]
-
-        if not quiet:
-            callbacks.append(Logging(epochs))
+        logger = Logging(epochs=epochs, verbosity=verbosity)
+        callbacks.append(logger)
 
         callbacks = Callbacks(callbacks)
 
+        # FINE TUNING ?
+
+        # TODO: add support for fine tuning torch.hub pre-trained models
+
         if restart:
+
             # warm restart
-            callbacks.load_epoch(self, restart)
+            self.epoch_ = restart
+            self.load_state(model_pt=None)
+
         else:
             # cold start
             self.epoch_ = 0
 
+        # TRAINING STARTS
+        self.tensorboard_ = SummaryWriter(log_dir=self.train_dir_,
+                                          purge_step=self.epoch_)
+        self.on_train_start()
         callbacks.on_train_start(self)
 
         while self.epoch_ < epochs:
 
+            # EPOCH STARTS
+            self.epoch_ += 1
+            self.on_epoch_start()
             callbacks.on_epoch_start(self)
 
             for i in range(self.batches_per_epoch_):
+
                 batch = next(self.batches_)
 
+                # BATCH IS READY FOR FORWARD PASS
+                batch = self.on_batch_start(batch)
                 batch = callbacks.on_batch_start(self, batch)
 
+                # FORWARD PASS + LOSS COMPUTATION
                 loss = self.batch_loss(batch)
+
+                # BACKWARD PASS
                 loss['loss'].backward()
                 self.optimizer_.step()
                 self.optimizer_.zero_grad()
 
+                # OPTIMIZATION STEP IS DONE
+                self.on_batch_end(loss)
                 callbacks.on_batch_end(self, loss)
 
+            self.on_epoch_end()
             callbacks.on_epoch_end(self)
 
             yield self.model_
+
+            self.save_state()
+
 
         callbacks.on_train_end(self)

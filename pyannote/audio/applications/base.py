@@ -109,7 +109,7 @@ class Application:
     CONFIG_YML = '{experiment_dir}/config.yml'
     TRAIN_DIR = '{experiment_dir}/train/{protocol}.{subset}'
     WEIGHTS_DIR = '{train_dir}/weights'
-    WEIGHTS_PT = '{train_dir}/weights/{epoch:04d}.pt'
+    MODEL_PT = '{train_dir}/weights/{epoch:04d}.pt'
     VALIDATE_DIR = '{train_dir}/validate{_task}/{protocol}.{subset}'
     APPLY_DIR = '{validate_dir}/apply/{epoch:04d}'
 
@@ -144,7 +144,7 @@ class Application:
 
         # build path to best epoch model
         epoch = params_yml['epoch']
-        model_pt = cls.WEIGHTS_PT.format(train_dir=train_dir,
+        model_pt = cls.MODEL_PT.format(train_dir=train_dir,
                                          epoch=epoch)
 
         # instantiate application
@@ -295,9 +295,10 @@ class Application:
             protocol=protocol_name,
             subset=subset)
 
+        # TODO: move this into Trainer class
         if isinstance(restart, str) or restart == 0:
 
-            weights_dir = self.task_.WEIGHTS_DIR.format(log_dir=train_dir)
+            weights_dir = f'{train_dir}/weights'
             try:
                 # this will fail if the directory already exists
                 # and this is OK  because 'weights' directory
@@ -326,7 +327,7 @@ class Application:
         # initialize model architecture based on specifications
         model = self.get_model_from_specs_(batch_generator.specifications)
 
-        self.task_.fit(
+        iterations = self.task_.fit_iter(
             model,
             batch_generator,
             restart=restart,
@@ -334,8 +335,11 @@ class Application:
             get_optimizer=self.get_optimizer_,
             scheduler=self.scheduler_,
             learning_rate=self.learning_rate_,
-            log_dir=train_dir,
+            train_dir=train_dir,
             device=self.device)
+
+        for _ in iterations:
+            pass
 
     def load_model(self,
                    epoch: int,
@@ -354,14 +358,14 @@ class Application:
             train_dir = self.train_dir_
 
         # initialize model from specs stored on disk
-        specs_yml = self.task_.SPECS_YML.format(log_dir=train_dir)
+        specs_yml = self.task_.SPECS_YML.format(train_dir=train_dir)
         with io.open(specs_yml, 'r') as fp:
             specifications = yaml.load(fp, Loader=yaml.SafeLoader)
         specifications['task'] = Task.from_str(specifications['task'])
         self.model_ = self.get_model_from_specs_(specifications)
 
         import torch
-        weights_pt = self.WEIGHTS_PT.format(
+        weights_pt = self.MODEL_PT.format(
             train_dir=train_dir, epoch=epoch)
 
         # if GPU is not available, load using CPU
@@ -386,7 +390,7 @@ class Application:
         if train_dir is None:
             train_dir = self.train_dir_
 
-        directory = self.WEIGHTS_PT.format(train_dir=train_dir, epoch=0)[:-7]
+        directory = self.MODEL_PT.format(train_dir=train_dir, epoch=0)[:-7]
         weights = sorted(glob(directory + '*[0-9][0-9][0-9][0-9].pt'))
 
         if not weights:
@@ -418,7 +422,8 @@ class Application:
         params_yml = validate_dir / 'params.yml'
         validate_dir.mkdir(parents=True, exist_ok=False)
 
-        writer = SummaryWriter(log_dir=str(validate_dir))
+        writer = SummaryWriter(log_dir=str(validate_dir),
+                               purge_step=start)
 
         validation_data = self.validate_init(protocol_name, subset=subset,
                                              **kwargs)

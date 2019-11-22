@@ -388,10 +388,10 @@ class Resegmentation(LabelingTask):
 
         # create a temporary directory to store models and log files
         # it is removed automatically before returning.
-        with tempfile.TemporaryDirectory() as log_dir:
+        with tempfile.TemporaryDirectory() as train_dir:
 
-            # create log_dir/weights
-            mkdir_p(Path(log_dir) / 'weights')
+            # create train_dir/weights
+            mkdir_p(Path(train_dir) / 'weights')
 
             epochs = self.fit_iter(
                 model, batch_generator,
@@ -399,7 +399,7 @@ class Resegmentation(LabelingTask):
                 get_optimizer=SGD,
                 scheduler=ConstantScheduler(),
                 learning_rate=self.learning_rate,
-                log_dir=log_dir, quiet=True,
+                train_dir=train_dir, verbosity=0,
                 device=self.device)
 
             scores = []

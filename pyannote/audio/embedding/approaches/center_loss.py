@@ -65,8 +65,8 @@ class CenterLoss(EmbeddingApproach):
         Set `parallel` to 0 to not use background generators.
     """
 
-    CLASSIFIER_PT = '{log_dir}/weights/{epoch:04d}.center_classifier.pt'
-    CENTERS_PT = '{log_dir}/weights/{epoch:04d}.centers.pt'
+    CLASSIFIER_PT = '{train_dir}/weights/{epoch:04d}.center_classifier.pt'
+    CENTERS_PT = '{train_dir}/weights/{epoch:04d}.centers.pt'
 
     def __init__(self, duration=None, min_duration=None, max_duration=None,
                  per_label=1, per_fold=32, loss_weight=1.,
@@ -88,70 +88,55 @@ class CenterLoss(EmbeddingApproach):
         self.logsoftmax_ = nn.LogSoftmax(dim=1)
         self.nll = nn.NLLLoss()
 
-    def parameters(self, model, specifications, device):
+    def more_parameters(self):
         """Initialize trainable trainer parameters
 
-        Parameters
-        ----------
-        specifications : `dict`
-            Batch specs.
-
-        Returns
-        -------
-        parameters : iterable
+        Yields
+        ------
+        parameter : nn.Parameter
             Trainable trainer parameters
         """
 
-        nclass = len(specifications['y']['classes'])
+        n_classes = len(self.specifications['y']['classes'])
+        self.classifier_ = nn.Linear(self.model.dimension,
+                                     n_classes, bias=False).to(self.device)
+        self.center_dist_ = CenterDistanceModule(self.model.dimension,
+                                                 n_classes).to(self.device)
 
-        self.classifier_ = nn.Linear(model.dimension, nclass, bias=False).to(device)
-        self.center_dist_ = CenterDistanceModule(model.dimension, nclass).to(device)
+        return chain(self.classifier_.parameters(),
+                     self.center_dist_.parameters())
 
-        return chain(self.classifier_.parameters(), self.center_dist_.parameters())
+    def load_more(self, model_pt=None):
+        """Load classifier and centers from disk"""
 
-    def load_epoch(self, epoch):
-        """Load model and classifier from disk
+        if model_pt is None:
+            classifier_pt = self.CLASSIFIER_PT.format(
+                train_dir=self.train_dir_, epoch=self.epoch_)
+            centers_pt = self.CENTERS_PT.format(
+                train_dir=self.train_dir_, epoch=self.epoch_)
 
-        Parameters
-        ----------
-        epoch : `int`
-            Epoch number.
-        """
-
-        super().load_epoch(epoch)
+        else:
+            msg = 'TODO: infer {classifier|centers}_pt from model_pt'
+            raise NotImplementedError(msg)
 
         classifier_state = torch.load(
-            self.CLASSIFIER_PT.format(log_dir=self.log_dir_, epoch=epoch),
-            map_location=lambda storage, loc: storage)
+            classifier_pt, map_location=lambda storage, loc: storage)
         self.classifier_.load_state_dict(classifier_state)
 
         centers_state = torch.load(
-            self.CENTERS_PT.format(log_dir=self.log_dir_, epoch=epoch),
-            map_location=lambda storage, loc: storage)
+            centers_pt, map_location=lambda storage, loc: storage)
         self.center_dist_.load_state_dict(centers_state)
 
-    def save_epoch(self, epoch=None):
-        """Save model to disk
+    def save_more(self):
+        """Save classifier and centers to disk"""
 
-        Parameters
-        ----------
-        epoch : `int`, optional
-            Epoch number. Defaults to self.epoch_
+        classifier_pt = self.CLASSIFIER_PT.format(
+            train_dir=self.train_dir_, epoch=self.epoch_)
+        centers_pt = self.CENTERS_PT.format(
+            train_dir=self.train_dir_, epoch=self.epoch_)
 
-        """
-
-        if epoch is None:
-            epoch = self.epoch_
-
-        torch.save(self.classifier_.state_dict(),
-                   self.CLASSIFIER_PT.format(log_dir=self.log_dir_,
-                                             epoch=epoch))
-
-        torch.save(self.center_dist_.state_dict(),
-                   self.CENTERS_PT.format(log_dir=self.log_dir_,
-                                          epoch=epoch))
-
-        super().save_epoch(epoch=epoch)
+        torch.save(self.classifier_.state_dict(), classifier_pt)
+        torch.save(self.center_dist_.state_dict(), centers_pt)
 
     def get_batch_generator(self, feature_extraction,
                             protocol, subset='train',

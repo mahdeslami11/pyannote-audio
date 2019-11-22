@@ -119,6 +119,10 @@ class BaseSchedulerCallback(Callback):
 
     def auto_lr(self, trainer, beta=0.98):
 
+        # FIXME
+        msg = 'AutoLR is broken since the removal of Checkpoint class.'
+        raise NotImplementedError(msg)
+
         if DLIB_NOT_AVAILABLE:
             msg = (
                 '"auto" learning rate is not supported because "dlib" is not '
@@ -127,7 +131,7 @@ class BaseSchedulerCallback(Callback):
             )
             raise NotImplementedError(msg)
 
-        trainer.save_epoch()
+        trainer.save_state()
 
         # initialize optimizer with a low learning rate
         for param_group in trainer.optimizer_.param_groups:
@@ -183,7 +187,7 @@ class BaseSchedulerCallback(Callback):
                 break
 
         # reload model using its initial state
-        trainer.load_epoch(trainer.epoch_)
+        trainer.load_state()
 
         lr = self.choose_lr(lrs, losses_smoothened)
 

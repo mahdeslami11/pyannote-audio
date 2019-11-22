@@ -170,7 +170,7 @@ class DomainAwareSpeechActivityDetection(SpeechActivityDetection):
         Loss function to use. Defaults to 'NLLLoss'.
     """
 
-    DOMAIN_PT = '{log_dir}/weights/{epoch:04d}.domain.pt'
+    DOMAIN_PT = '{train_dir}/weights/{epoch:04d}.domain.pt'
 
     def __init__(self,
                  domain='domain', attachment=-1,
@@ -200,67 +200,53 @@ class DomainAwareSpeechActivityDetection(SpeechActivityDetection):
             )
             raise NotImplementedError(msg)
 
-    def parameters(self, model, specifications, device):
+    def more_parameters(self):
         """Initialize trainable trainer parameters
 
-        Parameters
-        ----------
-        specifications : `dict`
-            Batch specs.
-
-        Returns
-        -------
-        parameters : iterable
+        Yields
+        ------
+        parameter : nn.Parameter
             Trainable trainer parameters
         """
+
         domain_classifier_rnn = RNN(
-            n_features=model.intermediate_dimension(self.attachment),
+            n_features=self.model.intermediate_dimension(self.attachment),
             **self.rnn)
 
+        n_classes = len(self.specifications[self.domain]['classes'])
         domain_classifier_linear = nn.Linear(
             domain_classifier_rnn.dimension,
-            len(specifications[self.domain]['classes']),
-            bias=True).to(device)
+            n_classes,
+            bias=True).to(self.device)
 
-        self.domain_classifier_ = nn.Sequential(domain_classifier_rnn,
-                                                domain_classifier_linear).to(device)
+        self.domain_classifier_ = nn.Sequential(
+            domain_classifier_rnn, domain_classifier_linear).to(self.device)
 
-        return list(self.domain_classifier_.parameters())
+        # TODO: check if we really need to do this .to(self.device) twice
 
-    def load_epoch(self, epoch):
-        """Load model and classifier from disk
+        return self.domain_classifier_.parameters()
 
-        Parameters
-        ----------
-        epoch : `int`
-            Epoch number.
-        """
+    def load_more(self, model_pt=None):
+        """Load classifier from disk"""
 
-        super().load_epoch(epoch)
+        if model_pt is None:
+            domain_pt = self.DOMAIN_PT.format(
+                train_dir=self.train_dir_, epoch=self.epoch_)
+        else:
+            msg = 'TODO: infer domain_pt from model_pt'
+            raise NotImplementedError(msg)
+            # domain_pt = ...
 
         domain_classifier_state = torch.load(
-            self.DOMAIN_PT.format(log_dir=self.log_dir_, epoch=epoch),
-            map_location=lambda storage, loc: storage)
+            domain_pt, map_location=lambda storage, loc: storage)
         self.domain_classifier_.load_state_dict(domain_classifier_state)
 
-    def save_epoch(self, epoch=None):
-        """Save model to disk
+    def save_more(self):
+        """Save domain classifier to disk"""
 
-        Parameters
-        ----------
-        epoch : `int`, optional
-            Epoch number. Defaults to self.epoch_
-
-        """
-
-        if epoch is None:
-            epoch = self.epoch_
-
-        torch.save(self.domain_classifier_.state_dict(),
-                   self.DOMAIN_PT.format(log_dir=self.log_dir_,
-                                             epoch=epoch))
-
-        super().save_epoch(epoch=epoch)
+        domain_pt = self.DOMAIN_PT.format(
+            train_dir=self.train_dir_, epoch=self.epoch_)
+        torch.save(self.domain_classifier_.state_dict(), domain_pt)
 
     def batch_loss(self, batch):
         """Compute loss for current `batch`

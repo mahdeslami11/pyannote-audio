@@ -128,7 +128,7 @@ class AdditiveAngularMarginLoss(Classification):
             Scaling parameter value for the logits. Defaults to 7.
         """
 
-    CLASSIFIER_PT = '{log_dir}/weights/{epoch:04d}.arcface_classifier.pt'
+    CLASSIFIER_PT = '{train_dir}/weights/{epoch:04d}.arcface_classifier.pt'
 
     def __init__(self, duration=None, min_duration=None, max_duration=None,
                  per_label=1, per_fold=32, per_epoch=7, parallel=1,
@@ -139,27 +139,22 @@ class AdditiveAngularMarginLoss(Classification):
         self.margin = margin
         self.s = s
 
-    def parameters(self, model, specifications, device):
-        """Initialize trainable trainer parameters
+    def more_parameters(self):
+        """Initialize classifier layer
 
-        Parameters
-        ----------
-        specifications : `dict`
-            Batch specs.
-
-        Returns
-        -------
-        parameters : iterable
-            Trainable trainer parameters
+        Yields
+        ------
+        parameter : nn.Parameter
+            Parameters
         """
 
         self.classifier_ = ArcLinear(
-            model.dimension,
-            len(specifications['y']['classes']),
+            self.model.dimension,
+            len(self.specifications['y']['classes']),
             self.margin,
-            self.s).to(device)
+            self.s).to(self.device)
 
-        return list(self.classifier_.parameters())
+        return self.classifier_.parameters()
 
     def batch_loss(self, batch):
         """Compute loss for current `batch`
