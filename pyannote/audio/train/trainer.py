@@ -33,6 +33,8 @@ except ImportError as e:
     from typing_extensions import Literal
 from pathlib import Path
 import io
+import os
+import sys
 import yaml
 import torch
 import tempfile
@@ -271,31 +273,71 @@ class Trainer:
             train_dir = tempfile.mkdtemp()
         self.train_dir_ = train_dir
 
-        # BATCH GENERATOR
-        self.batch_generator_ = batch_generator
-        self.batches_ = self.batch_generator_()
-        self.batches_per_epoch_ = self.batch_generator_.batches_per_epoch
-
         # DEVICE
         self.device_ = torch.device('cpu') if device is None else device
 
         # MODEL
         self.model_ = model.to(self.device_)
 
-        # save specifications to disk
-        specifications = self.batch_generator_.specifications
-        specs_yml = self.SPECS_YML.format(train_dir=self.train_dir_)
-        with io.open(specs_yml, 'w') as fp:
-            specifications_ = dict(specifications)
-            specifications_['task'] = str(specifications_['task'])
-            yaml.dump(specifications_, fp, default_flow_style=False)
+        # BATCH GENERATOR
+        self.batch_generator_ = batch_generator
+        self.batches_ = self.batch_generator_()
+        self.batches_per_epoch_ = self.batch_generator_.batches_per_epoch
 
         # OPTIMIZER
-
         lr = ARBITRARY_LR if learning_rate == 'auto' else learning_rate
         self.optimizer_ = get_optimizer(self.parameters(), lr=lr)
         self.base_learning_rate_ = learning_rate
 
+        # be careful when creating "weights" directory
+        if isinstance(warm_start, str) or \
+           (isinstance(warm_start, int) and warm_start == 0):
+
+            dummy_model_pt = self.MODEL_PT.format(
+                train_dir=self.train_dir_, epoch=0)
+            weights_dir = Path(dummy_model_pt).parent
+            try:
+                # this will fail if the directory already exists
+                # and this is OK  because 'weights' directory
+                # usually contains the output of very long computations
+                # and you do not want to erase them by mistake :/
+                os.makedirs(weights_dir)
+            except FileExistsError as e:
+                msg = (
+                    f'You were about to overwrite models in directory:\n'
+                    f'{weights_dir}\nIf you want to train a new model, first '
+                    f'(backup and) remove the directory.'
+                )
+                sys.exit(msg)
+                # TODO. make this interactive:
+                # TODO. do you want to empty the directory? [Y/N]
+
+        if isinstance(warm_start, int):
+            if warm_start > 0:
+                self.epoch_ = warm_start
+                self.load_state(model_pt=None)
+
+            else:
+                self.epoch_ = 0
+
+        elif isinstance(warm_start, str):
+            msg = "Fine-tuning is not supported yet."
+            raise NotImplementedError(msg)
+            model_pt = f(warm_start)
+            self.load_state(model_pt=model_pt)
+
+        else:
+            msg = f"'warm_start' must be either an integer or a string."
+            raise NotImplementedError(msg)
+
+        # save specifications to weights/specs.yml
+        specs_yml = self.SPECS_YML.format(train_dir=self.train_dir_)
+        with io.open(specs_yml, 'w') as fp:
+            specifications = dict(self.specifications)
+            specifications['task'] = str(specifications['task'])
+            yaml.dump(specifications, fp, default_flow_style=False)
+
+        # CALLBACKS
         callbacks = []
 
         # SCHEDULER
@@ -307,20 +349,6 @@ class Trainer:
         callbacks.append(logger)
 
         callbacks = Callbacks(callbacks)
-
-        # FINE TUNING ?
-
-        # TODO: add support for fine tuning torch.hub pre-trained models
-
-        if warm_start:
-
-            # warm start
-            self.epoch_ = warm_start
-            self.load_state(model_pt=None)
-
-        else:
-            # cold start
-            self.epoch_ = 0
 
         # TRAINING STARTS
         self.tensorboard_ = SummaryWriter(log_dir=self.train_dir_,

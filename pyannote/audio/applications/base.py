@@ -284,39 +284,16 @@ class Application:
         subset : {'train', 'development', 'test'}, optional
             Defaults to 'train'.
         warm_start : `int` or `str`, optional
-            Restart training at `warm_start`th epoch. Defaults to training from
-            scratch.
+            Restart training at `warm_start`th epoch.
+            Defaults to training from scratch.
         epochs : `int`, optional
             Train for that many epochs. Defaults to 1000.
         """
 
-        train_dir = self.TRAIN_DIR.format(
-            experiment_dir=self.experiment_dir,
-            protocol=protocol_name,
-            subset=subset)
-
-        # TODO: move this into Trainer class
-        if isinstance(warm_start, str) or warm_start == 0:
-
-            weights_dir = f'{train_dir}/weights'
-            try:
-                # this will fail if the directory already exists
-                # and this is OK  because 'weights' directory
-                # usually contains the output of very long computations
-                # and you do not want to erase them by mistake :/
-                os.makedirs(weights_dir)
-            except FileExistsError as e:
-                msg = (
-                    f'You are about to overwrite pretrained models in '
-                    f'"{weights_dir}" directory. If you want to train a new '
-                    f'model from scratch, first (backup and) remove the '
-                    f'directory.'
-                )
-                sys.exit(msg)
-
         # initialize batch generator
         protocol = get_protocol(protocol_name, progress=True,
                                 preprocessors=self.preprocessors_)
+
         batch_generator = self.task_.get_batch_generator(
             self.feature_extraction_,
             protocol,
@@ -326,6 +303,11 @@ class Application:
 
         # initialize model architecture based on specifications
         model = self.get_model_from_specs_(batch_generator.specifications)
+
+        train_dir = self.TRAIN_DIR.format(
+            experiment_dir=self.experiment_dir,
+            protocol=protocol_name,
+            subset=subset)
 
         iterations = self.task_.fit_iter(
             model,
