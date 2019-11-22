@@ -56,6 +56,13 @@ class Reverb(Augmentation):
     absorption : (float, float), optional
         Minimum and maximum values of walls absorption coefficient.
         Defaults to (0.2, 0.9).
+    noise : str or list of str, optional
+        `pyannote.database` collection(s) used for adding noise.
+        Defaults to "MUSAN.Collection.BackgroundNoise"
+    snr : (float, float), optional
+        Minimum and maximum values of signal-to-noise ratio.
+        Defaults to (5.0, 15.0)
+
     """
 
 
