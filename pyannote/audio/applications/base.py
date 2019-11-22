@@ -274,7 +274,7 @@ class Application:
 
     def train(self, protocol_name: str,
                     subset: str = 'train',
-                    restart: Union[int, str] = 0,
+                    warm_start: Union[int, str] = 0,
                     epochs: int = 1000):
         """Train model
 
@@ -283,8 +283,8 @@ class Application:
         protocol_name : `str`
         subset : {'train', 'development', 'test'}, optional
             Defaults to 'train'.
-        restart : `int` or `str`, optional
-            Restart training at `restart`th epoch. Defaults to training from
+        warm_start : `int` or `str`, optional
+            Restart training at `warm_start`th epoch. Defaults to training from
             scratch.
         epochs : `int`, optional
             Train for that many epochs. Defaults to 1000.
@@ -296,7 +296,7 @@ class Application:
             subset=subset)
 
         # TODO: move this into Trainer class
-        if isinstance(restart, str) or restart == 0:
+        if isinstance(warm_start, str) or warm_start == 0:
 
             weights_dir = f'{train_dir}/weights'
             try:
@@ -330,7 +330,7 @@ class Application:
         iterations = self.task_.fit_iter(
             model,
             batch_generator,
-            restart=restart,
+            warm_start=warm_start,
             epochs=epochs,
             get_optimizer=self.get_optimizer_,
             scheduler=self.scheduler_,

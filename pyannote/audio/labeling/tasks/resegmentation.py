@@ -395,7 +395,7 @@ class Resegmentation(LabelingTask):
 
             epochs = self.fit_iter(
                 model, batch_generator,
-                restart=0, epochs=self.epochs,
+                warm_start=0, epochs=self.epochs,
                 get_optimizer=SGD,
                 scheduler=ConstantScheduler(),
                 learning_rate=self.learning_rate,

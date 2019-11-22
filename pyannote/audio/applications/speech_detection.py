@@ -232,7 +232,7 @@ def main():
             subset = 'train'
 
         # start training at this epoch (defaults to 0)
-        restart = int(arguments['--from'])
+        warm_start = int(arguments['--from'])
 
         # stop training at this epoch (defaults to never stop)
         epochs = arguments['--to']
@@ -244,8 +244,10 @@ def main():
         application = SpeechActivityDetection(experiment_dir, db_yml=db_yml,
                                               training=True)
         application.device = device
-        application.train(protocol_name, subset=subset,
-                          restart=restart, epochs=epochs)
+        application.train(protocol_name,
+                          subset=subset,
+                          warm_start=warm_start,
+                          epochs=epochs)
 
     if arguments['validate']:
 

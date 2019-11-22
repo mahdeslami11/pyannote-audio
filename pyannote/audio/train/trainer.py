@@ -218,7 +218,7 @@ class Trainer:
     def fit_iter(self,
                  model: Model,
                  batch_generator: BatchGenerator,
-                 restart: Union[int, str] = 0,
+                 warm_start: Union[int, str] = 0,
                  epochs: int = 1000,
                  get_optimizer: Callable[..., Optimizer] = SGD,
                  scheduler: Optional[BaseSchedulerCallback] = None,
@@ -235,7 +235,7 @@ class Trainer:
             Model.
         batch_generator : `BatchGenerator`
             Batch generator.
-        restart : `int`, optional
+        warm_start : `int`, optional
             Restart training at this epoch. Default behavior (0) is to train the
             model from scratch.
         epochs : `int`, optional
@@ -312,10 +312,10 @@ class Trainer:
 
         # TODO: add support for fine tuning torch.hub pre-trained models
 
-        if restart:
+        if warm_start:
 
-            # warm restart
-            self.epoch_ = restart
+            # warm start
+            self.epoch_ = warm_start
             self.load_state(model_pt=None)
 
         else:

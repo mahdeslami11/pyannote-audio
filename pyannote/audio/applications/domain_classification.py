@@ -261,7 +261,7 @@ def main():
             subset = 'train'
 
         # start training at this epoch (defaults to 0)
-        restart = int(arguments['--from'])
+        warm_start = int(arguments['--from'])
 
         # stop training at this epoch (defaults to never stop)
         epochs = arguments['--to']
@@ -274,7 +274,7 @@ def main():
                                            training=True)
         application.device = device
         application.train(protocol_name, subset=subset,
-                          restart=restart, epochs=epochs)
+                          warm_start=warm_start, epochs=epochs)
 
     if arguments['validate']:
 
