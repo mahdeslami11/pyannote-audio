@@ -97,6 +97,7 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
     def specifications(self):
 
         specs = LabelingTaskGenerator.specifications.fget(self)
+        specs['y']['classes'] = ['non_speech', 'speech']
 
         for key, classes in self.file_labels_.items():
 
