@@ -36,7 +36,7 @@ from pyannote.pipeline.parameter import Uniform
 from pyannote.core import Annotation
 from pyannote.core import SlidingWindowFeature
 
-from pyannote.audio.signal import Peak
+from pyannote.audio.utils.signal import Peak
 from pyannote.audio.features import Precomputed
 
 from pyannote.database import get_annotated

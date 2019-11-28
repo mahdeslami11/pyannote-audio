@@ -41,7 +41,6 @@ from tqdm import tqdm
 from glob import glob
 from pyannote.database import FileFinder
 from pyannote.database import get_protocol
-from pyannote.audio.util import mkdir_p
 from pyannote.audio.features.utils import get_audio_duration
 from sortedcontainers import SortedDict
 from torch.utils.tensorboard import SummaryWriter

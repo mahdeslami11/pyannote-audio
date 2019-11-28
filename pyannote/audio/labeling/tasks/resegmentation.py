@@ -42,9 +42,9 @@ from pyannote.audio.labeling.extraction import SequenceLabeling
 from pyannote.audio.train.schedulers import ConstantScheduler
 from torch.optim import SGD
 from pyannote.audio.features.utils import get_audio_duration
-from pyannote.audio.util import mkdir_p
+from pyannote.audio.utils.path import mkdir_p
 from pathlib import Path
-from pyannote.audio.signal import Binarize
+from pyannote.audio.utils.signal import Binarize
 
 
 class ResegmentationGenerator(LabelingTaskGenerator):

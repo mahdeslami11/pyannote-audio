@@ -36,7 +36,7 @@ from numpy.lib.format import open_memmap
 
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.database.util import get_unique_identifier
-from pyannote.audio.util import mkdir_p
+from pyannote.audio.utils.path import mkdir_p
 
 
 class PyannoteFeatureExtractionError(Exception):
