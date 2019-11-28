@@ -29,13 +29,14 @@
 dependencies = ['pyannote.audio']
 
 import os
+import yaml
 import torch
 import zipfile
 import shutil
 from pathlib import Path
 from typing import Optional
 
-from pyannote.audio.util import mkdir_p
+from pyannote.audio.utils.path import mkdir_p
 from pyannote.audio.labeling.extraction import SequenceLabeling
 from pyannote.audio.applications.speech_detection import SpeechActivityDetection
 
@@ -60,10 +61,14 @@ MODELS = {
     },
 }
 
+
+
+
 def speech_activity_detection(version: str = "AMI",
                               device: Optional[str] = None,
                               batch_size: int = 32,
-                              force_reload: bool = False) -> SequenceLabeling:
+                              force_reload: bool = False,
+                              return_path: bool = False) -> SequenceLabeling:
     """Load pretrained speech activity detection model
 
     Parameters
@@ -77,6 +82,8 @@ def speech_activity_detection(version: str = "AMI",
     force_reload : bool
         Whether to discard the existing cache and force a fresh download.
         Defaults to use existing cache.
+    return_path : bool
+        Return path to model instead of `SequenceLabeling` instance
 
     Returns
     -------
@@ -127,6 +134,15 @@ def speech_activity_detection(version: str = "AMI",
     # train/{training_set}/validate/{development_set}/params.yml
 
     params_yml, = hub_dir.glob('*/*/*/*/params.yml')
+
+    if return_path:
+        # get epoch from params_yml
+        with open(params_yml, 'r') as fp:
+            params = yaml.load(fp, Loader=yaml.SafeLoader)
+            epoch = params['epoch']
+
+        # infer path to model
+        return params_yml.parents[2] / 'weights' / f'{epoch:04d}.pt'
 
     # TODO: print a message to the user providing information about it
     # *_, train, _, development, _ = params_yml.parts
