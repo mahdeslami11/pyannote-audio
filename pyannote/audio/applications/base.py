@@ -303,10 +303,10 @@ class Application:
         # initialize model architecture based on specifications
         model = self.get_model_from_specs_(batch_generator.specifications)
 
-        train_dir = self.TRAIN_DIR.format(
+        train_dir = Path(self.TRAIN_DIR.format(
             experiment_dir=self.experiment_dir,
             protocol=protocol_name,
-            subset=subset)
+            subset=subset))
 
         iterations = self.task_.fit_iter(
             model,

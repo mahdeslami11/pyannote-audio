@@ -270,7 +270,7 @@ class Trainer:
 
         #
         if train_dir is None:
-            train_dir = tempfile.mkdtemp()
+            train_dir = Path(tempfile.mkdtemp())
         self.train_dir_ = train_dir
 
         # DEVICE

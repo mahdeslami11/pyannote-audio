@@ -399,7 +399,7 @@ class Resegmentation(LabelingTask):
                 get_optimizer=SGD,
                 scheduler=ConstantScheduler(),
                 learning_rate=self.learning_rate,
-                train_dir=train_dir, verbosity=0,
+                train_dir=Path(train_dir), verbosity=0,
                 device=self.device)
 
             scores = []
