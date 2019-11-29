@@ -48,6 +48,8 @@ from .schedulers import BaseSchedulerCallback
 from .schedulers import ConstantScheduler
 from .generator import BatchGenerator
 from .model import Model
+from ..utils.timeout import timeout
+
 
 
 ARBITRARY_LR = 0.1
@@ -87,9 +89,7 @@ class Trainer:
 
         else:
             _model_pt = model_pt
-            msg = 'TODO: infer optimizer_pt from model_pt'
-            raise NotImplementedError(msg)
-            # optimizer_pt = f(model_pt)
+            optimizer_pt = model_pt.with_suffix('.optimizer.pt')
 
         model_state = torch.load(
             _model_pt, map_location=lambda storage, loc: storage)
@@ -220,7 +220,7 @@ class Trainer:
     def fit_iter(self,
                  model: Model,
                  batch_generator: BatchGenerator,
-                 warm_start: Union[int, str] = 0,
+                 warm_start: Union[int, Path] = 0,
                  epochs: int = 1000,
                  get_optimizer: Callable[..., Optimizer] = SGD,
                  scheduler: Optional[BaseSchedulerCallback] = None,
@@ -237,9 +237,9 @@ class Trainer:
             Model.
         batch_generator : `BatchGenerator`
             Batch generator.
-        warm_start : `int`, optional
-            Restart training at this epoch. Default behavior (0) is to train the
-            model from scratch.
+        warm_start : `int` or `Path`, optional
+            Restart training at this epoch or from this model.
+            Default behavior (0) is to train the model from scratch.
         epochs : `int`, optional
             Train model for that many epochs. Defaults to 1000.
         get_optimizer : `callable`, optional
@@ -289,46 +289,64 @@ class Trainer:
         self.optimizer_ = get_optimizer(self.parameters(), lr=lr)
         self.base_learning_rate_ = learning_rate
 
-        # be careful when creating "weights" directory
-        if isinstance(warm_start, str) or \
+        # make sure that 'train_dir' directory does not exist when
+        # fine-tuning a pre-trained model or starting from scratch
+        # as it might contain the output of very long computations:
+        # you do not want to erase them by mistake!
+
+        if isinstance(warm_start, Path) or \
            (isinstance(warm_start, int) and warm_start == 0):
 
-            dummy_model_pt = self.MODEL_PT.format(
-                train_dir=self.train_dir_, epoch=0)
-            weights_dir = Path(dummy_model_pt).parent
             try:
                 # this will fail if the directory already exists
-                # and this is OK  because 'weights' directory
-                # usually contains the output of very long computations
-                # and you do not want to erase them by mistake :/
-                os.makedirs(weights_dir)
-            except FileExistsError as e:
-                msg = (
-                    f'You were about to overwrite models in directory:\n'
-                    f'{weights_dir}\nIf you want to train a new model, first '
-                    f'(backup and) remove the directory.'
-                )
-                sys.exit(msg)
-                # TODO. make this interactive:
-                # TODO. do you want to empty the directory? [Y/N]
+                os.makedirs(self.train_dir_)
 
+            except FileExistsError as e:
+
+                # ask user whether it is OK to continue
+                try:
+                    with timeout(60):
+                        msg = (
+                            f'Directory "{self.train_dir_}" exists.\n'
+                            f'Are you OK to overwrite existing models? [y/N]: '
+                        )
+                        overwrite = (input(msg) or "n").lower()
+                except TimeoutError:
+                    # defaults to "no" after 60 seconds
+                    overwrite = 'n'
+
+            # stop everything if the user did not say "yes" after a while
+            if overwrite != 'y':
+                sys.exit()
+
+        # defaults to 0
+        self.epoch_ = 0
+
+        # when warm_start is an integer, it means that the user wants to
+        # restart training at a given epoch. we intialize the model state and
+        # set epoch_ attribute accordingly.
         if isinstance(warm_start, int):
+
             if warm_start > 0:
+
+                # set epoch_ to requested value...
                 self.epoch_ = warm_start
+
+                # ... and load corresponding model if requested
                 self.load_state(model_pt=None)
 
-            else:
-                self.epoch_ = 0
-
-        elif isinstance(warm_start, str):
-            msg = "Fine-tuning is not supported yet."
-            raise NotImplementedError(msg)
-            model_pt = f(warm_start)
-            self.load_state(model_pt=model_pt)
-
+        # when warm_start is a Path, it means that the user wants to
+        # resstart training from a pretrained model
         else:
-            msg = f"'warm_start' must be either an integer or a string."
-            raise NotImplementedError(msg)
+            try:
+                self.load_state(model_pt=warm_start)
+
+            except Exception as e:
+                msg = (
+                    f'Could not assign model weights. The following exception '
+                    f'was raised:\n\n{e}\n\nAre you sure the architectures '
+                    f'are consistent?')
+                sys.exit(msg)
 
         # save specifications to weights/specs.yml
         specs_yml = self.SPECS_YML.format(train_dir=self.train_dir_)
