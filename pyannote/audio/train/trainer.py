@@ -315,9 +315,9 @@ class Trainer:
                     # defaults to "no" after 60 seconds
                     overwrite = 'n'
 
-            # stop everything if the user did not say "yes" after a while
-            if overwrite != 'y':
-                sys.exit()
+                # stop everything if the user did not say "yes" after a while
+                if overwrite != 'y':
+                    sys.exit()
 
         # defaults to 0
         self.epoch_ = 0
