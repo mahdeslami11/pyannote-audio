@@ -29,15 +29,17 @@
 dependencies = ['pyannote.audio', 'torch']
 
 import yaml
-from pathlib import Path
-from typing import Optional
-from typing import Union
-from functools import partial
+import pathlib
+import typing
+import functools
 
 import torch
-from pyannote.audio.labeling.extraction import SequenceLabeling
-from pyannote.audio.embedding.extraction import SequenceEmbedding
-from pyannote.audio.applications.speech_detection import SpeechActivityDetection
+from pyannote.audio.labeling.extraction import SequenceLabeling \
+    as _SequenceLabeling
+from pyannote.audio.embedding.extraction import SequenceEmbedding \
+    as _SequenceEmbedding
+from pyannote.audio.applications.speech_detection import SpeechActivityDetection \
+    as _SpeechActivityDetection
 
 MODELS = {
     # speech activity detection
@@ -63,11 +65,14 @@ MODELS = {
     },
 }
 
+DEVICE = typing.Union[str, torch.device]
+OUTPUT = typing.Union[_SequenceLabeling, _SequenceEmbedding, pathlib.Path]
+
 def _generic(task: str = 'sad',
              corpus: str = 'AMI',
-             device: Optional[Union[str, torch.device]] = None,
+             device: typing.Optional[DEVICE] = None,
              batch_size: int = 32,
-             return_path: bool = False) -> Union[SequenceLabeling, SequenceEmbedding, Path]:
+             return_path: bool = False) -> OUTPUT:
     """Load pretrained model
 
     Parameters
@@ -100,7 +105,7 @@ def _generic(task: str = 'sad',
     """
 
     # path where pre-trained model is downloaded by torch.hub
-    hub_dir = Path(__file__).parent / 'models' / task / corpus / MODELS[task][corpus]
+    hub_dir = pathlib.Path(__file__).parent / 'models' / task / corpus / MODELS[task][corpus]
 
     # guess path to "params.yml"
     params_yml, = hub_dir.glob('*/*/*/*/params.yml')
@@ -120,8 +125,8 @@ def _generic(task: str = 'sad',
     # print(msg)
 
     if task == 'sad':
-        Application = SpeechActivityDetection
-        Extraction = SequenceLabeling
+        Application = _SpeechActivityDetection
+        Extraction = _SequenceLabeling
     else:
         msg = 'Only speech activity detection models (sad) are available.'
         raise ValueError(msg)
@@ -141,10 +146,10 @@ def _generic(task: str = 'sad',
         duration=duration, step=step,
         batch_size=batch_size, device=device)
 
-_sad = partial(_generic, task='sad')
-sad_ami = partial(_sad, corpus='ami')
-sad_dihard = partial(_sad, corpus='dihard')
-sad_etape = partial(_sad, corpus='etape')
+_sad = functools.partial(_generic, task='sad')
+sad_ami = functools.partial(_sad, corpus='ami')
+sad_dihard = functools.partial(_sad, corpus='dihard')
+sad_etape = functools.partial(_sad, corpus='etape')
 
 if __name__ == '__main__':
     DOCOPT = """Create torch.hub zip file from validation directory
