@@ -65,14 +65,14 @@ MODELS = {
     },
 }
 
-DEVICE = typing.Union[str, torch.device]
-OUTPUT = typing.Union[_SequenceLabeling, _SequenceEmbedding, pathlib.Path]
+_DEVICE = typing.Union[str, torch.device]
+_PRETRAINED = typing.Union[_SequenceLabeling, _SequenceEmbedding, pathlib.Path]
 
 def _generic(task: str = 'sad',
              corpus: str = 'AMI',
-             device: typing.Optional[DEVICE] = None,
+             device: typing.Optional[_DEVICE] = None,
              batch_size: int = 32,
-             return_path: bool = False) -> OUTPUT:
+             return_path: bool = False) -> _PRETRAINED:
     """Load pretrained model
 
     Parameters
