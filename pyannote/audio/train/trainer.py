@@ -294,12 +294,11 @@ class Trainer:
         # as it might contain the output of very long computations:
         # you do not want to erase them by mistake!
 
-        if isinstance(warm_start, Path) or \
-           (isinstance(warm_start, int) and warm_start == 0):
+        if isinstance(warm_start, Path) or warm_start == 0:
 
             try:
                 # this will fail if the directory already exists
-                os.makedirs(self.train_dir_)
+                os.makedirs(self.train_dir_ / 'weights')
 
             except FileExistsError as e:
 
