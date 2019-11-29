@@ -26,113 +26,83 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-dependencies = ['pyannote.audio']
+dependencies = ['pyannote.audio', 'torch']
 
-import os
 import yaml
-import torch
-import zipfile
-import shutil
 from pathlib import Path
 from typing import Optional
+from typing import Union
+from functools import partial
 
-from pyannote.audio.utils.path import mkdir_p
+import torch
 from pyannote.audio.labeling.extraction import SequenceLabeling
+from pyannote.audio.embedding.extraction import SequenceEmbedding
 from pyannote.audio.applications.speech_detection import SpeechActivityDetection
 
-
-URL = "https://github.com/pyannote/pyannote-audio/releases/download"
-RELEASE = "2.0.0-wip"
-
 MODELS = {
-    "speech_activity_detection": {
-        "AMI": {
-            "url": f"{URL}/{RELEASE}/SAD.AMI.d534ec1eb2.zip",
-            "hash_prefix": "d534ec1eb2",
-        },
-        "ETAPE": {
-            "url": f"{URL}/{RELEASE}/SAD.ETAPE.bc770a4290.zip",
-            "hash_prefix": "bc770a4290",
-        },
-        "DIHARD": {
-            "url": f"{URL}/{RELEASE}/SAD.DIHARD.0585a5507a.zip",
-            "hash_prefix": "0585a5507a",
-        },
+    # speech activity detection
+    "sad": {
+        "ami": "d534ec1eb2",
+        "etape": "bc770a4290",
+        "dihard": "0585a5507a",
+    },
+
+    # speaker change detection
+    "scd": {
+
+    },
+
+    # overlapped speech detection
+    "ovl": {
+
+    },
+
+    # speaker embedding
+    "emb": {
+
     },
 }
 
-
-
-
-def speech_activity_detection(version: str = "AMI",
-                              device: Optional[str] = None,
-                              batch_size: int = 32,
-                              force_reload: bool = False,
-                              return_path: bool = False) -> SequenceLabeling:
-    """Load pretrained speech activity detection model
+def _generic(task: str = 'sad',
+             corpus: str = 'AMI',
+             device: Optional[Union[str, torch.device]] = None,
+             batch_size: int = 32,
+             return_path: bool = False) -> Union[SequenceLabeling, SequenceEmbedding, Path]:
+    """Load pretrained model
 
     Parameters
     ----------
-    version : str
-        One of "AMI", "DIHARD", and "ETAPE".
-    device : torch.device, optional
+    task : {'sad', 'scd', 'ovl', 'emb'}, optional
+        Use 'sad' for speech activity detection, 'scd' for speaker change
+        detection, 'ovl' for overlapped speech detection, and 'emb' for speaker
+        embedding. Defaults to 'sad'.
+    corpus : {'ami', 'dihard', 'etape', 'voxceleb'}, optional
+        Use 'ami' for model trained on AMI corpus, 'dihard' for DIHARD corpus,
+        'etape' for ETAPE corpus, 'voxceleb' for VoxCeleb corpus.
+    device : str or torch.device, optional
         Device used for inference.
     batch_size : int, optional
         Batch size used for inference.
-    force_reload : bool
-        Whether to discard the existing cache and force a fresh download.
-        Defaults to use existing cache.
     return_path : bool
-        Return path to model instead of `SequenceLabeling` instance
+        Return path to model checkpoint.
+        Defaults to returning `Sequence{Labeling|Embedding}` instance.
 
     Returns
     -------
-    model : `SequenceLabeling`
+    model : `SequenceLabeling` or `SequenceEmbedding` or `Path`
 
     Usage
     -----
-    >>> model = torch.hub.load('pyannote/pyannote-audio',
-                               'speech_activity_detection',
-                               version='AMI', device='cuda')
-    >>> scores = model({'audio': '/path/to/audio.wav'})
+    >>> model = torch.hub.load('pyannote/pyannote-audio', '_generic',
+    ...                        task='sad', corpus='ami',
+    ...                        device='cuda', batch_size=32)
+    >>> sad_scores = model({'audio': '/path/to/audio.wav'})
     """
 
-    hash_prefix = MODELS['speech_activity_detection'][version]['hash_prefix']
-    url = MODELS['speech_activity_detection'][version]['url']
+    # path where pre-trained model is downloaded by torch.hub
+    hub_dir = Path(__file__).parent / 'models' / task / corpus / MODELS[task][corpus]
 
-    # path where pre-trained model is downloaded
-    hub_dir = Path(os.environ.get("PYANNOTE_AUDIO_HUB",
-                                  "~/.pyannote/hub"))
-    hub_dir = hub_dir.expanduser().resolve() / hash_prefix
-
-    if not hub_dir.exists() or force_reload:
-
-        if hub_dir.exists():
-            shutil.rmtree(hub_dir)
-
-        hub_zip = hub_dir / f"{hash_prefix}.zip"
-        mkdir_p(hub_zip.parent)
-        try:
-            msg = f'Downloading "{url}" to {hub_zip}'
-            print(msg)
-            torch.hub.download_url_to_file(url, hub_zip,
-                                           hash_prefix=hash_prefix,
-                                           progress=True)
-        except RuntimeError as e:
-            shutil.rmtree(hub_dir)
-            msg = f'Failed to download model. Please try again.'
-            raise RuntimeError(msg)
-
-        # unzip downloaded file
-        with zipfile.ZipFile(hub_zip) as z:
-            z.extractall(path=hub_dir)
-
-    # content of {hub_dir} directory
-    # config.yml
-    # train/{training_set}/weights/specs.yml
-    # train/{training_set}/weights/{epoch}*.pt
-    # train/{training_set}/validate/{development_set}/params.yml
-
+    # guess path to "params.yml"
     params_yml, = hub_dir.glob('*/*/*/*/params.yml')
 
     if return_path:
@@ -149,24 +119,32 @@ def speech_activity_detection(version: str = "AMI",
     # msg = 'Model trained on {train}'
     # print(msg)
 
-    app = SpeechActivityDetection.from_validate_dir(params_yml.parent,
-                                                    training=False)
+    if task == 'sad':
+        Application = SpeechActivityDetection
+        Extraction = SequenceLabeling
+    else:
+        msg = 'Only speech activity detection models (sad) are available.'
+        raise ValueError(msg)
 
+    app = Application.from_validate_dir(params_yml.parent,
+                                        training=False)
     feature_extraction = app.feature_extraction_
     model = app.model_
     duration = app.task_.duration
     step = 0.25 * duration
     device = torch.device('cpu') if device is None else torch.device(device)
 
-    # initialize embedding extraction
-    labeling = SequenceLabeling(
+    # initialize  extraction
+    return Extraction(
         feature_extraction=feature_extraction,
         model=model,
         duration=duration, step=step,
-        batch_size=batch_size, device=device,
-        return_intermediate=None)
+        batch_size=batch_size, device=device)
 
-    return labeling
+_sad = partial(_generic, task='sad')
+sad_ami = partial(_sad, corpus='ami')
+sad_dihard = partial(_sad, corpus='dihard')
+sad_etape = partial(_sad, corpus='etape')
 
 if __name__ == '__main__':
     DOCOPT = """Create torch.hub zip file from validation directory
