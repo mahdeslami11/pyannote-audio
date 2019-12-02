@@ -40,6 +40,9 @@ from pyannote.audio.embedding.extraction import SequenceEmbedding \
     as _SequenceEmbedding
 from pyannote.audio.applications.speech_detection import SpeechActivityDetection \
     as _SpeechActivityDetection
+from pyannote.audio.applications.overlap_detection import OverlapDetection \
+    as _OverlapDetection
+
 
 MODELS = {
     # speech activity detection
@@ -56,7 +59,9 @@ MODELS = {
 
     # overlapped speech detection
     "ovl": {
-
+        "ami": "3424c01f3d",
+        "etape": "f17cceef33",
+        "dihard": "7df00c31d1",
     },
 
     # speaker embedding
@@ -127,8 +132,11 @@ def _generic(task: str = 'sad',
     if task == 'sad':
         Application = _SpeechActivityDetection
         Extraction = _SequenceLabeling
+    elif task == 'ovl':
+        Application = _OverlapDetection
+        Extraction = _SequenceLabeling
     else:
-        msg = 'Only speech activity detection models (sad) are available.'
+        msg = 'Only SAD and OVL models are available.'
         raise ValueError(msg)
 
     app = Application.from_validate_dir(params_yml.parent,
@@ -150,6 +158,12 @@ _sad = functools.partial(_generic, task='sad')
 sad_ami = functools.partial(_sad, corpus='ami')
 sad_dihard = functools.partial(_sad, corpus='dihard')
 sad_etape = functools.partial(_sad, corpus='etape')
+
+_ovl = functools.partial(_generic, task='ovl')
+ovl_ami = functools.partial(_ovl, corpus='ami')
+ovl_dihard = functools.partial(_ovl, corpus='dihard')
+ovl_etape = functools.partial(_ovl, corpus='etape')
+
 
 if __name__ == '__main__':
     DOCOPT = """Create torch.hub zip file from validation directory
