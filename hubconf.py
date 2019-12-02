@@ -44,6 +44,9 @@ from pyannote.audio.applications.overlap_detection import OverlapDetection \
     as _OverlapDetection
 from pyannote.audio.applications.change_detection import SpeakerChangeDetection \
     as _SpeakerChangeDetection
+from pyannote.audio.applications.speaker_embedding import SpeakerEmbedding \
+    as _SpeakerEmbedding
+
 
 MODELS = {
     # speech activity detection
@@ -69,7 +72,7 @@ MODELS = {
 
     # speaker embedding
     "emb": {
-
+        "voxceleb": "7c0bd56baf",
     },
 }
 
@@ -144,6 +147,10 @@ def _generic(task: str = 'sad',
         Application = _SpeakerChangeDetection
         Extraction = _SequenceLabeling
 
+    elif task == 'emb':
+        Application = _SpeakerEmbedding
+        Extraction = _SequenceEmbedding
+
     else:
         msg = 'Only SAD, OVL, and SCD models are available.'
         raise ValueError(msg)
@@ -177,6 +184,10 @@ _scd = functools.partial(_generic, task='scd')
 scd_ami = functools.partial(_scd, corpus='ami')
 scd_dihard = functools.partial(_scd, corpus='dihard')
 scd_etape = functools.partial(_scd, corpus='etape')
+
+_emb = functools.partial(_generic, task='emb')
+emb_voxceleb = functools.partial(_emb, corpus='voxceleb')
+
 
 if __name__ == '__main__':
     DOCOPT = """Create torch.hub zip file from validation directory
