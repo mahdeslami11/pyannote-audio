@@ -166,6 +166,6 @@ Options:
     from docopt import docopt
     from pyannote.audio.applications.base import create_zip
     arguments = docopt(DOCOPT, version='hubconf')
-    validate_dir = Path(arguments['<validate_dir>'])
+    validate_dir = pathlib.Path(arguments['<validate_dir>'])
     hub_zip = create_zip(validate_dir)
     print(f'Created file "{hub_zip.name}" in directory "{validate_dir}".')
