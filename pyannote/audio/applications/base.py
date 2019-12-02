@@ -55,7 +55,7 @@ def create_zip(validate_dir: Path):
 
     # create zip file containing:
     # config.yml
-    # {self.train_dir_}/weights/specs.yml
+    # {self.train_dir_}/specs.yml
     # {self.train_dir_}/weights/{epoch:04d}*.pt
     # {self.validate_dir_}/params.yml
 
@@ -81,7 +81,7 @@ def create_zip(validate_dir: Path):
 
     train_dir = validate_dir.parents[1]
     weights_dir = train_dir / 'weights'
-    specs_yml = weights_dir / 'specs.yml'
+    specs_yml = train_dir / 'specs.yml'
 
     hub_zip = validate_dir / 'hub.zip'
     with zipfile.ZipFile(hub_zip, 'w') as z:

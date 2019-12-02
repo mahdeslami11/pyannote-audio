@@ -67,7 +67,7 @@ class Trainer:
     device : torch.device
     """
 
-    SPECS_YML = '{train_dir}/weights/specs.yml'
+    SPECS_YML = '{train_dir}/specs.yml'
     MODEL_PT = '{train_dir}/weights/{epoch:04d}.pt'
     OPTIMIZER_PT = '{train_dir}/weights/{epoch:04d}.optimizer.pt'
 
