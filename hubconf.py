@@ -42,7 +42,8 @@ from pyannote.audio.applications.speech_detection import SpeechActivityDetection
     as _SpeechActivityDetection
 from pyannote.audio.applications.overlap_detection import OverlapDetection \
     as _OverlapDetection
-
+from pyannote.audio.applications.change_detection import SpeakerChangeDetection \
+    as _SpeakerChangeDetection
 
 MODELS = {
     # speech activity detection
@@ -54,7 +55,9 @@ MODELS = {
 
     # speaker change detection
     "scd": {
-
+        "ami": "2813a1d699",
+        "etape": "d7d3ab4837",
+        "dihard": "41a64748fd",
     },
 
     # overlapped speech detection
@@ -132,11 +135,17 @@ def _generic(task: str = 'sad',
     if task == 'sad':
         Application = _SpeechActivityDetection
         Extraction = _SequenceLabeling
+
     elif task == 'ovl':
         Application = _OverlapDetection
         Extraction = _SequenceLabeling
+
+    elif task == 'scd':
+        Application = _SpeakerChangeDetection
+        Extraction = _SequenceLabeling
+
     else:
-        msg = 'Only SAD and OVL models are available.'
+        msg = 'Only SAD, OVL, and SCD models are available.'
         raise ValueError(msg)
 
     app = Application.from_validate_dir(params_yml.parent,
@@ -164,6 +173,10 @@ ovl_ami = functools.partial(_ovl, corpus='ami')
 ovl_dihard = functools.partial(_ovl, corpus='dihard')
 ovl_etape = functools.partial(_ovl, corpus='etape')
 
+_scd = functools.partial(_generic, task='scd')
+scd_ami = functools.partial(_scd, corpus='ami')
+scd_dihard = functools.partial(_scd, corpus='dihard')
+scd_etape = functools.partial(_scd, corpus='etape')
 
 if __name__ == '__main__':
     DOCOPT = """Create torch.hub zip file from validation directory
