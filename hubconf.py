@@ -59,8 +59,8 @@ MODELS = {
     # speaker change detection
     "scd": {
         "ami": "2813a1d699",
-        "etape": "d7d3ab4837",
-        "dihard": "41a64748fd",
+        "etape": "41a64748fd",
+        "dihard": "d7d3ab4837",
     },
 
     # overlapped speech detection
