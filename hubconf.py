@@ -54,6 +54,7 @@ MODELS = {
         "ami": "d534ec1eb2",
         "etape": "bc770a4290",
         "dihard": "0585a5507a",
+        "dihardx": "41f38f5b74",  # domain-adversarial
     },
 
     # speaker change detection
@@ -174,6 +175,7 @@ _sad = functools.partial(_generic, task='sad')
 sad_ami = functools.partial(_sad, corpus='ami')
 sad_dihard = functools.partial(_sad, corpus='dihard')
 sad_etape = functools.partial(_sad, corpus='etape')
+sad_dihardx = functools.partial(_sad, corpus='dihardx')
 
 _ovl = functools.partial(_generic, task='ovl')
 ovl_ami = functools.partial(_ovl, corpus='ami')
