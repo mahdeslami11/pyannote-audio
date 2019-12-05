@@ -241,6 +241,13 @@ class Application:
         else:
             augmentation = None
 
+        # custom callbacks
+        self.callbacks_ = []
+        for callback_config in self.config_.get('callbacks', {}):
+            Callback = get_class_by_name(callback_config['name'])
+            callback = Callback(**callback_config.get('params', {}))
+            self.callbacks_.append(callback)
+
         # feature extraction
         FEATURE_DEFAULT = {'name': 'RawAudio',
                            'params': {'sample_rate': 16000}}
@@ -317,7 +324,8 @@ class Application:
             scheduler=self.scheduler_,
             learning_rate=self.learning_rate_,
             train_dir=train_dir,
-            device=self.device)
+            device=self.device,
+            callbacks=self.callbacks_)
 
         for _ in iterations:
             pass

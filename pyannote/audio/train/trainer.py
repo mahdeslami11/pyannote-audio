@@ -26,7 +26,7 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-from typing import Optional, Iterator, Callable, Union
+from typing import Optional, Iterator, Callable, Union, List
 try:
     from typing import Literal
 except ImportError as e:
@@ -43,6 +43,7 @@ from torch.nn import Module
 from torch.optim import Optimizer, SGD
 from torch.utils.tensorboard import SummaryWriter
 from .logging import Logging
+from .callback import Callback
 from .callback import Callbacks
 from .schedulers import BaseSchedulerCallback
 from .schedulers import ConstantScheduler
@@ -57,8 +58,6 @@ ARBITRARY_LR = 0.1
 
 class Trainer:
     """Trainer
-
-
 
     Attributes
     ----------
@@ -228,6 +227,7 @@ class Trainer:
                  train_dir: Optional[Path] = None,
                  verbosity: int = 2,
                  device: Optional[torch.device] = None,
+                 callbacks: Optional[List[Callback]] = None,
                  ) -> Iterator[Model]:
         """Train model
 
@@ -261,6 +261,8 @@ class Trainer:
             Use 2 to add a second progress bar updated at the end of each batch.
         device : `torch.device`, optional
             Device on which the model will be allocated. Defaults to using CPU.
+        callbacks : `list` of `Callback` instances
+            Add custom callbacks.
 
         Yields
         ------
@@ -354,18 +356,21 @@ class Trainer:
             specifications['task'] = str(specifications['task'])
             yaml.dump(specifications, fp, default_flow_style=False)
 
-        # CALLBACKS
-        callbacks = []
+        callbacks_ = []
 
         # SCHEDULER
         if scheduler is None:
             scheduler = ConstantScheduler()
-        callbacks.append(scheduler)
+        callbacks_.append(scheduler)
 
         logger = Logging(epochs=epochs, verbosity=verbosity)
-        callbacks.append(logger)
-
-        callbacks = Callbacks(callbacks)
+        callbacks_.append(logger)
+      
+        # CUSTOM CALLBACKS
+        if callbacks is not None:
+          callbacks_.extend(callbacks)
+        
+        callbacks = Callbacks(callbacks_)
 
         # TRAINING STARTS
         self.tensorboard_ = SummaryWriter(log_dir=self.train_dir_,
