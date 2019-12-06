@@ -108,8 +108,7 @@ class Classification(EmbeddingApproach):
             classifier_pt = self.CLASSIFIER_PT.format(
                 train_dir=self.train_dir_, epoch=self.epoch_)
         else:
-            msg = 'TODO: infer classifier_pt from model_pt'
-            raise NotImplementedError(msg)
+            classifier_pt = model_pt.with_suffix('.classifier.pt')
 
         classifier_state = torch.load(
             classifier_pt, map_location=lambda storage, loc: storage)

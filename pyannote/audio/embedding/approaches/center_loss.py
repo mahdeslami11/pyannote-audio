@@ -65,7 +65,7 @@ class CenterLoss(EmbeddingApproach):
         Set `parallel` to 0 to not use background generators.
     """
 
-    CLASSIFIER_PT = '{train_dir}/weights/{epoch:04d}.center_classifier.pt'
+    CLASSIFIER_PT = '{train_dir}/weights/{epoch:04d}.classifier.pt'
     CENTERS_PT = '{train_dir}/weights/{epoch:04d}.centers.pt'
 
     def __init__(self, duration=None, min_duration=None, max_duration=None,
@@ -116,8 +116,8 @@ class CenterLoss(EmbeddingApproach):
                 train_dir=self.train_dir_, epoch=self.epoch_)
 
         else:
-            msg = 'TODO: infer {classifier|centers}_pt from model_pt'
-            raise NotImplementedError(msg)
+            classifier_pt = model_pt.with_suffix('.classifier.pt')
+            centers_pt = model_pt.with_suffix('.centers.pt')
 
         classifier_state = torch.load(
             classifier_pt, map_location=lambda storage, loc: storage)
