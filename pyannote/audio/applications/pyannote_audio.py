@@ -250,7 +250,7 @@ from .speaker_embedding import SpeakerEmbedding
 from .domain_classification import DomainClassification
 
 
-if __name__ == '__main__':
+def main():
 
     # TODO: update version automatically
     arg = docopt(__doc__, version='pyannote-audio 2.0')
