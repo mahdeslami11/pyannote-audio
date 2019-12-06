@@ -45,12 +45,8 @@ setup(
     install_requires=requirements,
     entry_points = {
         'console_scripts': [
+            'pyannote-audio=pyannote.audio.applications.pyannote-audio:main',
             'pyannote-speech-feature=pyannote.audio.applications.feature_extraction:main',
-            'pyannote-speech-detection=pyannote.audio.applications.speech_detection:main',
-            'pyannote-change-detection=pyannote.audio.applications.change_detection:main',
-            'pyannote-overlap-detection=pyannote.audio.applications.overlap_detection:main',
-            'pyannote-domain-classification=pyannote.audio.applications.domain_classification:main',
-            'pyannote-speaker-embedding=pyannote.audio.applications.speaker_embedding:main',
         ],
     },
 

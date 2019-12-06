@@ -542,7 +542,6 @@ class LabelingTask(Trainer):
         self.per_epoch = per_epoch
         self.parallel = parallel
 
-
     def get_batch_generator(self, feature_extraction, protocol, subset='train',
                             resolution=None, alignment=None):
         """This method should be overriden by subclass

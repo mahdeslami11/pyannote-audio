@@ -193,8 +193,14 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
                     y = datum['y'].crop(sequence, mode=self.alignment,
                                         fixed=self.duration)
 
+                    # FIXME -- this is ugly
                     sample = {'waveform': normalize(X),
-                              'y': y}
+                              'y': y,
+                              'database': current_file['database'],
+                              'uri': current_file['uri'],
+                              'audio': current_file['audio'],
+                              'duration': current_file['duration'],
+                    }
 
                     if self.shuffle:
                         samples.append(sample)
@@ -245,8 +251,9 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
                     original, Segment(0, self.duration), mode='center',
                     fixed=self.duration)
 
+                # FIXME
                 del original['waveform']
-                del original['duration']
+                # del original['duration']
 
                 yield original
 
