@@ -234,9 +234,7 @@ class DomainAwareSpeechActivityDetection(SpeechActivityDetection):
             domain_pt = self.DOMAIN_PT.format(
                 train_dir=self.train_dir_, epoch=self.epoch_)
         else:
-            msg = 'TODO: infer domain_pt from model_pt'
-            raise NotImplementedError(msg)
-            # domain_pt = ...
+            domain_pt = model_pt.with_suffix('.domain.pt')
 
         domain_classifier_state = torch.load(
             domain_pt, map_location=lambda storage, loc: storage)
