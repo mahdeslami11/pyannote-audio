@@ -236,11 +236,10 @@ Validation options
 
 """
 
-
+import sys
 from docopt import docopt
 from pathlib import Path
 import multiprocessing
-
 
 import torch
 from .speech_detection import SpeechActivityDetection
