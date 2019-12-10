@@ -337,7 +337,7 @@ class Trainer:
                 self.load_state(model_pt=None)
 
         # when warm_start is a Path, it means that the user wants to
-        # resstart training from a pretrained model
+        # restart training from a pretrained model
         else:
             try:
                 self.load_state(model_pt=warm_start)
@@ -348,6 +348,9 @@ class Trainer:
                     f'was raised:\n\n{e}\n\nAre you sure the architectures '
                     f'are consistent?')
                 sys.exit(msg)
+
+            # save pretrained model as epoch 0
+            self.save_state()
 
         # save specifications to weights/specs.yml
         specs_yml = self.SPECS_YML.format(train_dir=self.train_dir_)
@@ -365,11 +368,11 @@ class Trainer:
 
         logger = Logging(epochs=epochs, verbosity=verbosity)
         callbacks_.append(logger)
-      
+
         # CUSTOM CALLBACKS
         if callbacks is not None:
           callbacks_.extend(callbacks)
-        
+
         callbacks = Callbacks(callbacks_)
 
         # TRAINING STARTS
