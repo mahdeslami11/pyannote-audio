@@ -36,7 +36,7 @@ architecture:
         num_layers: 2
         bidirectional: True
      ff:
-        hidden_size: [128, 128]     
+        hidden_size: [128, 128]
 
 scheduler:
    name: CyclicScheduler        # use cyclic learning rate (LR) scheduler

@@ -54,26 +54,26 @@ MODELS = {
         "ami": "d534ec1eb2",
         "etape": "bc770a4290",
         "dihard": "0585a5507a",
-        "dihardx": "41f38f5b74",  # domain-adversarial
+        "dihardx": "0716397398",  # domain-adversarial
     },
 
     # speaker change detection
     "scd": {
-        "ami": "2813a1d699",
+        "ami": "c429e6d0e4",
         "etape": "41a64748fd",
-        "dihard": "d7d3ab4837",
+        "dihard": "9dfca5db74",
     },
 
     # overlapped speech detection
     "ovl": {
-        "ami": "3424c01f3d",
+        "ami": "e86437107d",
         "etape": "f17cceef33",
         "dihard": "7df00c31d1",
     },
 
     # speaker embedding
     "emb": {
-        "voxceleb": "7c0bd56baf",
+        "voxceleb": "2de9441fb8",
     },
 }
 

@@ -30,8 +30,8 @@ architecture:
       embedding:
          batch_normalize: False
          unit_normalize: False
- 
-approach:
+
+task:
    name: TripletLoss
    params:
      metric: angular
