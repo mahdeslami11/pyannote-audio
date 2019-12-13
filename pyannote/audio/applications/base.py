@@ -177,8 +177,7 @@ class Application:
             self.config_ = yaml.load(fp, Loader=yaml.SafeLoader)
 
         # preprocessors
-        preprocessors = {'audio': FileFinder(),
-                         'duration': get_audio_duration}
+        preprocessors = dict()
 
         for key, preprocessor in self.config_.get('preprocessors', {}).items():
             # preprocessors:
@@ -201,6 +200,12 @@ class Application:
                 # preprocessors:
                 #    key: /path/to/{uri}.wav
                 preprocessors[key] = preprocessor
+
+        if 'audio' not in preprocessors:
+            preprocessors['audio'] = FileFinder()
+
+        if 'duration' not in preprocessors:
+            preprocessors['duration'] = get_audio_duration
 
         self.preprocessors_ = preprocessors
 
