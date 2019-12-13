@@ -82,8 +82,17 @@ class RNN(nn.Module):
         self.bias = bias
         self.dropout = dropout
         self.bidirectional = bidirectional
-
         self.concatenate = concatenate
+        self.pool = pool
+
+        if num_layers < 1:
+            msg = ('"bidirectional" must be set to False when num_layers < 1')
+            if bidirectional:
+                raise ValueError(msg)
+            msg = ('"concatenate" must be set to False when num_layers < 1')
+            if concatenate:
+                raise ValueError(msg)
+            return
 
         if self.concatenate:
 
@@ -115,7 +124,6 @@ class RNN(nn.Module):
                               batch_first=True, dropout=self.dropout,
                               bidirectional=self.bidirectional)
 
-        self.pool = pool
 
     def forward(self, features, return_intermediate=False):
         """Apply recurrent layer (and optional temporal pooling)
@@ -135,45 +143,56 @@ class RNN(nn.Module):
             (num_layers, batch_size, hidden_size * num_directions)
         """
 
-        if return_intermediate:
-            num_directions = 2 if self.bidirectional else 1
-
-        if self.concatenate:
+        if self.num_layers < 1:
 
             if return_intermediate:
-                msg = (
-                    '"return_intermediate" is not supported '
-                    'when "concatenate" is True'
-                )
-                raise NotADirectoryError(msg)
+                msg = ('"return_intermediate" must be set to False '
+                       'when num_layers < 1')
+                raise ValueError(msg)
 
-            outputs = []
-
-            # apply each layer separately...
-            for i, rnn in enumerate(self.rnn_):
-                if i > 0:
-                    output, hidden = rnn(output, hidden)
-                else:
-                    output, hidden = rnn(features)
-                outputs.append(output)
-
-            # ... and concatenate their output
-            output = torch.cat(outputs, dim=2)
+            output = features
 
         else:
-            output, hidden = self.rnn_(features)
 
             if return_intermediate:
-                if self.unit == 'LSTM':
-                    h = hidden[0]
-                elif self.unit == 'GRU':
-                    h = hidden
+                num_directions = 2 if self.bidirectional else 1
 
-                # to (num_layers, batch_size, num_directions * hidden_size)
-                h = h.view(
-                    self.num_layers, num_directions, -1, self.hidden_size)
-                intermediate = h.transpose(2, 1).contiguous().view(
-                    self.num_layers, -1, num_directions * self.hidden_size)
+            if self.concatenate:
+
+                if return_intermediate:
+                    msg = (
+                        '"return_intermediate" is not supported '
+                        'when "concatenate" is True'
+                    )
+                    raise NotADirectoryError(msg)
+
+                outputs = []
+
+                # apply each layer separately...
+                for i, rnn in enumerate(self.rnn_):
+                    if i > 0:
+                        output, hidden = rnn(output, hidden)
+                    else:
+                        output, hidden = rnn(features)
+                    outputs.append(output)
+
+                # ... and concatenate their output
+                output = torch.cat(outputs, dim=2)
+
+            else:
+                output, hidden = self.rnn_(features)
+
+                if return_intermediate:
+                    if self.unit == 'LSTM':
+                        h = hidden[0]
+                    elif self.unit == 'GRU':
+                        h = hidden
+
+                    # to (num_layers, batch_size, num_directions * hidden_size)
+                    h = h.view(
+                        self.num_layers, num_directions, -1, self.hidden_size)
+                    intermediate = h.transpose(2, 1).contiguous().view(
+                        self.num_layers, -1, num_directions * self.hidden_size)
 
         if self.pool == 'sum':
             output = output.sum(dim=1)
@@ -203,21 +222,33 @@ class RNN(nn.Module):
     def dimension():
         doc = "Output features dimension."
         def fget(self):
-            dimension = self.hidden_size
+            if self.num_layers < 1:
+                dimension = self.n_features
+            else:
+                dimension = self.hidden_size
+
             if self.bidirectional:
                 dimension *= 2
+
             if self.concatenate:
                 dimension *= self.num_layers
+
             if self.pool == 'x-vector':
                 dimension *= 2
+
             return dimension
         return locals()
     dimension = property(**dimension())
 
     def intermediate_dimension(self, layer):
-        dimension = self.hidden_size
+        if self.num_layers < 1:
+            dimension = self.n_features
+        else:
+            dimension = self.hidden_size
+
         if self.bidirectional:
             dimension *= 2
+
         return dimension
 
 
