@@ -34,6 +34,7 @@
 # "Speaker Recognition from raw waveform with SincNet".
 # SLT 2018. https://arxiv.org/abs/1808.00158
 
+from typing import List
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -246,11 +247,28 @@ class SincNet(nn.Module):
                  min_low_hz=50,
                  min_band_hz=50,
                  out_channels=[80, 60, 60],
-                 kernel_size=[251, 5, 5],
+                 kernel_size: List[int] = [251, 5, 5],
                  stride=[1, 1, 1],
                  max_pool=[3, 3, 3],
-                 instance_normalize=True, activation='leaky_relu', dropout=0.):
+                 instance_normalize=True,
+                 activation='leaky_relu',
+                 dropout=0.):
         super().__init__()
+
+        # check parameters values
+        n_layers = len(out_channels)
+        if len(kernel_size) != n_layers:
+            msg = (f'out_channels ({len(out_channels):d}) and kernel_size '
+                   f'({len(kernel_size):d}) should have the same length.')
+            raise ValueError(msg)
+        if len(stride) != n_layers:
+            msg = (f'out_channels ({len(out_channels):d}) and stride '
+                   f'({len(stride):d}) should have the same length.')
+            raise ValueError(msg)
+        if len(max_pool) != n_layers:
+            msg = (f'out_channels ({len(out_channels):d}) and max_pool '
+                   f'({len(max_pool):d}) should have the same length.')
+            raise ValueError(msg)
 
         # Waveform normalization
         self.waveform_normalize = waveform_normalize
