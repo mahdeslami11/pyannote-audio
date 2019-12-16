@@ -31,6 +31,7 @@
 """
 
 
+import random
 import numpy as np
 from pyannote.core import Segment
 from pyannote.audio.features.utils import RawAudio
@@ -109,7 +110,7 @@ class AddNoise(Augmentation):
         while left > 0:
 
             # select noise file at random
-            file = np.random.choice(self.files_)
+            file = random.choice(self.files_)
             duration = file['duration']
 
             # if noise file is longer than what is needed, crop it
@@ -213,7 +214,7 @@ class AddNoiseFromGaps(Augmentation):
         while len_left > 0:
 
             # select noise file at random
-            file = np.random.choice(self.files_)
+            file = random.choice(self.files_)
 
             # select noise segment at random
             segment = next(random_segment(file['gaps'], weighted=False))
