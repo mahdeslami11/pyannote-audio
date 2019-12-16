@@ -32,6 +32,7 @@ from typing import List
 from typing import Optional
 NoiseCollection = Union[str, List[str]]
 
+import random
 import numpy as np
 
 from pyannote.core import Segment
@@ -100,7 +101,7 @@ class Noise:
         while left > 0:
 
             # select noise file at random
-            file = np.random.choice(self.files_)
+            file = random.choice(self.files_)
             duration = file['duration']
 
             # if noise file is longer than what is needed, crop it
