@@ -90,6 +90,8 @@ class Trainer:
             _model_pt = model_pt
             optimizer_pt = model_pt.with_suffix('.optimizer.pt')
 
+
+
         model_state = torch.load(
             _model_pt, map_location=lambda storage, loc: storage)
         self.model_.load_state_dict(model_state)
@@ -215,6 +217,10 @@ class Trainer:
     @property
     def epoch(self):
         return self.epoch_
+
+    @property
+    def batches_per_epoch(self):
+        return self.batches_per_epoch_
 
     def fit_iter(self,
                  model: Model,
