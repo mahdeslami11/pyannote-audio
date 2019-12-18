@@ -28,6 +28,7 @@
 
 
 import numpy as np
+import scipy.stats
 from collections import deque
 
 try:
@@ -47,6 +48,72 @@ AUTO_LR_BATCHES = 500
 
 MOMENTUM_MAX = 0.95
 MOMENTUM_MIN = 0.85
+
+
+def decreasing_probability(values: np.ndarray) -> float:
+    """Compute probability that a sequence is decreasing
+
+    Parameters
+    ----------
+    values : np.ndarray
+        Sequence of values
+
+    Returns
+    -------
+    probability : float
+        Probability that sequence of values is decreasing
+
+    Reference
+    ---------
+    Davis King. "Automatic Learning Rate Scheduling That Really Works".
+    http://blog.dlib.net/2018/02/automatic-learning-rate-scheduling-that.html
+    """
+    n_steps = len(values)
+    steps = np.arange(n_steps)
+
+    A = np.vstack([steps, np.ones(n_steps)]).T
+    loc, shift = np.linalg.lstsq(A, values, rcond=None)[0]
+
+    values_ = loc * steps + shift
+    sigma2 = np.sum((values - values_) ** 2) / (n_steps - 2)
+
+    scale = np.sqrt(12 * sigma2 / (n_steps ** 3 - n_steps))
+    return scipy.stats.norm.cdf(0., loc=loc, scale=scale)
+
+
+def steps_without_decrease(values: np.ndarray,
+                           robust: bool = False) -> int:
+    """Count number of steps without decrease
+
+    Parameters
+    ----------
+    values : np.ndarray
+        Sequence of values
+    robust : bool
+        Remove 10% highest values before counting steps.
+
+    Returns
+    -------
+    n_steps : int
+        Number of steps
+
+    Reference
+    ---------
+    Davis King. "Automatic Learning Rate Scheduling That Really Works".
+    http://blog.dlib.net/2018/02/automatic-learning-rate-scheduling-that.html
+    """
+
+    if robust:
+        values = values[values < np.percentile(values, 90)]
+
+    steps_without_decrease = 0
+    n_steps = len(values)
+    for i in reversed(range(n_steps)):
+        p = decreasing_probability(values[i:])
+        if p < 0.51:
+            steps_without_decrease = n_steps - i
+    return steps_without_decrease
+
 
 class BaseSchedulerCallback(Callback):
     """Base scheduler with support for AutoLR
