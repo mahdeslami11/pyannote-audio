@@ -33,6 +33,7 @@ import zipfile
 import hashlib
 import torch
 import multiprocessing
+from typing_extensions import Literal
 from typing import Optional, Union
 from pathlib import Path
 from os.path import basename
@@ -286,7 +287,7 @@ class Application:
 
     def train(self, protocol_name: str,
                     subset: str = 'train',
-                    warm_start: Union[int, str] = 0,
+                    warm_start: Union[int, Literal['last'], Path] = 0,
                     epochs: int = 1000,
                     device: Optional[torch.device] = None):
         """Train model
@@ -296,9 +297,11 @@ class Application:
         protocol_name : `str`
         subset : {'train', 'development', 'test'}, optional
             Defaults to 'train'.
-        warm_start : `int` or `str`, optional
-            Restart training at `warm_start`th epoch.
-            Defaults to training from scratch.
+        warm_start : `int`, "last", or `Path`, optional
+            When `int`, restart training at this epoch.
+            When "last", restart from last epoch.
+            When `Path`, restart from this model checkpoint.
+            Defaults to training from scratch (warm_start = 0).
         epochs : `int`, optional
             Train for that many epochs. Defaults to 1000.
         device : `torch.device`, optional
@@ -323,6 +326,10 @@ class Application:
             experiment_dir=self.experiment_dir,
             protocol=protocol_name,
             subset=subset))
+
+        # use last available epoch as starting point
+        if warm_start == 'last':
+            warm_start = self.get_number_of_epochs(train_dir=train_dir) - 1
 
         iterations = self.task_.fit_iter(
             model,

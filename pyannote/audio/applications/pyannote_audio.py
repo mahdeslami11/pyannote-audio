@@ -169,7 +169,8 @@ Common options
   --gpu                   Run on GPUs. Defaults to using CPUs.
 
   --from=<epoch>          Start training (resp. validating) at epoch <epoch>.
-                          Not used for inference [default: 0].
+                          Use --from=last to start from last available epoch at
+                          launch time. Not used for inference [default: 0].
 
   --to=<epoch>            End training (resp. validating) at epoch <epoch>.
                           [default: 100].
@@ -286,8 +287,10 @@ def main():
 
         params['subset'] = 'train' if subset is None else subset
 
-        # start training at this epoch (defaults to 0)
-        warm_start = int(arg['--from'])
+        # start training at this epoch (defaults to 0, but 'last' is supported)
+        warm_start = arg['--from']
+        if warm_start != 'last':
+            warm_start = int(warm_start)
 
         # or start from pretrained model
         pretrained = arg['--pretrained']
