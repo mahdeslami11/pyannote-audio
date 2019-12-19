@@ -430,13 +430,21 @@ class Application:
     def validate(self, protocol: str,
                        subset: str = 'development',
                        every: int = 1,
-                       start: int = 1,
-                       end: int = 100,
+                       start: Union[int, Literal['last']] = 1,
+                       end: Union[int, Literal['last']] = 100,
                        chronological: bool = False,
                        device: Optional[torch.device] = None,
                        batch_size: int = 32,
                        n_jobs: int = 1,
                        **kwargs):
+
+        # use last available epoch as starting point
+        if start == 'last':
+            start = self.get_number_of_epochs() - 1
+
+        # use last available epoch as end point
+        if end == 'last':
+            end = self.get_number_of_epochs() - 1
 
         criterion = self.validation_criterion(**kwargs)
 

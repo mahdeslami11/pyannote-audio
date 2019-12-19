@@ -173,7 +173,8 @@ Common options
                           launch time. Not used for inference [default: 0].
 
   --to=<epoch>            End training (resp. validating) at epoch <epoch>.
-                          [default: 100].
+                          Use --end=last to validate until last available epoch
+                          at launch time. Not used for inference [default: 100].
 
   --batch=<size>          Set batch size used for validation and inference.
                           Has no effect when training as this parameter should
@@ -324,8 +325,17 @@ def main():
         app = Application.from_train_dir(train_dir, training=False)
 
         params['subset'] = 'development' if subset is None else subset
-        params['start'] = int(arg['--from'])
-        params['end'] = int(arg['--to'])
+
+        start = arg['--from']
+        if start != 'last':
+            start = int(start)
+        params['start'] = start
+
+        end = arg['--to']
+        if end != 'last':
+            end = int(end)
+        params['end'] = end
+
         params['every'] = int(arg['--every'])
         params['chronological'] = not arg['--evergreen']
         params['batch_size'] = int(arg['--batch'])
