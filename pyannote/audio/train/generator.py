@@ -138,8 +138,10 @@ class Background(threading.Thread):
         self.activated_ = True
         self.items_ = generator()
 
-        self.production_time_ = collections.deque([], 10)
-        self.consumption_time_ = collections.deque([], 10)
+        self.production_time_ = \
+            collections.deque([], max(10, 2 * self.prefetch))
+        self.consumption_time_ = \
+            collections.deque([], max(10, 2 * self.prefetch))
         self.last_ready_ = None
 
         self.queue_ = queue.Queue(self.prefetch)
@@ -156,13 +158,13 @@ class Background(threading.Thread):
 
     @property
     def production_time(self) -> float:
-        if len(self.production_time_) < 10:
+        if len(self.production_time_) < max(10, 2 * self.prefetch):
             return np.NAN
         return np.median(self.production_time_)
 
     @property
     def consumption_time(self) -> float:
-        if len(self.consumption_time_) < 10:
+        if len(self.consumption_time_) < max(10, 2 * self.prefetch):
             return np.NAN
         return np.median(self.consumption_time_)
 
