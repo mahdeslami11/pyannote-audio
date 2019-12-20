@@ -60,10 +60,6 @@ class ContrastiveLoss(EmbeddingApproach):
         time. Defaults to sample triplets from the whole speaker set.
     per_epoch : float, optional
         Number of days per epoch. Defaults to 7 (a week).
-    parallel : int, optional
-        Number of prefetching background generators. Defaults to 1.
-        Each generator will prefetch enough batches to cover a whole epoch.
-        Set `parallel` to 0 to not use background generators.
     in_memory : `bool`, optional
         Pre-load training set in memory.
     """
@@ -71,7 +67,7 @@ class ContrastiveLoss(EmbeddingApproach):
     def __init__(self, duration=None, min_duration=None, max_duration=None,
                  metric='cosine', margin=0.2, size_average=True,
                  per_label=3, per_fold=None, per_epoch=7,
-                 parallel=1, label_min_duration=0., in_memory=False):
+                 label_min_duration=0., in_memory=False):
 
         super().__init__()
 
@@ -90,7 +86,6 @@ class ContrastiveLoss(EmbeddingApproach):
         self.min_duration = min_duration
         self.max_duration = max_duration
 
-        self.parallel = parallel
         self.in_memory = in_memory
 
     def get_batch_generator(self, feature_extraction,
@@ -115,7 +110,7 @@ class ContrastiveLoss(EmbeddingApproach):
             per_label=self.per_label, per_fold=self.per_fold,
             per_epoch=self.per_epoch, duration=self.duration,
             min_duration=self.min_duration, max_duration=self.max_duration,
-            parallel=self.parallel, in_memory=self.in_memory)
+            in_memory=self.in_memory)
 
     def batch_loss(self, batch):
         """Compute loss for current `batch`

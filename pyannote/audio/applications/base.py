@@ -289,7 +289,8 @@ class Application:
                     subset: str = 'train',
                     warm_start: Union[int, Literal['last'], Path] = 0,
                     epochs: int = 1000,
-                    device: Optional[torch.device] = None):
+                    device: Optional[torch.device] = None,
+                    n_jobs: int = 1):
         """Train model
 
         Parameters
@@ -306,6 +307,7 @@ class Application:
             Train for that many epochs. Defaults to 1000.
         device : `torch.device`, optional
             Device on which the model will be allocated. Defaults to using CPU.
+        n_jobs : `int`, optional
         """
 
         # initialize batch generator
@@ -341,7 +343,8 @@ class Application:
             learning_rate=self.learning_rate_,
             train_dir=train_dir,
             device=device,
-            callbacks=self.callbacks_)
+            callbacks=self.callbacks_,
+            n_jobs=n_jobs)
 
         for _ in iterations:
             pass

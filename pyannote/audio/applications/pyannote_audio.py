@@ -183,6 +183,11 @@ Common options
   --step=<ratio>          Ratio of audio chunk duration used as step between
                           two consecutive audio chunks [default: 0.25]
 
+  --parallel=<n_jobs>     Use at most that many threads for generating training
+                          samples or validating files. Defaults to using all
+                          CPUs but one.
+
+
 Speaker embedding
 ~~~~~~~~~~~~~~~~~
 
@@ -207,9 +212,6 @@ Validation options
   --every=<epoch>         Validate model every <epoch> epochs [default: 1].
 
   --evergreen             Prioritize validation of most recent epoch.
-
-  --parallel=<n_jobs>     Process that many files in parallel. Defaults to
-                          using all CPUs.
 
   For speaker change detection, validation consists in looking for the value of
   the peak detection threshold that maximizes segmentation coverage, given that
@@ -282,6 +284,11 @@ def main():
     protocol = arg['<protocol>']
     subset = arg['--subset']
 
+    n_jobs = arg['--parallel']
+    if n_jobs is None:
+        n_jobs = max(1, multiprocessing.cpu_count() - 1)
+    params['n_jobs'] = int(n_jobs)
+
     if arg['train']:
         root_dir = Path(arg['<root>']).expanduser().resolve(strict=True)
         app = Application(root_dir, training=True)
@@ -339,11 +346,6 @@ def main():
         params['every'] = int(arg['--every'])
         params['chronological'] = not arg['--evergreen']
         params['batch_size'] = int(arg['--batch'])
-
-        n_jobs = arg['--parallel']
-        if n_jobs is None:
-            n_jobs = multiprocessing.cpu_count()
-        params['n_jobs'] = int(n_jobs)
 
         params['purity'] = float(arg['--purity'])
         params['diarization'] = arg['--diarization']

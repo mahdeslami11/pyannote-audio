@@ -50,7 +50,7 @@ from .schedulers import ConstantScheduler
 from .generator import BatchGenerator
 from .model import Model
 from ..utils.timeout import timeout
-
+from .generator import SmartBackground
 
 
 ARBITRARY_LR = 0.1
@@ -206,6 +206,11 @@ class Trainer:
     def model(self):
         return self.model_
 
+
+    @property
+    def optimizer(self):
+        return self.optimizer_
+
     @property
     def specifications(self):
         return self.batch_generator_.specifications
@@ -222,6 +227,9 @@ class Trainer:
     def batches_per_epoch(self):
         return self.batches_per_epoch_
 
+    def get_new_batch(self):
+        return next(self.batches_)
+
     def fit_iter(self,
                  model: Model,
                  batch_generator: BatchGenerator,
@@ -229,11 +237,12 @@ class Trainer:
                  epochs: int = 1000,
                  get_optimizer: Callable[..., Optimizer] = SGD,
                  scheduler: Optional[BaseSchedulerCallback] = None,
-                 learning_rate: Union[Literal['auto'], float] = 'auto',
+                 learning_rate: Union[Literal["auto"], float] = "auto",
                  train_dir: Optional[Path] = None,
                  verbosity: int = 2,
                  device: Optional[torch.device] = None,
                  callbacks: Optional[List[Callback]] = None,
+                 n_jobs: int = 1,
                  ) -> Iterator[Model]:
         """Train model
 
@@ -269,6 +278,8 @@ class Trainer:
             Device on which the model will be allocated. Defaults to using CPU.
         callbacks : `list` of `Callback` instances
             Add custom callbacks.
+        n_jobs : `int`, optional
+            Defaults to 1.
 
         Yields
         ------
@@ -289,7 +300,8 @@ class Trainer:
 
         # BATCH GENERATOR
         self.batch_generator_ = batch_generator
-        self.batches_ = self.batch_generator_()
+        sbg = SmartBackground(self.batch_generator_, n_jobs=n_jobs)
+        self.batches_ = iter(sbg)
         self.batches_per_epoch_ = self.batch_generator_.batches_per_epoch
 
         # OPTIMIZER
@@ -396,7 +408,7 @@ class Trainer:
 
             for i in range(self.batches_per_epoch_):
 
-                batch = next(self.batches_)
+                batch = self.get_new_batch()
 
                 # BATCH IS READY FOR FORWARD PASS
                 batch = self.on_batch_start(batch)
@@ -421,5 +433,6 @@ class Trainer:
 
             self.save_state()
 
-
         callbacks.on_train_end(self)
+
+        sbg.deactivate()

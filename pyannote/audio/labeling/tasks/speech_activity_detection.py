@@ -63,10 +63,6 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
     per_epoch : float, optional
         Total audio duration per epoch, in days.
         Defaults to one day (1).
-    parallel : int, optional
-        Number of prefetching background generators. Defaults to 1.
-        Each generator will prefetch enough batches to cover a whole epoch.
-        Set `parallel` to 0 to not use background generators.
     """
 
     def postprocess_y(self, Y):
@@ -122,10 +118,6 @@ class SpeechActivityDetection(LabelingTask):
     per_epoch : float, optional
         Total audio duration per epoch, in days.
         Defaults to one day (1).
-    parallel : int, optional
-        Number of prefetching background generators. Defaults to 1.
-        Each generator will prefetch enough batches to cover a whole epoch.
-        Set `parallel` to 0 to not use background generators.
     """
 
     def get_batch_generator(self, feature_extraction, protocol, subset='train',
@@ -147,8 +139,7 @@ class SpeechActivityDetection(LabelingTask):
             alignment=alignment,
             duration=self.duration,
             per_epoch=self.per_epoch,
-            batch_size=self.batch_size,
-            parallel=self.parallel)
+            batch_size=self.batch_size)
 
 
 class DomainAwareSpeechActivityDetection(SpeechActivityDetection):

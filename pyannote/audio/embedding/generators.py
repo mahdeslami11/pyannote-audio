@@ -30,12 +30,12 @@
 import numpy as np
 from pyannote.generators.fragment import random_segment
 from pyannote.generators.fragment import random_subsegment
-from pyannote.generators.batch import batchify
 from pyannote.audio.train.task import Task, TaskType, TaskOutput
 from pyannote.audio.features import RawAudio
+from ..train.generator import BatchGenerator
 
 
-class SpeechSegmentGenerator(object):
+class SpeechSegmentGenerator(BatchGenerator):
     """Generate batch of pure speech segments with associated speaker labels
 
     Parameters
@@ -60,10 +60,6 @@ class SpeechSegmentGenerator(object):
         In case `duration` is None, set segment minimum duration.
     max_duration : float, optional
         In case `duration` is None, set segment maximum duration.
-    parallel : int, optional
-        Number of prefetching background generators. Defaults to 1.
-        Each generator will prefetch enough batches to cover a whole epoch.
-        Set `parallel` to 0 to not use background generators.
     in_memory : `bool`, optional
         Pre-load training set in memory.
 
@@ -72,16 +68,13 @@ class SpeechSegmentGenerator(object):
     def __init__(self, feature_extraction, protocol, subset='train',
                  per_label=3, per_fold=None, per_epoch=7,
                  duration=None, min_duration=None, max_duration=None,
-                 label_min_duration=0., parallel=1, in_memory=False):
-
-        super(SpeechSegmentGenerator, self).__init__()
+                 label_min_duration=0., in_memory=False):
 
         self.feature_extraction = feature_extraction
         self.per_label = per_label
         self.per_fold = per_fold
         self.per_epoch = per_epoch
         self.duration = duration
-        self.parallel = parallel
         self.label_min_duration = label_min_duration
 
         self.in_memory = in_memory
@@ -168,7 +161,7 @@ class SpeechSegmentGenerator(object):
         self.file_labels_ = {k: sorted(file_labels[k]) for k in file_labels}
         self.segment_labels_ = sorted(self.data_)
 
-    def generator(self):
+    def samples(self):
 
         labels = list(self.data_)
 
@@ -279,13 +272,6 @@ class SpeechSegmentGenerator(object):
         return int(np.ceil(duration_per_epoch / duration_per_batch))
 
     @property
-    def signature(self):
-        return {
-            'X': {'@': (None, None)},
-            'y': {'@': (None, np.stack)},
-        }
-
-    @property
     def specifications(self):
         return {
             'X': {'dimension': self.feature_extraction.dimension},
@@ -293,29 +279,3 @@ class SpeechSegmentGenerator(object):
             'task': Task(type=TaskType.REPRESENTATION_LEARNING,
                          output=TaskOutput.VECTOR),
         }
-
-    def __call__(self):
-
-        batch_size = self.batch_size
-        batches_per_epoch = self.batches_per_epoch
-
-        generators = []
-        if self.parallel:
-
-            for i in range(self.parallel):
-                generator = self.generator()
-                batches = batchify(generator, self.signature,
-                                   batch_size=batch_size,
-                                   prefetch=batches_per_epoch)
-                generators.append(batches)
-        else:
-            generator = self.generator()
-            batches = batchify(generator, self.signature,
-                               batch_size=batch_size, prefetch=0)
-            generators.append(batches)
-
-        while True:
-            # get `batches_per_epoch` batches from each generator
-            for batches in generators:
-                for _ in range(batches_per_epoch):
-                    yield next(batches)

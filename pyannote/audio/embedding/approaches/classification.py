@@ -54,10 +54,6 @@ class Classification(EmbeddingApproach):
     label_min_duration : `float`, optional
         Remove speakers with less than that many seconds of speech.
         Defaults to 0 (i.e. keep them all).
-    parallel : int, optional
-        Number of prefetching background generators. Defaults to 1.
-        Each generator will prefetch enough batches to cover a whole epoch.
-        Set `parallel` to 0 to not use background generators.
     """
 
     # TODO. add option to **not** use bias in classification layer
@@ -67,7 +63,7 @@ class Classification(EmbeddingApproach):
     CLASSIFIER_PT = '{train_dir}/weights/{epoch:04d}.classifier.pt'
 
     def __init__(self, duration=None, min_duration=None, max_duration=None,
-                 per_label=1, per_fold=32, per_epoch=7, parallel=1,
+                 per_label=1, per_fold=32, per_epoch=7,
                  label_min_duration=0.):
         super().__init__()
 
@@ -79,8 +75,6 @@ class Classification(EmbeddingApproach):
         self.duration = duration
         self.min_duration = min_duration
         self.max_duration = max_duration
-
-        self.parallel = parallel
 
         self.logsoftmax_ = nn.LogSoftmax(dim=1)
         self.loss_ = nn.NLLLoss()
@@ -142,8 +136,7 @@ class Classification(EmbeddingApproach):
             label_min_duration=self.label_min_duration,
             per_label=self.per_label, per_fold=self.per_fold,
             per_epoch=self.per_epoch, duration=self.duration,
-            min_duration=self.min_duration, max_duration=self.max_duration,
-            parallel=self.parallel)
+            min_duration=self.min_duration, max_duration=self.max_duration)
 
     def batch_loss(self, batch):
         """Compute loss for current `batch`

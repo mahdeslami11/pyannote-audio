@@ -68,11 +68,6 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
         Batch size. Defaults to 32.
     per_epoch : float, optional
         Total audio duration per epoch, in days. Defaults to one day (1).
-    parallel : int, optional
-        Number of prefetching background generators. Defaults to 1.
-        Each generator will prefetch enough batches to cover a whole epoch.
-        Set `parallel` to 0 to not use background generators.
-
     """
 
     def __init__(self, feature_extraction, protocol, subset='train',
@@ -196,10 +191,6 @@ class SpeakerChangeDetection(LabelingTask):
     per_epoch : float, optional
         Total audio duration per epoch, in days.
         Defaults to one day (1).
-    parallel : int, optional
-        Number of prefetching background generators. Defaults to 1.
-        Each generator will prefetch enough batches to cover a whole epoch.
-        Set `parallel` to 0 to not use background generators.
     """
 
     def __init__(self, collar=0.100, regression=False, non_speech=False,
@@ -222,8 +213,14 @@ class SpeakerChangeDetection(LabelingTask):
             therefore use a different cropping mode. Defaults to 'center'.
         """
         return SpeakerChangeDetectionGenerator(
-            feature_extraction, protocol, resolution=resolution,
-            alignment=alignment, subset='train', collar=self.collar,
-            regression=self.regression, non_speech=self.non_speech,
-            duration=self.duration, batch_size=self.batch_size,
-            per_epoch=self.per_epoch, parallel=self.parallel)
+            feature_extraction,
+            protocol,
+            resolution=resolution,
+            alignment=alignment,
+            subset='train',
+            collar=self.collar,
+            regression=self.regression,
+            non_speech=self.non_speech,
+            duration=self.duration,
+            batch_size=self.batch_size,
+            per_epoch=self.per_epoch)

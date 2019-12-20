@@ -34,7 +34,6 @@ from pyannote.core import Timeline
 from pyannote.generators.fragment import random_segment
 from pyannote.generators.fragment import random_subsegment
 from pyannote.generators.fragment import SlidingSegments
-from pyannote.generators.batch import batchify
 
 from pyannote.audio.features import RawAudio
 
@@ -72,16 +71,12 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
     per_epoch : float, optional
         Total audio duration per epoch, in days.
         Defaults to one day (1).
-    parallel : int, optional
-        Number of prefetching background generators. Defaults to 1.
-        Each generator will prefetch enough batches to cover a whole epoch.
-        Set `parallel` to 0 to not use background generators.
     """
 
     def __init__(self, feature_extraction, protocol, subset='train',
                  resolution=None, alignment=None, duration=3.2,
                  snr_min=0, snr_max=10,
-                 batch_size=32, per_epoch=1, parallel=1):
+                 batch_size=32, per_epoch=1):
 
         self.snr_min = snr_min
         self.snr_max = snr_max
@@ -91,7 +86,7 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
                          resolution=resolution, alignment=alignment,
                          duration=duration,
                          batch_size=batch_size, per_epoch=per_epoch,
-                         parallel=parallel, shuffle=True)
+                         shuffle=True)
 
     def overlap_samples(self):
         """Random overlap samples
@@ -212,87 +207,45 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
                     for sample in samples:
                         yield sample
 
-    def __call__(self):
-        """(Parallelized) batch generator"""
+    def samples(self):
+        """Training sample generator"""
 
-        # number of batches needed to complete an epoch
-        batches_per_epoch = self.batches_per_epoch
+        sliding_samples = self.sliding_samples()
+        overlap_samples = self.overlap_samples()
 
-        def generator():
-
-            sliding_samples = self.sliding_samples()
-            overlap_samples = self.overlap_samples()
-
-            while True:
-
-                # get fixed duration random sequence
-                original = next(sliding_samples)
-
-                if np.random.rand() < 0.5:
-                    pass
-
-                else:
-                    # get random overlapping sequence
-                    overlap = next(overlap_samples)
-
-                    # select SNR at random
-                    snr = (self.snr_max - self.snr_min) * np.random.random_sample() + self.snr_min
-                    alpha = np.exp(-np.log(10) * snr / 20)
-
-                    original['waveform'] += alpha * overlap['waveform']
-                    original['y'] += overlap['y']
-
-                speaker_count = np.sum(original['y'], axis=1, keepdims=True)
-                original['y'] = np.int64(speaker_count > 1)
-
-                # run feature extraction
-                original['duration'] = self.duration
-                original['X'] = self.feature_extraction.crop(
-                    original, Segment(0, self.duration), mode='center',
-                    fixed=self.duration)
-
-                # FIXME
-                del original['waveform']
-                # del original['duration']
-
-                yield original
-
-        generators = []
-
-        if self.parallel:
-            for _ in range(self.parallel):
-
-                # initialize one sample generator
-                samples = generator()
-
-                # batchify it and make sure at least
-                # `batches_per_epoch` batches are prefetched.
-                batches = batchify(samples, self.signature,
-                                   batch_size=self.batch_size,
-                                   prefetch=batches_per_epoch)
-
-                # add batch generator to the list of (background) generators
-                generators.append(batches)
-        else:
-
-            # initialize one sample generator
-            samples = generator()
-
-            # batchify it without prefetching
-            batches = batchify(samples, self.signature,
-                               batch_size=self.batch_size, prefetch=0)
-
-            # add it to the list of generators
-            # NOTE: this list will only contain one generator
-            generators.append(batches)
-
-        # loop on (background) generators indefinitely
         while True:
-            for batches in generators:
-                # yield `batches_per_epoch` batches from current generator
-                # so that each epoch is covered by exactly one generator
-                for _ in range(batches_per_epoch):
-                    yield next(batches)
+
+            # get fixed duration random sequence
+            original = next(sliding_samples)
+
+            if np.random.rand() < 0.5:
+                pass
+
+            else:
+                # get random overlapping sequence
+                overlap = next(overlap_samples)
+
+                # select SNR at random
+                snr = (self.snr_max - self.snr_min) * np.random.random_sample() + self.snr_min
+                alpha = np.exp(-np.log(10) * snr / 20)
+
+                original['waveform'] += alpha * overlap['waveform']
+                original['y'] += overlap['y']
+
+            speaker_count = np.sum(original['y'], axis=1, keepdims=True)
+            original['y'] = np.int64(speaker_count > 1)
+
+            # run feature extraction
+            original['duration'] = self.duration
+            original['X'] = self.feature_extraction.crop(
+                original, Segment(0, self.duration), mode='center',
+                fixed=self.duration)
+
+            # FIXME
+            del original['waveform']
+            # del original['duration']
+
+            yield original
 
     @property
     def specifications(self):
@@ -316,10 +269,6 @@ class OverlapDetection(LabelingTask):
     per_epoch : float, optional
         Total audio duration per epoch, in days.
         Defaults to one day (1).
-    parallel : int, optional
-        Number of prefetching background generators. Defaults to 1.
-        Each generator will prefetch enough batches to cover a whole epoch.
-        Set `parallel` to 0 to not use background generators.
     """
 
     def get_batch_generator(self, feature_extraction, protocol, subset='train',
@@ -341,5 +290,4 @@ class OverlapDetection(LabelingTask):
             alignment=alignment,
             duration=self.duration,
             per_epoch=self.per_epoch,
-            batch_size=self.batch_size,
-            parallel=self.parallel)
+            batch_size=self.batch_size)

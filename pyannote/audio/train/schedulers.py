@@ -120,7 +120,7 @@ class BaseSchedulerCallback(Callback):
     """
 
     def on_train_start(self, trainer: 'Trainer') -> None:
-        self.optimizer_ = trainer.optimizer_
+        self.optimizer_ = trainer.optimizer
         if trainer.base_learning_rate_ == 'auto':
             trainer.base_learning_rate_ = self.auto_lr(trainer)
         self.learning_rate = trainer.base_learning_rate_
@@ -254,7 +254,7 @@ class BaseSchedulerCallback(Callback):
         # loop on n_batches batches
         for i in range(n_batches):
 
-            batch = next(trainer.batches_)
+            batch = trainer.get_new_batch()
             loss = trainer.batch_loss(batch)
             loss['loss'].backward()
             trainer.optimizer_.step()
@@ -380,7 +380,7 @@ class DavisKingScheduler(BaseSchedulerCallback):
             np.array(self.losses_), robust=True)
 
         # if batch loss hasn't been decreasing for a while
-        patience = self.patience * trainer.batches_per_epoch_
+        patience = self.patience * trainer.batches_per_epoch
         if count > patience and count_robust > patience:
             self.learning_rate = self.factor * self.learning_rate
             self.losses_.clear()
@@ -432,7 +432,7 @@ class CyclicScheduler(BaseSchedulerCallback):
 
         super().on_train_start(trainer)
         self.batches_per_cycle_ = \
-            self.epochs_per_cycle * trainer.batches_per_epoch_
+            self.epochs_per_cycle * trainer.batches_per_epoch
         self.n_batches_ = 0
         self.n_epochs_ = 0
 

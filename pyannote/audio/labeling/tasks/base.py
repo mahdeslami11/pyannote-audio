@@ -43,7 +43,6 @@ from pyannote.database import get_annotated
 from pyannote.core.utils.numpy import one_hot_encoding
 from pyannote.audio.features import RawAudio
 
-from pyannote.generators.batch import batchify
 from pyannote.generators.fragment import random_segment
 from pyannote.generators.fragment import random_subsegment
 from pyannote.generators.fragment import SlidingSegments
@@ -87,10 +86,6 @@ class LabelingTaskGenerator(BatchGenerator):
         Defaults to one day (1).
     in_memory : `bool`, optional
         Pre-load training set in memory.
-    parallel : int, optional
-        Number of prefetching background generators. Defaults to 1. Each
-        generator will prefetch enough batches to cover a whole epoch. Set
-        `parallel` to 0 to not use background generators.
     exhaustive : bool, optional
         Ensure training files are covered exhaustively (useful in case of
         non-uniform label distribution).
@@ -122,7 +117,6 @@ class LabelingTaskGenerator(BatchGenerator):
                  batch_size=32,
                  per_epoch=1,
                  in_memory=False,
-                 parallel=1,
                  exhaustive=False,
                  shuffle=False,
                  mask_dimension=None,
@@ -144,7 +138,6 @@ class LabelingTaskGenerator(BatchGenerator):
         self.step = step
         self.batch_size = batch_size
         self.per_epoch = per_epoch
-        self.parallel = parallel
 
         self.in_memory = in_memory
         if self.in_memory:
@@ -291,19 +284,6 @@ class LabelingTaskGenerator(BatchGenerator):
             self.data_[uri]['y'] = self.initialize_y(current_file)
 
     @property
-    def signature(self):
-        signature = {'X': {'@': (None, np.stack)},
-                     'y': {'@': (None, np.stack)}}
-
-        if self.mask_dimension is not None:
-            signature['mask'] = {'@': (None, np.stack)}
-
-        for key in self.file_labels_:
-            signature[key] = {'@': (None, np.stack)}
-
-        return signature
-
-    @property
     def specifications(self):
         """Task & sample specifications
 
@@ -324,7 +304,7 @@ class LabelingTaskGenerator(BatchGenerator):
 
         return specs
 
-    def _samples(self):
+    def samples(self):
         if self.exhaustive:
             return self._sliding_samples()
         else:
@@ -475,44 +455,6 @@ class LabelingTaskGenerator(BatchGenerator):
         duration_per_batch = self.duration * self.batch_size
         return int(np.ceil(duration_per_epoch / duration_per_batch))
 
-    def __call__(self):
-        """(Parallelized) batch generator"""
-
-        # number of batches needed to complete an epoch
-        batches_per_epoch = self.batches_per_epoch
-
-        generators = []
-
-        if self.parallel:
-            for _ in range(self.parallel):
-
-                # batchify sampler and make sure at least
-                # `batches_per_epoch` batches are prefetched.
-                batches = batchify(self._samples(), self.signature,
-                                   batch_size=self.batch_size,
-                                   prefetch=batches_per_epoch)
-
-                # add batch generator to the list of (background) generators
-                generators.append(batches)
-        else:
-
-            # batchify sampler without prefetching
-            batches = batchify(self._samples(), self.signature,
-                               batch_size=self.batch_size,
-                               prefetch=0)
-
-            # add it to the list of generators
-            # NOTE: this list will only contain one generator
-            generators.append(batches)
-
-        # loop on (background) generators indefinitely
-        while True:
-            for batches in generators:
-                # yield `batches_per_epoch` batches from current generator
-                # so that each epoch is covered by exactly one generator
-                for _ in range(batches_per_epoch):
-                    yield next(batches)
-
 
 class LabelingTask(Trainer):
     """Base class for various labeling tasks
@@ -528,19 +470,13 @@ class LabelingTask(Trainer):
     per_epoch : float, optional
         Total audio duration per epoch, in days.
         Defaults to one day (1).
-    parallel : int, optional
-        Number of prefetching background generators. Defaults to 1.
-        Each generator will prefetch enough batches to cover a whole epoch.
-        Set `parallel` to 0 to not use background generators.
     """
 
-    def __init__(self, duration=3.2, batch_size=32, per_epoch=1,
-                 parallel=1):
+    def __init__(self, duration=3.2, batch_size=32, per_epoch=1):
         super(LabelingTask, self).__init__()
         self.duration = duration
         self.batch_size = batch_size
         self.per_epoch = per_epoch
-        self.parallel = parallel
 
     def get_batch_generator(self, feature_extraction, protocol, subset='train',
                             resolution=None, alignment=None):
@@ -566,10 +502,15 @@ class LabelingTask(Trainer):
         batch_generator : `LabelingTaskGenerator`
         """
         return LabelingTaskGenerator(
-            feature_extraction, protocol, subset=subset,
-            resolution=resolution, alignment=alignment,
-            duration=self.duration, step=self.step, per_epoch=self.per_epoch,
-            batch_size=self.batch_size, parallel=self.parallel)
+            feature_extraction,
+            protocol,
+            subset=subset,
+            resolution=resolution,
+            alignment=alignment,
+            duration=self.duration,
+            step=self.step,
+            per_epoch=self.per_epoch,
+            batch_size=self.batch_size)
 
     @property
     def weight(self):

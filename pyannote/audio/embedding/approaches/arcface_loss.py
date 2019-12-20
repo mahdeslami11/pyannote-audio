@@ -118,10 +118,6 @@ class AdditiveAngularMarginLoss(Classification):
         label_min_duration : `float`, optional
             Remove speakers with less than that many seconds of speech.
             Defaults to 0 (i.e. keep them all).
-        parallel : int, optional
-            Number of prefetching background generators. Defaults to 1.
-            Each generator will prefetch enough batches to cover a whole epoch.
-            Set `parallel` to 0 to not use background generators.
         margin : float, optional
             Angular margin value. Defaults to 0.1.
         s : float, optional
@@ -129,10 +125,11 @@ class AdditiveAngularMarginLoss(Classification):
         """
 
     def __init__(self, duration=None, min_duration=None, max_duration=None,
-                 per_label=1, per_fold=32, per_epoch=7, parallel=1,
+                 per_label=1, per_fold=32, per_epoch=7,
                  label_min_duration=0., margin=0.1, s=7.0):
-        super().__init__(duration=duration, min_duration=min_duration, max_duration=max_duration,
-                         per_label=per_label, per_fold=per_fold, per_epoch=per_epoch, parallel=parallel,
+        super().__init__(duration=duration, min_duration=min_duration,
+                         max_duration=max_duration,
+                         per_label=per_label, per_fold=per_fold, per_epoch=per_epoch,
                          label_min_duration=label_min_duration)
         self.margin = margin
         self.s = s
