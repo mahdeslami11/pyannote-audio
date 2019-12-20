@@ -260,8 +260,12 @@ class BaseSchedulerCallback(Callback):
             trainer.optimizer_.step()
             trainer.optimizer_.zero_grad()
 
+            l = loss['loss'].item()
+            if np.isnan(l):
+                break
+
+            losses.append(l)
             lrs.append(self.learning_rate)
-            losses.append(loss['loss'].item())
 
             loss_moving_avg = AUTOLR_BETA * loss_moving_avg + \
                 (1 - AUTOLR_BETA) * losses[-1]
