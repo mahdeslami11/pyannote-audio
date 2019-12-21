@@ -71,7 +71,7 @@ class OverlapDetection(BaseLabeling):
             # TODO. make 'annotated' focus on speech regions only
         return validation_data
 
-    def validation_criterion(self, precision=0.9, **kwargs):
+    def validation_criterion(self, protocol, precision=0.9, **kwargs):
         return f'precision={100*precision:.0f}%'
 
     def validate_epoch(self,

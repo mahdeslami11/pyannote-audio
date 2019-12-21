@@ -61,8 +61,12 @@ class SpeakerEmbedding(Application):
     def config_default_module(self):
         return 'pyannote.audio.embedding.approaches'
 
-    def validation_criterion(self, purity=0.9, **kwargs):
-        return f'purity={100*purity:.0f}%'
+    def validation_criterion(self, protocol_name, purity=0.9, **kwargs):
+        protocol = get_protocol(protocol_name)
+        if isinstance(protocol, SpeakerVerificationProtocol):
+            return f'equal_error_rate'
+        elif isinstance(protocol, SpeakerDiarizationProtocol):
+            return f'purity={100*purity:.0f}%'
 
     def validate_init(self, protocol_name,
                             subset='development'):

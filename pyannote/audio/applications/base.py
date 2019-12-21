@@ -427,7 +427,7 @@ class Application:
 
         raise NotImplementedError('')
 
-    def validation_criterion(self, **kwargs):
+    def validation_criterion(self, protocol, **kwargs):
         return None
 
     def validate(self, protocol: str,
@@ -449,7 +449,8 @@ class Application:
         if end == 'last':
             end = self.get_number_of_epochs() - 1
 
-        criterion = self.validation_criterion(**kwargs)
+        criterion = self.validation_criterion(protocol,
+                                              **kwargs)
 
         validate_dir = Path(self.VALIDATE_DIR.format(
             train_dir=self.train_dir_,

@@ -49,7 +49,7 @@ class SpeakerChangeDetection(BaseLabeling):
 
     Pipeline = SpeakerChangeDetectionPipeline
 
-    def validation_criterion(self, purity=0.9, **kwargs):
+    def validation_criterion(self, protocol, purity=0.9, **kwargs):
         return f'purity={100*purity:.0f}%'
 
     def validate_epoch(self, epoch,
