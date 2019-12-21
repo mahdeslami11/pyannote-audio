@@ -329,16 +329,17 @@ class BaseSchedulerCallback(Callback):
 
         except ImportError as e:
             msg = (
-                'Something went wrong when trying to send AutoLR figure '
-                'to Tensorboard. Did you install matplotlib?'
+                f'Something went wrong when trying to send AutoLR figure '
+                f'to Tensorboard. Did you install matplotlib?\n\n{e}\n\n'
             )
             print(msg)
+            print(e)
 
         except Exception as e:
             msg = (
-                'Something went wrong when trying to send AutoLR figure '
-                'to Tensorboard. It is OK but you might want to have a '
-                'look at why this happened...'
+                f'Something went wrong when trying to send AutoLR figure '
+                f'to Tensorboard. It is OK but you might want to have a '
+                f'look at why this happened.\n\n{e}\n\n'
             )
             print(msg)
 
