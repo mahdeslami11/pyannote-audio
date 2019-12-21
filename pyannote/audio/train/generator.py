@@ -211,7 +211,7 @@ class SmartBackground:
     def __init__(self, generator: Callable[[], Iterator],
                        n_jobs: int = 4,
                        prefetch: int = 10,
-                       verbose: bool = True):
+                       verbose: bool = False):
 
         self.generator = generator
         self.n_jobs = n_jobs
