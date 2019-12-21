@@ -103,7 +103,7 @@ def steps_without_decrease(values: np.ndarray,
 
     steps_without_decrease = 0
     n_steps = len(values)
-    for i in reversed(range(n_steps)):
+    for i in reversed(range(n_steps - 2)):
         p = decreasing_probability(values[i:])
         if p < 0.51:
             steps_without_decrease = n_steps - i
