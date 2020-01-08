@@ -32,6 +32,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .classification import Classification
 
+#torch.autograd.set_detect_anomaly(True)
 
 class ArcLinear(nn.Module):
     """Additive Angular Margin linear module (ArcFace)
@@ -91,10 +92,11 @@ class ArcLinear(nn.Module):
         one_hot = torch.zeros_like(cos_theta_j)
         one_hot.scatter_(1, y, 1.0)
         # project margin differences into cosθj
-        cos_theta_j += one_hot * (cos_theta_yi_margin - cos_theta_yi)
+        return self.s * (cos_theta_j + one_hot * (cos_theta_yi_margin - cos_theta_yi))
+        #cos_theta_j += one_hot * (cos_theta_yi_margin - cos_theta_yi)
         # apply the scaling
-        cos_theta_j = self.s * cos_theta_j
-        return cos_theta_j
+        #cos_theta_j = self.s * cos_theta_j
+        #return cos_theta_j
 
 
 class AdditiveAngularMarginLoss(Classification):
