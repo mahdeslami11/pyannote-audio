@@ -23,7 +23,7 @@
 > AUTHOR
 > Hervé Bredin - http://herve.niderb.fr
 
-# End-to-end speaker change detection with `pyannote.audio`
+# End-to-end overlapped speech detection with `pyannote.audio`
 
 This tutorial assumes that you have already followed the [data preparation](../../data_preparation) tutorial, and teaches how to train, validate, and apply an overlapped speech detection neural network on the [AMI](http://groups.inf.ed.ac.uk/ami/corpus) dataset using `pyannote-audio` command line tool. In particular, this should reproduce the result reported in second line of Table 3 of [this introductory paper](https://arxiv.org/abs/1911.01255).
 
