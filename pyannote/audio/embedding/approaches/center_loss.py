@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2018-2019 CNRS
+# Copyright (c) 2018-2020 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -41,12 +41,7 @@ class CenterLoss(EmbeddingApproach):
     Parameters
     ----------
     duration : float, optional
-        Use fixed duration segments with this `duration`.
-        Defaults (None) to using variable duration segments.
-    min_duration : float, optional
-        In case `duration` is None, set segment minimum duration.
-    max_duration : float, optional
-        In case `duration` is None, set segment maximum duration.
+        Chunks duration, in seconds. Defaults to 1.
     loss_weight : float, optional
         Lambda parameter controlling the effect of center distance in the loss value.
         Defaults to 1.
@@ -64,9 +59,12 @@ class CenterLoss(EmbeddingApproach):
     CLASSIFIER_PT = '{train_dir}/weights/{epoch:04d}.classifier.pt'
     CENTERS_PT = '{train_dir}/weights/{epoch:04d}.centers.pt'
 
-    def __init__(self, duration=None, min_duration=None, max_duration=None,
-                 per_label=1, per_fold=32, loss_weight=1.,
-                 per_epoch=7, label_min_duration=0.):
+    def __init__(self, duration=1.0,
+                       per_label=1,
+                       per_fold=32,
+                       loss_weight=1.,
+                       per_epoch=7,
+                       label_min_duration=0.):
         super().__init__()
 
         self.loss_weight = loss_weight
@@ -76,8 +74,6 @@ class CenterLoss(EmbeddingApproach):
         self.label_min_duration = label_min_duration
 
         self.duration = duration
-        self.min_duration = min_duration
-        self.max_duration = max_duration
 
         self.logsoftmax_ = nn.LogSoftmax(dim=1)
         self.nll = nn.NLLLoss()
@@ -149,11 +145,14 @@ class CenterLoss(EmbeddingApproach):
         """
 
         return SpeechSegmentGenerator(
-            feature_extraction, protocol, subset=subset,
+            feature_extraction,
+            protocol,
+            subset=subset,
             label_min_duration=self.label_min_duration,
-            per_label=self.per_label, per_fold=self.per_fold,
-            per_epoch=self.per_epoch, duration=self.duration,
-            min_duration=self.min_duration, max_duration=self.max_duration)
+            per_label=self.per_label,
+            per_fold=self.per_fold,
+            per_epoch=self.per_epoch,
+            duration=self.duration)
 
     def batch_loss(self, batch):
         """Compute loss for current `batch`
