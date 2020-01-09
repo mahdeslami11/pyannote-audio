@@ -51,6 +51,18 @@ If you use `pyannote-audio` for speech activity detection, please cite the follo
 }
 ```
 
+```bibtex
+@inproceedings{Lavechin2020,
+  Title = {{End-to-end Domain-Adversarial Voice Activity Detection}},
+  Author = {{Lavechin}, Marvin and {Gill}, Marie-Philippe and {Bousbib}, Ruben and {Bredin}, Herv{\'e} and {Garcia-Perera}, Leibny Paola},
+  Booktitle = {ICASSP 2020, IEEE International Conference on Acoustics, Speech, and Signal Processing},
+  Address = {Barcelona, Spain},
+  Month = {May},
+  Year = {2020},
+}
+```
+
+
 ## Configuration
 ([↑up to table of contents](#table-of-contents))
 
@@ -119,7 +131,6 @@ scheduler:
 The following command will train the network using the training subset of AMI database for 200 epochs:
 
 ```bash
-$ export EXP_DIR=tutorials/models/speech_activity_detection
 $ pyannote-audio sad train --subset=train --gpu --to=200 --parallel=4 ${EXP_DIR} AMI.SpeakerDiarization.MixHeadset
 ```
 
