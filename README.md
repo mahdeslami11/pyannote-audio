@@ -66,16 +66,17 @@ If you use `pyannote.audio` please use the following citations.
 :warning: These tutorials assumes that you installed the [`develop` branch](https://github.com/pyannote/pyannote-audio/issues/145) of `pyannote.audio`.  
 :warning: They are most likely [broken](https://github.com/pyannote/pyannote-audio/issues/151) in `pyannote.audio 1.x`.
 
+  * [Data preparation](tutorials/data_preparation)
   * [Feature extraction](tutorials/feature_extraction)
   * Models
-    * [Training LSTM-based speech activity detection](tutorials/models/speech_activity_detection)
-    * [Training LSTM-based speaker change detection](tutorials/models/speaker_change_detection)
-    * [Training LSTM-based overlapped speech detection](tutorials/models/overlap_detection)
-    * [Training LSTM-based speaker embedding](tutorials/models/speaker_embedding)
+    * [Training a speech activity detection model](tutorials/models/speech_activity_detection)
+    * [Training a speaker change detection model](tutorials/models/speaker_change_detection)
+    * [Training an overlapped speech detection model](tutorials/models/overlap_detection)
+    * [Training a speaker embedding model](tutorials/models/speaker_embedding)
 
   * Pipelines
-    * [Tuning speech activity detection pipeline](tutorials/pipelines/speech_activity_detection)
-    * [Tuning speaker diarization pipeline](tutorials/pipelines/speaker_diarization)
+    * [Tuning a speech activity detection pipeline](tutorials/pipelines/speech_activity_detection)
+    * [Tuning a speaker diarization pipeline](tutorials/pipelines/speaker_diarization)
   
   * In-house datasets 
     * [Applying pre-trained models on your own data](tutorials/own_data/pretrained)
