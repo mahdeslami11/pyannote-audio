@@ -1,6 +1,6 @@
 > The MIT License (MIT)
 >
-> Copyright (c) 2019 CNRS
+> Copyright (c) 2019-2020 CNRS
 >
 > Permission is hereby granted, free of charge, to any person obtaining a copy
 > of this software and associated documentation files (the "Software"), to deal
@@ -23,30 +23,36 @@
 > AUTHORS
 > Hervé Bredin - http://herve.niderb.fr
 
-# Applying pre-trained models on your own data
+# Applying pretrained models on your own data
 
-Models pre-trained on AMI are available in their corresponding tutorials sub-directory:
+This tutorial assumes that you have already followed the [data preparation](../data_preparation) tutorial.
+
+For the purpose of this tutorial, we use models available on `torch.hub` that were pretrained on `AMI` training subset.
+
 ```python
+import torch
+
 # speech activity detection model trained on AMI training set
-SAD_MODEL = ('tutorials/models/speech_activity_detection/train/'
-             'AMI.SpeakerDiarization.MixHeadset.train/weights/0280.pt')
+PATH_TO_SAD_MODEL = torch.hub.load('pyannote/pyannote-audio', 
+                                   'sad_ami', return_path=True)
 
 # speaker change detection model trained on AMI training set
-SCD_MODEL = ('tutorials/models/speaker_change_detection/train/'
-             'AMI.SpeakerDiarization.MixHeadset.train/weights/0870.pt')
+PATH_TO_SCD_MODEL = torch.hub.load('pyannote/pyannote-audio', 
+                                   'scd_ami', return_path=True)
+
+# overlapped speech detectoin model trained on AMI training set
+PATH_TO_OVL_MODEL = torch.hub.load('pyannote/pyannote-audio', 
+                                  'ovl_ami', return_path=True)
 
 # speaker embedding model trained on VoxCeleb1
-EMB_MODEL = ('tutorials/models/speaker_embedding/train/'               
-             'VoxCeleb.SpeakerVerification.VoxCeleb1.train/weights/2000.pt')
+PATH_TO_EMB_MODEL = torch.hub.load('pyannote/pyannote-audio', 
+                                   'emb_voxceleb', return_path=True)
 ```
 
-In this tutorial, you will learn how to use them on your own data.
+We will apply those pretrained models on the first file of the `AMI` test subset:
 
 ```python
-# one can use their own file like this...
-test_file = {'uri': 'filename', 'audio': '/path/to/your/filename.wav'}
-
-# ... or use a file provided by a pyannote.database plugin
+# ... or use a file provided by a pyannote.database protocol
 # in this example, we are using AMI first test file.
 from pyannote.database import get_protocol
 from pyannote.database import FileFinder
@@ -56,18 +62,25 @@ protocol = get_protocol('AMI.SpeakerDiarization.MixHeadset',
 test_file = next(protocol.test())
 ```
 
-NOTE: in case of domain mismatch, you might be better off training models on your own data.
+:warning: If you would like to test those models on your own data, you could do something like this (or [define your own protocol](../data_preparation))
+
+```python
+# one can use their own file like this...
+test_file = {'uri': 'filename', 'audio': '/path/to/your/filename.wav'}
+```
+
+:warning: Note that, in case of domain mismatch between your data and the `AMI` corpus, you might be better off [training your own models](../models/speech_activity_detection).
 
 ## Segmentation into speech turns
 
 ```python
 # initialize SAD & SCD sequence labeling models
 from pyannote.audio.labeling.extraction import SequenceLabeling
-sad = SequenceLabeling(model=SAD_MODEL)
-scd = SequenceLabeling(model=SCD_MODEL)
+device = torch.device('cuda')
+sad = SequenceLabeling(model=PATH_TO_SAD_MODEL, device=device)
+scd = SequenceLabeling(model=PATH_TO_SCD_MODEL, device=device)
+ovl = SequenceLabeling(model=PATH_TO_OVL_MODEL, device=device)
 ```
-
-NOTE: use `SequenceLabeling` option `device=torch.device('cuda')` to run on GPU
 
 ### Speech activity detection
 
@@ -75,24 +88,15 @@ NOTE: use `SequenceLabeling` option `device=torch.device('cuda')` to run on GPU
 # obtain raw SAD scores (as `pyannote.core.SlidingWindowFeature` instance)
 sad_scores = sad(test_file)
 
-# binarize raw SAD scores (as `pyannote.core.Timeline` instance)
+# binarize raw SAD scores
 # NOTE: both onset/offset values were tuned on AMI dataset.
 # you might need to use different values for better results.
 from pyannote.audio.utils.signal import Binarize
-binarize = Binarize(offset=0.94, onset=0.70, log_scale=True)
-speech = binarize.apply(sad_scores, dimension=1)
+binarize = Binarize(offset=0.52, onset=0.52, log_scale=True, 
+                    min_duration_off=0.1, min_duration_on=0.1)
 
-# iterate over speech segments (as `pyannote.core.Segment` instances)
-for segment in speech:
-    print(segment.start, segment.end)
-```
-```
-3.010 ==>  3.230
-3.250 ==>  3.400
-4.460 ==>  5.180
-9.740 ==> 10.160
-16.750 ==> 17.050
-24.250 ==> 25.500
+# speech regions (as `pyannote.core.Timeline` instance)
+speech = binarize.apply(sad_scores, dimension=1)
 ```
 
 ### Speaker change detection
@@ -102,35 +106,36 @@ for segment in speech:
 scd_scores = scd(test_file)
 
 # detect peaks and return speaker homogeneous segments 
-# (as `pyannote.core.Annotation` instance)
 # NOTE: both alpha/min_duration values were tuned on AMI dataset.
 # you might need to use different values for better results.
 from pyannote.audio.utils.signal import Peak
-peak = Peak(alpha=0.08, min_duration=0.40, log_scale=True)
+peak = Peak(alpha=0.10, min_duration=0.10, log_scale=True)
+
+# speaker change point (as `pyannote.core.Timeline` instance)
 partition = peak.apply(scd_scores, dimension=1)
-for segment in partition:
-    print(segment.start, segment.end)
-```
-```
--0.013 ==>  4.780
- 4.780 ==>  9.760
- 9.760 ==> 24.130
-24.130 ==> 30.140
-30.140 ==> 32.260
-32.260 ==> 33.770
 ```
 
-### Final segmentation
+### Overlapped speech detection
 
 ```python
-# speech turns are simply the intersection of SAD and SCD
-speech_turns = partition.crop(speech)
+# obtain raw OVL scores (as `pyannote.core.SlidingWindowFeature` instance)
+ovl_scores = sad(test_file)
+
+# binarize raw OVL scores
+# NOTE: both onset/offset values were tuned on AMI dataset.
+# you might need to use different values for better results.
+from pyannote.audio.utils.signal import Binarize
+binarize = Binarize(offset=0.55, onset=0.55, log_scale=True, 
+                    min_duration_off=0.1, min_duration_on=0.1)
+
+# overlapped speech regions (as `pyannote.core.Timeline` instance)
+overlap = binarize.apply(ovl_scores, dimension=1)
 ```
 
 ### Visualization
 
 ```python
-# let's visualize SAD and SCD results using pyannote.core visualization API
+# let's visualize SAD, SCD and OVL results using pyannote.core visualization API
 from matplotlib import pyplot as plt
 from pyannote.core import Segment, notebook
 
@@ -142,56 +147,68 @@ from pyannote.core import SlidingWindowFeature
 plot_ready = lambda scores: SlidingWindowFeature(np.exp(scores.data[:, 1:]), scores.sliding_window)
 
 # create a figure with 6 rows with matplotlib
-nrows = 6
+nrows = 8
 fig, ax = plt.subplots(nrows=nrows, ncols=1)
 fig.set_figwidth(20)
 fig.set_figheight(nrows * 2)
 
 # 1st row: reference annotation
-notebook.plot_annotation(test_file['annotation'], ax=ax[0])
+notebook.plot_annotation(test_file['annotation'], ax=ax[0], time=False)
 ax[0].text(notebook.crop.start + 0.5, 0.1, 'reference', fontsize=14)
 
 # 2nd row: SAD raw scores
-notebook.plot_feature(plot_ready(sad_scores), ax=ax[1])
-ax[1].text(notebook.crop.start + 0.5, 0.6, 'SAD\nscores', fontsize=14)
+notebook.plot_feature(plot_ready(sad_scores), ax=ax[1], time=False)
+ax[1].text(notebook.crop.start + 2., 0.1, 'speech\nactivity\ndetection\nscores', fontsize=14)
 ax[1].set_ylim(-0.1, 1.1)
 
 # 3rd row: SAD result
-notebook.plot_timeline(speech, ax=ax[2])
-ax[2].text(notebook.crop.start + 0.5, 0.1, 'SAD', fontsize=14)
+notebook.plot_timeline(speech, ax=ax[2], time=False)
+ax[2].text(notebook.crop.start + 0.5, 0.1, 'speech activity detection', fontsize=14)
 
 # 4th row: SCD raw scores
-notebook.plot_feature(plot_ready(scd_scores), ax=ax[3])
-ax[3].text(notebook.crop.start + 0.5, 0.3, 'SCD\nscores', fontsize=14)
+notebook.plot_feature(plot_ready(scd_scores), ax=ax[3], time=False)
+ax[3].text(notebook.crop.start + 0.5, 0.1, 'speaker\nchange\ndetection\nscores', fontsize=14)
 ax[3].set_ylim(-0.1, 0.6)
 
 # 5th row: SCD result
-notebook.plot_timeline(partition, ax=ax[4])
-ax[4].text(notebook.crop.start + 0.5, 0.1, 'SCD', fontsize=14)
+notebook.plot_timeline(partition, ax=ax[4], time=False)
+ax[4].text(notebook.crop.start + 0.5, 0.1, 'speaker change detection', fontsize=14)
 
-# 6th row: combination of SAD and SCD
-notebook.plot_timeline(speech_turns, ax=ax[5])
-ax[5].text(notebook.crop.start + 0.5, 0.1, 'speech turns', fontsize=14)
+# 6th row: OVL raw scores
+notebook.plot_feature(plot_ready(ovl_scores), ax=ax[5], time=False)
+ax[5].text(notebook.crop.start + 0.5, 0.2, 'overlapped\nspeech\ndetection\nscores', fontsize=14)
+ax[5].set_ylim(-0.1, 1.1)
+
+# 7th row: OVL result
+notebook.plot_timeline(overlap, ax=ax[6], time=False)
+ax[6].text(notebook.crop.start + 0.5, 0.1, 'overlapped speech detection', fontsize=14)
+
+# 8th row: reference annotation
+notebook.plot_annotation(test_file['annotation'], ax=ax[7], legend=False)
+_ = ax[7].text(notebook.crop.start + 0.5, 0.1, 'reference', fontsize=14)
 ```
 
 ![segmentation](segmentation.png)
 
-### Speech turn embedding
+### Speaker embedding
+
+```python
+# speech turns are simply the intersection of SAD and SCD
+speech_turns = partition.crop(speech)
+```
 
 ```python
 # initialize sequence embedding model
 from pyannote.audio.embedding.extraction import SequenceEmbedding
-emb = SequenceEmbedding(model=EMB_MODEL, duration=1., step=0.5)
+emb = SequenceEmbedding(model=PATH_TO_EMB_MODEL, device=device)
 
 # obtain raw embeddings (as `pyannote.core.SlidingWindowFeature` instance)
-# embeddings are extracted every 500ms on 1s-long windows
+# embeddings are extracted every 250ms on 500ms-long windows
 embeddings = emb(test_file)
 ```
 
-NOTE: use `SequenceEmbedding` option `device=torch.device('cuda')` to run on GPU
-
 ```python
-# for the purpose of this tutorial, we only work of long (> 2s) speech turns
+# for the purpose of this tutorial, we only work of long (> 1s) speech turns
 from pyannote.core import Timeline
 long_turns = Timeline(segments=[s for s in speech_turns if s.duration > 2.])
 ```
