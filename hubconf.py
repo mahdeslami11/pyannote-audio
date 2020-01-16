@@ -51,29 +51,29 @@ from pyannote.audio.applications.speaker_embedding import SpeakerEmbedding \
 MODELS = {
     # speech activity detection
     "sad": {
-        "ami": "d534ec1eb2",
-        "etape": "bc770a4290",
-        "dihard": "0585a5507a",
-        "dihardx": "0716397398",  # domain-adversarial
+        "ami": "712d7e3184",
+        "etape": "604053b0ac",
+        "dihard": "ab30b4cbfb",
+        "dihardx": "0116a70245",  # domain-adversarial
     },
 
     # speaker change detection
     "scd": {
-        "ami": "c429e6d0e4",
-        "etape": "41a64748fd",
-        "dihard": "9dfca5db74",
+        "ami": "4d326a90b5",
+        "etape": "feec2e9fdf",
+        "dihard": "0804daa63d",
     },
 
     # overlapped speech detection
     "ovl": {
-        "ami": "e86437107d",
-        "etape": "f17cceef33",
-        "dihard": "7df00c31d1",
+        "ami": "7103e99f5b",
+        "etape": "acd955e0c2",
+        "dihard": "753394ba3b",
     },
 
     # speaker embedding
     "emb": {
-        "voxceleb": "2de9441fb8",
+        "voxceleb": "615dfe0439",
     },
 }
 
