@@ -32,6 +32,7 @@ from pyannote.core import Annotation
 from pyannote.database import get_annotated
 
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
+from pyannote.metrics.diarization import DiarizationPurityCoverageFMeasure
 
 from .speech_turn_segmentation import SpeechTurnSegmentation
 from .speech_turn_clustering import SpeechTurnClustering
@@ -41,7 +42,6 @@ from typing import Optional
 from typing import Union
 from pyannote.pipeline import Pipeline
 from pyannote.pipeline.parameter import Uniform
-
 
 class SpeakerDiarization(Pipeline):
     """Speaker diarization pipeline
@@ -61,7 +61,10 @@ class SpeakerDiarization(Pipeline):
         Clustering method. Defaults to 'pool'.
     evaluation_only : `bool`
         Only process the evaluated regions. Default to False.
-
+    purity : `float`, optional
+        Optimize coverage for target purity. 
+        Defaults to optimizing diarization error rate.
+    
     Hyper-parameters
     ----------------
     min_duration : `float`
@@ -74,16 +77,17 @@ class SpeakerDiarization(Pipeline):
                        embedding: Optional[Path] = None,
                        metric: Optional[str] = 'cosine',
                        method: Optional[str] = 'pool',
-                       evaluation_only: Optional[bool] = False):
+                       evaluation_only: Optional[bool] = False,
+                       purity: Optional[float] = None):
 
         super().__init__()
-
         self.sad_scores = sad_scores
         self.scd_scores = scd_scores
         self.speech_turn_segmentation = SpeechTurnSegmentation(
             sad_scores=self.sad_scores,
             scd_scores=self.scd_scores)
         self.evaluation_only = evaluation_only
+        self.purity = purity
 
         self.min_duration = Uniform(0, 10)
 
@@ -161,10 +165,43 @@ class SpeakerDiarization(Pipeline):
 
         # TODO. add GMM-based resegmentation
 
+    def loss(self, current_file: dict, hypothesis: Annotation) -> float:
+        """Compute (1 - coverage) at target purity
+
+        If purity < target, return 1 + (1 - purity)
+
+        Parameters
+        ----------
+        current_file : `dict`
+            File as provided by a pyannote.database protocol.
+        hypothesis : `pyannote.core.Annotation`
+            Speech turns.
+
+        Returns
+        -------
+        loss : `float`
+            1. - cluster coverage.
+        """
+
+        metric = DiarizationPurityCoverageFMeasure()
+        reference  = current_file['annotation']
+        uem = get_annotated(current_file)
+        f_measure = metric(reference, hypothesis, uem=uem)
+        purity, coverage, _ = metric.compute_metrics()
+        if purity > self.purity:
+            return 1. - coverage
+        else:
+            return 1. + (1. - purity)
+
     def get_metric(self) -> GreedyDiarizationErrorRate:
         """Return new instance of diarization error rate metric"""
-        return  GreedyDiarizationErrorRate(collar=0.0, skip_overlap=False)
-
+        
+        # defaults to optimizing diarization error rate
+        if self.purity is None:
+            return GreedyDiarizationErrorRate(collar=0.0, skip_overlap=False)
+        
+        # fallbacks to using self.loss(...)
+        raise NotImplementedError()
 
 class Yin2018(SpeakerDiarization):
     """Speaker diarization pipeline introduced in Yin et al., 2018
