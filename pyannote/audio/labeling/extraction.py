@@ -39,6 +39,7 @@ from pyannote.database import get_unique_identifier
 from pyannote.audio.features import Precomputed
 from pyannote.audio.features import RawAudio
 from pyannote.audio.train.model import RESOLUTION_FRAME, RESOLUTION_CHUNK
+from torch.nn.utils.rnn import pack_sequence
 
 
 class SequenceLabeling(FileBasedBatchGenerator):
