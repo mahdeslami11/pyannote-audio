@@ -2,7 +2,9 @@
 
 `pyannote.audio` is an open-source toolkit written in Python for speaker diarization. Based on [PyTorch](pytorch.org) machine learning framework, it provides a set of trainable end-to-end neural building blocks that can be combined and jointly optimized to build speaker diarization pipelines:
 
-![pipeline](pipeline.png)
+<p align="center"> 
+<img src="pipeline.png">
+</p>
 
 `pyannote.audio` also comes with pretrained models covering a wide range of domains for voice activity detection, speaker change detection, overlapped speech detection, and speaker embedding:
 
