@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2018-2019 CNRS
+# Copyright (c) 2018-2020 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -38,12 +38,7 @@ class ContrastiveLoss(EmbeddingApproach):
     Parameters
     ----------
     duration : float, optional
-        Use fixed duration segments with this `duration`.
-        Defaults (None) to using variable duration segments.
-    min_duration : float, optional
-        In case `duration` is None, set segment minimum duration.
-    max_duration : float, optional
-        In case `duration` is None, set segment maximum duration.
+        Chunks duration, in seconds. Defaults to 1.
     metric : {'euclidean', 'cosine', 'angular'}, optional
         Defaults to 'cosine'.
     margin: float, optional
@@ -60,18 +55,19 @@ class ContrastiveLoss(EmbeddingApproach):
         time. Defaults to sample triplets from the whole speaker set.
     per_epoch : float, optional
         Number of days per epoch. Defaults to 7 (a week).
-    parallel : int, optional
-        Number of prefetching background generators. Defaults to 1.
-        Each generator will prefetch enough batches to cover a whole epoch.
-        Set `parallel` to 0 to not use background generators.
     in_memory : `bool`, optional
         Pre-load training set in memory.
     """
 
-    def __init__(self, duration=None, min_duration=None, max_duration=None,
-                 metric='cosine', margin=0.2, size_average=True,
-                 per_label=3, per_fold=None, per_epoch=7,
-                 parallel=1, label_min_duration=0., in_memory=False):
+    def __init__(self, duration=1.0,
+                       metric='cosine',
+                       margin=0.2,
+                       size_average=True,
+                       per_label=3,
+                       per_fold=None,
+                       per_epoch=7,
+                       label_min_duration=0.,
+                       in_memory=False):
 
         super().__init__()
 
@@ -87,34 +83,35 @@ class ContrastiveLoss(EmbeddingApproach):
         self.label_min_duration = label_min_duration
 
         self.duration = duration
-        self.min_duration = min_duration
-        self.max_duration = max_duration
 
-        self.parallel = parallel
         self.in_memory = in_memory
 
     def get_batch_generator(self, feature_extraction,
                             protocol, subset='train',
-                            frame_info=None, frame_crop=None):
+                            **kwargs):
         """Get batch generator
 
         Parameters
         ----------
         feature_extraction : `pyannote.audio.features.FeatureExtraction`
+        protocol : `pyannote.database.Protocol`
+        subset : {'train', 'development', 'test'}, optional
 
         Returns
         -------
         generator : `pyannote.audio.embedding.generators.SpeechSegmentGenerator`
-
         """
 
         return SpeechSegmentGenerator(
-            feature_extraction, protocol, subset=subset,
+            feature_extraction,
+            protocol,
+            subset=subset,
             label_min_duration=self.label_min_duration,
-            per_label=self.per_label, per_fold=self.per_fold,
-            per_epoch=self.per_epoch, duration=self.duration,
-            min_duration=self.min_duration, max_duration=self.max_duration,
-            parallel=self.parallel, in_memory=self.in_memory)
+            per_label=self.per_label,
+            per_fold=self.per_fold,
+            per_epoch=self.per_epoch,
+            duration=self.duration,
+            in_memory=self.in_memory)
 
     def batch_loss(self, batch):
         """Compute loss for current `batch`

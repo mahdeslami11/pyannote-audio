@@ -30,8 +30,8 @@ import torch
 import numpy as np
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.audio.labeling.extraction import SequenceLabeling
-from pyannote.generators.batch import batchify
 import torch.nn as nn
+import pescador
 
 
 class SequenceEmbedding(SequenceLabeling):
@@ -136,12 +136,11 @@ class SequenceEmbedding(SequenceLabeling):
             return self.forward(X)
 
         # if X contains too large a batch, split it in smaller batches...
-        batches = batchify(iter(X), {'@': (None, np.stack)},
-                           batch_size=self.batch_size,
-                           incomplete=True, prefetch=0)
+        batches = pescador.maps.buffer_stream(
+            iter({'X': x} for x in X), self.batch_size, partial=True)
 
         # ... and process them in order, before re-concatenating them
-        return np.vstack([self.apply(x) for x in batches])
+        return np.vstack([self.apply(b['X']) for b in batches])
 
     def __call__(self, current_file):
         """Extract embeddings on a sliding window
