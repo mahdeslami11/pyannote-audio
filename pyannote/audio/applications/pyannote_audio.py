@@ -376,6 +376,9 @@ def main():
                     raise ValueError(msg)
             params['metric'] = metric
 
+        # FIXME: parallel is broken in pyannote.metrics
+        params['n_jobs'] = 1
+
         app.validate(protocol, **params)
 
     if arg['apply']:
