@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2019 CNRS
+# Copyright (c) 2019-2020 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -29,11 +29,11 @@
 import numpy as np
 from pyannote.database import get_annotated
 from pyannote.core import Segment
+from pyannote.core import SlidingWindow
 from pyannote.core import Timeline
 
-from pyannote.generators.fragment import random_segment
-from pyannote.generators.fragment import random_subsegment
-from pyannote.generators.fragment import SlidingSegments
+from pyannote.core.utils.random import random_segment
+from pyannote.core.utils.random import random_subsegment
 
 from pyannote.audio.features import RawAudio
 
@@ -147,9 +147,8 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
         durations = np.array([self.data_[uri]['duration'] for uri in uris])
         probabilities = durations / np.sum(durations)
 
-        sliding_segments = SlidingSegments(duration=self.duration,
-                                           step=self.duration,
-                                           source='annotated')
+        sliding_segments = SlidingWindow(duration=self.duration,
+                                         step=self.duration)
 
         while True:
 
@@ -175,12 +174,11 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
                 # deal with corner case where a shifted segment would be empty
                 shifted_segments = [s for s in shifted_segments if s]
                 annotated = Timeline(segments=shifted_segments)
-                current_file['annotated'] = annotated
 
                 if self.shuffle:
                     samples = []
 
-                for sequence in sliding_segments.from_file(current_file):
+                for sequence in sliding_segments(annotated):
 
                     X = waveform.crop(sequence, mode='center',
                                       fixed=self.duration)

@@ -29,8 +29,8 @@
 from typing import Optional
 import itertools
 import numpy as np
-from pyannote.generators.fragment import random_segment
-from pyannote.generators.fragment import random_subsegment
+from pyannote.core.utils.random import random_segment
+from pyannote.core.utils.random import random_subsegment
 from pyannote.audio.train.task import Task, TaskType, TaskOutput
 from pyannote.audio.features import RawAudio
 from ..train.generator import BatchGenerator
