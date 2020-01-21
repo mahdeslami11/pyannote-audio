@@ -330,6 +330,14 @@ class Application:
                 # epoch -> value dictionary
                 values = SortedDict()
 
+                # load best epoch and value from past executions
+                if params_yml.exists():
+                    with open(params_yml, 'r') as fp:
+                        params = yaml.load(fp, Loader=yaml.SafeLoader)
+                    best_epoch = params['epoch']
+                    best_value = params[metric]
+                    values[best_epoch] = best_value
+
             # metric value for current epoch
             values[epoch] = details['value']
 
