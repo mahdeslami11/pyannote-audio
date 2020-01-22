@@ -67,8 +67,8 @@ class TripletLoss(EmbeddingApproach):
         Number of different speakers in each batch.
         Defaults to all speakers.
     per_epoch : float, optional
-        Number of days worth of audio per epoch.
-        Defaults to 1 (a day).
+        Force total audio duration per epoch, in days.
+        Defaults to total duration of protocol subset.
     label_min_duration : float, optional
         Remove speakers with less than `label_min_duration` seconds of speech.
         Defaults to 0 (i.e. keep it all).
@@ -94,7 +94,7 @@ class TripletLoss(EmbeddingApproach):
                        per_turn: int = 1,
                        per_label: int = 3,
                        per_fold: Optional[int] = None,
-                       per_epoch: int = 1,
+                       per_epoch: float = None,
                        label_min_duration: float = 0.):
 
         super().__init__()

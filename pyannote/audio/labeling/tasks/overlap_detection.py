@@ -69,14 +69,21 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
     batch_size : int, optional
         Batch size. Defaults to 32.
     per_epoch : float, optional
-        Total audio duration per epoch, in days.
-        Defaults to one day (1).
+        Force total audio duration per epoch, in days.
+        Defaults to total duration of protocol subset.
     """
 
-    def __init__(self, feature_extraction, protocol, subset='train',
-                 resolution=None, alignment=None, duration=3.2,
-                 snr_min=0, snr_max=10,
-                 batch_size=32, per_epoch=1):
+    def __init__(self,
+                 feature_extraction,
+                 protocol,
+                 subset='train',
+                 resolution=None,
+                 alignment=None,
+                 duration=3.2,
+                 snr_min=0,
+                 snr_max=10,
+                 batch_size=32,
+                 per_epoch: float = None):
 
         self.snr_min = snr_min
         self.snr_max = snr_max

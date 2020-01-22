@@ -56,8 +56,8 @@ class SpeechSegmentGenerator(BatchGenerator):
         Number of different speakers in each batch.
         Defaults to all speakers.
     per_epoch : float, optional
-        Number of days worth of audio per epoch.
-        Defaults to 1 (a day).
+        Force total audio duration per epoch, in days.
+        Defaults to total duration of protocol subset.
     label_min_duration : float, optional
         Remove speakers with less than `label_min_duration` seconds of speech.
         Defaults to 0 (i.e. keep it all).
@@ -70,21 +70,48 @@ class SpeechSegmentGenerator(BatchGenerator):
                        per_turn: int = 1,
                        per_label: int = 3,
                        per_fold: Optional[int] = None,
-                       per_epoch: int = 1,
+                       per_epoch: float = None,
                        label_min_duration: float = 0.):
 
         self.feature_extraction = feature_extraction
         self.per_turn = per_turn
         self.per_label = per_label
         self.per_fold = per_fold
-        self.per_epoch = per_epoch
         self.duration = duration
         self.label_min_duration = label_min_duration
         self.weighted_ = True
 
-        self._load_metadata(protocol, subset=subset)
+        total_duration = self._load_metadata(protocol, subset=subset)
+        if per_epoch is None:
+            per_epoch = total_duration / (24 * 60 * 60)
+        self.per_epoch = per_epoch
 
-    def _load_metadata(self, protocol, subset='train'):
+    def _load_metadata(self, protocol, subset='train') -> float:
+        """Load training set metadata
+
+        This function is called once at instantiation time, returns the total
+        training set duration, and populates the following attributes:
+
+        Attributes
+        ----------
+        data_ : dict
+            Dictionary where keys are speaker labels and values are lists of
+            (segments, duration, current_file) tuples where
+            - segments is a list of segments by the speaker in the file
+            - duration is total duration of speech by the speaker in the file
+            - current_file is the file (as ProtocolFile)
+
+        segment_labels_ : list
+            Sorted list of (unique) labels in protocol.
+
+        file_labels_ : dict of list
+            Sorted lists of (unique) file-level labels in protocol
+
+        Returns
+        -------
+        duration : float
+            Total duration of annotated segments, in seconds.
+        """
 
         self.data_ = {}
         segment_labels, file_labels = set(), dict()
@@ -140,6 +167,9 @@ class SpeechSegmentGenerator(BatchGenerator):
 
         self.file_labels_ = {k: sorted(file_labels[k]) for k in file_labels}
         self.segment_labels_ = sorted(self.data_)
+
+        return sum(sum(datum[1] for datum in data)
+                   for data in self.data_.values())
 
     def samples(self):
 

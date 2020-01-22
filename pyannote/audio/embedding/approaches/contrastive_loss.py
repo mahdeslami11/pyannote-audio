@@ -54,7 +54,8 @@ class ContrastiveLoss(EmbeddingApproach):
         If provided, sample triplets from groups of `per_fold` speakers at a
         time. Defaults to sample triplets from the whole speaker set.
     per_epoch : float, optional
-        Number of days per epoch. Defaults to 7 (a week).
+        Force total audio duration per epoch, in days.
+        Defaults to total duration of protocol subset.
     """
 
     def __init__(self, duration=1.0,
@@ -63,7 +64,7 @@ class ContrastiveLoss(EmbeddingApproach):
                        size_average=True,
                        per_label=3,
                        per_fold=None,
-                       per_epoch=7,
+                       per_epoch: float = None,
                        label_min_duration=0.):
 
         super().__init__()

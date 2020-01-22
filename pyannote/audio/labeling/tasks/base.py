@@ -40,8 +40,11 @@ from pyannote.core import SlidingWindowFeature
 
 from pyannote.database import get_unique_identifier
 from pyannote.database import get_annotated
+from pyannote.database.protocol.protocol import Protocol
 
 from pyannote.core.utils.numpy import one_hot_encoding
+
+from pyannote.audio.features import FeatureExtraction
 from pyannote.audio.features import RawAudio
 
 from pyannote.core.utils.random import random_segment
@@ -82,8 +85,8 @@ class LabelingTaskGenerator(BatchGenerator):
     batch_size : int, optional
         Batch size. Defaults to 32.
     per_epoch : float, optional
-        Total audio duration per epoch, in days.
-        Defaults to one day (1).
+        Force total audio duration per epoch, in days.
+        Defaults to total duration of protocol subset.
     exhaustive : bool, optional
         Ensure training files are covered exhaustively (useful in case of
         non-uniform label distribution).
@@ -105,15 +108,15 @@ class LabelingTaskGenerator(BatchGenerator):
     """
 
     def __init__(self,
-                 feature_extraction,
-                 protocol,
+                 feature_extraction: FeatureExtraction,
+                 protocol: Protocol,
                  subset='train',
                  resolution=None,
                  alignment=None,
                  duration=3.2,
                  step=None,
-                 batch_size=32,
-                 per_epoch=1,
+                 batch_size: int = 32,
+                 per_epoch: float = None,
                  exhaustive=False,
                  shuffle=False,
                  mask_dimension=None,
@@ -134,8 +137,6 @@ class LabelingTaskGenerator(BatchGenerator):
             step = duration
         self.step = step
         self.batch_size = batch_size
-        self.per_epoch = per_epoch
-
 
         self.exhaustive = exhaustive
         self.shuffle = shuffle
@@ -143,7 +144,11 @@ class LabelingTaskGenerator(BatchGenerator):
         self.mask_dimension = mask_dimension
         self.mask_logscale = mask_logscale
 
-        self._load_metadata(protocol, subset=subset)
+        total_duration = self._load_metadata(protocol, subset=subset)
+        if per_epoch is None:
+            per_epoch = total_duration / (24 * 60 * 60)
+        self.per_epoch = per_epoch
+
 
     def postprocess_y(self, Y):
         """This function does nothing but return its input.
@@ -201,9 +206,14 @@ class LabelingTaskGenerator(BatchGenerator):
         return y.crop(segment, mode=self.alignment,
                       fixed=self.duration)
 
-    def _load_metadata(self, protocol, subset='train'):
-        """Gather the following information about the training subset:
+    def _load_metadata(self, protocol, subset='train') -> float:
+        """Load training set metadata
 
+        This function is called once at instantiation time, returns the total
+        training set duration, and populates the following attributes:
+
+        Attributes
+        ----------
         data_ : dict
 
             {'segments': <list of annotated segments>,
@@ -216,6 +226,11 @@ class LabelingTaskGenerator(BatchGenerator):
 
         file_labels_ : dict of list
             Sorted lists of (unique) file labels in protocol
+
+        Returns
+        -------
+        duration : float
+            Total duration of annotated segments, in seconds.
         """
 
         self.data_ = {}
@@ -267,6 +282,8 @@ class LabelingTaskGenerator(BatchGenerator):
         for current_file in getattr(protocol, subset)():
             uri = get_unique_identifier(current_file)
             self.data_[uri]['y'] = self.initialize_y(current_file)
+
+        return sum(datum['duration'] for datum in self.data_.values())
 
     @property
     def specifications(self):
