@@ -72,8 +72,6 @@ class TripletLoss(EmbeddingApproach):
     label_min_duration : float, optional
         Remove speakers with less than `label_min_duration` seconds of speech.
         Defaults to 0 (i.e. keep it all).
-    in_memory : `bool`, optional
-        Pre-load training set in memory.
 
     Notes
     -----
@@ -97,8 +95,7 @@ class TripletLoss(EmbeddingApproach):
                        per_label: int = 3,
                        per_fold: Optional[int] = None,
                        per_epoch: int = 1,
-                       label_min_duration: float = 0.,
-                       in_memory: bool = False):
+                       label_min_duration: float = 0.):
 
         super().__init__()
 
@@ -124,8 +121,6 @@ class TripletLoss(EmbeddingApproach):
         self.label_min_duration = label_min_duration
 
         self.duration = duration
-
-        self.in_memory = in_memory
 
     def batch_easy(self, y, distances):
         """Build easy triplets"""
@@ -346,8 +341,7 @@ class TripletLoss(EmbeddingApproach):
             per_label=self.per_label,
             per_fold=self.per_fold,
             per_epoch=self.per_epoch,
-            label_min_duration=self.label_min_duration,
-            in_memory=self.in_memory)
+            label_min_duration=self.label_min_duration)
 
     def batch_loss(self, batch):
         """Compute loss for current `batch`

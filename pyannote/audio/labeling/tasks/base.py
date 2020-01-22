@@ -84,8 +84,6 @@ class LabelingTaskGenerator(BatchGenerator):
     per_epoch : float, optional
         Total audio duration per epoch, in days.
         Defaults to one day (1).
-    in_memory : `bool`, optional
-        Pre-load training set in memory.
     exhaustive : bool, optional
         Ensure training files are covered exhaustively (useful in case of
         non-uniform label distribution).
@@ -116,7 +114,6 @@ class LabelingTaskGenerator(BatchGenerator):
                  step=None,
                  batch_size=32,
                  per_epoch=1,
-                 in_memory=False,
                  exhaustive=False,
                  shuffle=False,
                  mask_dimension=None,
@@ -139,14 +136,6 @@ class LabelingTaskGenerator(BatchGenerator):
         self.batch_size = batch_size
         self.per_epoch = per_epoch
 
-        self.in_memory = in_memory
-        if self.in_memory:
-            if not isinstance(feature_extraction, RawAudio):
-                msg = (
-                    f'"in_memory" option is only supported when '
-                    f'working from the waveform.'
-                )
-                raise ValueError(msg)
 
         self.exhaustive = exhaustive
         self.shuffle = shuffle
@@ -241,10 +230,6 @@ class LabelingTaskGenerator(BatchGenerator):
                 support, mode='intersection')
             current_file['annotation'] = current_file['annotation'].crop(
                 support, mode='intersection')
-
-            if self.in_memory:
-                current_file['waveform'] = \
-                    self.feature_extraction(current_file).data
 
             # keep track of unique segment labels
             segment_labels.update(current_file['annotation'].labels())

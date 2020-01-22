@@ -61,9 +61,6 @@ class SpeechSegmentGenerator(BatchGenerator):
     label_min_duration : float, optional
         Remove speakers with less than `label_min_duration` seconds of speech.
         Defaults to 0 (i.e. keep it all).
-    in_memory : `bool`, optional
-        Pre-load training set in memory.
-
     """
 
     def __init__(self, feature_extraction,
@@ -74,8 +71,7 @@ class SpeechSegmentGenerator(BatchGenerator):
                        per_label: int = 3,
                        per_fold: Optional[int] = None,
                        per_epoch: int = 1,
-                       label_min_duration: float = 0.,
-                       in_memory: bool = False):
+                       label_min_duration: float = 0.):
 
         self.feature_extraction = feature_extraction
         self.per_turn = per_turn
@@ -84,16 +80,6 @@ class SpeechSegmentGenerator(BatchGenerator):
         self.per_epoch = per_epoch
         self.duration = duration
         self.label_min_duration = label_min_duration
-
-        self.in_memory = in_memory
-        if self.in_memory:
-            if not isinstance(feature_extraction, RawAudio):
-                msg = (
-                    f'"in_memory" option is only supported when '
-                    f'working from the waveform.'
-                )
-                raise ValueError(msg)
-
         self.weighted_ = True
 
         self._load_metadata(protocol, subset=subset)
@@ -116,10 +102,6 @@ class SpeechSegmentGenerator(BatchGenerator):
 
             # get annotation for current file
             annotation = current_file['annotation']
-
-            if self.in_memory:
-                current_file['waveform'] = \
-                    self.feature_extraction(current_file).data
 
             # loop on each label in current file
             for label in annotation.labels():

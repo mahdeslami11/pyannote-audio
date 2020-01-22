@@ -62,7 +62,7 @@ MODELS = {
 
     # speaker embedding
     "emb": {
-        "voxceleb": "615dfe0439",
+        "voxceleb": "21ba139a32",
     },
 }
 
