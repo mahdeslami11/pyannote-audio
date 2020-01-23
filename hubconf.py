@@ -71,7 +71,8 @@ _DEVICE = typing.Union[str, torch.device]
 def _generic(task: str = 'sad',
              corpus: str = 'AMI',
              device: typing.Optional[_DEVICE] = None,
-             batch_size: int = 32) -> Pretrained:
+             batch_size: int = 32,
+             step: float = 0.25) -> Pretrained:
     """Load pretrained model
 
     Parameters
@@ -88,6 +89,9 @@ def _generic(task: str = 'sad',
         Defaults to GPU when available.
     batch_size : int, optional
         Batch size used for inference.
+    step : float, optional
+        Ratio of audio chunk duration used as step between two consecutive
+        audio chunks. Defaults to 0.25.
 
     Returns
     -------
@@ -95,8 +99,8 @@ def _generic(task: str = 'sad',
 
     Usage
     -----
-    >>> pretrained = torch.hub.load('pyannote/pyannote-audio', '_generic',
-    ...                             task='sad', corpus='ami',
+    >>> pretrained = torch.hub.load('pyannote/pyannote-audio:develop',
+                                    '_generic', task='sad', corpus='ami',
     ...                             batch_size=32)
     >>> sad_scores = pretrained({'audio': '/path/to/audio.wav'})
     """
@@ -116,7 +120,8 @@ def _generic(task: str = 'sad',
     # initialize  extraction
     return Pretrained(validate_dir=validate_dir,
                       batch_size=batch_size,
-                      device=device)
+                      device=device,
+                      step=step)
 
 _sad = functools.partial(_generic, task='sad')
 sad_ami = functools.partial(_sad, corpus='ami')
