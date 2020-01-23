@@ -477,27 +477,41 @@ def apply_pretrained(validate_dir: Path,
                      step: float = 0.25,
                      device: Optional[torch.device] = None,
                      batch_size: int = 32,
+                     pretrained: Optional[str] = None,
                      Pipeline: type = None,
                      **kwargs):
     """Apply pre-trained model
 
     Parameters
     ----------
+    validate_dir : Path
     protocol_name : `str`
+    subset : 'train' | 'development' | 'test', optional
+        Defaults to 'test'.
+    duration : `float`, optional
     step : `float`, optional
-
-    subset : {'train', 'development', 'test'}
-        Defaults to 'test'
+    device : `torch.device`, optional
+    batch_size : `int`, optional
+    pretrained : `str`, optional
+    Pipeline : `type`
     """
 
-    # initialize extraction
-    pretrained = Pretrained(validate_dir=validate_dir,
-                            duration=duration,
-                            step=step,
-                            batch_size=batch_size,
-                            device=device)
-
-    output_dir = validate_dir / 'apply' / f'{pretrained.epoch_:04d}'
+    if pretrained is None:
+        pretrained = Pretrained(validate_dir=validate_dir,
+                                duration=duration,
+                                step=step,
+                                batch_size=batch_size,
+                                device=device)
+        output_dir = validate_dir / 'apply' / f'{pretrained.epoch_:04d}'
+    else:
+        output_dir = validate_dir / pretrained
+        pretrained = torch.hub.load(
+            # TODO: change to 'pyannote/pyannote-audio' after 2.0 release
+            'pyannote/pyannote-audio:develop',
+            pretrained,
+            device=device,
+            batch_size=batch_size,
+            step=step)
 
     params = {}
     try:

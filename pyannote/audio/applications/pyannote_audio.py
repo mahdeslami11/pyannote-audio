@@ -160,6 +160,9 @@ Common options
 
   <validate>              Path to <train> sub-directory containing validation
                           artifacts (e.g. <train>/validate/<protocol>.development)
+                          In case option --pretrained=<model> is used, the
+                          output of the pretrained model is dumped into the
+                          <validate> directory.
 
   --subset=<subset>       Subset to use for training (resp. validation,
                           inference). Defaults to "train" (resp. "development",
@@ -198,13 +201,15 @@ Speaker embedding
                           compare embeddings. Defaults to the metric defined in
                           <root>/config.yml configuration file.
 
-Training options
-~~~~~~~~~~~~~~~~
+Pretrained model options
+~~~~~~~~~~~~~~~~~~~~~~~~
 
   --pretrained=<model>    Warm start training with pre-trained model. Can be
                           either a path to an existing checkpoint (e.g.
                           <train>/weights/0050.pt) or the name of a model
                           available in torch.hub.list('pyannote/pyannote.audio')
+                          This option can also be used to apply a pretrained
+                          model. See description of <validate> for more details.
 
 Validation options
 ~~~~~~~~~~~~~~~~~~
@@ -278,9 +283,6 @@ def main():
 
     params['device'] = torch.device('cuda') if arg['--gpu'] else \
                        torch.device('cpu')
-
-    # "book" GPU as soon as possible
-    _ = torch.Tensor([0]).to(params['device'])
 
     protocol = arg['<protocol>']
     subset = arg['--subset']
@@ -382,6 +384,7 @@ def main():
         app.validate(protocol, **params)
 
     if arg['apply']:
+
         validate_dir = Path(arg['<validate>']).expanduser().resolve(strict=True)
 
         params['subset'] = 'test' if subset is None else subset
@@ -394,5 +397,7 @@ def main():
 
         params['step'] = float(arg['--step'])
         params['Pipeline'] = getattr(Application, 'Pipeline', None)
+
+        params['pretrained'] = arg['--pretrained']
 
         apply_pretrained(validate_dir, protocol, **params)

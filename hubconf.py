@@ -99,6 +99,7 @@ def _generic(task: str = 'sad',
 
     Usage
     -----
+    # TODO. change to 'pyannote/pyannote-audio' after 2.0 release
     >>> pretrained = torch.hub.load('pyannote/pyannote-audio:develop',
                                     '_generic', task='sad', corpus='ami',
     ...                             batch_size=32)
