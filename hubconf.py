@@ -29,9 +29,10 @@
 dependencies = ['pyannote.audio', 'torch']
 
 import yaml
-import pathlib
-import typing
+from pathlib import Path
+from typing import Optional, Union
 import functools
+
 
 import torch
 from pyannote.audio.features import Pretrained
@@ -66,11 +67,11 @@ MODELS = {
     },
 }
 
-_DEVICE = typing.Union[str, torch.device]
+_DEVICE = Union[str, torch.device]
 
 def _generic(task: str = 'sad',
              corpus: str = 'AMI',
-             device: typing.Optional[_DEVICE] = None,
+             device: Optional[_DEVICE] = None,
              batch_size: int = 32,
              step: float = 0.25) -> Pretrained:
     """Load pretrained model
@@ -95,7 +96,7 @@ def _generic(task: str = 'sad',
 
     Returns
     -------
-    pretrained : `pyannote.audio.features.Pretrained`
+    pretrained : `Pretrained`
 
     Usage
     -----
@@ -107,7 +108,7 @@ def _generic(task: str = 'sad',
     """
 
     # path where pre-trained model is downloaded by torch.hub
-    hub_dir = pathlib.Path(__file__).parent / 'models' / task / corpus / MODELS[task][corpus]
+    hub_dir = Path(__file__).parent / 'models' / task / corpus / MODELS[task][corpus]
 
     # guess path to "params.yml"
     params_yml, = hub_dir.glob('*/*/*/*/params.yml')
@@ -159,6 +160,6 @@ Options:
     from docopt import docopt
     from pyannote.audio.applications.base import create_zip
     arguments = docopt(DOCOPT, version='hubconf')
-    validate_dir = pathlib.Path(arguments['<validate_dir>'])
+    validate_dir = Path(arguments['<validate_dir>'])
     hub_zip = create_zip(validate_dir)
     print(f'Created file "{hub_zip.name}" in directory "{validate_dir}".')
