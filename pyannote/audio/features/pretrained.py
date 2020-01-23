@@ -101,11 +101,12 @@ class Pretrained(FeatureExtraction):
 
         self.preprocessors_ = config['preprocessors']
 
-        weights_pt = train_dir / 'weights' / f'{self.epoch_:04d}.pt'
+        self.weights_pt_ = train_dir / 'weights' / f'{self.epoch_:04d}.pt'
 
         model = config['get_model_from_specs'](specifications)
         model.load_state_dict(
-            torch.load(weights_pt, map_location=lambda storage, loc: storage))
+            torch.load(self.weights_pt_,
+                       map_location=lambda storage, loc: storage))
 
         # defaults to using GPU when available
         if device is None:

@@ -314,8 +314,11 @@ def main():
 
             else:
                 try:
-                    warm_start = torch.hub.load('pyannote/pyannote-audio:v2',
-                                                pretrained, return_path=True)
+                    warm_start = torch.hub.load(
+                        # TODO. change to 'pyannote/pyannote-audio'
+                        # after 2.0 release
+                        'pyannote/pyannote-audio:develop',
+                        pretrained).weights_pt_
                 except Exception as e:
                     msg = (
                         f'Could not load "{warm_start}" model from torch.hub.'
