@@ -117,8 +117,10 @@ def read_audio(current_file, sample_rate=None, mono=True):
         y = np.mean(y, axis=1, keepdims=True)
 
     # resample if sample rates mismatch
-    if file_sample_rate != sample_rate:
+    if (sample_rate is not None) and (file_sample_rate != sample_rate):
         y = librosa.core.resample(y.T, file_sample_rate, sample_rate).T
+    else:
+        sample_rate = file_sample_rate
 
     return y, sample_rate
 
