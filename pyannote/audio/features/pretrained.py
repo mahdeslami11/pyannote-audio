@@ -33,6 +33,7 @@ import torch
 import pescador
 import numpy as np
 
+from pyannote.core import Segment
 from pyannote.core import SlidingWindow
 from pyannote.core import SlidingWindowFeature
 
@@ -58,6 +59,8 @@ class Pretrained(FeatureExtraction):
         If provided, force loading this epoch.
         Defaults to reading epoch in validate_dir/params.yml.
     """
+
+    # TODO: add progress bar (at least for demo purposes)
 
     def __init__(self, validate_dir: Union[Text, Path] = None,
                        epoch: int = None,
@@ -173,12 +176,9 @@ class Pretrained(FeatureExtraction):
             self.feature_extraction_.get_features(y, sample_rate),
             self.feature_extraction_.sliding_window)
 
-        duration = len(y) / sample_rate
-        chunks = SlidingWindow(start=0.,
-                               duration=self.chunks_.duration,
-                               step=self.chunks_.step,
-                               end=duration - self.duration)
+        support = Segment(0, len(y) / sample_rate)
 
+        chunks = list(self.chunks_(support, align_last=True))
         batches = pescador.maps.buffer_stream(
             iter({'X': features.crop(chunk, mode='center',
                                      fixed=self.duration)}
@@ -192,8 +192,7 @@ class Pretrained(FeatureExtraction):
             return fX
 
         # get total number of frames (based on last window end time)
-        n_frames = self.resolution_.samples(chunks[len(fX) - 1].end,
-                                            mode='center')
+        n_frames = self.resolution_.samples(chunks[-1].end, mode='center')
 
         # data[i] is the sum of all predictions for frame #i
         data = np.zeros((n_frames, self.dimension_), dtype=np.float32)
@@ -221,4 +220,5 @@ class Pretrained(FeatureExtraction):
         return data
 
     def get_context_duration(self) -> float:
+        # FIXME: add half window duration to context?
         return self.feature_extraction_.get_context_duration()
