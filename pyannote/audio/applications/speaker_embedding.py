@@ -144,8 +144,9 @@ class SpeakerEmbedding(Application):
             if hash1 in cache:
                 emb1 = cache[hash1]
             else:
-                emb1 = pretrained.crop(file1, file1['try_with'])
-                emb1 = np.mean(np.stack(emb1), axis=0, keepdims=True)
+                emb1 = np.vstack([pretrained.crop(file1, segment)
+                                  for segment in file1['try_with']])
+                emb1 = np.mean(emb1, axis=0, keepdims=True)
                 cache[hash1] = emb1
 
             # compute embedding for file2
@@ -154,8 +155,9 @@ class SpeakerEmbedding(Application):
             if hash2 in cache:
                 emb2 = cache[hash2]
             else:
-                emb2 = pretrained.crop(file2, file2['try_with'])
-                emb2 = np.mean(np.stack(emb2), axis=0, keepdims=True)
+                emb2 = np.vstack([pretrained.crop(file2, segment)
+                                  for segment in file2['try_with']])
+                emb2 = np.mean(emb2, axis=0, keepdims=True)
                 cache[hash2] = emb2
 
             # compare embeddings
