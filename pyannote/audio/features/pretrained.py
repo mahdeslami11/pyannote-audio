@@ -183,13 +183,15 @@ class Pretrained(FeatureExtraction):
         # corner case where file is shorter than duration used for training
         if duration < self.duration:
             chunks = [support]
+            fixed = duration
         else:
             chunks = list(self.chunks_(support, align_last=True))
+            fixed = self.duration
 
 
         batches = pescador.maps.buffer_stream(
             iter({'X': features.crop(chunk, mode='center',
-                                     fixed=self.duration)}
+                                     fixed=fixed)}
                  for chunk in chunks),
             self.batch_size, partial=True)
 
@@ -213,7 +215,7 @@ class Pretrained(FeatureExtraction):
             # indices of frames overlapped by chunk
             indices = self.resolution_.crop(chunk,
                                             mode=self.model_.alignment,
-                                            fixed=self.duration)
+                                            fixed=fixed)
 
             # accumulate the outputs
             data[indices] += fX_
