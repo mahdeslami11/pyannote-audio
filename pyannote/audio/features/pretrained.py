@@ -177,9 +177,16 @@ class Pretrained(FeatureExtraction):
             self.feature_extraction_.get_features(y, sample_rate),
             self.feature_extraction_.sliding_window)
 
-        support = Segment(0, len(y) / sample_rate)
+        duration = len(y) / sample_rate
+        support = Segment(0, duration)
 
-        chunks = list(self.chunks_(support, align_last=True))
+        # corner case where file is shorter than duration used for training
+        if duration < self.duration:
+            chunks = [support]
+        else:
+            chunks = list(self.chunks_(support, align_last=True))
+
+
         batches = pescador.maps.buffer_stream(
             iter({'X': features.crop(chunk, mode='center',
                                      fixed=self.duration)}
