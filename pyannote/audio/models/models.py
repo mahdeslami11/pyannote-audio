@@ -570,10 +570,9 @@ class SincTDNN(Model):
         sliding_window : `pyannote.core.SlidingWindow` or {`window`, `frame`}
         """
 
-        if sincnet is None:
-            sincnet = dict()
-
-        return SincNet.get_resolution(**sincnet)
+        # TODO add support for frame-wise and sequence labeling tasks
+        # TODO https://github.com/pyannote/pyannote-audio/issues/290
+        return RESOLUTION_CHUNK
 
     def init(self,
              sincnet : Optional[dict] = None,
