@@ -238,7 +238,9 @@ class RawAudio(object):
             step=1./sample_rate)
 
         if return_sr:
-            return SlidingWindowFeature(y, sliding_window), sample_rate
+            return (
+                SlidingWindowFeature(y, sliding_window),
+                sample_rate if self.sample_rate is None else self.sample_rate)
 
         return SlidingWindowFeature(y, sliding_window)
 
