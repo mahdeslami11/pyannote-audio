@@ -37,6 +37,7 @@ from pyannote.core import Segment, Timeline, Annotation
 from pyannote.database import get_protocol
 from pyannote.database import get_annotated
 from pyannote.database import get_unique_identifier
+from pyannote.database import FileFinder
 from pyannote.database.protocol import SpeakerDiarizationProtocol
 from pyannote.database.protocol import SpeakerVerificationProtocol
 
@@ -101,14 +102,19 @@ class SpeakerEmbedding(Application):
             raise ValueError(msg)
 
     @staticmethod
-    def get_hash(trial_file):
-        uri = get_unique_identifier(trial_file)
-        try_with = trial_file['try_with']
-        if isinstance(try_with, Timeline):
-            segments = tuple(try_with)
-        else:
-            segments = (try_with, )
-        return hash((uri, segments))
+    def get_hash(file):
+        hashable = []
+        for f in FileFinder.current_file_iter(file, extra_keys=['try_with']):
+            hashable.append((f['uri'], tuple(f['try_with'])))
+        return hash(tuple(sorted(hashable)))
+
+    @staticmethod
+    def get_embedding(file, pretrained):
+        emb = []
+        for f in FileFinder.current_file_iter(file, extra_keys=['try_with']):
+            emb.append(pretrained.crop(f, f['try_with']))
+        return np.mean(np.vstack(emb), axis=0, keepdims=True)
+
 
     def _validate_epoch_verification(self,
                                      epoch,
@@ -144,9 +150,7 @@ class SpeakerEmbedding(Application):
             if hash1 in cache:
                 emb1 = cache[hash1]
             else:
-                emb1 = np.vstack([pretrained.crop(file1, segment)
-                                  for segment in file1['try_with']])
-                emb1 = np.mean(emb1, axis=0, keepdims=True)
+                emb1 = self.get_embedding(file1, pretrained)
                 cache[hash1] = emb1
 
             # compute embedding for file2
@@ -155,9 +159,7 @@ class SpeakerEmbedding(Application):
             if hash2 in cache:
                 emb2 = cache[hash2]
             else:
-                emb2 = np.vstack([pretrained.crop(file2, segment)
-                                  for segment in file2['try_with']])
-                emb2 = np.mean(emb2, axis=0, keepdims=True)
+                emb2 = self.get_embedding(file2, pretrained)
                 cache[hash2] = emb2
 
             # compare embeddings
