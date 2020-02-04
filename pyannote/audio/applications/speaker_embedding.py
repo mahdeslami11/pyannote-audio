@@ -111,8 +111,14 @@ class SpeakerEmbedding(Application):
     @staticmethod
     def get_embedding(file, pretrained):
         emb = []
-        for f in FileFinder.current_file_iter(file, extra_keys=['try_with']):
-            emb.append(pretrained.crop(f, f['try_with']))
+        for f in FileFinder.current_file_iter(file, extra_keys=['try_with', 'audio']):
+            if isinstance(f['try_with'], Segment):
+                segments = [f['try_with']]
+            else:
+                segments = f['try_with']
+            for segment in segments:
+                emb.append(pretrained.crop(f, segment))
+
         return np.mean(np.vstack(emb), axis=0, keepdims=True)
 
 
