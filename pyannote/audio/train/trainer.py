@@ -50,7 +50,7 @@ from .schedulers import ConstantScheduler
 from .generator import BatchGenerator
 from .model import Model
 from ..utils.timeout import timeout
-from .generator import SmartBackground
+from .generator import AdaptiveBackgroundGenerator
 
 
 ARBITRARY_LR = 0.1
@@ -300,8 +300,8 @@ class Trainer:
 
         # BATCH GENERATOR
         self.batch_generator_ = batch_generator
-        sbg = SmartBackground(self.batch_generator_, n_jobs=n_jobs)
-        self.batches_ = iter(sbg)
+        self.batches_ = AdaptiveBackgroundGenerator(self.batch_generator_,
+                                                    n_jobs=n_jobs)
         self.batches_per_epoch_ = self.batch_generator_.batches_per_epoch
 
         # OPTIMIZER
@@ -435,4 +435,4 @@ class Trainer:
 
         callbacks.on_train_end(self)
 
-        sbg.deactivate()
+        self.batches_.deactivate()

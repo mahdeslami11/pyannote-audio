@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2019 CNRS
+# Copyright (c) 2019-2020 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -30,8 +30,6 @@
 TODO
 """
 
-
-import warnings
 import threading
 import collections
 import queue
@@ -109,175 +107,388 @@ class BatchGenerator(metaclass=ABCMeta):
             yield next(batches)
 
 
-
-class Background(threading.Thread):
-    """Transform a callable into a background iterator.
+class BackgroundGenerator(threading.Thread):
+    """Background generator with production/consumption time estimates
 
     Parameters
     ----------
-    generator: callable
-        Must return an iterator
+    producer: generator function
+        Generator function that takes no argument and yield (a possibly
+        infinite number of) samples. This would typically be a BatchGenerator
+        instance but can be any function that "yields" samples.
     prefetch: int, optional
-        Maximum number of items that can be prefetched.
-        Defaults to 10.
+        Maximum number of samples that can be prefetched and stored in a queue.
+        Defaults to 1. In case the consumer is slower than the producer and the
+        queue is full, the producer is paused until one sample is consumed.
 
     Usage
     -----
-    >>>
-    >>> for item in Background(generator, prefetch=10):
-    ...     do_something(item)
+    >>> import time
 
+    # a dummy producer that yield 'sample' string every 10ms.
+    >>> def produce():
+    ...     while True:
+    ...        time.sleep(0.010)
+    ...        yield 'sample'
+
+    # a dummy consumer that takes 1ms to consume a sample
+    >>> def consume(sample):
+    ...     time.sleep(0.001)
+
+    # create background generator from producer
+    >>> generator = BackgroundGenerator(produce)
+
+    # produce and consume 100 samples
+    >>> for i in range(100):
+    ...     sample = next(generator)
+    ...     consume(sample)
+
+    >>> p = generator.production_time
+    >>> print(f'Production time estimate: {1000 * p:.0f}ms')
+    # Production time estimate: 10ms
+
+    >>> c = generator.consumption_time
+    >>> print(f'Consumption time estimate: {1000 * c:.0f}ms')
+    # Consumption time estimate: 1ms
+
+    # kill background generator (and associated thread)
+    >>> generator.deactivate()
+    >>> sample = next(generator)
+    # StopIteration: Background generator is no longer active.
     """
 
-    def __init__(self, generator: Callable[[], Iterator],
-                       prefetch: int = 10):
-        super(Background, self).__init__(daemon=True)
-        self.generator = generator
+    def __init__(self, producer: Callable[[], Iterator],
+                       prefetch: int = 1):
+        super().__init__(daemon=True)
+        self.producer = producer
         self.prefetch = prefetch
 
         self.activated_ = True
-        self.items_ = generator()
+        self.producer_ = producer()
 
+        # used to keep track of how long it took to generate latest samples
         self.production_time_ = \
             collections.deque([], max(10, 2 * self.prefetch))
+
+        # used to keep track of how long it took to consume latest samples
         self.consumption_time_ = \
             collections.deque([], max(10, 2 * self.prefetch))
+
+        # used to keep track of last time
         self.last_ready_ = None
 
+        # queue meant to store at most 'self.prefetch' prefetched samples
         self.queue_ = queue.Queue(self.prefetch)
+
+        # start generator in a new thread
         self.start()
 
     def reset(self) -> None:
+        """Reset production and consumption time estimators"""
         self.production_time_.clear()
         self.consumption_time_.clear()
 
     def deactivate(self) -> None:
+        """Stop background generator"""
         self.activated_ = False
         # unlock queue stuck at line queue.put() in self.run()
         _ = self.queue_.get()
 
     @property
     def production_time(self) -> float:
+        """Estimated time needed by the generator to yield a sample.
+
+        This is computed as the median production time of the last few samples.
+
+        Returns
+        -------
+        production_time : float or np.NAN
+            Estimated time needed by the generator to yield a new sample, in
+            seconds. Until enough samples have been yielded to accurately
+            estimate production time, it is set to np.NAN.
+        """
+
         if len(self.production_time_) < max(10, 2 * self.prefetch):
             return np.NAN
         return np.median(self.production_time_)
 
     @property
     def consumption_time(self) -> float:
+        """Estimated time needed by the consumer to process a sample
+
+        This is computed as the median consumption time of the last few samples.
+
+        Returns
+        -------
+        consumption_time : float or np.NAN
+            Estimated time needed by the consumer to process a sample, in
+            seconds. Until enough samples have been consumed to accurately
+            estimate consumption time, it is set to np.NAN.
+        """
         if len(self.consumption_time_) < max(10, 2 * self.prefetch):
             return np.NAN
         return np.median(self.consumption_time_)
 
     def run(self) -> None:
+        """Called by self.start(), should not be called directly."""
+
+        # keep going until the background generator is deactivated
         while self.activated_:
-            # ask for next item and measure how long it takes to get it
+
+            # produce a new sample
             _t = time.time()
             try:
-                item = next(self.items_)
+                sample = next(self.producer_)
             except StopIteration:
-                item = None
+                sample = None
+
+            # keep track of how long it took to produce
             self.production_time_.append(time.time() - _t)
-            self.queue_.put(item)
+
+            # put the new sample into the queue for later consumption.
+            # note that this line is blocking when the queue is full.
+            # calling self.queue_.get() in self.__next__() or self.deactivate()
+            # will eventually unblock it.
+            self.queue_.put(sample)
 
     def __next__(self):
+        """Produce new sample"""
+
+        # raise a StopIteration once the generator has been deactivated
+        if not self.activated_:
+            msg = 'Background generator is no longer active.'
+            raise StopIteration(msg)
+
+        # keep track of how long it took to consume the last sample
         t = time.time()
         if self.last_ready_ is not None:
             self.consumption_time_.append(t - self.last_ready_)
-        next_item = self.queue_.get()
-        if next_item is None:
-            raise StopIteration
+
+        # get a new sample from the queue
+        sample = self.queue_.get()
+
+        # this happens when producer stopped yielding samples
+        if sample is None:
+            msg = 'Producer stopped yielding samples.'
+            raise StopIteration(msg)
+
+        # keep track of the last time a sample was taken from the queue
         self.last_ready_ = time.time()
-        return next_item
+
+        # actually return the new sample
+        return sample
 
     def __iter__(self):
         return self
 
 
-class SmartBackground:
-    """
+class AdaptiveBackgroundGenerator:
+    """Adaptive pool of background generators
+
+    The pool is initialized with only one background generator.
+
+    Once production and consumption time estimates are available (after a short
+    warm-up period of time), the pool will incrementally adapt the number of
+    background generators to ensure that it produces samples fast enough for
+    the consumer.
 
     Parameters
     ----------
-    generator :
+    producer: generator function
+        Generator function that takes no argument and yield (a possibly
+        infinite number of) samples. This would typically be a BatchGenerator
+        instance but can be any function that "yields" samples.
     n_jobs : int, optional
-        Maximum number of background jobs.
-        Defaults to 4.
+        Maximum number of background generators that can be created to keep up
+        with consumer. Defaults to 4.
     prefetch : int, optional
-        Maximum number of iterations that
-        each background jobs can prefetch.
+        Maximum number of samples that can be prefetched by each background
+        generator. See BackgroundGenerator documentation for more details.
         Defaults to 10.
+    verbose : bool, optional
+        Print a message when a background generator is added to (or removed
+        from) the pool.
+
+    Usage
+    -----
+    >>> import time
+
+    # a dummy producer that yield 'sample' string every 10ms.
+    >>> def produce():
+    ...     while True:
+    ...        time.sleep(0.010)
+    ...        yield 'sample'
+
+    # a dummy consumer that takes 1ms to consume a sample
+    >>> def consume(sample):
+    ...     time.sleep(0.001)
+
+    # create background generator from producer
+    >>> generator = AdaptiveBackgroundGenerator(produce, n_jobs=4, verbose=True)
+
+    # produce and consume 1000 samples
+    >>> for i in range(1000):
+    ...     sample = next(generator)
+    ...     consume(sample)
+    # Starting with one producer.
+    # Adding one producer because consumer is 7.14x faster than current 1 producer(s).
+    # Adding one producer because consumer is 1.60x faster than current 2 producer(s).
+    # Adding one producer because consumer is 1.29x faster than current 3 producer(s).
+    # Consumer is 1.14x faster than the pool of 4 producer(s) but the maximum number of producer
+
+    # kill background generator (and associated threads)
+    >>> generator.deactivate()
+    >>> sample = next(generator)
+    # StopIteration: Background generator is no longer active.
     """
 
-    def __init__(self, generator: Callable[[], Iterator],
+    def __init__(self, producer: Callable[[], Iterator],
                        n_jobs: int = 4,
                        prefetch: int = 10,
                        verbose: bool = False):
 
-        self.generator = generator
+        self.producer = producer
         self.n_jobs = n_jobs
         self.prefetch = prefetch
         self.verbose = verbose
 
+        # current pool of active background generators
         self.generators_ = []
+
+        if self.verbose:
+            msg = (
+                f'Starting with one producer.'
+            )
+            print(msg)
+
+        # start by creating one background generator to the pool
         self._one_more_job()
 
-    def deactivate(self):
+        # initialize main sample generator (used in __next__)
+        self.samples_ = self._sample()
+
+        # set to True once the maximum number of generators is reached.
+        # (used to avoid repeating a message when verbose is True)
+        self.reached_max_ = False
+
+    def deactivate(self) -> None:
+        """Stop background generator"""
         n_jobs = len(self.generators_)
         for _ in range(n_jobs):
             self._one_less_job()
 
     def _one_more_job(self) -> None:
-        """Add one more job to the pool of parallel jobs"""
+        """Add one more producer to the pool"""
 
-        n_jobs = len(self.generators_)
-        if self.verbose and n_jobs > 0:
-            ratio = self.production_time / self.consumption_time
-            msg = (
-                f'Adding one more job because consumer is '
-                f'{ratio:.1f}x faster than current {n_jobs:d} producer(s).'
-            )
-            warnings.warn(msg)
-
-        self.generators_.append(
-            Background(self.generator, prefetch=self.prefetch))
+        self.generators_.append(BackgroundGenerator(self.producer,
+                                                    prefetch=self.prefetch))
 
         for g in self.generators_:
             g.reset()
 
-    def _one_less_job(self) -> None:
-        """Remove one job from the pool of parallel jobs"""
+    def _one_less_job(self, index: int = None) -> None:
+        """Remove one producer from the pool
 
-        n_jobs = len(self.generators_)
-        if self.verbose:
-            ratio = self.consumption_time / self.production_time
-            msg = (
-                f'Removing one job because consumer is '
-                f'{ratio:.1f}x slower than current {n_jobs:d} producer(s).'
-            )
-            warnings.warn(msg)
+        Parameters
+        ----------
+        index : int, optional
+            When provided, remove `index`th producer.
+            Defaults to removing the last producer.
+        """
 
-        g = self.generators_.pop()
+        if index is None:
+            n_jobs = len(self.generators_)
+            index = n_jobs - 1
+
+        g = self.generators_.pop(index)
         g.deactivate()
 
         for g in self.generators_:
             g.reset()
 
-    @property
-    def consumption_time(self):
-        return np.mean([g.consumption_time
-                        for g in self.generators_])
+        self.reached_max_ = False
 
     @property
-    def production_time(self):
-        return np.mean([g.production_time
-                        for g in self.generators_])
+    def consumption_time(self) -> float:
+        """Estimated time needed by the consumer to process a sample
+
+        This is computed as the average of estimated consumption times of all
+        currently active background generators.
+
+        Returns
+        -------
+        consumption_time : float or np.NAN
+            Estimated time needed by the consumer to process a sample, in
+            seconds. Until enough samples have been consumed to accurately
+            estimate consumption time, it is set to np.NAN.
+        """
+
+        # corner case when generator has been deactivated
+        if not self.generators_:
+            return np.NAN
+
+        return np.mean([g.consumption_time for g in self.generators_])
+
+    @property
+    def production_time(self) -> float:
+        """Estimated time needed by the generator to yield a sample.
+
+        This is computed as the average estimated production time of all
+        currently active background generators.
+
+        Returns
+        -------
+        production_time : float or np.NAN
+            Estimated time needed by the generator to yield a new sample, in
+            seconds. Until enough samples have been yielded to accurately
+            estimate production time, it is set to np.NAN.
+        """
+
+        # corner case when generator has been deactivated
+        if not self.generators_:
+            return np.NAN
+
+        return np.mean([g.production_time for g in self.generators_])
 
     def __iter__(self):
+        return self
 
+    def __next__(self):
+        return next(self.samples_)
+
+    def _sample(self) -> Iterator:
+        """Iterate over (and manage) pool of generators"""
+
+        # loop forever
         while True:
 
-            for g in self.generators_:
-                yield next(g)
+            if not self.generators_:
+                msg = 'Background generator is no longer active.'
+                raise StopIteration(msg)
+
+            dead_generators = []
+            for index, g in enumerate(self.generators_):
+
+                try:
+                    sample = next(g)
+                except StopIteration:
+                    # mark this generator as dead
+                    dead_generators.append(index)
+                    continue
+
+                yield sample
+
+            if self.verbose and dead_generators:
+                msg = (
+                    f'Replacing {len(dead_generators)} exhausted producers.'
+                )
+                print(msg)
+
+            # replace dead generators by new ones
+            for index in reversed(dead_generators):
+                self._one_less_job(index=index)
+            for _ in dead_generators:
+                self._one_more_job()
 
             consumption_time = self.consumption_time
             production_time = self.production_time
@@ -291,16 +502,37 @@ class SmartBackground:
             # consumption_time < production_time
             if ratio > 1:
                 if n_jobs < self.n_jobs:
+
+                    if self.verbose:
+                        msg = (
+                            f'Adding one producer because consumer is '
+                            f'{ratio:.2f}x faster than current {n_jobs:d} '
+                            f'producer(s).'
+                        )
+                        print(msg)
+
                     self._one_more_job()
 
-                elif self.verbose:
-                    msg = (
-                        f'Consumer is {ratio:.1f}x faster than the pool of '
-                        f'{n_jobs:d} parallel producer(s) but the maximum '
-                        f'number of producers has already been reached.'
-                    )
-                    warnings.warn(msg)
+                else:
+                    if not self.reached_max_ and self.verbose:
+                        msg = (
+                            f'Consumer is {ratio:.2f}x faster than the pool of '
+                            f'{n_jobs:d} producer(s) but the maximum number of '
+                            f'producers has been reached.'
+                        )
+                        print(msg)
+
+                    self.reached_max_ = True
 
             # production_time < consumption_time * (n_jobs - 1) / n_jobs
-            elif ratio < (n_jobs - 1) / n_jobs:
+            elif (ratio < (n_jobs - 1) / n_jobs) and n_jobs > 1:
+
+                if self.verbose:
+                    msg = (
+                        f'Removing one producer because consumer is '
+                        f'{1 / ratio:.2f}x slower than current {n_jobs:d} '
+                        f'producer(s).'
+                    )
+                    print(msg)
+
                 self._one_less_job()
