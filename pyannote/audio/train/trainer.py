@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2018-2019 CNRS
+# Copyright (c) 2018-2020 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -50,7 +50,7 @@ from .schedulers import ConstantScheduler
 from .generator import BatchGenerator
 from .model import Model
 from ..utils.timeout import timeout
-from .generator import AdaptiveBackgroundGenerator
+from ..utils.background import AdaptiveBackgroundGenerator
 
 
 ARBITRARY_LR = 0.1
