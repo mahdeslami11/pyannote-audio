@@ -149,7 +149,7 @@ To get a quick idea of how the network is doing on the development set, one can 
 
 ```bash
 $ export TRN_DIR=${EXP_DIR}/train/AMI.SpeakerDiarization.MixHeadset.train
-$ pyannote-audio sad validate --subset=develop --gpu --to=200 --every=10 ${TRN_DIR} AMI.SpeakerDiarization.MixHeadset
+$ pyannote-audio sad validate --subset=development --gpu --to=200 --every=10 ${TRN_DIR} AMI.SpeakerDiarization.MixHeadset
 ```
 It can be run while the model is still training and evaluates the model every 10 epochs. This will create a bunch of files in `VAL_DIR` (defined below). 
 
