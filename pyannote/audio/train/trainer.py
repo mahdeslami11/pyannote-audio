@@ -38,6 +38,7 @@ import sys
 import yaml
 import torch
 import tempfile
+import warnings
 from itertools import chain
 from torch.nn import Module
 from torch.optim import Optimizer, SGD
@@ -90,15 +91,20 @@ class Trainer:
             _model_pt = model_pt
             optimizer_pt = model_pt.with_suffix('.optimizer.pt')
 
-
-
         model_state = torch.load(
             _model_pt, map_location=lambda storage, loc: storage)
         self.model_.load_state_dict(model_state)
 
-        optimizer_state = torch.load(
-            optimizer_pt, map_location=lambda storage, loc: storage)
-        self.optimizer_.load_state_dict(optimizer_state)
+        try:
+            optimizer_state = torch.load(
+                optimizer_pt, map_location=lambda storage, loc: storage)
+            self.optimizer_.load_state_dict(optimizer_state)
+        except Exception as e:
+            msg = (
+                f'Did not load optimizer state (most likely because current '
+                f'training session uses a different loss than the one used '
+                f'for pre-training).')
+            warnings.warn(msg)
 
         self.load_more(model_pt=model_pt)
 
