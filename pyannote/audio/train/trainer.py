@@ -95,21 +95,18 @@ class Trainer:
             _model_pt, map_location=lambda storage, loc: storage)
         self.model_.load_state_dict(model_state)
 
-        try:
-            optimizer_state = torch.load(
-                optimizer_pt, map_location=lambda storage, loc: storage)
-            self.optimizer_.load_state_dict(optimizer_state)
-        except Exception as e:
-            msg = (
-                f'Did not load optimizer state (most likely because current '
-                f'training session uses a different loss than the one used '
-                f'for pre-training).')
-            warnings.warn(msg)
+        success = self.load_more(model_pt=model_pt)
 
-        self.load_more(model_pt=model_pt)
+        if success:
 
-    def load_more(self, model_pt=None):
-        """Called after model and optimizer states are loaded
+            try:
+                optimizer_state = torch.load(
+                    optimizer_pt, map_location=lambda storage, loc: storage)
+                self.optimizer_.load_state_dict(optimizer_state)
+            except Exception as e:
+                msg = (
+                    f'Did not load optimizer state (most likely because current '
+                    f'training session uses a different loss than the one used '
 
         This method can be overriden to load additional states.
         For instance, it can be used to load the state of a domain classifier

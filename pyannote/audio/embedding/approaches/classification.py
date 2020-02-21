@@ -105,8 +105,14 @@ class Classification(RepresentationLearning):
 
         return self.classifier_.parameters()
 
-    def load_more(self, model_pt=None):
-        """Load classifier from disk"""
+    def load_more(self, model_pt=None) -> bool:
+        """Load classifier from disk
+
+        Returns
+        -------
+        success : bool
+            True if state was loaded successfully, False otherwise.
+        """
 
         if model_pt is None:
             classifier_pt = self.CLASSIFIER_PT.format(
@@ -118,12 +124,16 @@ class Classification(RepresentationLearning):
             classifier_state = torch.load(
                 classifier_pt, map_location=lambda storage, loc: storage)
             self.classifier_.load_state_dict(classifier_state)
+            success = True
         except Exception as e:
             msg = (
                 f'Did not load classifier state (most likely because current '
                 f'training session uses a different training set than the one '
                 f'used for pre-training).')
             warnings.warn(msg)
+            success = False
+
+        return success
 
     def save_more(self):
         """Save classifier weights to disk"""

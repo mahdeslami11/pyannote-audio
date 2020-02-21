@@ -140,8 +140,17 @@ class CenterLoss(RepresentationLearning):
         return chain(self.classifier_.parameters(),
                      self.center_dist_.parameters())
 
-    def load_more(self, model_pt=None):
-        """Load classifier and centers from disk"""
+    def load_more(self, model_pt=None) -> bool:
+        """Load classifier and centers from disk
+
+        Returns
+        -------
+        success : bool
+            FIXME True if state was loaded successfully, False otherwise.
+
+        """
+
+        # FIXME add support for pretrained model with different specs
 
         if model_pt is None:
             classifier_pt = self.CLASSIFIER_PT.format(
@@ -160,6 +169,8 @@ class CenterLoss(RepresentationLearning):
         centers_state = torch.load(
             centers_pt, map_location=lambda storage, loc: storage)
         self.center_dist_.load_state_dict(centers_state)
+
+        return True
 
     def save_more(self):
         """Save classifier and centers to disk"""
