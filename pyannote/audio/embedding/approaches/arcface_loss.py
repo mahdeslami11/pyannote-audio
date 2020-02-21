@@ -59,15 +59,16 @@ class ArcLinear(nn.Module):
         self.W = nn.Parameter(torch.Tensor(nclass, nfeat))
         nn.init.xavier_uniform_(self.W)
 
-    def forward(self, x, y):
+    def forward(self, x, target=None):
         """Apply the angular margin transformation
 
         Parameters
         ----------
         x : `torch.Tensor`
             an embedding batch
-        y : `torch.Tensor`
+        target : `torch.Tensor`
             a non one-hot label batch
+
         Returns
         -------
         fX : `torch.Tensor`
@@ -76,11 +77,11 @@ class ArcLinear(nn.Module):
         # normalize the feature vectors and W
         xnorm = F.normalize(x)
         Wnorm = F.normalize(self.W)
-        y = y.long().view(-1, 1)
+        target = target.long().view(-1, 1)
         # calculate cosθj (the logits)
         cos_theta_j = torch.matmul(xnorm, torch.transpose(Wnorm, 0, 1))
         # get the cosθ corresponding to the classes
-        cos_theta_yi = cos_theta_j.gather(1, y)
+        cos_theta_yi = cos_theta_j.gather(1, target)
         # for numerical stability
         cos_theta_yi = cos_theta_yi.clamp(min=self.min_cos, max=self.max_cos)
         # get the angle separating xi and Wyi
@@ -89,7 +90,7 @@ class ArcLinear(nn.Module):
         cos_theta_yi_margin = torch.cos(theta_yi + self.margin)
         # one hot encode  y
         one_hot = torch.zeros_like(cos_theta_j)
-        one_hot.scatter_(1, y, 1.0)
+        one_hot.scatter_(1, target, 1.0)
         # project margin differences into cosθj
         return self.s * (cos_theta_j + one_hot * (cos_theta_yi_margin - cos_theta_yi))
 

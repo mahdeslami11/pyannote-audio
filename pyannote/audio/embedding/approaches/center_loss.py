@@ -50,14 +50,14 @@ class CenterDistanceModule(nn.Module):
         self.centers = nn.Parameter(torch.randn(nclass, nfeat))
         self.nfeat = nfeat
 
-    def forward(self, feat, y):
+    def forward(self, feat, target=None):
         """Calculate the sum of cosine distances from embeddings to centers
 
         Parameters
         ----------
         feat : `torch.Tensor`
             Embedding batch
-        y : `torch.Tensor`
+        target : `torch.Tensor`
             Non one-hot labels
         Returns
         -------
@@ -67,7 +67,7 @@ class CenterDistanceModule(nn.Module):
         batch_size = feat.size(0)
         feat = feat.view(batch_size, -1)
         # Select appropriate centers for this batch's labels
-        centers_batch = self.centers.index_select(0, y.long())
+        centers_batch = self.centers.index_select(0, target.long())
         # Return the sum of the squared distance normalized by the batch size
         dists = 1 - F.cosine_similarity(feat, centers_batch, dim=1, eps=1e-8)
         return torch.sum(torch.pow(dists, 2)) / 2.0 / batch_size
@@ -195,16 +195,16 @@ class CenterLoss(RepresentationLearning):
 
         # extract and aggregate embeddings
         fX, y = self.embed(batch)
+        target = torch.tensor(y, dtype=torch.int64, device=self.device)
 
         # distance to centers
-        loss_centers = self.center_dist_(fX, y)
+        loss_centers = self.center_dist_(fX, target=target)
 
         # apply classification layer
-        logits = self.logsoftmax_(self.classifier_(fX))
+        logits = self.logsoftmax_(self.classifier_(fX, target=target))
 
         # compute classification loss
-        targets = torch.tensor(y, dtype=torch.int64, device=self.device)
-        loss_classification = self.nll_(logits, targets)
+        loss_classification = self.nll_(logits, target)
 
         return {
             'loss': loss_classification + self.loss_weight * loss_centers,

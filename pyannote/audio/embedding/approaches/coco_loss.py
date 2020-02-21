@@ -51,13 +51,14 @@ class CocoLinear(nn.Module):
         self.alpha = alpha
         self.centers = nn.Parameter(torch.randn(nclass, nfeat))
 
-    def forward(self, x):
+    def forward(self, x, target=None):
         """Apply the angular margin transformation
 
         Parameters
         ----------
         x : `torch.Tensor`
             an embedding batch
+
         Returns
         -------
         fX : `torch.Tensor`

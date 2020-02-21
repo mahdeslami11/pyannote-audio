@@ -32,6 +32,10 @@ import torch.nn as nn
 from .base import RepresentationLearning
 
 
+class Linear(nn.Linear):
+    def forward(self, x, target=None):
+        return super().forward(x)
+
 class Classification(RepresentationLearning):
     """Classification
 
@@ -94,7 +98,7 @@ class Classification(RepresentationLearning):
             Trainable trainer parameters
         """
 
-        self.classifier_ = nn.Linear(
+        self.classifier_ = Linear(
             self.model.dimension,
             len(self.specifications['y']['classes']),
             bias=self.bias).to(self.device)
@@ -149,13 +153,13 @@ class Classification(RepresentationLearning):
 
         # extract and aggregate embeddings
         fX, y = self.embed(batch)
+        target = torch.tensor(y, dtype=torch.int64, device=self.device)
 
         # apply classification layer
-        logits = self.logsoftmax_(self.classifier_(fX))
+        logits = self.logsoftmax_(self.classifier_(fX, target=target))
 
         # compute classification loss
-        targets = torch.tensor(y, dtype=torch.int64, device=self.device)
-        loss_classification = self.loss_(logits, targets)
+        loss_classification = self.loss_(logits, target)
 
         return {
             'loss': loss_classification,
