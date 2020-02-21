@@ -107,6 +107,12 @@ class Trainer:
                 msg = (
                     f'Did not load optimizer state (most likely because current '
                     f'training session uses a different loss than the one used '
+                    f'for pre-training).')
+                warnings.warn(msg)
+
+
+    def load_more(self, model_pt=None) -> bool:
+        """Called after model state is loaded
 
         This method can be overriden to load additional states.
         For instance, it can be used to load the state of a domain classifier
@@ -117,8 +123,13 @@ class Trainer:
         model_pt : `Path`, optional
             Path to file containing model state.
             Defaults to guessing it from trainer status.
+
+        Returns
+        -------
+        success : bool
+            True if state was loaded successfully, False otherwise.
         """
-        pass
+        return True
 
     def save_state(self):
         """Save model and optimizer states to disk"""
