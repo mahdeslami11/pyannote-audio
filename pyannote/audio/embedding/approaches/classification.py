@@ -26,6 +26,7 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
+import warnings
 import torch
 import torch.nn as nn
 from .base import RepresentationLearning
@@ -109,9 +110,16 @@ class Classification(RepresentationLearning):
         else:
             classifier_pt = model_pt.with_suffix('.classifier.pt')
 
-        classifier_state = torch.load(
-            classifier_pt, map_location=lambda storage, loc: storage)
-        self.classifier_.load_state_dict(classifier_state)
+        try:
+            classifier_state = torch.load(
+                classifier_pt, map_location=lambda storage, loc: storage)
+            self.classifier_.load_state_dict(classifier_state)
+        except Exception as e:
+            msg = (
+                f'Did not load classifier state (most likely because current '
+                f'training session uses a different training set than the one '
+                f'used for pre-training).')
+            warnings.warn(msg)
 
     def save_more(self):
         """Save classifier weights to disk"""
