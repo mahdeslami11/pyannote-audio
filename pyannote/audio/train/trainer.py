@@ -71,7 +71,7 @@ class Trainer:
     MODEL_PT = '{train_dir}/weights/{epoch:04d}.pt'
     OPTIMIZER_PT = '{train_dir}/weights/{epoch:04d}.optimizer.pt'
 
-    def load_state(self, model_pt: Optional[Path] = None):
+    def load_state(self, model_pt: Optional[Path] = None) -> bool:
         """Load model and optimizer states from disk
 
         Parameters
@@ -79,6 +79,11 @@ class Trainer:
         model_pt : `Path`, optional
             Path to file containing model state.
             Defaults to guessing it from trainer status.
+
+        Returns
+        -------
+        success : bool
+            True if state was loaded successfully, False otherwise.
         """
 
         if model_pt is None:
@@ -109,6 +114,8 @@ class Trainer:
                     f'training session uses a different loss than the one used '
                     f'for pre-training).')
                 warnings.warn(msg)
+
+        return success
 
 
     def load_more(self, model_pt=None) -> bool:
@@ -219,7 +226,6 @@ class Trainer:
     @property
     def model(self):
         return self.model_
-
 
     @property
     def optimizer(self):
@@ -366,13 +372,13 @@ class Trainer:
                 self.epoch_ = warm_start
 
                 # ... and load corresponding model if requested
-                self.load_state(model_pt=None)
+                success = self.load_state(model_pt=None)
 
         # when warm_start is a Path, it means that the user wants to
         # restart training from a pretrained model
         else:
             try:
-                self.load_state(model_pt=warm_start)
+                success = self.load_state(model_pt=warm_start)
 
             except Exception as e:
                 msg = (
@@ -390,6 +396,10 @@ class Trainer:
             specifications = dict(self.specifications)
             specifications['task'] = str(specifications['task'])
             yaml.dump(specifications, fp, default_flow_style=False)
+
+        # TODO in case success = False, one should freeze the main network for
+        # TODO a few epochs and train the "more" part alone first before
+        # TODO unfreezing everything. this could be done through a callback
 
         callbacks_ = []
 
