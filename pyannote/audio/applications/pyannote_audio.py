@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2019 CNRS
+# Copyright (c) 2019-2020 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -134,6 +134,13 @@ Configuration file <root>/config.yml
     callbacks:
     ...................................................................
 
+    File <root>/config.yml is mandatory, unless option --pretrained is used.
+
+    When fine-tuning a model with option --pretrained=<model>, one can omit it
+    and the original <model> configuration file is used instead. If (a possibly
+    partial) <root>/config.yml file is provided anyway, it is used to override
+    <model> configuration file.
+
 Tensorboard support
 ~~~~~~~~~~~~~~~~~~~
 
@@ -147,7 +154,8 @@ Common options
 ~~~~~~~~~~~~~~
 
   <root>                  Experiment root directory. Should contain config.yml
-                          configuration file.
+                          configuration file, unless --pretrained option is
+                          used (for which config.yml is optional).
 
   <protocol>              Name of protocol to use for training, validation, or
                           inference. Have a look at pyannote.database
@@ -304,8 +312,6 @@ def main():
     params['n_jobs'] = int(n_jobs)
 
     if arg['train']:
-        root_dir = Path(arg['<root>']).expanduser().resolve(strict=True)
-        app = Application(root_dir, training=True)
 
         params['subset'] = 'train' if subset is None else subset
 
@@ -316,6 +322,7 @@ def main():
 
         # or start from pretrained model
         pretrained = arg['--pretrained']
+        pretrained_config_yml = None
         if pretrained is not None:
 
             # start from an existing model checkpoint
@@ -336,11 +343,16 @@ def main():
                         f'The following exception was raised:\n\n{e}\n\n')
                     sys.exit(msg)
 
+            pretrained_config_yml = warm_start.parents[3] / 'config.yml'
+
         params['warm_start'] = warm_start
 
         # stop training at this epoch (defaults to never stop)
         params['epochs'] = int(arg['--to'])
 
+        root_dir = Path(arg['<root>']).expanduser().resolve(strict=True)
+        app = Application(root_dir, training=True,
+                          pretrained_config_yml=pretrained_config_yml)
         app.train(protocol, **params)
 
     if arg['validate']:
