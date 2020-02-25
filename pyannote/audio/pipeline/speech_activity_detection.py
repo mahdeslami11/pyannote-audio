@@ -26,9 +26,14 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
+"""Speech activity detection pipelines"""
+
 from typing import Optional
+from typing import Union
+from typing import Text
 from pathlib import Path
 import numpy as np
+import warnings
 
 from pyannote.pipeline import Pipeline
 from pyannote.pipeline.parameter import Uniform
@@ -68,8 +73,11 @@ class SpeechActivityDetection(Pipeline):
 
     Parameters
     ----------
-    scores : `Path`, optional
+    precomputed : Path, optional
         Path to precomputed scores on disk.
+    pretrained : Text or Path, optional
+        Name of pretrained speech activity detection model from torch.hub, or
+        path to local pretrained model validation directory.
 
     Hyper-parameters
     ----------------
@@ -81,12 +89,28 @@ class SpeechActivityDetection(Pipeline):
         Padding duration.
     """
 
-    def __init__(self, scores: Optional[Path] = None):
+    def __init__(self, precomputed: Path = None,
+                       scores: Path = None,
+                       pretrained: Union[Text, Path] = None):
         super().__init__()
 
-        self.scores = scores
-        if self.scores is not None:
-            self._precomputed = Precomputed(self.scores)
+        # deprecationg warning (scores --> precomputed)
+        if scores is not None:
+            msg = f'"scores" is being deprecated in favor of "precomputed".'
+            warnings.warn(msg)
+            precomputed = scores
+
+        self.precomputed = precomputed
+        if self.precomputed is not None:
+            self._precomputed = Precomputed(self.precomputed)
+
+        self.pretrained = pretrained
+        if self.pretrained is not None:
+            if Path(self.pretrained).exists():
+                self._pretrained = Pretrained(validate_dir=self.pretrained)
+            else:
+                self._pretrained = torch.hub.load('pyannote/pyannote-audio',
+                                                  self.pretrained)
 
         # hyper-parameters
         self.onset = Uniform(0., 1.)
@@ -122,10 +146,22 @@ class SpeechActivityDetection(Pipeline):
             Speech regions.
         """
 
-        # precomputed SAD scores
+        # use pre-loaded SAD scores when available
         sad_scores = current_file.get('sad_scores')
+
         if sad_scores is None:
-            sad_scores = self._precomputed(current_file)
+            # use precomputed SAD scores when available
+            # otherwise use pretrained model
+            if self.precomputed is None:
+                sad_scores = self._pretrained(current_file)
+            else:
+                sad_scores = self._precomputed(current_file)
+
+        if sad_scores is None:
+            msg = (
+                f"Could not get raw SAD scores for file {current_file['uri']}."
+            )
+            raise ValueError(msg)
 
         # if this check has not been done yet, do it once and for all
         if not hasattr(self, "log_scale_"):
