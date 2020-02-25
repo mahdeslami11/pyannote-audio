@@ -33,6 +33,7 @@ For simplicity, we will use a pretrained speech activity detection model.
 
 ## Table of contents
 - [Citation](#citation)
+- [Raw scores extraction](#raw-scores-extraction)
 - [Configuration](#configuration)
 - [Training](#training)
 - [Validation](#validation)
@@ -75,7 +76,7 @@ We start by extracting raw scores using `sad_dihard` pretrained model:
 
 ```bash
 $ export EXP_DIR=tutorials/pipelines/speech_activity_detection
-$ pyannote-audio emb apply --pretrained=sad_dihard --subset=development ${EXP_DIR} AMI.SpeakerDiarization.MixHeadset
+$ pyannote-audio sad apply --pretrained=sad_dihard --subset=development ${EXP_DIR} AMI.SpeakerDiarization.MixHeadset
 $ export RAW_DIR=${EXP_DIR}/sad_dihard
 ```
 
@@ -147,7 +148,7 @@ There is no easy way to decide if/when the optimization has converged to the opt
 The optimized pipeline can then be applied on the `test` subset (as long as you also extracted correspond raw scores):
 
 ```bash
-$ pyannote-audio emb apply --pretrained=sad_dihard --subset=test ${EXP_DIR} AMI.SpeakerDiarization.MixHeadset
+$ pyannote-audio sad apply --pretrained=sad_dihard --subset=test ${EXP_DIR} AMI.SpeakerDiarization.MixHeadset
 $ pyannote-pipeline apply --subset=test ${TRN_DIR} AMI.SpeakerDiarization.MixHeadset
 ```
 
