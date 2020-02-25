@@ -147,7 +147,7 @@ scheduler:
 The following command will train the network using the training subset of VoxCeleb1 database for 2000 epochs:
 
 ```bash
-$ pyannote-audio emb train --subset=train --gpu --to=2000 --parallel=4 ${EXP_DIR} VoxCeleb.SpeakerVerification.VoxCeleb1
+$ pyannote-audio emb train --subset=train --to=2000 --parallel=4 ${EXP_DIR} VoxCeleb.SpeakerVerification.VoxCeleb1
 ```
 
 This will create a bunch of files in `TRN_DIR` (defined below). One can also follow along the training process using [tensorboard](https://github.com/tensorflow/tensorboard):
@@ -165,7 +165,7 @@ To get a quick idea of how the network is doing on the development set, one can 
 
 ```bash
 $ export TRN_DIR=${EXP_DIR}/train/VoxCeleb.SpeakerVerification.VoxCeleb1.train
-$ pyannote-audio emb validate --subset=test --gpu --to=2000 --every=20 ${TRN_DIR} VoxCeleb.SpeakerDiarization.VoxCeleb1
+$ pyannote-audio emb validate --subset=test --to=2000 --every=20 ${TRN_DIR} VoxCeleb.SpeakerDiarization.VoxCeleb1
 ```
 It can be run while the model is still training and evaluates the model every 20 epochs. This will create a bunch of files in `VAL_DIR` (defined below). 
 
@@ -189,7 +189,7 @@ equal_error_rate: 0.0637
 Now that we know how the model is doing, we can apply it on test files of the AMI database: 
 
 ```bash
-$ pyannote-audio emb apply --subset=test --gpu ${VAL_DIR} AMI.SpeakerDiarization.MixHeadset 
+$ pyannote-audio emb apply --subset=test ${VAL_DIR} AMI.SpeakerDiarization.MixHeadset 
 ```
 
 Embeddings will be extracted in `${VAL_DIR}/apply/{BEST_EPOCH}`

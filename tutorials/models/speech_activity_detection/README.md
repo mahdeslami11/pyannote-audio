@@ -38,7 +38,7 @@ This tutorial assumes that you have already followed the [data preparation](../.
 ## Citation
 ([↑up to table of contents](#table-of-contents))
 
-If you use `pyannote-audio` for speech activity detection, please cite the following paper:
+If you use `pyannote-audio` for speech activity detection, please cite the following papers:
 
 ```bibtex
 @inproceedings{Bredin2020,
@@ -131,7 +131,7 @@ scheduler:
 The following command will train the network using the training subset of AMI database for 200 epochs:
 
 ```bash
-$ pyannote-audio sad train --subset=train --gpu --to=200 --parallel=4 ${EXP_DIR} AMI.SpeakerDiarization.MixHeadset
+$ pyannote-audio sad train --subset=train --to=200 --parallel=4 ${EXP_DIR} AMI.SpeakerDiarization.MixHeadset
 ```
 
 This will create a bunch of files in `TRN_DIR` (defined below). One can also follow along the training process using [tensorboard](https://github.com/tensorflow/tensorboard):
@@ -149,7 +149,7 @@ To get a quick idea of how the network is doing on the development set, one can 
 
 ```bash
 $ export TRN_DIR=${EXP_DIR}/train/AMI.SpeakerDiarization.MixHeadset.train
-$ pyannote-audio sad validate --subset=development --gpu --to=200 --every=10 ${TRN_DIR} AMI.SpeakerDiarization.MixHeadset
+$ pyannote-audio sad validate --subset=development --to=200 --every=10 ${TRN_DIR} AMI.SpeakerDiarization.MixHeadset
 ```
 It can be run while the model is still training and evaluates the model every 10 epochs. This will create a bunch of files in `VAL_DIR` (defined below). 
 
@@ -188,7 +188,7 @@ $ tensorboard --logdir=${EXP_DIR}
 Now that we know how the model is doing, we can apply it on test files of the AMI database: 
 
 ```bash
-$ pyannote-audio sad apply --subset=test --gpu ${VAL_DIR} AMI.SpeakerDiarization.MixHeadset 
+$ pyannote-audio sad apply --subset=test ${VAL_DIR} AMI.SpeakerDiarization.MixHeadset 
 ```
 
 Raw model output and speech activity detection results will be dumped into the following directory: `${VAL_DIR}/apply/{BEST_EPOCH}`.

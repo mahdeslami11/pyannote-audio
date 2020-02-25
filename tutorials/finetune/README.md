@@ -87,7 +87,7 @@ task:
 The following command will fine-tune the `sad_dihard` pretrained model using the training subset of AMI database for 5 epochs:
 
 ```bash
-$ pyannote-audio sad train --pretrained=sad_dihard --subset=train --gpu --to=5 --parallel=4 ${EXP_DIR} AMI.SpeakerDiarization.MixHeadset
+$ pyannote-audio sad train --pretrained=sad_dihard --subset=train --to=5 --parallel=4 ${EXP_DIR} AMI.SpeakerDiarization.MixHeadset
 ```
 
 Your model is now fine-tuned! Note that a configuration file has been created for you in `EXP_DIR`.
@@ -100,7 +100,7 @@ You may also use your own pretrained model. Simply provide the absolute path to 
 ```bash
 $ pyannote-audio sad train \
   --pretrained=/path/to/train/YourDataset.SpeakerDiarization.YourProtocol.train/weights/0020.pt \
-  --subset=train --gpu --to=5 --parallel=4 \
+  --subset=train --to=5 --parallel=4 \
   ${EXP_DIR} AMI.SpeakerDiarization.MixHeadset
 ```
 

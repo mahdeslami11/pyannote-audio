@@ -130,7 +130,7 @@ scheduler:
 The following command will train the network using the training subset of AMI database for 1000 epochs:
 
 ```bash
-$ pyannote-audio scd train --subset=train --gpu --to=1000 --parallel=4 ${EXP_DIR} AMI.SpeakerDiarization.MixHeadset
+$ pyannote-audio scd train --subset=train --to=1000 --parallel=4 ${EXP_DIR} AMI.SpeakerDiarization.MixHeadset
 ```
 
 This will create a bunch of files in `TRN_DIR` (defined below). One can also follow along the training process using [tensorboard](https://github.com/tensorflow/tensorboard):
@@ -148,7 +148,7 @@ To get a quick idea of how the network is doing on the development set, one can 
 
 ```bash
 $ export TRN_DIR=${EXP_DIR}/train/AMI.SpeakerDiarization.MixHeadset.train
-$ pyannote-audio scd validate --subset=develop --gpu --to=1000 --every=20 ${TRN_DIR} AMI.SpeakerDiarization.MixHeadset
+$ pyannote-audio scd validate --subset=develop --to=1000 --every=20 ${TRN_DIR} AMI.SpeakerDiarization.MixHeadset
 ```
 It can be run while the model is still training and evaluates the model every 20 epochs. This will create a bunch of files in `VAL_DIR` (defined below). 
 
@@ -177,7 +177,7 @@ See `pyannote.audio.pipeline.speaker_change_detection.SpeakerChangeDetection` fo
 Now that we know how the model is doing, we can apply it on test files of the AMI database: 
 
 ```bash
-$ pyannote-audio sad apply --subset=test --gpu ${VAL_DIR} AMI.SpeakerDiarization.MixHeadset 
+$ pyannote-audio sad apply --subset=test ${VAL_DIR} AMI.SpeakerDiarization.MixHeadset 
 ```
 
 Raw model output and speaker change detection results will be dumped into the following directory: `${VAL_DIR}/apply/{BEST_EPOCH}`.

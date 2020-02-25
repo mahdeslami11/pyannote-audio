@@ -32,9 +32,9 @@ Neural building blocks for speaker diarization
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Usage:
-  pyannote-audio (sad | scd | ovl | emb | dom) train    [options] <root>     <protocol>
-  pyannote-audio (sad | scd | ovl | emb | dom) validate [options] <train>    <protocol>
-  pyannote-audio (sad | scd | ovl | emb | dom) apply    [options] <validate> <protocol>
+  pyannote-audio (sad | scd | ovl | emb | dom) train    [--cpu | --gpu] [options] <root>     <protocol>
+  pyannote-audio (sad | scd | ovl | emb | dom) validate [--cpu | --gpu] [options] <train>    <protocol>
+  pyannote-audio (sad | scd | ovl | emb | dom) apply    [--cpu | --gpu] [options] <validate> <protocol>
   pyannote-audio -h | --help
   pyannote-audio --version
 
@@ -177,7 +177,12 @@ Common options
                           "test") for strict enforcement of machine learning
                           good practices.
 
-  --gpu                   Run on GPUs. Defaults to using CPUs.
+  --gpu                   Run on GPU. When multiple GPUs are available, use
+                          CUDA_AVAILABLE_DEVICES environment variable to force
+                          using a specific one. Defaults to using CPU if no GPU
+                          is available.
+
+  --cpu                   Run on CPU. Defaults to using GPU when available.
 
   --debug                 Run using PyTorch's anomaly detection. This will throw
                           an error if a NaN value is produced, and the stacktrace
@@ -295,8 +300,14 @@ def main():
     elif arg['dom']:
         Application = DomainClassification
 
-    params['device'] = torch.device('cuda') if arg['--gpu'] else \
-                       torch.device('cpu')
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    if arg['--gpu'] and device == 'cpu':
+        msg = 'No GPU is available. Using CPU instead.'
+        warnings.warn(msg)
+    if arg['--cpu'] and device == 'gpu':
+        device = 'cpu'
+
+    params['device'] = torch.device(device)
 
     protocol = arg['<protocol>']
     subset = arg['--subset']
