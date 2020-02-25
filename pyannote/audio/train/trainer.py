@@ -224,7 +224,7 @@ class Trainer:
         pass
 
     @property
-    def model(self):
+    def model(self) -> Model:
         return self.model_
 
     @property
@@ -236,15 +236,15 @@ class Trainer:
         return self.batch_generator_.specifications
 
     @property
-    def device(self):
+    def device(self) -> torch.device:
         return self.device_
 
     @property
-    def epoch(self):
+    def epoch(self) -> int:
         return self.epoch_
 
     @property
-    def batches_per_epoch(self):
+    def batches_per_epoch(self) -> int:
         return self.batches_per_epoch_
 
     def get_new_batch(self):
