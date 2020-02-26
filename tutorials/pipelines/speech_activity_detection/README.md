@@ -70,14 +70,16 @@ If you use `pyannote-audio` for speech activity detection, please cite the follo
 ## Raw scores extraction
 ([↑up to table of contents](#table-of-contents))
 
-This tutorial relies on a speech activity detection model pretrained on DIHARD dataset - but you could (should?) obviously use a locally [trained](../../models/speech_activity_detection) or [fine-tuned](../../finetune) model.
+This tutorial relies on a speech activity detection model pretrained on AMI dataset - but you could (should?) obviously use a locally [trained](../../models/speech_activity_detection) or [fine-tuned](../../finetune) model.
 
-We start by extracting raw scores using `sad_dihard` pretrained model:
+We start by extracting raw scores using `sad_ami` pretrained model:
 
 ```bash
 $ export EXP_DIR=tutorials/pipelines/speech_activity_detection
-$ pyannote-audio sad apply --pretrained=sad_dihard --subset=development ${EXP_DIR} AMI.SpeakerDiarization.MixHeadset
-$ export RAW_DIR=${EXP_DIR}/sad_dihard
+$ for SUBSET in development test
+ > do
+ > pyannote-audio sad apply --pretrained=sad_ami --subset=${SUBSET} ${EXP_DIR} AMI.SpeakerDiarization.MixHeadset
+ > done
 ```
 
 Note that this is a good idea to also run this command on the `test` subset if you want to later apply the trained pipeline on them.
@@ -94,8 +96,8 @@ $ cat ${EXP_DIR}/config.yml
 pipeline:
    name: pyannote.audio.pipeline.speech_activity_detection.SpeechActivityDetection
    params:
-      # replace {{RAW_DIR}} by its actual value
-      precomputed: {{RAW_DIR}}
+      # replace {{EXP_DIR}} by its actual value
+      precomputed: {{EXP_DIR}}/sad_ami
       
 freeze:
   pad_onset: 0.0
@@ -108,7 +110,6 @@ This configuration file tells the pipeline to use raw speech activity detection 
 ([↑up to table of contents](#table-of-contents))
 
 The following command will run hyper-parameter optimization on the development subset of the AMI database. One can run it multiple times in parallel to speed things up.
-
 
 ```bash
 $ pyannote-pipeline train --subset=development --forever ${EXP_DIR} AMI.SpeakerDiarization.MixHeadset
@@ -123,22 +124,19 @@ $ export TRN_DIR=${EXP_DIR}/train/AMI.SpeakerDiarization.MixHeadset.development
 $ cat ${TRN_DIR}/params.yml
 ```
 ```yaml
-loss: 0.08679055252399374
+loss: 0.05652217656927686
 params:
-  min_duration_off: 1.0406006293815449
-  min_duration_on: 0.20795742458453392
-  offset: 0.7950407131756939
-  onset: 0.7374970307969209
+  min_duration_off: 0.6315121069334447
+  min_duration_on: 0.0007366523493967721
+  offset: 0.5727193137037349
+  onset: 0.5842225805454029
   pad_offset: 0.0
   pad_onset: 0.0
 ```
 
-The `loss:` value actually corresponds to the metric that is currently being optimized. For the speech activity detection pipeline, the loss is the detection error rate.
+The `loss:` value actually corresponds to the metric that is currently being optimized. For the speech activity detection pipeline, the loss is the detection error rate. See `pyannote.audio.pipeline.speech_activity_detection.SpeechActivityDetection` docstring for details about the `params:` section.
 
-See `pyannote.audio.pipeline.speech_activity_detection.SpeechActivityDetection` docstring for details about the `params:` section.
-
-
-Note that the actual content of your `params.yml` might vary because the optimisation process is not deterministic: the longer you wait, the better it gets. We only ran 10 iterations to get `loss` down to 8.7%.
+Note that the actual content of your `params.yml` might vary because the optimisation process is not deterministic: the longer you wait, the better it gets. We ran the optimization overnight to get `loss` down to 5.6%.
 
 There is no easy way to decide if/when the optimization has converged to the optimal setting. The `pyannote-pipeline train` command will run forever, looking for a better set of hyper-parameters. 
 
@@ -148,7 +146,6 @@ There is no easy way to decide if/when the optimization has converged to the opt
 The optimized pipeline can then be applied on the `test` subset (as long as you also extracted correspond raw scores):
 
 ```bash
-$ pyannote-audio sad apply --pretrained=sad_dihard --subset=test ${EXP_DIR} AMI.SpeakerDiarization.MixHeadset
 $ pyannote-pipeline apply --subset=test ${TRN_DIR} AMI.SpeakerDiarization.MixHeadset
 ```
 
@@ -156,6 +153,19 @@ This will create a bunch of files in `${TRN_DIR}/apply/latest` subdirectory, inc
 * `AMI.SpeakerDiarization.MixHeadset.test.rttm` that contains the actual output of the optimized pipeline
 * `AMI.SpeakerDiarization.MixHeadset.test.eval` that provides an evaluation of the result (more or less equivalent to what you would get by using `pyannote.metrics` command line tool).
 
+This pipeline reaches 6.0x% detection error rate on the test set:
+
+```bash
+$ pyannote-metrics.py detection AMI.SpeakerDiarization.MixHeadset ${TRN_DIR}/apply/latest/AMI.SpeakerDiarization.MixHeadset.test.rttm
+```
+```
+Detection (collar = 0 ms)      detection error rate    accuracy    precision    recall     total    false alarm     %     miss     %
+---------------------------  ----------------------  ----------  -----------  --------  --------  -------------  ----  -------  ----
+EN2002a.Mix-Headset                            3.41       96.90        97.96     98.64   1945.08          39.89  2.05    26.52  1.36
+...
+TS3007d.Mix-Headset                           10.09       91.65        91.09     99.66   2338.51         227.93  9.75     8.02  0.34
+TOTAL                                          6.01       95.05        96.45     97.58  42384.97        1523.96  3.60  1025.43  2.42
+```
 
 ## More options
 
