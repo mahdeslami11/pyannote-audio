@@ -1,8 +1,7 @@
 pipeline:
    name: pyannote.audio.pipeline.speech_activity_detection.SpeechActivityDetection
    params:
-      # replace {{RAW_DIR}} by its actual value
-      precomputed: {{RAW_DIR}}
+      scores: sad_ami
 
 freeze:
   pad_onset: 0.0
