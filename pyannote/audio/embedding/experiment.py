@@ -306,10 +306,9 @@ class Experiment:
 
     def __call__(self, protocol: Protocol,
                        cohort: Text = 'train',
-                       subset: Text = 'test'):
-
-        self._cache_embedding = dict()
-        self._cache_calibration = dict()
+                       subset: Text = 'test',
+                       start: int = 0,
+                       n_trials: int = np.inf):
 
         if getattr(self, '_cohort', None) is not None:
             warnings.warn('using preloaded cohort...')
@@ -320,11 +319,23 @@ class Experiment:
             self._cohort = cohort
             self._positive = positive
 
+        if getattr(self, '_cache_embedding', None) is not None:
+            warnings.warn('using preloaded cache...')
+        else:
+            self._cache_embedding = dict()
+            self._cache_calibration = dict()
+
         y_true, prob = [], []
 
         desc = f'{subset} trials...'
         trials = getattr(protocol, f'{subset}_trial')()
         for t, trial in enumerate(tqdm(trials, desc=desc)):
+
+            if t < start:
+                continue
+
+            if t > start + n_trials:
+                break
 
             file1 = trial['file1']
             hash1 = self.get_hash(file1)
@@ -378,11 +389,13 @@ class Experiment:
             prob1 = calibration1.transform(-distance)
             prob2 = calibration2.transform(-distance)
 
-            prob.append(np.mean(.5 * (prob1 + prob2)))
-            y_true.append(trial['reference'])
+            p = np.mean(.5 * (prob1 + prob2))
+            r = trial['reference']
+
+            prob.append(p)
+            y_true.append(r)
 
         return y_true, prob
-
 
 
 
