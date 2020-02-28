@@ -49,7 +49,7 @@ from pyannote.core.utils.distance import pdist
 
 try:
     import torch
-    import torch.functional as F
+    import torch.nn.functional as F
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
@@ -87,7 +87,6 @@ class Experiment:
 
         window = self._precomputed.sliding_window
         self._downsample = max(1, int(.5 * window.duration / window.step))
-        print(f'_downsample = {self._downsample}')
 
         self._gpu = TORCH_AVAILABLE and torch.cuda.is_available()
 
