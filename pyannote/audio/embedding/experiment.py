@@ -300,7 +300,7 @@ class Experiment:
 
         negative = []
         for emb in embeddings:
-            negative.append(self.cdist(emb, cohort)).reshape((-1, ))
+            negative.append(self.cdist(emb, cohort).reshape((-1, )))
 
         return np.hstack(negative)
 
@@ -344,7 +344,7 @@ class Experiment:
                     pos1 = self.get_positive(emb1, downsample=False)
                 else:
                     pos1 = positive
-                neg1 = self.get_negative(emb1, cohort=self.cohort)[::100]
+                neg1 = self.get_negative(emb1, cohort=cohort)[::100]
 
                 calibration1 = Calibration(equal_priors=True, method='isotonic')
                 calibration1.fit(
