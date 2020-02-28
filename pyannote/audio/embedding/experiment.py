@@ -168,7 +168,7 @@ class Experiment:
             distance = F.pdist(emb_gpu, 2)
 
         elif self.metric in ('cosine', 'angular'):
-            distance = 0.5 * torch.pow(F.pdist(F.normalize(emb_gpu)), 2)
+            distance = 0.5 * torch.pow(F.pdist(F.normalize(emb_gpu), 2), 2)
 
             if self.metric == 'angular':
                 distance =  torch.acos(torch.clamp(1. - distance,
@@ -200,7 +200,8 @@ class Experiment:
 
         elif self.metric in ('cosine', 'angular'):
             distance = 0.5 * torch.pow(torch.cdist(F.normalize(emb1_gpu),
-                                                   F.normalize(emb2_gpu), 2))
+                                                   F.normalize(emb2_gpu),
+                                                   2), 2)
 
             if self.metric == 'angular':
                 distance =  torch.acos(torch.clamp(1. - distance,
