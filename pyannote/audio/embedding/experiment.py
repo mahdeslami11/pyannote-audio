@@ -308,8 +308,8 @@ class Experiment:
                        cohort: Text = 'train',
                        subset: Text = 'test'):
 
-        cache_embedding = dict()
-        cache_calibration = dict()
+        self._cache_embedding = dict()
+        self._cache_calibration = dict()
 
         if getattr(self, '_cohort', None) is not None:
             warnings.warn('using preloaded cohort...')
@@ -332,13 +332,13 @@ class Experiment:
             file1 = trial['file1']
             hash1 = self.get_hash(file1)
 
-            if hash1 in cache_embedding:
-                emb1 = cache_embedding[hash1]
-                calibration1 = cache_calibration[hash1]
+            if hash1 in self._cache_embedding:
+                emb1 = self._cache_embedding[hash1]
+                calibration1 = self._cache_calibration[hash1]
 
             else:
                 emb1 = self.get_embedding(file1, mean=False, stack=False)
-                cache_embedding[hash1] = emb1
+                self._cache_embedding[hash1] = emb1
 
                 if len(emb1) > 1:
                     pos1 = self.get_positive(emb1, downsample=False)
@@ -351,18 +351,18 @@ class Experiment:
                     -np.hstack([pos1, neg1]),
                     np.hstack([np.ones(len(pos1), dtype=np.float32),
                                np.zeros(len(neg1), dtype=np.float32)]))
-                cache_calibration[hash1] = calibration1
+                self._cache_calibration[hash1] = calibration1
 
             file2 = trial['file2']
             hash2 = self.get_hash(file2)
 
-            if hash2 in cache_embedding:
-                emb2 = cache_embedding[hash2]
-                calibration2 = cache_calibration[hash2]
+            if hash2 in self._cache_embedding:
+                emb2 = self._cache_embedding[hash2]
+                calibration2 = self._cache_calibration[hash2]
 
             else:
                 emb2 = self.get_embedding(file2, mean=False, stack=False)
-                cache_embedding[hash2] = emb2
+                self._cache_embedding[hash2] = emb2
 
                 if len(emb2) > 2:
                     pos2 = self.get_positive(emb2, downsample=False)
@@ -375,7 +375,7 @@ class Experiment:
                     -np.hstack([pos2, neg2]),
                     np.hstack([np.ones(len(pos2), dtype=np.float32),
                                np.zeros(len(neg2), dtype=np.float32)]))
-                cache_calibration[hash2] = calibration2
+                self._cache_calibration[hash2] = calibration2
 
             distance = self.cdist(np.vstack(emb1), np.vstack(emb2)).reshape((-1, ))
             prob1 = calibration1.transform(-distance)
