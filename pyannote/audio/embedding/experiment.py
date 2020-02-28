@@ -349,7 +349,8 @@ class Experiment:
                 calibration1 = Calibration(equal_priors=True, method='isotonic')
                 calibration1.fit(
                     -np.hstack([pos1, neg1]),
-                    np.hstack([np.ones(len(pos1)), np.zeros(len(neg1))]))
+                    np.hstack([np.ones(len(pos1), dtype=np.float32),
+                               np.zeros(len(neg1), dtype=np.float32)]))
                 cache_calibration[hash1] = calibration1
 
             file2 = trial['file2']
@@ -372,7 +373,8 @@ class Experiment:
                 calibration2 = Calibration(equal_priors=True, method='isotonic')
                 calibration2.fit(
                     -np.hstack([pos2, neg2]),
-                    np.hstack([np.ones(len(pos2)), np.zeros(len(neg2))]))
+                    np.hstack([np.ones(len(pos2), dtype=np.float32),
+                               np.zeros(len(neg2), dtype=np.float32)]))
                 cache_calibration[hash2] = calibration2
 
             distance = self.cdist(np.vstack(emb1), np.vstack(emb2)).reshape((-1, ))
