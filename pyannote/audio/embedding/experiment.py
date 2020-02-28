@@ -326,9 +326,6 @@ class Experiment:
         trials = getattr(protocol, f'{subset}_trial')()
         for t, trial in enumerate(tqdm(trials, desc=desc)):
 
-            if t > 10:
-                break
-
             file1 = trial['file1']
             hash1 = self.get_hash(file1)
 
@@ -364,7 +361,7 @@ class Experiment:
                 emb2 = self.get_embedding(file2, mean=False, stack=False)
                 self._cache_embedding[hash2] = emb2
 
-                if len(emb2) > 2:
+                if len(emb2) > 1:
                     pos2 = self.get_positive(emb2, downsample=False)
                 else:
                     pos2 = positive
