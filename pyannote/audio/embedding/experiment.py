@@ -367,7 +367,7 @@ class Experiment:
                     pos2 = self.get_positive(emb2, downsample=False)
                 else:
                     pos2 = positive
-                neg2 = self.get_negative(emb2, cohort=self.cohort)[::200]
+                neg2 = self.get_negative(emb2, cohort=cohort)[::100]
 
                 calibration2 = Calibration(equal_priors=True, method='isotonic')
                 calibration2.fit(
