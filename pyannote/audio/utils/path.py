@@ -132,7 +132,7 @@ class Pre___ed:
             else:
                 try:
                     import torch
-                    scorer = torch.hub.load('pyannote/pyannote-audio:develop',
+                    scorer = torch.hub.load('pyannote/pyannote-audio',
                                             placeholder)
                 except Exception as e:
                     msg = (
