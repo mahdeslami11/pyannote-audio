@@ -242,19 +242,9 @@ def _generic(name: str,
 
     elif kind == 'pipeline':
 
-        params_yml, = pretrained_subdir.glob('*/*/params.yml')
-
-        config_yml = params_yml.parents[2] / 'config.yml'
-        with open(config_yml, 'r') as fp:
-            config = yaml.load(fp, Loader=yaml.SafeLoader)
-
-        from pyannote.core.utils.helper import get_class_by_name
-        pipeline_name = config['pipeline']['name']
-        Pipeline = get_class_by_name(pipeline_name,
-                                     default_module_name='pyannote.audio.pipeline')
-        pipeline = Pipeline(**config['pipeline'].get('params', {}))
-
-        return pipeline.load_params(params_yml)
+        from pyannote.audio.pipeline.utils import load_pretrained_pipeline
+        params_yml, *_ = pretrained_subdir.glob('*/*/params.yml')
+        return load_pretrained_pipeline(params_yml.parent)
 
 sad_dihard = functools.partial(_generic, 'sad_dihard')
 scd_dihard = functools.partial(_generic, 'scd_dihard')
