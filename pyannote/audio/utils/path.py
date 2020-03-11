@@ -31,6 +31,7 @@ import errno
 from pathlib import Path
 from typing import Text
 from typing import Union
+from typing import Dict
 
 from pyannote.database.protocol.protocol import ProtocolFile
 from pyannote.core import Segment
@@ -77,18 +78,49 @@ class Pre___ed:
     * Pre___ed('/path/to/xp/train/.../validate/.../apply/...') is equivalent to
       Precomputed('/path/to/xp/train/.../validate/.../apply/...')
 
-    Bonus: Pre___ed('@scores') is equivalent to lambda f: f['scores']
+    * Pre___ed('@scores') is equivalent to lambda f: f['scores']
+
+    * Pre___ed(pretrained) is equivalent to pretrained if pretrained is an
+      instance of Pretrained.
+
+    * Pre___ed(precomputed) is equivalent to precomputed if precomputed is an
+      instance of Precomputed.
 
     Parameter
     ---------
-    placeholder : Text, Path, Precomputed, or Pretrained
+    placeholder : Dict, Text, Path, Precomputed, or Pretrained
+
+    Custom parameters
+    -----------------
+    It is also possible to provide custom parameters to torch.hub.load
+    and Pretrained by providing a dictionary whose unique key is the name of the
+    model (or the path to the validation directory) and value is a dictionary of
+    custom parameters. For instance,
+
+        Pre___ed({'sad_ami': {'duration': 2, 'step': 0.05}})
+
+    is equivalent to
+
+        Pre___ed('sad_ami', duration=2, step=0.05)
+
+    which is equivalent to
+
+        torch.hub.load('pyannote/pyannote-audio', 'sad_ami',
+                       duration=2, step=0.05)
+
     """
 
-    def __init__(self, placeholder: Union[Text, Path, 'Precomputed', 'Pretrained']):
+    def __init__(self,
+                 placeholder: Union[Dict, Text, Path, 'Precomputed', 'Pretrained'],
+                 **params):
         super().__init__()
 
         from pyannote.audio.features import Pretrained
         from pyannote.audio.features import Precomputed
+
+        if isinstance(placeholder, dict):
+            placeholder, custom_params = placeholder.popitem()
+            params.update(**custom_params)
 
         if isinstance(placeholder, (Pretrained, Precomputed)):
             scorer = placeholder
@@ -108,7 +140,7 @@ class Pre___ed:
                 # if this succeeds, it means that 'placeholder' was indeed a
                 # path to the output of "pyannote-audio ... validate"
                 try:
-                    scorer = Pretrained(validate_dir=directory)
+                    scorer = Pretrained(validate_dir=directory, **params)
                 except Exception as e:
                     scorer = None
 
@@ -133,7 +165,7 @@ class Pre___ed:
                 try:
                     import torch
                     scorer = torch.hub.load('pyannote/pyannote-audio',
-                                            placeholder)
+                                            placeholder, **params)
                 except Exception as e:
                     msg = (
                         f'Could not load {placeholder} model from torch.hub. '
