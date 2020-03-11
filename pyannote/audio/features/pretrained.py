@@ -58,6 +58,15 @@ class Pretrained(FeatureExtraction):
     epoch : int, optional
         If provided, force loading this epoch.
         Defaults to reading epoch in validate_dir/params.yml.
+    augmentation : Augmentation, optional
+    duration : float, optional
+        Use audio chunks with that duration. Defaults to the fixed duration
+        used during training, when available.
+    step : float, optional
+        Ratio of audio chunk duration used as step between two consecutive
+        audio chunks. Defaults to 0.25.
+    device : optional
+    return_intermediate : optional
     """
 
     # TODO: add progress bar (at least for demo purposes)
@@ -66,7 +75,7 @@ class Pretrained(FeatureExtraction):
                        epoch: int = None,
                        augmentation: Optional[Augmentation] = None,
                        duration: float = None,
-                       step: float = 0.25,
+                       step: float = None,
                        batch_size: int = 32,
                        device: Optional[Union[Text, torch.device]] = None,
                        return_intermediate = None):
@@ -141,6 +150,8 @@ class Pretrained(FeatureExtraction):
             # do it anyway
             self.duration = duration
 
+        if step is None:
+            step = 0.25
         self.step = step
         self.chunks_ = SlidingWindow(duration=self.duration,
                                      step=self.step * self.duration)
