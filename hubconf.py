@@ -52,11 +52,11 @@ _MODELS = {
 
 # shasum -a 256 pipelines/dia_ami.zip
 _PIPELINES = {
-    'dia_dihard': None,
+    'dia_dihard': '9f347254e0cecaeed0c62b631858529d11a42636bcf9c616cc1261a70400184e',
     'dia_ami': '81bb175bbcdbcfe7989e09dd9afbbd853649d075a6ed63477cd8c288a179e77b',
 }
 
-_GITHUB = 'https://github.com/pyannote/pyannote-audio-models'
+_GITHUB = 'https://github.com/pyannote/pyannote-audio-hub'
 _URL = f'{_GITHUB}/raw/master/{{kind}}s/{{name}}.zip'
 
 
