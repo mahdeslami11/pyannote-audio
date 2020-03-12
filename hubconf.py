@@ -56,7 +56,7 @@ _PIPELINES = {
     'dia_ami': '81bb175bbcdbcfe7989e09dd9afbbd853649d075a6ed63477cd8c288a179e77b',
 }
 
-_GITHUB = 'https://github.com/pyannote/pyannote-audio-models'
+_GITHUB = 'https://github.com/pyannote/pyannote-audio-hub'
 _URL = f'{_GITHUB}/raw/master/{{kind}}s/{{name}}.zip'
 
 
