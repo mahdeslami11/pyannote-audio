@@ -119,7 +119,7 @@ class Pre___ed:
         from pyannote.audio.features import Precomputed
 
         if isinstance(placeholder, dict):
-            placeholder, custom_params = placeholder.popitem()
+            placeholder, custom_params = dict(placeholder).popitem()
             params.update(**custom_params)
 
         if isinstance(placeholder, (Pretrained, Precomputed)):
