@@ -56,6 +56,8 @@ if not _PRETRAINED_YML.exists():
         f'to "{_PRETRAINED_YML}".'
     )
     print(msg)
+    from pyannote.audio.utils.path import mkdir_p
+    mkdir_p(_PRETRAINED_YML.parent)
     torch.hub.download_url_to_file(_PRETRAINED_URL,
                                    _PRETRAINED_YML,
                                    progress=True)
