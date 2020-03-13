@@ -26,9 +26,7 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-"""
-TODO
-"""
+"""This is the content of pyannote.audio.train.model"""
 
 from typing import Union
 from typing import List
@@ -37,6 +35,7 @@ try:
 except ImportError as e:
     from typing_extensions import Literal
 from pyannote.core import SlidingWindow
+from pyannote.core import SlidingWindowFeature
 
 RESOLUTION_FRAME = 'frame'
 RESOLUTION_CHUNK = 'chunk'
@@ -48,6 +47,9 @@ ALIGNMENT_LOOSE = 'loose'
 Alignment = Literal[ALIGNMENT_CENTER, ALIGNMENT_STRICT, ALIGNMENT_LOOSE]
 
 from pyannote.audio.train.task import Task
+import numpy as np
+import pescador
+import torch
 from torch.nn import Module
 
 
@@ -251,3 +253,110 @@ class Model(Module):
 
         msg = (f"{self.task} tasks do not define attribute 'classes'.")
         raise AttributeError(msg)
+
+    def slide(self, features: SlidingWindowFeature,
+                    sliding_window: SlidingWindow,
+                    batch_size: int = 32,
+                    device: torch.device = None,
+                    return_intermediate = None,
+                    progress_hook = None) -> SlidingWindowFeature:
+        """Slide and apply model on features
+
+        Parameters
+        ----------
+        features : SlidingWindowFeature
+            Input features.
+        sliding_window : SlidingWindow
+            Sliding window used to apply the model.
+        batch_size : int
+            Batch size. Defaults to 32. Use large batch for faster inference.
+        device : torch.device
+            Device used for inference.
+        return_intermediate :
+            Experimental. Not documented yet.
+        progress_hook : callable
+            Experimental. Not documented yet.
+        """
+
+        if device is None:
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        device = torch.device(device)
+
+        try:
+            dimension = self.dimension
+        except AttributeError:
+            dimension = len(self.classes)
+
+        resolution = self.resolution
+
+        # model returns one vector per input frame
+        if resolution == RESOLUTION_FRAME:
+            resolution = features.sliding_window
+
+        # model returns one vector per input window
+        if resolution == RESOLUTION_CHUNK:
+            resolution = sliding_window
+
+        support = features.extent
+        if support.duration < sliding_window.duration:
+            chunks = [support]
+            fixed = support.duration
+        else:
+            chunks = list(sliding_window(support, align_last=True))
+            fixed = sliding_window.duration
+
+        if progress_hook is not None:
+            n_chunks = len(chunks)
+            n_done = 0
+            progress_hook(n_done, n_chunks)
+
+        batches = pescador.maps.buffer_stream(
+            iter({'X': features.crop(window, mode='center', fixed=fixed)}
+                 for window in chunks),
+            batch_size, partial=True)
+
+        fX = []
+        for batch in batches:
+
+            tX = torch.tensor(batch['X'], dtype=torch.float32, device=device)
+
+            # FIXME: fix support for return_intermediate
+            tfX = self(tX, return_intermediate=return_intermediate)
+
+            fX.append(tfX.detach().to('cpu').numpy())
+
+            if progress_hook is not None:
+                n_done += len(batch['X'])
+                progress_hook(n_done, n_chunks)
+
+        fX = np.vstack(fX)
+
+        if (self.resolution == RESOLUTION_CHUNK) or \
+           (return_intermediate is not None):
+            return fX
+
+        # get total number of frames (based on last window end time)
+        n_frames = resolution.samples(chunks[-1].end, mode='center')
+
+        # data[i] is the sum of all predictions for frame #i
+        data = np.zeros((n_frames, dimension), dtype=np.float32)
+
+        # k[i] is the number of chunks that overlap with frame #i
+        k = np.zeros((n_frames, 1), dtype=np.int8)
+
+        for chunk, fX_ in zip(chunks, fX):
+
+            # indices of frames overlapped by chunk
+            indices = resolution.crop(chunk, mode=self.alignment, fixed=fixed)
+
+            # accumulate the outputs
+            data[indices] += fX_
+
+            # keep track of the number of overlapping sequence
+            # TODO - use smarter weights (e.g. Hamming window)
+            k[indices] += 1
+
+        # compute average embedding of each frame
+        data = data / np.maximum(k, 1)
+
+        return SlidingWindowFeature(data, resolution)
