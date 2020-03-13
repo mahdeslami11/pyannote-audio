@@ -94,8 +94,6 @@ class LabelingTaskGenerator(BatchGenerator):
     exhaustive : bool, optional
         Ensure training files are covered exhaustively (useful in case of
         non-uniform label distribution).
-    shuffle : bool, optional
-        Shuffle exhaustive samples. Defaults to False.
     mask_dimension : `int`, optional
         When set, batches will have a "mask" key that provides a mask that has
         the same length as "y". This "mask" will be passed to the loss function
@@ -123,7 +121,6 @@ class LabelingTaskGenerator(BatchGenerator):
                  batch_size: int = 32,
                  per_epoch: float = None,
                  exhaustive=False,
-                 shuffle=False,
                  mask_dimension=None,
                  mask_logscale=False):
 
@@ -153,7 +150,6 @@ class LabelingTaskGenerator(BatchGenerator):
         self.batch_size = batch_size
 
         self.exhaustive = exhaustive
-        self.shuffle = shuffle
 
         self.mask_dimension = mask_dimension
         self.mask_logscale = mask_logscale
@@ -163,14 +159,13 @@ class LabelingTaskGenerator(BatchGenerator):
             per_epoch = total_duration / (24 * 60 * 60)
         self.per_epoch = per_epoch
 
-
     def postprocess_y(self, Y):
         """This function does nothing but return its input.
         It should be overriden by subclasses.
 
         Parameters
         ----------
-        Y :
+        Y : (n_samples, n_speakers) numpy.ndarray
 
         Returns
         -------
@@ -297,7 +292,7 @@ class LabelingTaskGenerator(BatchGenerator):
             uri = get_unique_identifier(current_file)
             if uri in self.data_:
                 self.data_[uri]['y'] = self.initialize_y(current_file)
-                
+
         return sum(datum['duration'] for datum in self.data_.values())
 
     @property
@@ -420,9 +415,7 @@ class LabelingTaskGenerator(BatchGenerator):
                     if shifted_segment:
                         annotated.add(shifted_segment)
 
-                if self.shuffle:
-                    samples = []
-
+                samples = []
                 for sequence in sliding_segments(annotated):
 
                     X = features.crop(sequence, mode='center',
@@ -452,15 +445,11 @@ class LabelingTaskGenerator(BatchGenerator):
                     for key, classes in self.file_labels_.items():
                         sample[key] = classes.index(current_file[key])
 
-                    if self.shuffle:
-                        samples.append(sample)
-                    else:
-                        yield sample
+                    samples.append(sample)
 
-                if self.shuffle:
-                    np.random.shuffle(samples)
-                    for sample in samples:
-                        yield sample
+                np.random.shuffle(samples)
+                for sample in samples:
+                    yield sample
 
     @property
     def batches_per_epoch(self):
