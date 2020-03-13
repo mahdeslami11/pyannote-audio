@@ -26,6 +26,9 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
+from typing import Optional
+from typing import Text
+
 import torch
 import torch.nn.functional as F
 
@@ -58,6 +61,9 @@ from pyannote.audio.train.task import Task, TaskType, TaskOutput
 from pyannote.audio.train.model import Resolution
 from pyannote.audio.train.model import RESOLUTION_CHUNK
 from pyannote.audio.train.model import RESOLUTION_FRAME
+from pyannote.audio.train.model import Alignment
+
+SECONDS_IN_A_DAY = 24 * 60 * 60
 
 
 class LabelingTaskGenerator(BatchGenerator):
@@ -67,9 +73,9 @@ class LabelingTaskGenerator(BatchGenerator):
 
     Parameters
     ----------
-    feature_extraction : `pyannote.audio.features.FeatureExtraction`
+    feature_extraction : FeatureExtraction
         Feature extraction
-    protocol : `pyannote.database.Protocol`
+    protocol : Protocol
     subset : {'train', 'development', 'test'}, optional
         Protocol and subset.
     resolution : `pyannote.core.SlidingWindow`, optional
@@ -82,10 +88,7 @@ class LabelingTaskGenerator(BatchGenerator):
         include the feature extraction step (e.g. SincNet) and therefore use a
         different cropping mode. Defaults to 'center'.
     duration : float, optional
-        Duration of sub-sequences. Defaults to 3.2s.
-    step : `float`, optional
-        Sub-sequences step. Defaults to `duration`.
-        Only used when `exhaustive` is True.
+        Duration of audio chunks. Defaults to 2s.
     batch_size : int, optional
         Batch size. Defaults to 32.
     per_epoch : float, optional
@@ -94,6 +97,9 @@ class LabelingTaskGenerator(BatchGenerator):
     exhaustive : bool, optional
         Ensure training files are covered exhaustively (useful in case of
         non-uniform label distribution).
+    step : `float`, optional
+        Ratio of audio chunk duration used as step between two consecutive
+        audio chunks. Defaults to 0.1. Has not effect when exhaustive is False.
     mask_dimension : `int`, optional
         When set, batches will have a "mask" key that provides a mask that has
         the same length as "y". This "mask" will be passed to the loss function
@@ -109,29 +115,23 @@ class LabelingTaskGenerator(BatchGenerator):
 
     """
 
-
     def __init__(self,
                  feature_extraction: FeatureExtraction,
                  protocol: Protocol,
-                 subset='train',
-                 resolution: Resolution = None,
-                 alignment=None,
-                 duration=3.2,
-                 step=None,
+                 subset: Text = 'train',
+                 resolution: Optional[Resolution] = None,
+                 alignment: Optional[Alignment] = None,
+                 duration: float = 2.0,
                  batch_size: int = 32,
                  per_epoch: float = None,
-                 exhaustive=False,
+                 exhaustive: bool = False,
+                 step: float = 0.1,
                  mask_dimension=None,
                  mask_logscale=False):
 
         self.feature_extraction = feature_extraction
-
         self.duration = duration
-
-        # TODO: update 'step' semantics for consistency
-        # TODO: should mean "ratio of duration"
-        if step is None:
-            step = duration
+        self.exhaustive = exhaustive
         self.step = step
 
         # TODO: create a reusable guess_resolution(self) function
@@ -140,7 +140,7 @@ class LabelingTaskGenerator(BatchGenerator):
             resolution = self.feature_extraction.sliding_window
         elif resolution == RESOLUTION_CHUNK:
             resolution = SlidingWindow(duration=self.duration,
-                                       step=self.step)
+                                       step=self.step * self.duration)
         self.resolution = resolution
 
         if alignment is None:
@@ -149,15 +149,35 @@ class LabelingTaskGenerator(BatchGenerator):
 
         self.batch_size = batch_size
 
-        self.exhaustive = exhaustive
+        # load metadata and estimate total duration of training data
+        total_duration = self._load_metadata(protocol, subset=subset)
+
+        #
+        if per_epoch is None:
+
+            # 1 epoch = covering the whole training set once
+            #
+            per_epoch = total_duration / SECONDS_IN_A_DAY
+
+            # when exhaustive is False, this is not completely correct.
+            # in practice, it will randomly sample audio chunk until their
+            # overall duration reaches the duration of the training set.
+            # but nothing guarantees that every single part of the training set
+            # has been seen exactly once: it might be more than once, it might
+            # be less than once. on average, however, after a certain amount of
+            # epoch, this will be correct
+
+            # when exhaustive is True, however, we can actually make sure every
+            # single part of the training set has been seen. we just have to
+            # make sur we account for the step used by the exhaustive sliding
+            # window
+            if self.exhaustive:
+                per_epoch *= np.ceil(1 / self.step)
+
+        self.per_epoch = per_epoch
 
         self.mask_dimension = mask_dimension
         self.mask_logscale = mask_logscale
-
-        total_duration = self._load_metadata(protocol, subset=subset)
-        if per_epoch is None:
-            per_epoch = total_duration / (24 * 60 * 60)
-        self.per_epoch = per_epoch
 
     def postprocess_y(self, Y):
         """This function does nothing but return its input.
@@ -388,7 +408,7 @@ class LabelingTaskGenerator(BatchGenerator):
         durations = np.array([self.data_[uri]['duration'] for uri in uris])
         probabilities = durations / np.sum(durations)
         sliding_segments = SlidingWindow(duration=self.duration,
-                                         step=self.step)
+                                         step=self.step * self.duration)
 
         while True:
 
@@ -454,7 +474,7 @@ class LabelingTaskGenerator(BatchGenerator):
     @property
     def batches_per_epoch(self):
         """Number of batches needed to complete an epoch"""
-        duration_per_epoch = self.per_epoch * 24 * 60 * 60
+        duration_per_epoch = self.per_epoch * SECONDS_IN_A_DAY
         duration_per_batch = self.duration * self.batch_size
         return int(np.ceil(duration_per_epoch / duration_per_batch))
 
@@ -467,28 +487,43 @@ class LabelingTask(Trainer):
     Parameters
     ----------
     duration : float, optional
-        Duration of sub-sequences. Defaults to 3.2s.
+        Duration of audio chunks. Defaults to 2s.
     batch_size : int, optional
         Batch size. Defaults to 32.
     per_epoch : float, optional
-        Total audio duration per epoch, in days.
-        Defaults to one day (1).
+        Force total audio duration per epoch, in days.
+        Defaults to total duration of protocol subset.
+    exhaustive : bool, optional
+        Ensure training files are covered exhaustively (useful in case of
+        non-uniform label distribution).
+    step : `float`, optional
+        Ratio of audio chunk duration used as step between two consecutive
+        audio chunks. Defaults to 0.1. Has not effect when exhaustive is False.
     """
 
-    def __init__(self, duration=3.2, batch_size=32, per_epoch=1):
+    def __init__(self, duration: float = 2.0,
+                       batch_size: int = 32,
+                       per_epoch: float = None,
+                       exhaustive: bool = False,
+                       step: float = 0.1):
         super(LabelingTask, self).__init__()
         self.duration = duration
         self.batch_size = batch_size
         self.per_epoch = per_epoch
+        self.exhaustive = exhaustive
+        self.step = step
 
-    def get_batch_generator(self, feature_extraction, protocol, subset='train',
-                            resolution=None, alignment=None):
+    def get_batch_generator(self, feature_extraction: FeatureExtraction,
+                                  protocol: Protocol,
+                                  subset: Text = 'train',
+                                  resolution: Optional[Resolution] = None,
+                                  alignment: Optional[Alignment] = None) -> LabelingTaskGenerator:
         """This method should be overriden by subclass
 
         Parameters
         ----------
-        feature_extraction : `pyannote.audio.features.FeatureExtraction`
-        protocol : `pyannote.database.Protocol`
+        feature_extraction : FeatureExtraction
+        protocol : Protocol
         subset : {'train', 'development'}, optional
             Defaults to 'train'.
         resolution : `pyannote.core.SlidingWindow`, optional
@@ -504,16 +539,17 @@ class LabelingTask(Trainer):
         -------
         batch_generator : `LabelingTaskGenerator`
         """
-        return LabelingTaskGenerator(
-            feature_extraction,
-            protocol,
-            subset=subset,
-            resolution=resolution,
-            alignment=alignment,
-            duration=self.duration,
-            step=self.step,
-            per_epoch=self.per_epoch,
-            batch_size=self.batch_size)
+
+        return LabelingTaskGenerator(feature_extraction,
+                                     protocol,
+                                     subset=subset,
+                                     resolution=resolution,
+                                     alignment=alignment,
+                                     duration=self.duration,
+                                     per_epoch=self.per_epoch,
+                                     batch_size=self.batch_size,
+                                     exhaustive=self.exhaustive,
+                                     step=self.step)
 
     @property
     def weight(self):
