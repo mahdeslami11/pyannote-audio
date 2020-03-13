@@ -333,7 +333,7 @@ class Model(Module):
 
         if (self.resolution == RESOLUTION_CHUNK) or \
            (return_intermediate is not None):
-            return fX
+            return SlidingWindowFeature(fX, sliding_window)
 
         # get total number of frames (based on last window end time)
         n_frames = resolution.samples(chunks[-1].end, mode='center')
