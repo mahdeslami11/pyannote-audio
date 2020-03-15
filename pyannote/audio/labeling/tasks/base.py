@@ -134,14 +134,7 @@ class LabelingTaskGenerator(BatchGenerator):
         self.exhaustive = exhaustive
         self.step = step
 
-        # TODO: create a reusable guess_resolution(self) function
-        # TODO: in pyannote.audio.train.model
-        if resolution in [None, RESOLUTION_FRAME]:
-            resolution = self.feature_extraction.sliding_window
-        elif resolution == RESOLUTION_CHUNK:
-            resolution = SlidingWindow(duration=self.duration,
-                                       step=self.step * self.duration)
-        self.resolution = resolution
+        self.resolution_ = resolution
 
         if alignment is None:
             alignment = 'center'
@@ -178,6 +171,20 @@ class LabelingTaskGenerator(BatchGenerator):
 
         self.mask_dimension = mask_dimension
         self.mask_logscale = mask_logscale
+
+    # TODO. use cached property (Python 3.8 only)
+    # https://docs.python.org/fr/3/library/functools.html#functools.cached_property
+    @property
+    def resolution(self):
+
+        if self.resolution_ in [None, RESOLUTION_FRAME]:
+            return self.feature_extraction.sliding_window
+
+        if self.resolution_ == RESOLUTION_CHUNK:
+            return self.SlidingWindow(duration=self.duration,
+                                      step=self.step * self.duration)
+
+        return self.resolution_
 
     def postprocess_y(self, Y):
         """This function does nothing but return its input.
