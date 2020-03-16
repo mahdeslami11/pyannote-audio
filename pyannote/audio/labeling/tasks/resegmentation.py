@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2018-2019 CNRS
+# Copyright (c) 2018-2020 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -28,8 +28,10 @@
 
 """Resegmentation"""
 
-raise NotImplementedError(
-    'Resegmentation is broken for now. Come back later ;)')
+from typing import Optional
+from typing import Type
+from typing import Iterable
+from typing import Dict
 
 import torch
 import tempfile
@@ -37,16 +39,22 @@ import numpy as np
 from .base import LabelingTask
 from .base import LabelingTaskGenerator
 from pyannote.audio.train.task import Task, TaskType, TaskOutput
+from pyannote.core import Annotation
+from pyannote.core import SlidingWindow
 from pyannote.core import SlidingWindowFeature
 from pyannote.database.protocol import SpeakerDiarizationProtocol
-from pyannote.audio.augmentation import AddNoiseFromGaps
 from pyannote.core.utils.numpy import one_hot_decoding
 from pyannote.audio.train.schedulers import ConstantScheduler
 from torch.optim import SGD
-from pyannote.audio.utils.path import mkdir_p
 from pathlib import Path
 from pyannote.audio.utils.signal import Binarize
 
+
+from pyannote.audio.features import FeatureExtraction
+from pyannote.database.protocol.protocol import ProtocolFile
+from pyannote.audio.train.model import Model
+from pyannote.audio.train.model import Resolution
+from pyannote.audio.train.model import Alignment
 
 
 class ResegmentationGenerator(LabelingTaskGenerator):
@@ -54,21 +62,20 @@ class ResegmentationGenerator(LabelingTaskGenerator):
 
     Parameters
     ----------
-    feature_extraction : `pyannote.audio.features.FeatureExtraction`
-        Feature extraction
-    current_file : `dict`
-
+    current_file : `ProtocolFile`
     resolution : `pyannote.core.SlidingWindow`, optional
         Override `feature_extraction.sliding_window`. This is useful for
         models that include the feature extraction step (e.g. SincNet) and
         therefore output a lower sample rate than that of the input.
-        Defaults to `feature_extraction.sliding_window`
     alignment : {'center', 'loose', 'strict'}, optional
         Which mode to use when cropping labels. This is useful for models that
         include the feature extraction step (e.g. SincNet) and therefore use a
         different cropping mode. Defaults to 'center'.
     duration : float, optional
-        Duration of sub-sequences. Defaults to 3.2s.
+        Duration of audio chunks. Defaults to 4s.
+    step : float, optional
+        Ratio of audio chunk duration used as step between two consecutive
+        audio chunks. Defaults to 0.1.
     batch_size : int, optional
         Batch size. Defaults to 32.
     mask_dimension : `int`, optional
@@ -83,61 +90,42 @@ class ResegmentationGenerator(LabelingTaskGenerator):
         Set to True to indicate that mask values are log scaled. Will apply
         exponential. Defaults to False. Has not effect when `mask_dimension`
         is not set.
-    augmentation : `bool`, optional
-        Augment (self-)training data by adding noise from non-speech regions.
-        Defaults to False.
     """
 
     def __init__(self,
-                 feature_extraction,
-                 current_file,
-                 resolution=None,
-                 alignment=None,
-                 duration=3.2,
+                 current_file: ProtocolFile,
+                 resolution: Optional[Resolution] = None,
+                 alignment: Optional[Alignment] = None,
+                 duration: float = 2,
+                 step: float = 0.1,
                  batch_size=32,
                  mask_dimension=None,
-                 mask_logscale=False,
-                 augmentation=False):
-
-        if 'duration' not in current_file:
-            msg = (
-                '`current_file` is expected to contain a "duration" key that '
-                'provides the audio file duration in seconds.'
-            )
-            raise ValueError(msg)
+                 mask_logscale=False):
 
         self.current_file = current_file
-        dummy_protocol = self.get_dummy_protocol(current_file)
 
-        self.augmentation = augmentation
-        if augmentation:
-            feature_extraction.augmentation = \
-                AddNoiseFromGaps(protocol=dummy_protocol,
-                                 subset='train',
-                                 snr_min=10,
-                                 snr_max=20)
+        super().__init__('@features',
+                         self.get_dummy_protocol(current_file),
+                         subset='train',
+                         resolution=resolution,
+                         alignment=alignment,
+                         duration=duration,
+                         exhaustive=True,
+                         step=step,
+                         batch_size=batch_size,
+                         mask_dimension=mask_dimension,
+                         mask_logscale=mask_logscale)
 
-        super(ResegmentationGenerator, self).__init__(
-            feature_extraction,
-            dummy_protocol,
-            subset='train',
-            resolution=resolution,
-            alignment=alignment,
-            duration=duration,
-            step=0.25 * duration,
-            batch_size=batch_size,
-            exhaustive=True,
-            shuffle=True,
-            parallel=0 if self.augmentation else 1,
-            mask_dimension=mask_dimension,
-            mask_logscale=mask_logscale)
+    @property
+    def resolution(self):
+        return self.current_file['features'].sliding_window
 
-    def get_dummy_protocol(self, current_file):
+    def get_dummy_protocol(self, current_file: ProtocolFile) -> SpeakerDiarizationProtocol:
         """Get dummy protocol containing only `current_file`
 
         Parameters
         ----------
-        current_file : pyannote.database dict
+        current_file : ProtocolFile
 
         Returns
         -------
@@ -160,7 +148,7 @@ class ResegmentationGenerator(LabelingTaskGenerator):
 
         return DummyProtocol()
 
-    def postprocess_y(self, Y):
+    def postprocess_y(self, Y: np.ndarray) -> np.ndarray:
         """Generate labels for resegmentation
 
         Parameters
@@ -190,7 +178,7 @@ class ResegmentationGenerator(LabelingTaskGenerator):
         return np.int64(y)[:, np.newaxis]
 
     @property
-    def specifications(self):
+    def specifications(self) -> Dict:
         """Task & sample specifications
 
         Returns
@@ -204,7 +192,7 @@ class ResegmentationGenerator(LabelingTaskGenerator):
         specs = {
             'task': Task(type=TaskType.MULTI_CLASS_CLASSIFICATION,
                          output=TaskOutput.SEQUENCE),
-            'X': {'dimension': self.feature_extraction.dimension},
+            'X': {'dimension': self.current_file['features'].dimension},
             'y': {'classes': ['non_speech'] + self.segment_labels_},
         }
 
@@ -213,31 +201,28 @@ class ResegmentationGenerator(LabelingTaskGenerator):
 
         return specs
 
-    @property
-    def batches_per_epoch(self):
-        """Number of batches needed to cover the whole file"""
-        duration_per_epoch = 4 * self.current_file['duration']
-        duration_per_batch = self.duration * self.batch_size
-        return int(np.ceil(duration_per_epoch / duration_per_batch))
-
-
 class Resegmentation(LabelingTask):
     """Re-segmentation
 
     Parameters
     ----------
-    feature_extraction : `pyannote.audio.features.FeatureExtraction`
+    feature_extraction : FeatureExtraction
         Feature extraction.
-    Architecture :
-    architecture_params :
+    Architecture : Model subclass
+    architecture_params : dict
     keep_sad: `boolean`, optional
         Keep speech/non-speech state unchanged. Defaults to False.
     epochs : `int`, optional
-        (Self-)train for that many epochs. Defaults to 30.
+        (Self-)train for that many epochs. Defaults to 5.
     ensemble : `int`, optional
         Average output of last `ensemble` epochs. Defaults to no ensembling.
-    duration : `float`, optional
-    batch_size : `int`, optional
+    duration : float, optional
+        Duration of audio chunks. Defaults to 2s.
+    step : `float`, optional
+        Ratio of audio chunk duration used as step between two consecutive
+        audio chunks. Defaults to 0.1. Has not effect when exhaustive is False.
+    batch_size : int, optional
+        Batch size. Defaults to 32.
     device : `torch.device`, optional
     mask_dimension : `int`, optional
         When set, batches will have a "mask" key that provides a mask that has
@@ -251,44 +236,51 @@ class Resegmentation(LabelingTask):
         Set to True to indicate that mask values are log scaled. Will apply
         exponential. Defaults to False. Has not effect when `mask_dimension`
         is not set.
-    augmentation : `bool`, optional
-        Augment (self-)training data by adding noise from non-speech regions.
-        Defaults to False.
     """
 
-    def __init__(self,
-                 feature_extraction,
-                 Architecture,
-                 architecture_params,
-                 keep_sad=False,
-                 epochs=30,
-                 learning_rate=0.1,
-                 ensemble=1,
-                 device=None,
-                 duration=3.2,
-                 batch_size=32,
-                 mask_dimension=None,
-                 mask_logscale=False,
-                 augmentation=False):
+    def __init__(self, feature_extraction: FeatureExtraction,
+                 Architecture: Type[Model],
+                 architecture_params: dict,
+                 keep_sad: bool = False,
+                 epochs: int = 5,
+                 learning_rate: float = 0.1,
+                 ensemble: int = 1,
+                 duration: float = 2.0,
+                 step: float = 0.1,
+                 n_jobs: int = 1,
+                 device: torch.device = None,
+                 batch_size: int = 32,
+                 mask_dimension: int = None,
+                 mask_logscale: bool = False):
 
         self.feature_extraction = feature_extraction
+
         self.Architecture = Architecture
         self.architecture_params = architecture_params
+
         self.keep_sad = keep_sad
+
         self.epochs = epochs
         self.learning_rate = learning_rate
+
         self.ensemble = ensemble
+
+        self.n_jobs = n_jobs
 
         self.mask_dimension = mask_dimension
         self.mask_logscale = mask_logscale
 
-        self.augmentation = augmentation
+        if device is None:
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device_ = torch.device(device)
 
-        self.device = torch.device('cpu') if device is None else device
+        super().__init__(duration=duration,
+                         batch_size=batch_size,
+                         per_epoch=None,
+                         exhaustive=True,
+                         step=step)
 
-        super().__init__(duration=duration, batch_size=batch_size)
-
-    def get_batch_generator(self, current_file):
+    def get_batch_generator(self, current_file: ProtocolFile) -> ResegmentationGenerator:
         """Get batch generator for current file
 
         Parameters
@@ -307,18 +299,20 @@ class Resegmentation(LabelingTask):
         alignment = self.Architecture.get_alignment(
             **self.architecture_params)
 
-        return ResegmentationGenerator(
-            self.feature_extraction,
-            current_file,
-            resolution=resolution,
-            alignment=alignment,
-            duration=self.duration,
-            batch_size=self.batch_size,
-            mask_dimension=self.mask_dimension,
-            mask_logscale=self.mask_logscale,
-            augmentation=self.augmentation)
+        return ResegmentationGenerator(current_file,
+                                       resolution=resolution,
+                                       alignment=alignment,
+                                       duration=self.duration,
+                                       step=self.step,
+                                       batch_size=self.batch_size,
+                                       mask_dimension=self.mask_dimension,
+                                       mask_logscale=self.mask_logscale)
 
-    def _decode(self, current_file, hypothesis, scores, labels):
+
+    def _decode(self, current_file: ProtocolFile,
+                      hypothesis: Annotation,
+                      scores: SlidingWindowFeature,
+                      labels: Iterable) -> Annotation:
 
         N, K = scores.data.shape
 
@@ -357,49 +351,51 @@ class Resegmentation(LabelingTask):
         new_hypothesis.uri = hypothesis.uri
         return new_hypothesis
 
-    def apply(self, current_file, hypothesis=None):
+    def __call__(self, current_file: ProtocolFile,
+                       hypothesis: Annotation) -> Annotation:
         """Apply resegmentation using self-supervised sequence labeling
 
         Parameters
         ----------
-        current_file : `dict`
+        current_file : ProtocolFile
             Dictionary obtained by iterating over a subset of a
             `pyannote.database.Protocol` instance.
-        hypothesis : `pyannote.core.Annotation`, optional
+        hypothesis : Annotation, optional
             Current diarization output. Defaults to current_file['hypothesis'].
 
         Returns
         -------
-        new_hypothesis : `pyannote.core.Annotation`
+        new_hypothesis : Annotation
             Updated diarization output.
         """
 
-        # use current diarization output as "training" labels
-        if hypothesis is None:
-            hypothesis = current_file['hypothesis']
         current_file = dict(current_file)
         current_file['annotation'] = hypothesis
-
+        current_file['features'] = self.feature_extraction(current_file)
         batch_generator = self.get_batch_generator(current_file)
 
         model = self.Architecture(batch_generator.specifications,
                                   **self.architecture_params)
 
+        chunks = SlidingWindow(duration=self.duration,
+                               step=self.step * self.duration)
+
         # create a temporary directory to store models and log files
         # it is removed automatically before returning.
         with tempfile.TemporaryDirectory() as train_dir:
 
-            # create train_dir/weights
-            mkdir_p(Path(train_dir) / 'weights')
-
-            epochs = self.fit_iter(
-                model, batch_generator,
-                warm_start=0, epochs=self.epochs,
-                get_optimizer=SGD,
-                scheduler=ConstantScheduler(),
-                learning_rate=self.learning_rate,
-                train_dir=Path(train_dir), verbosity=0,
-                device=self.device)
+            epochs = self.fit_iter(model,
+                                   batch_generator,
+                                   warm_start=0,
+                                   epochs=self.epochs,
+                                   get_optimizer=SGD,
+                                   scheduler=ConstantScheduler(),
+                                   learning_rate=self.learning_rate,
+                                   train_dir=Path(train_dir),
+                                   verbosity=0,
+                                   device=self.device,
+                                   callbacks=None,
+                                   n_jobs=self.n_jobs)
 
             scores = []
             for i, current_model in enumerate(epochs):
@@ -410,21 +406,15 @@ class Resegmentation(LabelingTask):
                     continue
 
                 current_model.eval()
-                augmentation = self.feature_extraction.augmentation
-                self.feature_extraction.augmentation = None
 
-                # initialize sequence labeling with model and features
-                sequence_labeling = SequenceLabeling(
-                    model=current_model,
-                    feature_extraction=self.feature_extraction,
-                    duration=self.duration, step=.25 * self.duration,
-                    batch_size=self.batch_size, device=self.device)
-
-                # compute scores and keep track of them for later ensembling
-                scores.append(sequence_labeling(current_file))
-
+                scores.append(current_model.slide(
+                    current_file['features'],
+                    chunks,
+                    batch_size=self.batch_size,
+                    device=self.device,
+                    return_intermediate=None,
+                    progress_hook=None))
                 current_model.train()
-                self.feature_extraction.augmentation = augmentation
 
         # ensemble scores
         scores = SlidingWindowFeature(
@@ -436,26 +426,30 @@ class Resegmentation(LabelingTask):
 
         return self._decode(current_file, hypothesis, scores, labels)
 
-
 class ResegmentationWithOverlap(Resegmentation):
     """Re-segmentation with overlap
 
     Parameters
     ----------
-    feature_extraction : `pyannote.audio.features.FeatureExtraction`
+    feature_extraction : FeatureExtraction
         Feature extraction.
-    Architecture :
-    architecture_params :
+    Architecture : Model subclass
+    architecture_params : dict
     overlap_threshold : `float`, optional
         Defaults to 0.5.
     keep_sad: `boolean`, optional
         Keep speech/non-speech state unchanged. Defaults to False.
     epochs : `int`, optional
-        (Self-)train for that many epochs. Defaults to 30.
+        (Self-)train for that many epochs. Defaults to 5.
     ensemble : `int`, optional
         Average output of last `ensemble` epochs. Defaults to no ensembling.
-    duration : `float`, optional
-    batch_size : `int`, optional
+    duration : float, optional
+        Duration of audio chunks. Defaults to 2s.
+    step : `float`, optional
+        Ratio of audio chunk duration used as step between two consecutive
+        audio chunks. Defaults to 0.1. Has not effect when exhaustive is False.
+    batch_size : int, optional
+        Batch size. Defaults to 32.
     device : `torch.device`, optional
     mask_dimension : `int`, optional
         When set, batches will have a "mask" key that provides a mask that has
@@ -469,26 +463,24 @@ class ResegmentationWithOverlap(Resegmentation):
         Set to True to indicate that mask values are log scaled. Will apply
         exponential. Defaults to False. Has not effect when `mask_dimension`
         is not set.
-    augmentation : `bool`, optional
-        Augment (self-)training data by adding noise from non-speech regions.
-        Defaults to False.
     """
 
     def __init__(self,
-                 feature_extraction,
-                 Architecture,
-                 architecture_params,
-                 keep_sad=False,
-                 overlap_threshold=0.5,
-                 epochs=30,
-                 learning_rate=0.1,
-                 ensemble=1,
-                 device=None,
-                 duration=3.2,
-                 batch_size=32,
-                 mask_dimension=None,
-                 mask_logscale=False,
-                 augmentation=False):
+                 feature_extraction: FeatureExtraction,
+                 Architecture: Type[Model],
+                 architecture_params: dict,
+                 keep_sad: bool = False,
+                 overlap_threshold: float = 0.5,
+                 epochs: int = 5,
+                 learning_rate: float = 0.1,
+                 ensemble: int = 1,
+                 duration: float = 2.0,
+                 step: float = 0.1,
+                 n_jobs: int = 1,
+                 device: torch.device = None,
+                 batch_size: int = 32,
+                 mask_dimension: int = None,
+                 mask_logscale: bool = False):
 
         super().__init__(feature_extraction,
                          Architecture,
@@ -497,12 +489,13 @@ class ResegmentationWithOverlap(Resegmentation):
                          epochs=epochs,
                          learning_rate=learning_rate,
                          ensemble=ensemble,
-                         device=device,
                          duration=duration,
+                         step=step,
+                         n_jobs=n_jobs,
+                         device=device,
                          batch_size=batch_size,
                          mask_dimension=mask_dimension,
-                         mask_logscale=mask_logscale,
-                         augmentation=augmentation)
+                         mask_logscale=mask_logscale)
 
         self.overlap_threshold = overlap_threshold
         self.binarizer_ = Binarize(onset=self.overlap_threshold,
@@ -510,7 +503,10 @@ class ResegmentationWithOverlap(Resegmentation):
                                    scale='absolute',
                                    log_scale=True)
 
-    def _decode(self, current_file, hypothesis, scores, labels):
+    def _decode(self, current_file: ProtocolFile,
+                      hypothesis: Annotation,
+                      scores: SlidingWindowFeature,
+                      labels: Iterable) -> Annotation:
 
         # obtain overlapped speech regions
         overlap = self.binarizer_.apply(current_file['overlap'], dimension=1)
