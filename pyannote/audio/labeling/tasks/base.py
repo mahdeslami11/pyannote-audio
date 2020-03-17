@@ -101,19 +101,9 @@ class LabelingTaskGenerator(BatchGenerator):
     step : `float`, optional
         Ratio of audio chunk duration used as step between two consecutive
         audio chunks. Defaults to 0.1. Has not effect when exhaustive is False.
-    mask_dimension : `int`, optional
-        When set, batches will have a "mask" key that provides a mask that has
-        the same length as "y". This "mask" will be passed to the loss function
-        has a way to weigh samples according to their "mask" value. The actual
-        value of `mask_dimension` is used to select which dimension to use.
-        This option assumes that `current_file["mask"]` contains a
-        `SlidingWindowFeature` that can be used as masking. Defaults to not use
-        masking.
-    mask_logscale : `bool`, optional
-        Set to True to indicate that mask values are log scaled. Will apply
-        exponential. Defaults to False. Has not effect when `mask_dimension`
-        is not set.
-
+    mask : str, optional
+        When provided, current_file[mask] is used by the loss function to weigh
+        samples.
     """
 
     def __init__(self,
@@ -127,8 +117,7 @@ class LabelingTaskGenerator(BatchGenerator):
                  per_epoch: float = None,
                  exhaustive: bool = False,
                  step: float = 0.1,
-                 mask_dimension=None,
-                 mask_logscale=False):
+                 mask: Text = None):
 
         self.feature_extraction = Pre___ed(feature_extraction)
         self.duration = duration
@@ -169,9 +158,7 @@ class LabelingTaskGenerator(BatchGenerator):
                 per_epoch *= np.ceil(1 / self.step)
 
         self.per_epoch = per_epoch
-
-        self.mask_dimension = mask_dimension
-        self.mask_logscale = mask_logscale
+        self.mask = mask
 
     # TODO. use cached property (Python 3.8 only)
     # https://docs.python.org/fr/3/library/functools.html#functools.cached_property
@@ -386,17 +373,12 @@ class LabelingTaskGenerator(BatchGenerator):
             y = self.crop_y(datum['y'], subsegment)
             sample = {'X': X, 'y': y}
 
-            if self.mask_dimension is not None:
+            if self.mask is not None:
 
                 # extract mask for current sub-segment
-                mask = current_file['mask'].crop(subsegment,
-                                                 mode='center',
-                                                 fixed=self.duration)
-
-                # use requested dimension (e.g. non-overlap scores)
-                mask = mask[:, self.mask_dimension]
-                if self.mask_logscale:
-                    mask = np.exp(mask)
+                mask = current_file[self.mask].crop(subsegment,
+                                                    mode='center',
+                                                    fixed=self.duration)
 
                 # it might happen that "mask" and "y" use different sliding
                 # windows. therefore, we simply resample "mask" to match "y"
@@ -451,17 +433,12 @@ class LabelingTaskGenerator(BatchGenerator):
                     y = self.crop_y(datum['y'], sequence)
                     sample = {'X': X, 'y': y}
 
-                    if self.mask_dimension is not None:
+                    if self.mask is not None:
 
                         # extract mask for current sub-segment
-                        mask = current_file['mask'].crop(sequence,
-                                                         mode='center',
-                                                         fixed=self.duration)
-
-                        # use requested dimension (e.g. non-overlap scores)
-                        mask = mask[:, self.mask_dimension]
-                        if self.mask_logscale:
-                            mask = np.exp(mask)
+                        mask = current_file[self.mask].crop(sequence,
+                                                            mode='center',
+                                                            fixed=self.duration)
 
                         # it might happen that "mask" and "y" use different
                         # sliding windows. therefore, we simply resample "mask"

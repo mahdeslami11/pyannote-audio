@@ -32,6 +32,8 @@ from typing import Optional
 from typing import Type
 from typing import Iterable
 from typing import Dict
+from typing import Text
+import scipy.signal
 
 import torch
 import tempfile
@@ -39,16 +41,18 @@ import numpy as np
 from .base import LabelingTask
 from .base import LabelingTaskGenerator
 from pyannote.audio.train.task import Task, TaskType, TaskOutput
+from pyannote.core import Timeline
 from pyannote.core import Annotation
 from pyannote.core import SlidingWindow
 from pyannote.core import SlidingWindowFeature
 from pyannote.database.protocol import SpeakerDiarizationProtocol
+from pyannote.database import get_annotated
 from pyannote.core.utils.numpy import one_hot_decoding
+from pyannote.core.utils.numpy import one_hot_encoding
 from pyannote.audio.train.schedulers import ConstantScheduler
 from torch.optim import SGD
 from pathlib import Path
 from pyannote.audio.utils.signal import Binarize
-
 
 from pyannote.audio.features import FeatureExtraction
 from pyannote.database.protocol.protocol import ProtocolFile
@@ -78,18 +82,12 @@ class ResegmentationGenerator(LabelingTaskGenerator):
         audio chunks. Defaults to 0.1.
     batch_size : int, optional
         Batch size. Defaults to 32.
-    mask_dimension : `int`, optional
-        When set, batches will have a "mask" key that provides a mask that has
-        the same length as "y". This "mask" will be passed to the loss function
-        has a way to weigh samples according to their "mask" value. The actual
-        value of `mask_dimension` is used to select which dimension to use.
-        This option assumes that `current_file["mask"]` contains a
-        `SlidingWindowFeature` that can be used as masking. Defaults to not use
-        masking.
-    mask_logscale : `bool`, optional
-        Set to True to indicate that mask values are log scaled. Will apply
-        exponential. Defaults to False. Has not effect when `mask_dimension`
-        is not set.
+    allow_overlap : bool, optional
+        Allow overlapping speakers. Defaults to False.
+        Does not really work for now...
+    mask : str, optional
+        When provided, current_file[mask] is used by the loss function to weigh
+        samples.
     """
 
     def __init__(self,
@@ -98,11 +96,39 @@ class ResegmentationGenerator(LabelingTaskGenerator):
                  alignment: Optional[Alignment] = None,
                  duration: float = 2,
                  step: float = 0.1,
-                 batch_size=32,
-                 mask_dimension=None,
-                 mask_logscale=False):
+                 batch_size: int = 32,
+                 lock_speech: bool = False,
+                 allow_overlap: bool = False,
+                 mask: Text = None):
 
         self.current_file = current_file
+        self.allow_overlap = allow_overlap
+        self.lock_speech = lock_speech
+
+        # when locking speech / non-speech status, we add a (or update
+        # existing) mask so that the loss is not computed on non-speech regions
+        if self.lock_speech:
+
+            non_speech, _ = one_hot_encoding(current_file['annotation'],
+                                             get_annotated(current_file),
+                                             self.resolution,
+                                             mode='center')
+            non_speech.data = np.sum(non_speech.data, axis=1, keepdims=True) < 1
+            current_file['non_speech'] = non_speech
+
+            if mask is None:
+                mask = 'non_speech'
+
+            else:
+                len_mask = len(current_file[mask].data)
+
+                non_speech_ = non_speech.data * 1.
+                len_non_speech = len(non_speech_)
+
+                if len_mask != len_non_speech:
+                    non_speech_ = scipy.signal.resample(non_speech_, len_mask, axis=0)
+
+                current_file[mask].data = current_file[mask].data * non_speech_
 
         super().__init__('@features',
                          self.get_dummy_protocol(current_file),
@@ -113,8 +139,7 @@ class ResegmentationGenerator(LabelingTaskGenerator):
                          exhaustive=True,
                          step=step,
                          batch_size=batch_size,
-                         mask_dimension=mask_dimension,
-                         mask_logscale=mask_logscale)
+                         mask=mask)
 
     @property
     def resolution(self):
@@ -159,23 +184,43 @@ class ResegmentationGenerator(LabelingTaskGenerator):
 
         Returns
         -------
-        y : (n_samples, 1) numpy.ndarray
-            y[t] = 0 indicates non-speech,
-            y[t] = i + 1 indicates speaker i.
+        y : (n_samples, 1) or (n_samples, n_speakers) numpy.ndarray
+            When allow_overlap is True, y has shape (n_samples, n_speakers)
+                * y[t, i] = 1 means speaker i is active
+            When allow_overlap is False, y has shape (n_samples, 1)
+                * y[t] = 0 indicates non-speech,
+                * y[t] = i + 1 indicates speaker i.
 
         See also
         --------
         `pyannote.core.utils.numpy.one_hot_encoding`
         """
 
-        # +1 because...
-        y = np.argmax(Y, axis=1) + 1
+        # when allowing overlap, multiple speakers can be active at once.
+        # hence, Y sticks to shape (n_samples, n_speakers)
+        if self.allow_overlap:
+            return Y
 
-        # ... 0 is for non-speech
-        non_speech = np.sum(Y, axis=1) == 0
-        y[non_speech] = 0
+        # when overlap is not allowed, reshape Y to (n_samples, 1)
+        else:
 
-        return np.int64(y)[:, np.newaxis]
+            # if speech / non-speech status is locked
+            # there is no class for non-speech.
+            if self.lock_speech:
+                y = np.argmax(Y, axis=1)
+                return np.int64(y)[:, np.newaxis]
+
+            # otherwise, we add a non-speech class at index 0
+            else:
+
+                # +1 because...
+                y = np.argmax(Y, axis=1) + 1
+
+                # ... 0 is for non-speech
+                non_speech = np.sum(Y, axis=1) == 0
+                y[non_speech] = 0
+
+                return np.int64(y)[:, np.newaxis]
 
     @property
     def specifications(self) -> Dict:
@@ -189,17 +234,35 @@ class ResegmentationGenerator(LabelingTaskGenerator):
             ['y']['classes'] (`list`) : list of classes
         """
 
-        specs = {
-            'task': Task(type=TaskType.MULTI_CLASS_CLASSIFICATION,
-                         output=TaskOutput.SEQUENCE),
-            'X': {'dimension': self.current_file['features'].dimension},
-            'y': {'classes': ['non_speech'] + self.segment_labels_},
-        }
+        specs = {'X': {'dimension': self.current_file['features'].dimension}}
 
-        for key, classes in self.file_labels_.items():
-            specs[key] = {'classes': classes}
+        if self.allow_overlap:
+            # when allowing overlap, multiple speakers can be active at the
+            # same time (hence multi-label classification task)
+            specs['task'] = Task(type=TaskType.MULTI_LABEL_CLASSIFICATION,
+                                 output=TaskOutput.SEQUENCE)
+            specs['y'] = {'classes': self.segment_labels_}
+
+        else:
+            # when overlap is not allowed, only one speaker can be active at
+            # a particular time (hence: multi-class classification)
+            specs['task'] = Task(type=TaskType.MULTI_CLASS_CLASSIFICATION,
+                                 output=TaskOutput.SEQUENCE)
+
+            if self.lock_speech:
+                # when locking speech / non-speech status,
+                # there is no non-speech class
+                specs['y'] = {'classes': self.segment_labels_}
+            else:
+                # when speech / non-speech status can be updated,
+                # one must add a non-speech class
+                specs['y'] = {'classes': ['non_speech'] + self.segment_labels_}
+
+        # for key, classes in self.file_labels_.items():
+        #     specs[key] = {'classes': classes}
 
         return specs
+
 
 class Resegmentation(LabelingTask):
     """Re-segmentation
@@ -210,8 +273,6 @@ class Resegmentation(LabelingTask):
         Feature extraction.
     Architecture : Model subclass
     architecture_params : dict
-    keep_sad: `boolean`, optional
-        Keep speech/non-speech state unchanged. Defaults to False.
     epochs : `int`, optional
         (Self-)train for that many epochs. Defaults to 5.
     ensemble : `int`, optional
@@ -224,24 +285,19 @@ class Resegmentation(LabelingTask):
     batch_size : int, optional
         Batch size. Defaults to 32.
     device : `torch.device`, optional
-    mask_dimension : `int`, optional
-        When set, batches will have a "mask" key that provides a mask that has
-        the same length as "y". This "mask" will be passed to the loss function
-        has a way to weigh samples according to their "mask" value. The actual
-        value of `mask_dimension` is used to select which dimension to use.
-        This option assumes that `current_file["mask"]` contains a
-        `SlidingWindowFeature` that can be used as masking. Defaults to not use
-        masking.
-    mask_logscale : `bool`, optional
-        Set to True to indicate that mask values are log scaled. Will apply
-        exponential. Defaults to False. Has not effect when `mask_dimension`
-        is not set.
+    lock_speech: `boolean`, optional
+        Keep speech/non-speech state unchanged. Defaults to False.
+    allow_overlap : bool, optional
+        Allow overlapping speakers. Defaults to False.
+    mask : str, optional
+        When provided, current_file[mask] is used by the loss function to weigh
+        samples.
     """
 
     def __init__(self, feature_extraction: FeatureExtraction,
                  Architecture: Type[Model],
                  architecture_params: dict,
-                 keep_sad: bool = False,
+                 lock_speech: bool = False,
                  epochs: int = 5,
                  learning_rate: float = 0.1,
                  ensemble: int = 1,
@@ -250,15 +306,13 @@ class Resegmentation(LabelingTask):
                  n_jobs: int = 1,
                  device: torch.device = None,
                  batch_size: int = 32,
-                 mask_dimension: int = None,
-                 mask_logscale: bool = False):
+                 allow_overlap: bool = False,
+                 mask: Text = None):
 
         self.feature_extraction = feature_extraction
 
         self.Architecture = Architecture
         self.architecture_params = architecture_params
-
-        self.keep_sad = keep_sad
 
         self.epochs = epochs
         self.learning_rate = learning_rate
@@ -267,8 +321,9 @@ class Resegmentation(LabelingTask):
 
         self.n_jobs = n_jobs
 
-        self.mask_dimension = mask_dimension
-        self.mask_logscale = mask_logscale
+        self.lock_speech = lock_speech
+        self.allow_overlap = allow_overlap
+        self.mask = mask
 
         if device is None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -305,9 +360,9 @@ class Resegmentation(LabelingTask):
                                        duration=self.duration,
                                        step=self.step,
                                        batch_size=self.batch_size,
-                                       mask_dimension=self.mask_dimension,
-                                       mask_logscale=self.mask_logscale)
-
+                                       lock_speech=self.lock_speech,
+                                       allow_overlap=self.allow_overlap,
+                                       mask=self.mask)
 
     def _decode(self, current_file: ProtocolFile,
                       hypothesis: Annotation,
@@ -316,39 +371,31 @@ class Resegmentation(LabelingTask):
 
         N, K = scores.data.shape
 
-        if self.keep_sad:
-
-            # K = 1 <~~> only non-speech
-            # K = 2 <~~> just one speaker
-            if K < 3:
-                return hypothesis
-
-            # sequence of most likely speaker index
-            # (even when non-speech is the most likely class)
-            best_speaker_indices = np.argmax(scores.data[:, 1:], axis=1) + 1
-
-            # reconstruct annotation
-            new_hypothesis = one_hot_decoding(
-                best_speaker_indices, scores.sliding_window, labels=labels)
-
-            # revert non-speech regions back to original
-            speech = hypothesis.get_timeline().support()
-            new_hypothesis = new_hypothesis.crop(speech)
+        if self.allow_overlap:
+            active_speakers = np.exp(scores.data > 0.5)
 
         else:
+            if self.lock_speech:
+                active_speakers = np.argmax(scores.data, axis=1)
 
-            # K = 1 <~~> only non-speech
-            if K < 2:
-                return hypothesis
+            else:
+                active_speakers = np.argmax(scores.data[:, 1:], axis=1) + 1
 
-            # sequence of most likely class index (including 0=non-speech)
-            best_class_indices = np.argmax(scores.data, axis=1)
+        if self.lock_speech:
+            non_speech = current_file['non_speech'].data
+            active_speakers[non_speech[:len(active_speakers)].squeeze()] = 0
 
-            # reconstruct annotation
-            new_hypothesis = one_hot_decoding(
-                best_class_indices, scores.sliding_window, labels=labels)
+        # reconstruct annotation
+        new_hypothesis = one_hot_decoding(
+            active_speakers, scores.sliding_window, labels=labels)
 
         new_hypothesis.uri = hypothesis.uri
+
+        # if self.lock_speech:
+        #     speech = hypothesis.get_timeline().support()
+        #     new_hypothesis = new_hypothesis.crop(speech)
+        #
+
         return new_hypothesis
 
     def __call__(self, current_file: ProtocolFile,
@@ -372,6 +419,7 @@ class Resegmentation(LabelingTask):
         current_file = dict(current_file)
         current_file['annotation'] = hypothesis
         current_file['features'] = self.feature_extraction(current_file)
+
         batch_generator = self.get_batch_generator(current_file)
 
         model = self.Architecture(batch_generator.specifications,
@@ -424,7 +472,11 @@ class Resegmentation(LabelingTask):
         # speaker labels
         labels = batch_generator.specifications['y']['classes'][1:]
 
-        return self._decode(current_file, hypothesis, scores, labels)
+        decoded = self._decode(current_file, hypothesis, scores, labels)
+        decoded.scores = scores
+
+        return decoded
+
 
 class ResegmentationWithOverlap(Resegmentation):
     """Re-segmentation with overlap
@@ -437,7 +489,7 @@ class ResegmentationWithOverlap(Resegmentation):
     architecture_params : dict
     overlap_threshold : `float`, optional
         Defaults to 0.5.
-    keep_sad: `boolean`, optional
+    lock_speech: `boolean`, optional
         Keep speech/non-speech state unchanged. Defaults to False.
     epochs : `int`, optional
         (Self-)train for that many epochs. Defaults to 5.
@@ -451,25 +503,16 @@ class ResegmentationWithOverlap(Resegmentation):
     batch_size : int, optional
         Batch size. Defaults to 32.
     device : `torch.device`, optional
-    mask_dimension : `int`, optional
-        When set, batches will have a "mask" key that provides a mask that has
-        the same length as "y". This "mask" will be passed to the loss function
-        has a way to weigh samples according to their "mask" value. The actual
-        value of `mask_dimension` is used to select which dimension to use.
-        This option assumes that `current_file["mask"]` contains a
-        `SlidingWindowFeature` that can be used as masking. Defaults to not use
-        masking.
-    mask_logscale : `bool`, optional
-        Set to True to indicate that mask values are log scaled. Will apply
-        exponential. Defaults to False. Has not effect when `mask_dimension`
-        is not set.
+    mask : str, optional
+        When provided, current_file[mask] is used by the loss function to weigh
+        samples.
     """
 
     def __init__(self,
                  feature_extraction: FeatureExtraction,
                  Architecture: Type[Model],
                  architecture_params: dict,
-                 keep_sad: bool = False,
+                 lock_speech: bool = False,
                  overlap_threshold: float = 0.5,
                  epochs: int = 5,
                  learning_rate: float = 0.1,
@@ -479,13 +522,12 @@ class ResegmentationWithOverlap(Resegmentation):
                  n_jobs: int = 1,
                  device: torch.device = None,
                  batch_size: int = 32,
-                 mask_dimension: int = None,
-                 mask_logscale: bool = False):
+                 mask: Text = None):
 
         super().__init__(feature_extraction,
                          Architecture,
                          architecture_params,
-                         keep_sad=keep_sad,
+                         lock_speech=lock_speech,
                          epochs=epochs,
                          learning_rate=learning_rate,
                          ensemble=ensemble,
@@ -494,8 +536,7 @@ class ResegmentationWithOverlap(Resegmentation):
                          n_jobs=n_jobs,
                          device=device,
                          batch_size=batch_size,
-                         mask_dimension=mask_dimension,
-                         mask_logscale=mask_logscale)
+                         mask=mask)
 
         self.overlap_threshold = overlap_threshold
         self.binarizer_ = Binarize(onset=self.overlap_threshold,
@@ -514,7 +555,7 @@ class ResegmentationWithOverlap(Resegmentation):
         frames = scores.sliding_window
         N, K = scores.data.shape
 
-        if self.keep_sad:
+        if self.lock_speech:
 
             # K = 1 <~~> only non-speech
             # K = 2 <~~> just one speaker
@@ -558,6 +599,7 @@ class ResegmentationWithOverlap(Resegmentation):
             if K < 2:
                 return hypothesis
 
+            # sequence of two most likely class indices
             # sequence of two most likely class indices
             # (including 0=non-speech)
             best_speakers_indices = np.argsort(
