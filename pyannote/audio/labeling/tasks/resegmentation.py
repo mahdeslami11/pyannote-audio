@@ -105,31 +105,6 @@ class ResegmentationGenerator(LabelingTaskGenerator):
         self.allow_overlap = allow_overlap
         self.lock_speech = lock_speech
 
-        # when locking speech / non-speech status, we add a (or update
-        # existing) mask so that the loss is not computed on non-speech regions
-        if self.lock_speech:
-
-            non_speech, _ = one_hot_encoding(current_file['annotation'],
-                                             get_annotated(current_file),
-                                             self.resolution,
-                                             mode='center')
-            non_speech.data = np.sum(non_speech.data, axis=1, keepdims=True) < 1
-            current_file['non_speech'] = non_speech
-
-            if mask is None:
-                mask = 'non_speech'
-
-            else:
-                len_mask = len(current_file[mask].data)
-
-                non_speech_ = non_speech.data * 1.
-                len_non_speech = len(non_speech_)
-
-                if len_mask != len_non_speech:
-                    non_speech_ = scipy.signal.resample(non_speech_, len_mask, axis=0)
-
-                current_file[mask].data = current_file[mask].data * non_speech_
-
         super().__init__('@features',
                          self.get_dummy_protocol(current_file),
                          subset='train',
@@ -372,7 +347,7 @@ class Resegmentation(LabelingTask):
         N, K = scores.data.shape
 
         if self.allow_overlap:
-            active_speakers = np.exp(scores.data > 0.5)
+            active_speakers = scores.data > 0.5
 
         else:
             if self.lock_speech:
@@ -381,20 +356,15 @@ class Resegmentation(LabelingTask):
             else:
                 active_speakers = np.argmax(scores.data[:, 1:], axis=1) + 1
 
-        if self.lock_speech:
-            non_speech = current_file['non_speech'].data
-            active_speakers[non_speech[:len(active_speakers)].squeeze()] = 0
-
         # reconstruct annotation
         new_hypothesis = one_hot_decoding(
             active_speakers, scores.sliding_window, labels=labels)
 
         new_hypothesis.uri = hypothesis.uri
 
-        # if self.lock_speech:
-        #     speech = hypothesis.get_timeline().support()
-        #     new_hypothesis = new_hypothesis.crop(speech)
-        #
+        if self.lock_speech:
+            speech = hypothesis.get_timeline().support()
+            new_hypothesis = new_hypothesis.crop(speech)
 
         return new_hypothesis
 
@@ -416,9 +386,40 @@ class Resegmentation(LabelingTask):
             Updated diarization output.
         """
 
+        # make sure current_file is not modified
         current_file = dict(current_file)
+
         current_file['annotation'] = hypothesis
         current_file['features'] = self.feature_extraction(current_file)
+
+        debug = {}
+
+        # when locking speech / non-speech status, we add a (or update
+        # existing) mask so that the loss is not computed on non-speech regions
+        if self.lock_speech:
+
+            encoded, _ = one_hot_encoding(hypothesis,
+                                          get_annotated(current_file),
+                                          current_file['features'].sliding_window,
+                                          mode='center')
+            speech = 1. * (np.sum(encoded, axis=1, keepdims=True) > 0)
+            current_file['speech'] = speech
+            debug['speech'] = speech
+
+            if self.mask is None:
+                self.mask = 'speech'
+
+            else:
+                n_mask = len(current_file[self.mask])
+                n_speech = len(current_file['speech'])
+
+                if n_mask != n_speech:
+                    speech.data = scipy.signal.resample(speech.data,
+                                                        n_mask, axis=0)
+
+                current_file[self.mask] = current_file[self.mask] * speech
+
+            debug['mask'] = current_file[self.mask]
 
         batch_generator = self.get_batch_generator(current_file)
 
@@ -464,17 +465,23 @@ class Resegmentation(LabelingTask):
                     progress_hook=None))
                 current_model.train()
 
+        debug['scores'] = scores
+
         # ensemble scores
         scores = SlidingWindowFeature(
             np.mean([s.data for s in scores], axis=0),
             scores[-1].sliding_window)
+        debug['final_scores'] = scores
 
-        # speaker labels
-        labels = batch_generator.specifications['y']['classes'][1:]
+        labels = batch_generator.specifications['y']['classes']
+        debug['labels'] = labels
 
-        decoded = self._decode(current_file, hypothesis, scores, labels)
-        decoded.scores = scores
+        decoded = self._decode(current_file,
+                               hypothesis,
+                               scores,
+                               labels)
 
+        decoded.debug = debug
         return decoded
 
 
