@@ -77,9 +77,6 @@ class ResegmentationGenerator(LabelingTaskGenerator):
         different cropping mode. Defaults to 'center'.
     duration : float, optional
         Duration of audio chunks. Defaults to 4s.
-    step : float, optional
-        Ratio of audio chunk duration used as step between two consecutive
-        audio chunks. Defaults to 0.1.
     batch_size : int, optional
         Batch size. Defaults to 32.
     allow_overlap : bool, optional
@@ -95,7 +92,6 @@ class ResegmentationGenerator(LabelingTaskGenerator):
                  resolution: Optional[Resolution] = None,
                  alignment: Optional[Alignment] = None,
                  duration: float = 2,
-                 step: float = 0.1,
                  batch_size: int = 32,
                  lock_speech: bool = False,
                  allow_overlap: bool = False,
@@ -111,8 +107,6 @@ class ResegmentationGenerator(LabelingTaskGenerator):
                          resolution=resolution,
                          alignment=alignment,
                          duration=duration,
-                         exhaustive=True,
-                         step=step,
                          batch_size=batch_size,
                          mask=mask)
 
@@ -256,7 +250,7 @@ class Resegmentation(LabelingTask):
         Duration of audio chunks. Defaults to 2s.
     step : `float`, optional
         Ratio of audio chunk duration used as step between two consecutive
-        audio chunks. Defaults to 0.1. Has not effect when exhaustive is False.
+        audio chunks. Defaults to 0.1.
     batch_size : int, optional
         Batch size. Defaults to 32.
     device : `torch.device`, optional
@@ -307,7 +301,6 @@ class Resegmentation(LabelingTask):
         super().__init__(duration=duration,
                          batch_size=batch_size,
                          per_epoch=None,
-                         exhaustive=True,
                          step=step)
 
     def get_batch_generator(self, current_file: ProtocolFile) -> ResegmentationGenerator:
@@ -333,7 +326,6 @@ class Resegmentation(LabelingTask):
                                        resolution=resolution,
                                        alignment=alignment,
                                        duration=self.duration,
-                                       step=self.step,
                                        batch_size=self.batch_size,
                                        lock_speech=self.lock_speech,
                                        allow_overlap=self.allow_overlap,
@@ -506,7 +498,7 @@ class ResegmentationWithOverlap(Resegmentation):
         Duration of audio chunks. Defaults to 2s.
     step : `float`, optional
         Ratio of audio chunk duration used as step between two consecutive
-        audio chunks. Defaults to 0.1. Has not effect when exhaustive is False.
+        audio chunks. Defaults to 0.1. 
     batch_size : int, optional
         Batch size. Defaults to 32.
     device : `torch.device`, optional
