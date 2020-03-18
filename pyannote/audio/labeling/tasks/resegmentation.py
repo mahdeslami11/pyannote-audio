@@ -441,7 +441,7 @@ class Resegmentation(LabelingTask):
                                    scheduler=ConstantScheduler(),
                                    learning_rate=self.learning_rate,
                                    train_dir=Path(train_dir),
-                                   verbosity=0,
+                                   verbosity=1,
                                    device=self.device,
                                    callbacks=None,
                                    n_jobs=self.n_jobs)
