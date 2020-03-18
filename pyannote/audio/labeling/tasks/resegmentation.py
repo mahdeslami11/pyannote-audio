@@ -361,7 +361,8 @@ class Resegmentation(LabelingTask):
         return new_hypothesis
 
     def __call__(self, current_file: ProtocolFile,
-                       hypothesis: Annotation) -> Annotation:
+                       hypothesis: Annotation,
+                       debugging: bool = False) -> Annotation:
         """Apply resegmentation using self-supervised sequence labeling
 
         Parameters
@@ -442,8 +443,8 @@ class Resegmentation(LabelingTask):
             for i, current_model in enumerate(epochs):
 
                 # do not compute scores that are not used in later ensembling
-                # simply jump to next training epoch
-                if i < self.epochs - self.ensemble:
+                # simply jump to next training epoch (except when debugging)
+                if not debugging and i < self.epochs - self.ensemble:
                     continue
 
                 current_model.eval()
@@ -461,7 +462,7 @@ class Resegmentation(LabelingTask):
 
         # ensemble scores
         scores = SlidingWindowFeature(
-            np.mean([s.data for s in scores], axis=0),
+            np.mean([s.data for s in scores[-self.ensemble:]], axis=0),
             scores[-1].sliding_window)
         debug['final_scores'] = scores
 
@@ -498,7 +499,7 @@ class ResegmentationWithOverlap(Resegmentation):
         Duration of audio chunks. Defaults to 2s.
     step : `float`, optional
         Ratio of audio chunk duration used as step between two consecutive
-        audio chunks. Defaults to 0.1. 
+        audio chunks. Defaults to 0.1.
     batch_size : int, optional
         Batch size. Defaults to 32.
     device : `torch.device`, optional
