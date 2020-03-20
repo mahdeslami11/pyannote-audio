@@ -343,10 +343,10 @@ class Resegmentation(LabelingTask):
 
         else:
             if self.lock_speech:
-                active_speakers = np.argmax(scores.data, axis=1)
+                active_speakers = np.argmax(scores.data, axis=1) + 1
 
             else:
-                active_speakers = np.argmax(scores.data[:, 1:], axis=1) + 1
+                active_speakers = np.argmax(scores.data, axis=1)
 
         # reconstruct annotation
         new_hypothesis = one_hot_decoding(
@@ -467,6 +467,9 @@ class Resegmentation(LabelingTask):
         debug['final_scores'] = scores
 
         labels = batch_generator.specifications['y']['classes']
+        if not self.lock_speech:
+            labels = labels[1:]
+
         debug['labels'] = labels
 
         decoded = self._decode(current_file,
