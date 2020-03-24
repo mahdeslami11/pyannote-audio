@@ -119,7 +119,7 @@ class LabelingTaskGenerator(BatchGenerator):
                  step: float = 0.1,
                  mask: Text = None):
 
-        self.feature_extraction = Pre___ed(feature_extraction)
+        self.feature_extraction = FeatureExtractionWrapper(feature_extraction)
         self.duration = duration
         self.exhaustive = exhaustive
         self.step = step
