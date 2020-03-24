@@ -46,7 +46,7 @@ from pyannote.audio.features import Precomputed
 
 from pyannote.metrics.detection import DetectionErrorRate
 from pyannote.metrics.detection import DetectionPrecisionRecallFMeasure
-from pyannote.audio.utils.path import Pre___ed
+from pyannote.audio.features.wrapper import FeatureExtractionWrapper
 
 
 class OracleSpeechActivityDetection(Pipeline):
@@ -102,7 +102,7 @@ class SpeechActivityDetection(Pipeline):
         if scores is None:
             scores = "@sad_scores"
         self.scores = scores
-        self._scores = Pre___ed(self.scores)
+        self._scores = FeatureExtractionWrapper(self.scores)
 
         self.fscore = fscore
 

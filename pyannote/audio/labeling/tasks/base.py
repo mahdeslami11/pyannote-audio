@@ -49,7 +49,7 @@ from pyannote.core.utils.numpy import one_hot_encoding
 
 from pyannote.audio.features import FeatureExtraction
 from pyannote.audio.features import RawAudio
-from pyannote.audio.utils.path import Pre___ed
+from pyannote.audio.features.wrapper import FeatureExtractionWrapper
 
 from pyannote.core.utils.random import random_segment
 from pyannote.core.utils.random import random_subsegment
