@@ -308,9 +308,8 @@ class AdaptiveBackgroundGenerator:
             )
             print(msg)
 
-        # start by creating half of maximum number of background generator
-        for _ in range(max(1, self.n_jobs // 2)):
-            self._add_generator()
+        # start by creating one background generator to the pool
+        self._add_generator()
 
         # initialize main sample generator (used in __next__)
         self.samples_ = self._sample()
