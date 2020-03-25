@@ -32,9 +32,9 @@ Neural building blocks for speaker diarization
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Usage:
-  pyannote-audio (sad | scd | ovl | emb | dom) train    [--cpu | --gpu] [options] <root>     <protocol>
-  pyannote-audio (sad | scd | ovl | emb | dom) validate [--cpu | --gpu] [options] <train>    <protocol>
-  pyannote-audio (sad | scd | ovl | emb | dom) apply    [--cpu | --gpu] [options] <validate> <protocol>
+  pyannote-audio (sad | scd | ovl | emb | dia | dom) train    [--cpu | --gpu] [options] <root>     <protocol>
+  pyannote-audio (sad | scd | ovl | emb | dia | dom) validate [--cpu | --gpu] [options] <train>    <protocol>
+  pyannote-audio (sad | scd | ovl | emb | dia | dom) apply    [--cpu | --gpu] [options] <validate> <protocol>
   pyannote-audio -h | --help
   pyannote-audio --version
 
@@ -51,6 +51,7 @@ for the following blocks of a speaker diarization pipeline:
             (usually high-dimensional) vector space where same speaker
             embeddings are close to each other, and different speaker embeddings
             are not.
+    * (dia) end-to-end speaker diarization FIXME FIXME
     * (dom) domain classification consists in predicting the domain of an
             audio recording
 
@@ -236,23 +237,23 @@ Validation options
 
   --evergreen             Prioritize validation of most recent epoch.
 
-  For speech activity and overlapped speech detection, validation consists in
-  looking for the value of the detection threshold that maximizes the f-score
-  of recall and precision.
+  For speech activity (sad) and overlapped speech detection (ovl), validation
+  consists in looking for the value of the detection threshold that maximizes
+  the f-score of recall and precision.
 
-  For speaker change detection, validation consists in looking for the value of
-  the peak detection threshold that maximizes the f-score of purity and
+  For speaker change detection (scd), validation consists in looking for the
+  value of the peak detection threshold that maximizes the f-score of purity and
   coverage:
 
   --diarization           Use diarization purity and coverage instead of
                           (default) segmentation purity and coverage.
 
-  For speaker embedding and verification protocols, validation runs the actual
-  speaker verification experiment (representing each recording by its average
-  embedding) and reports equal error rate.
+  For speaker embedding (emb) and verification protocols, validation runs the
+  actual speaker verification experiment (representing each recording by its
+  average embedding) and reports equal error rate.
 
-  For speaker embedding and diarization protocols, validation runs a speaker
-  diarization pipeline based on oracle segmentation and "pool-linkage"
+  For speaker embedding (emb) and diarization protocols, validation runs a
+  speaker diarization pipeline based on oracle segmentation and "pool-linkage"
   agglomerative clustering of speech turns (represented by their average
   embedding), and looks for the threshold that maximizes the f-score of purity
   and coverage.
@@ -272,6 +273,7 @@ from .change_detection import SpeakerChangeDetection
 from .overlap_detection import OverlapDetection
 from .speaker_embedding import SpeakerEmbedding
 from .domain_classification import DomainClassification
+from .diarization import Diarization
 
 
 def main():
@@ -292,6 +294,9 @@ def main():
 
     elif arg['emb']:
         Application = SpeakerEmbedding
+
+    elif arg['dia']:
+        Application = Diarization
 
     elif arg['dom']:
         Application = DomainClassification

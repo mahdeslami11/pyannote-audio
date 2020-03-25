@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2018-2019 CNRS
+# Copyright (c) 2020 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -26,23 +26,24 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
+from .base_labeling import BaseLabeling
+import torch
+from typing import Text
+from typing import Dict
+from pyannote.database.protocol.protocol import Protocol
 
 
-from .speech_activity_detection import SpeechActivityDetection
-from .speech_activity_detection import DomainAwareSpeechActivityDetection
-from .speech_activity_detection import DomainAdversarialSpeechActivityDetection
+class Diarization(BaseLabeling):
 
-from .overlap_detection import OverlapDetection
-from .speaker_change_detection import SpeakerChangeDetection
+    def validation_criterion(self, protocol: Protocol, **kwargs) -> Text:
+        return f'diarization_error_rate'
 
-from .diarization import Diarization
-
-from .domain_classification import DomainClassification
-
-from .resegmentation import Resegmentation
-
-
-__all__ = ['SpeechActivityDetection',
-           'OverlapDetection',
-           'SpeakerChangeDetection',
-           'Resegmentation']
+    def validate_epoch(self,
+                       epoch: int,
+                       validation_data,
+                       device: torch.device = None,
+                       batch_size: int = 32,
+                       n_jobs: int = 1,
+                       **kwargs) -> Dict:
+        msg = 'what should go there?'
+        raise NotImplementedError(msg)
