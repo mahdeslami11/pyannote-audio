@@ -28,6 +28,8 @@
 
 """Diarization"""
 
+import torch
+import torch.nn.functional as F
 from typing import Optional
 from typing import Type
 from typing import Iterable
@@ -43,7 +45,48 @@ from pyannote.audio.features import FeatureExtraction
 from pyannote.database.protocol.protocol import Protocol
 from pyannote.audio.train.model import Resolution
 from pyannote.audio.train.model import Alignment
+from scipy.optimize import linear_sum_assignment
 
+
+class DiarizationLoss:
+
+    def __call__(self, input: torch.Tensor,
+                       target: torch.Tensor,
+                       weight: torch.Tensor = None,
+                       mask: torch.Tensor = None):
+        """
+
+        Parameters
+        ----------
+        input : (batch_size, n_steps, n_speakers) torch.Tensor
+        target : (batch_size, n_steps, n_speakers) torch.Tensor
+        weight : (n_speakers, ) torch.Tensor, optional
+        mask : (n_steps, ) torch.Tensor, optional
+
+        Returns
+        -------
+        der : torch.Tensor
+
+        """
+
+        if weight is not None:
+            msg = f'"weight" support is not implemented yet.'
+            raise NotImplementedError(msg)
+
+        if mask is not None:
+            msg = f'"mask" support is not implemented yet.'
+            raise NotImplementedError(msg)
+
+        with torch.no_grad():
+            # TODO add some kind of temperature factor
+            K = input.transpose(2, 1) @ target
+            mapped_target = []
+            for k, y in zip(K, target):
+                _, mapping = linear_sum_assignment(-k)
+                mapped_target.append(y[:, mapping])
+            mapped_target = torch.stack(mapped_target)
+
+        return F.mse_loss(input, mapped_target, reduction='mean')
 
 class DiarizationGenerator(LabelingTaskGenerator):
     """Batch generator for diarization
@@ -205,7 +248,6 @@ class Diarization(LabelingTask):
 
         self.num_speakers = num_speakers
 
-
     def get_batch_generator(self, feature_extraction: FeatureExtraction,
                                   protocol: Protocol,
                                   subset: Text = 'train',
@@ -237,5 +279,6 @@ class Diarization(LabelingTask):
             batch_size=self.batch_size,
             num_speakers=self.num_speakers)
 
-    # TODO: override this method to use sinkhorn loss
-    # def on_train_start(self):
+    def on_train_start(self):
+        self.task_ = self.model_.task
+        self.loss_func_ = DiarizationLoss()
