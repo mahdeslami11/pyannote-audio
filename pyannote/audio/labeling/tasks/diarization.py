@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2018-2019 CNRS
+# Copyright (c) 2020 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -82,7 +82,7 @@ class DiarizationLoss:
             K = input.transpose(2, 1) @ target
             mapped_target = []
             for k, y in zip(K, target):
-                _, mapping = linear_sum_assignment(-k)
+                _, mapping = linear_sum_assignment(-k.cpu())
                 mapped_target.append(y[:, mapping])
             mapped_target = torch.stack(mapped_target)
 
