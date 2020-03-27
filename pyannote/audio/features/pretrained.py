@@ -27,6 +27,7 @@ import warnings
 from typing import Optional
 from typing import Union
 from typing import Text
+from typing import Callable
 from pathlib import Path
 
 import torch
@@ -63,7 +64,20 @@ class Pretrained(FeatureExtraction):
     step : float, optional
         Ratio of audio chunk duration used as step between two consecutive
         audio chunks. Defaults to 0.25.
+    batch_size : int
+        Batch size. Defaults to 32. Use large batch for faster inference.
     device : optional
+        Device used for inference.
+    skip_average : bool, optional
+        For sequence labeling tasks (i.e. when model outputs a sequence of
+        scores), each time step may be scored by several consecutive
+        locations of the sliding window. Default behavior is to average
+        those multiple scores. Set `skip_average` to False to return raw
+        scores without averaging them.
+    postprocess : callable, optional
+        Function applied to the predictions of the model, for each batch
+        separately. Expects a (batch_size, n_samples, n_features) np.ndarray
+        as input, and returns a (batch_size, n_samples, any) np.ndarray.
     return_intermediate : optional
     """
 
@@ -76,6 +90,8 @@ class Pretrained(FeatureExtraction):
                        step: float = None,
                        batch_size: int = 32,
                        device: Optional[Union[Text, torch.device]] = None,
+                       skip_average: bool = None,
+                       postprocess: Callable[[np.ndarray], np.ndarray] = None,
                        return_intermediate = None,
                        progress_hook=None):
 
@@ -158,6 +174,9 @@ class Pretrained(FeatureExtraction):
 
         self.batch_size = batch_size
 
+        self.skip_average = skip_average
+        self.postprocess = postprocess
+
         self.return_intermediate = return_intermediate
         self.progress_hook = progress_hook
 
@@ -196,6 +215,8 @@ class Pretrained(FeatureExtraction):
                                  self.chunks_,
                                  batch_size=self.batch_size,
                                  device=self.device,
+                                 skip_average=self.skip_average,
+                                 postprocess=self.postprocess,
                                  return_intermediate=self.return_intermediate,
                                  progress_hook=self.progress_hook).data
 
