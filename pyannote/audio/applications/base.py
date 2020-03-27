@@ -552,9 +552,16 @@ def apply_pretrained(validate_dir: Path,
     if Pipeline is None:
         return
 
+    # do not proceed with the full pipeline when its parameters cannot be loaded.
+    # this might happen when applying a model that has not been validated yet
+    try:
+        pipeline_params = pretrained.pipeline_params_
+    except AttributeError as e:
+        return
+
     # instantiate pipeline
     pipeline = Pipeline(scores=output_dir)
-    pipeline.instantiate(pretrained.pipeline_params_)
+    pipeline.instantiate(pipeline_params)
 
     # load pipeline metric (when available)
     try:
