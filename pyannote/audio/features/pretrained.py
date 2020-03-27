@@ -195,13 +195,13 @@ class Pretrained(FeatureExtraction):
 
         resolution = self.model_.resolution
 
-        # model returns one vector per input frame
-        if resolution == RESOLUTION_FRAME:
-            resolution = self.feature_extraction_.sliding_window
-
         # model returns one vector per input window
-        if resolution == RESOLUTION_CHUNK:
+        if self.skip_average or resolution == RESOLUTION_CHUNK:
             resolution = self.chunks_
+
+        # model returns one vector per input frame
+        elif resolution == RESOLUTION_FRAME:
+            resolution = self.feature_extraction_.sliding_window
 
         return resolution
 
