@@ -483,6 +483,7 @@ def apply_pretrained(validate_dir: Path,
                      device: Optional[torch.device] = None,
                      batch_size: int = 32,
                      pretrained: Optional[str] = None,
+                     skip_average: bool = None,
                      Pipeline: type = None,
                      **kwargs):
     """Apply pre-trained model
@@ -506,7 +507,8 @@ def apply_pretrained(validate_dir: Path,
                                 duration=duration,
                                 step=step,
                                 batch_size=batch_size,
-                                device=device)
+                                device=device,
+                                skip_average=skip_average)
         output_dir = validate_dir / 'apply' / f'{pretrained.epoch_:04d}'
     else:
 

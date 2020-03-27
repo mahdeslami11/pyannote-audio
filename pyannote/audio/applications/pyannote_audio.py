@@ -436,4 +436,7 @@ def main():
 
         params['pretrained'] = arg['--pretrained']
 
+        if arg['dia']:
+            params['skip_average'] = True
+
         apply_pretrained(validate_dir, protocol, **params)
