@@ -258,6 +258,7 @@ class Model(Module):
                     sliding_window: SlidingWindow,
                     batch_size: int = 32,
                     device: torch.device = None,
+                    skip_average: bool = None,
                     return_intermediate = None,
                     progress_hook = None) -> SlidingWindowFeature:
         """Slide and apply model on features
@@ -276,11 +277,21 @@ class Model(Module):
             Experimental. Not documented yet.
         progress_hook : callable
             Experimental. Not documented yet.
+        skip_average : bool, optional
+            For sequence labeling tasks (i.e. when model outputs a sequence of
+            scores), each time step may be scored by several consecutive
+            locations of the sliding window. Default behavior is to average
+            those multiple scores. Set `skip_average` to False to return raw
+            scores without averaging them.
         """
 
         if device is None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
         device = torch.device(device)
+
+        if skip_average is None:
+            skip_average = (self.resolution == RESOLUTION_CHUNK) or \
+                           (return_intermediate is not None)
 
         try:
             dimension = self.dimension
@@ -331,8 +342,7 @@ class Model(Module):
 
         fX = np.vstack(fX)
 
-        if (self.resolution == RESOLUTION_CHUNK) or \
-           (return_intermediate is not None):
+        if skip_average:
             return SlidingWindowFeature(fX, sliding_window)
 
         # get total number of frames (based on last window end time)
