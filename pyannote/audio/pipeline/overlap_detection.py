@@ -76,6 +76,7 @@ class OverlapDetection(Pipeline):
     """
 
     def __init__(self, scores: Wrappable = None,
+                       precision: float = 0.9,
                        fscore: bool = False):
         super().__init__()
 
