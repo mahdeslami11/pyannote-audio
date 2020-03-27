@@ -34,6 +34,7 @@ try:
     from typing import Literal
 except ImportError as e:
     from typing_extensions import Literal
+from typing import Callable
 from pyannote.core import SlidingWindow
 from pyannote.core import SlidingWindowFeature
 
@@ -259,6 +260,7 @@ class Model(Module):
                     batch_size: int = 32,
                     device: torch.device = None,
                     skip_average: bool = None,
+                    postprocess: Callable[[np.ndarray], np.ndarray] = None,
                     return_intermediate = None,
                     progress_hook = None) -> SlidingWindowFeature:
         """Slide and apply model on features
@@ -273,16 +275,20 @@ class Model(Module):
             Batch size. Defaults to 32. Use large batch for faster inference.
         device : torch.device
             Device used for inference.
-        return_intermediate :
-            Experimental. Not documented yet.
-        progress_hook : callable
-            Experimental. Not documented yet.
         skip_average : bool, optional
             For sequence labeling tasks (i.e. when model outputs a sequence of
             scores), each time step may be scored by several consecutive
             locations of the sliding window. Default behavior is to average
             those multiple scores. Set `skip_average` to False to return raw
             scores without averaging them.
+        postprocess : callable, optional
+            Function applied to the predictions of the model, for each batch
+            separately. Expects a (batch_size, n_samples, n_features) np.ndarray
+            as input, and returns a (batch_size, n_samples, any) np.ndarray.
+        return_intermediate :
+            Experimental. Not documented yet.
+        progress_hook : callable
+            Experimental. Not documented yet.
         """
 
         if device is None:
@@ -334,7 +340,11 @@ class Model(Module):
             # FIXME: fix support for return_intermediate
             tfX = self(tX, return_intermediate=return_intermediate)
 
-            fX.append(tfX.detach().to('cpu').numpy())
+            tfX_npy = tfX.detach().to('cpu').numpy()
+            if postprocess is not None:
+                tfX_npy = postprocess(tfX_npy)
+
+            fX.append(tfX_npy)
 
             if progress_hook is not None:
                 n_done += len(batch['X'])
