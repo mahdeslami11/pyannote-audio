@@ -25,3 +25,7 @@
 
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
+
+"""
+# Frame-based audio labeling
+"""

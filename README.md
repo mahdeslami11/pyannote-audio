@@ -1,67 +1,65 @@
-# Announcement
-Open [Phd/postdoc positions](https://mycore.core-cloud.net/public.php?service=files&t=2b5f5a79d24ac81c3b3c371fcd80734b) at [LIMSI](https://www.limsi.fr/en/) combining machine learning, NLP, speech processing, and computer vision. 
+# `pyannote-audio` | neural building blocks for speaker diarization
 
-# pyannote-audio
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pyannote/pyannote-audio/blob/develop/notebooks/introduction_to_pyannote_audio_speaker_diarization_toolkit.ipynb)
 
-Neural building blocks for speaker diarization
+`pyannote.audio` is an open-source toolkit written in Python for speaker diarization. Based on [PyTorch](pytorch.org) machine learning framework, it provides a set of trainable end-to-end neural building blocks that can be combined and jointly optimized to build speaker diarization pipelines:
+
+<p align="center"> 
+<img src="pipeline.png">
+</p>
+
+`pyannote.audio` also comes with [pretrained models](https://github.com/pyannote/pyannote-audio-hub) covering a wide range of domains for voice activity detection, speaker change detection, overlapped speech detection, and speaker embedding:
+
+![segmentation](tutorials/pretrained/model/segmentation.png)
 
 ## Installation
 
+`pyannote.audio` only supports Python 3.7 (or later) on Linux and macOS. It might work on Windows but there is no garantee that it does, nor any plan to add official support for Windows.
+
+The instructions below assume that `pytorch` has been installed using the instructions from https://pytorch.org.
+
+Until a proper release of `pyannote.audio` is available on `PyPI`, it must be installed from source using the develop branch of the official repository:
+
 ```bash
-$ conda create --name pyannote python=3.6 anaconda
-$ source activate pyannote
-$ conda install -c conda-forge yaafe
-$ conda install cmake
-$ pip install -U pip setuptools
-$ pip install --process-dependency-links pyannote.audio
+$ git clone https://github.com/pyannote/pyannote-audio.git
+$ cd pyannote-audio
+$ git checkout develop
+$ pip install .
 ```
-
-## Citation
-
-If you use `pyannote.audio` in your research, please use the following citations.
-
-  - Speech  activity and speaker change detection
-    ```bibtex
-    @inproceedings{Yin2017,
-      Author = {Ruiqing Yin and Herv\'e Bredin and Claude Barras},
-      Title = {{Speaker Change Detection in Broadcast TV using Bidirectional Long Short-Term Memory Networks}},
-      Booktitle = {{18th Annual Conference of the International Speech Communication Association, Interspeech 2017}},
-      Year = {2017},
-      Month = {August},
-      Address = {Stockholm, Sweden},
-      Url = {https://github.com/yinruiqing/change_detection}
-    }
-    ```
-  - Speaker embedding
-    ```bibtex
-    @inproceedings{Bredin2017,
-        author = {Herv\'{e} Bredin},
-        title = {{TristouNet: Triplet Loss for Speaker Turn Embedding}},
-        booktitle = {42nd IEEE International Conference on Acoustics, Speech and Signal Processing, ICASSP 2017},
-        year = {2017},
-        url = {http://arxiv.org/abs/1609.04301},
-    }
-    ```
-  - Speaker diarization pipeline
-    ```bibtex
-    @inproceedings{Yin2018,
-      Author = {Ruiqing Yin and Herv\'e Bredin and Claude Barras},
-      Title = {{Neural Speech Turn Segmentation and Affinity Propagation for Speaker Diarization}},
-      Booktitle = {{19th Annual Conference of the International Speech Communication Association, Interspeech 2018}},
-      Year = {2018},
-      Month = {September},
-      Address = {Hyderabad, India},
-    }
-    ```
-
-## Tutorials
-
- * [Feature extraction](tutorials/feature-extraction)
- * [LSTM-based speech activity detection](tutorials/speech-activity-detection)
- * [LSTM-based speaker change detection](tutorials/change-detection)
- * [_TristouNet_ neural speech turn embedding](tutorials/speaker-embedding)
- * [Speaker diarization pipeline](tutorials/pipeline)
 
 ## Documentation
 
-The API is unfortunately not documented yet.
+Part of the API is described in [this](tutorials/pretrained/model) tutorial.  
+
+Documentation is a work in progress and is scheduled to be ready by end of April 2020.
+
+## Tutorials
+
+* Use [pretrained](https://github.com/pyannote/pyannote-audio-hub) models and pipelines
+  * [Apply pretrained pipelines on your own data](tutorials/pretrained/pipeline)
+  * [Apply pretrained models on your own data](tutorials/pretrained/model)
+* [Prepare your own dataset for training or fine-tuning](tutorials/data_preparation)
+* [Fine-tune pretrained models to your own data](tutorials/finetune)
+* Train models on your own data
+  * [Speech activity detection](tutorials/models/speech_activity_detection)
+  * [Speaker change detection](tutorials/models/speaker_change_detection)
+  * [Overlapped speech detection](tutorials/models/overlap_detection)
+  * [Speaker embedding](tutorials/models/speaker_embedding)
+* Tune pipelines on your own data
+  * [Speech activity detection pipeline](tutorials/pipelines/speech_activity_detection)
+  * [Speaker diarization pipeline](tutorials/pipelines/speaker_diarization)
+
+## Citation
+
+If you use `pyannote.audio` please use the following citation
+
+```bibtex
+@inproceedings{Bredin2020,
+  Title = {{pyannote.audio: neural building blocks for speaker diarization}},
+  Author = {{Bredin}, Herv{\'e} and {Yin}, Ruiqing and {Coria}, Juan Manuel and {Gelly}, Gregory and {Korshunov}, Pavel and {Lavechin}, Marvin and {Fustes}, Diego and {Titeux}, Hadrien and {Bouaziz}, Wassim and {Gill}, Marie-Philippe},
+  Booktitle = {ICASSP 2020, IEEE International Conference on Acoustics, Speech, and Signal Processing},
+  Address = {Barcelona, Spain},
+  Month = {May},
+  Year = {2020},
+}
+```

@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2018 CNRS
+# Copyright (c) 2018-2020 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -26,14 +26,45 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
+"""Speech activity detection pipelines"""
+
+from typing import Union
 import numpy as np
-from pyannote.core import Timeline
+import warnings
+
+from pyannote.pipeline import Pipeline
+from pyannote.pipeline.parameter import Uniform
+
+from pyannote.core import Annotation
 from pyannote.core import SlidingWindowFeature
+
+from pyannote.audio.utils.signal import Binarize
 from pyannote.audio.features import Precomputed
+
 from pyannote.metrics.detection import DetectionErrorRate
-from pyannote.audio.signal import Binarize
-from .base import Pipeline
-import chocolate
+from pyannote.metrics.detection import DetectionPrecisionRecallFMeasure
+from pyannote.audio.features.wrapper import Wrapper, Wrappable
+
+
+class OracleSpeechActivityDetection(Pipeline):
+    """Oracle speech activity detection"""
+
+    def __call__(self, current_file: dict) -> Annotation:
+        """Return groundtruth speech activity detection
+
+        Parameter
+        ---------
+        current_file : `dict`
+            Dictionary as provided by `pyannote.database`.
+
+        Returns
+        -------
+        hypothesis : `pyannote.core.Annotation`
+            Speech regions
+        """
+
+        speech = current_file['annotation'].get_timeline().support()
+        return speech.to_annotation(generator='string', modality='speech')
 
 
 class SpeechActivityDetection(Pipeline):
@@ -41,101 +72,103 @@ class SpeechActivityDetection(Pipeline):
 
     Parameters
     ----------
-    precomputed : str
-        Path to precomputed SAD scores.
+    scores : Wrappable, optional
+        Describes how raw speech activity detection scores should be obtained.
+        See pyannote.audio.features.wrapper.Wrapper documentation for details.
+        Defaults to "@sad_scores" that indicates that protocol files provide
+        the scores in the "sad_scores" key.
+    fscore : bool, optional
+        Optimize (precision/recall) fscore. Defaults to optimizing detection
+        error rate.
+
+    Hyper-parameters
+    ----------------
+    onset, offset : `float`
+        Onset/offset detection thresholds
+    min_duration_on, min_duration_off : `float`
+        Minimum duration in either state (speech or not)
+    pad_onset, pad_offset : `float`
+        Padding duration.
     """
 
-    def __init__(self, precomputed=None, **kwargs):
-        super(SpeechActivityDetection, self).__init__()
-        self.precomputed = precomputed
+    def __init__(self, scores: Wrappable = None,
+                       fscore: bool = False):
+        super().__init__()
 
-        self.precomputed_ = Precomputed(self.precomputed)
-        self.has_overlap_ = self.precomputed_.dimension() == 3
+        if scores is None:
+            scores = "@sad_scores"
+        self.scores = scores
+        self._scores = Wrapper(self.scores)
 
-        self.with_params(**kwargs)
+        self.fscore = fscore
 
-    def get_tune_space(self):
+        # hyper-parameters
+        self.onset = Uniform(0., 1.)
+        self.offset = Uniform(0., 1.)
+        self.min_duration_on = Uniform(0., 2.)
+        self.min_duration_off = Uniform(0., 2.)
+        self.pad_onset = Uniform(-1., 1.)
+        self.pad_offset = Uniform(-1., 1.)
 
-        space = {
-            'speech_onset': chocolate.uniform(0., 1.),
-            'speech_offset': chocolate.uniform(0., 1.),
-            'speech_min_duration_on': chocolate.uniform(0., 2.),
-            'speech_min_duration_off': chocolate.uniform(0., 2.),
-            'speech_pad_onset': chocolate.uniform(-1., 1.),
-            'speech_pad_offset': chocolate.uniform(-1., 1.)
-        }
+    def initialize(self):
+        """Initialize pipeline with current set of parameters"""
 
-        if self.has_overlap_:
-            space.update({
-                'overlap_onset': chocolate.uniform(0., 1.),
-                'overlap_offset': chocolate.uniform(0., 1.),
-                'overlap_min_duration_on': chocolate.uniform(0., 2.),
-                'overlap_min_duration_off': chocolate.uniform(0., 2.),
-                'overlap_pad_onset': chocolate.uniform(-1., 1.),
-                'overlap_pad_offset': chocolate.uniform(-1., 1.)
-            })
+        self._binarize = Binarize(
+            onset=self.onset,
+            offset=self.offset,
+            min_duration_on=self.min_duration_on,
+            min_duration_off=self.min_duration_off,
+            pad_onset=self.pad_onset,
+            pad_offset=self.pad_offset)
 
-        return space
+    def __call__(self, current_file: dict) -> Annotation:
+        """Apply speech activity detection
 
-    def get_tune_metric(self):
-        return DetectionErrorRate()
+        Parameters
+        ----------
+        current_file : `dict`
+            File as provided by a pyannote.database protocol. May contain a
+            'sad_scores' key providing precomputed scores.
 
-    def with_params(self, **params):
+        Returns
+        -------
+        speech : `pyannote.core.Annotation`
+            Speech regions.
+        """
 
-        # initialize speech/non-speech binarizer
-        speech_params = {
-            '_'.join(param.split('_')[1:]): value
-            for param, value in params.items()
-            if param.startswith('speech_')}
-        self.speech_binarize_ = Binarize(**speech_params)
-
-        # initialize overlap binarizer
-        if self.has_overlap_:
-            overlap_params = {
-                '_'.join(param.split('_')[1:]): value
-                for param, value in params.items()
-                if param.startswith('overlap_')}
-            self.overlap_binarize_ = Binarize(**overlap_params)
-
-        return self
-
-    def apply(self, current_file):
-
-        # extract precomputed scores
-        precomputed = self.precomputed_(current_file)
+        sad_scores = self._scores(current_file)
 
         # if this check has not been done yet, do it once and for all
         if not hasattr(self, "log_scale_"):
             # heuristic to determine whether scores are log-scaled
-            if np.nanmean(precomputed.data) < 0:
+            if np.nanmean(sad_scores.data) < 0:
                 self.log_scale_ = True
             else:
                 self.log_scale_ = False
 
-        data = np.exp(precomputed.data) if self.log_scale_ \
-               else precomputed.data
+        data = np.exp(sad_scores.data) if self.log_scale_ \
+               else sad_scores.data
 
         # speech vs. non-speech
-        speech_prob = SlidingWindowFeature(
-            1. - data[:, 0],
-            precomputed.sliding_window)
-        speech = self.speech_binarize_.apply(speech_prob)
-
-        if self.has_overlap_:
-
-            # overlap vs. non-overlap
-            overlap_prob = SlidingWindowFeature(
-                data[:, 2], precomputed.sliding_window)
-            overlap = self.overlap_binarize_.apply(overlap_prob)
-
-            # overlap speech can only happen in speech regions
-            overlap = overlap.crop(speech)
+        if data.shape[1] > 1:
+            speech_prob = SlidingWindowFeature(1. - data[:, 0], sad_scores.sliding_window)
         else:
-            # empty timeline
-            overlap = Timeline()
+            speech_prob = SlidingWindowFeature(data, sad_scores.sliding_window)
 
-        speech = speech.to_annotation(generator='string')
-        overlap = overlap.to_annotation(generator='int')
-        hypothesis = speech.update(overlap)
+        speech = self._binarize.apply(speech_prob)
 
-        return hypothesis
+        speech.uri = current_file['uri']
+        return speech.to_annotation(generator='string', modality='speech')
+
+
+    def get_metric(self, parallel=False) -> Union[DetectionErrorRate, DetectionPrecisionRecallFMeasure]:
+        """Return new instance of detection metric"""
+
+        if self.fscore:
+            return DetectionPrecisionRecallFMeasure(collar=0.0,
+                                                    skip_overlap=False,
+                                                    parallel=parallel)
+        else:
+            return  DetectionErrorRate(collar=0.0,
+                                       skip_overlap=False,
+                                       parallel=parallel)

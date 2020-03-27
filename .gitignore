@@ -62,8 +62,19 @@ target/
 .ipynb_checkpoints
 
 notebooks
-models
+
 experiments
 *~
 
-tutorials/feature-extraction/*/*npy
+*.npy
+*.pt
+*events.out.tfevents*
+*.csv
+
+# PyCharm
+.idea/
+
+gh-pages
+gh-pages.pub
+
+*.zip

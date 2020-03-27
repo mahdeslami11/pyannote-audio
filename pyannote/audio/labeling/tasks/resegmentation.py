@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2018 CNRS
+# Copyright (c) 2018-2020 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -28,20 +28,37 @@
 
 """Resegmentation"""
 
+from typing import Optional
+from typing import Type
+from typing import Iterable
+from typing import Dict
+from typing import Text
+import scipy.signal
+
 import torch
 import tempfile
-import collections
 import numpy as np
 from .base import LabelingTask
 from .base import LabelingTaskGenerator
+from pyannote.audio.train.task import Task, TaskType, TaskOutput
+from pyannote.core import Timeline
+from pyannote.core import Annotation
+from pyannote.core import SlidingWindow
+from pyannote.core import SlidingWindowFeature
 from pyannote.database.protocol import SpeakerDiarizationProtocol
-from pyannote.audio.labeling.models import StackedRNN
-from pyannote.audio.util import from_numpy
-from pyannote.database import get_unique_identifier
 from pyannote.database import get_annotated
-from pyannote.audio.labeling.extraction import SequenceLabeling
+from pyannote.core.utils.numpy import one_hot_decoding
+from pyannote.core.utils.numpy import one_hot_encoding
 from pyannote.audio.train.schedulers import ConstantScheduler
 from torch.optim import SGD
+from pathlib import Path
+from pyannote.audio.utils.signal import Binarize
+
+from pyannote.audio.features import FeatureExtraction
+from pyannote.database.protocol.protocol import ProtocolFile
+from pyannote.audio.train.model import Model
+from pyannote.audio.train.model import Resolution
+from pyannote.audio.train.model import Alignment
 
 
 class ResegmentationGenerator(LabelingTaskGenerator):
@@ -49,102 +66,60 @@ class ResegmentationGenerator(LabelingTaskGenerator):
 
     Parameters
     ----------
-    precomputed : `pyannote.audio.features.Precomputed`
-        Precomputed features
+    current_file : `ProtocolFile`
+    resolution : `pyannote.core.SlidingWindow`, optional
+        Override `feature_extraction.sliding_window`. This is useful for
+        models that include the feature extraction step (e.g. SincNet) and
+        therefore output a lower sample rate than that of the input.
+    alignment : {'center', 'loose', 'strict'}, optional
+        Which mode to use when cropping labels. This is useful for models that
+        include the feature extraction step (e.g. SincNet) and therefore use a
+        different cropping mode. Defaults to 'center'.
     duration : float, optional
-        Duration of sub-sequences. Defaults to 3.2s.
+        Duration of audio chunks. Defaults to 4s.
     batch_size : int, optional
         Batch size. Defaults to 32.
-    parallel : int, optional
-        Number of prefetching background generators. Defaults to 1.
-        Each generator will prefetch enough batches to cover a whole epoch.
-        Set `parallel` to 0 to not use background generators.
+    allow_overlap : bool, optional
+        Allow overlapping speakers. Defaults to False.
+        Does not really work for now...
+    mask : str, optional
+        When provided, current_file[mask] is used by the loss function to weigh
+        samples.
     """
 
-    def __init__(self, precomputed, **kwargs):
-        super(ResegmentationGenerator, self).__init__(
-            precomputed, exhaustive=True, shuffle=True, **kwargs)
+    def __init__(self,
+                 current_file: ProtocolFile,
+                 resolution: Optional[Resolution] = None,
+                 alignment: Optional[Alignment] = None,
+                 duration: float = 2,
+                 batch_size: int = 32,
+                 lock_speech: bool = False,
+                 allow_overlap: bool = False,
+                 mask: Text = None):
 
-    def postprocess_y(self, Y):
-        """Generate labels for resegmentation
+        self.current_file = current_file
+        self.allow_overlap = allow_overlap
+        self.lock_speech = lock_speech
 
-        Parameters
-        ----------
-        Y : (n_samples, n_speakers) numpy.ndarray
-            Discretized annotation returned by `pyannote.audio.util.to_numpy`.
-
-        Returns
-        -------
-        y : (n_samples, 1) numpy.ndarray
-
-        See also
-        --------
-        `pyannote.audio.util.to_numpy`
-        """
-
-        # +1 because...
-        y = np.argmax(Y, axis=1) + 1
-
-        # ... 0 is for non-speech
-        non_speech = np.sum(Y, axis=1) == 0
-        y[non_speech] = 0
-
-        return np.int64(y)[:, np.newaxis]
-
-
-class Resegmentation(LabelingTask):
-    """Resegmentation based on stacked recurrent neural network
-
-    Parameters
-    ----------
-    precomputed : `pyannote.audio.features.Precomputed`
-        Precomputed features
-    epochs : int, optional
-        (Self-)train for that many epochs. Defaults to 10.
-    ensemble : int, optional
-        Average output of last `ensemble` epochs. Defaults to no ensembling.
-    rnn : {'LSTM', 'GRU'}, optional
-        Defaults to 'LSTM'.
-    recurrent : list, optional
-        List of hidden dimensions of stacked recurrent layers. Defaults to
-        [16, ], i.e. one recurrent layer with hidden dimension of 16.
-    bidirectional : bool, optional
-        Use bidirectional recurrent layers. Defaults to False, i.e. use
-        mono-directional RNNs.
-    linear : list, optional
-        List of hidden dimensions of linear layers. Defaults to [16, ], i.e.
-        one linear layer with hidden dimension of 16.
-    """
-
-    def __init__(self, precomputed, epochs=10, ensemble=1, rnn='LSTM',
-                 recurrent=[16, ], bidirectional=True, linear=[16, ], **kwargs):
-        super(Resegmentation, self).__init__(**kwargs)
-        self.precomputed = precomputed
-        self.epochs = epochs
-        self.ensemble = ensemble
-
-        self.rnn = rnn
-        self.recurrent = recurrent
-        self.bidirectional = bidirectional
-        self.linear = linear
-
-    def get_batch_generator(self, precomputed):
-        return ResegmentationGenerator(
-            precomputed, duration=self.duration, per_epoch=self.per_epoch,
-            batch_size=self.batch_size, parallel=self.parallel)
+        super().__init__('@features',
+                         self.get_dummy_protocol(current_file),
+                         subset='train',
+                         resolution=resolution,
+                         alignment=alignment,
+                         duration=duration,
+                         batch_size=batch_size,
+                         mask=mask)
 
     @property
-    def n_classes(self):
-        if not hasattr(self, 'n_classes_'):
-            raise AttributeError('Call .apply() to set `n_classes` attribute')
-        return self.n_classes_
+    def resolution(self):
+        return self.current_file['features'].sliding_window
 
-    def get_dummy_protocol(self, current_file):
+    def get_dummy_protocol(self, current_file: ProtocolFile) -> SpeakerDiarizationProtocol:
         """Get dummy protocol containing only `current_file`
 
         Parameters
         ----------
-        current_file : pyannote.database dict
+        current_file : ProtocolFile
 
         Returns
         -------
@@ -167,152 +142,492 @@ class Resegmentation(LabelingTask):
 
         return DummyProtocol()
 
-    def _score(self, model, current_file, device=None):
-        """Apply current model on current file
+    def postprocess_y(self, Y: np.ndarray) -> np.ndarray:
+        """Generate labels for resegmentation
 
         Parameters
         ----------
-        model : nn.Module
-            Current state of the model.
-        current_file : pyannote.database dict
-            Current file.
-        device : torch.device
+        Y : (n_samples, n_speakers) numpy.ndarray
+            Discretized annotation returned by
+            `pyannote.core.utils.numpy.one_hot_encoding`.
 
         Returns
         -------
-        scores : SlidingWindowFeature
-            Sequence labeling scores.
+        y : (n_samples, 1) or (n_samples, n_speakers) numpy.ndarray
+            When allow_overlap is True, y has shape (n_samples, n_speakers)
+                * y[t, i] = 1 means speaker i is active
+            When allow_overlap is False, y has shape (n_samples, 1)
+                * y[t] = 0 indicates non-speech,
+                * y[t] = i + 1 indicates speaker i.
+
+        See also
+        --------
+        `pyannote.core.utils.numpy.one_hot_encoding`
         """
 
-        # initialize sequence labeling with model and features
-        sequence_labeling = SequenceLabeling(
-            model, self.precomputed, duration=self.duration,
-            step=.25*self.duration, batch_size=self.batch_size,
-            source='audio', device=device)
+        # when allowing overlap, multiple speakers can be active at once.
+        # hence, Y sticks to shape (n_samples, n_speakers)
+        if self.allow_overlap:
+            return Y
 
-        return sequence_labeling.apply(current_file)
+        # when overlap is not allowed, reshape Y to (n_samples, 1)
+        else:
 
-    def _decode(self, scores):
-        """Decoding
+            # if speech / non-speech status is locked
+            # there is no class for non-speech.
+            if self.lock_speech:
+                y = np.argmax(Y, axis=1)
+                return np.int64(y)[:, np.newaxis]
 
-        Parameters
-        ----------
-        scores : iterable of SlidingWindowFeature instances
-            Raw scores.
+            # otherwise, we add a non-speech class at index 0
+            else:
+
+                # +1 because...
+                y = np.argmax(Y, axis=1) + 1
+
+                # ... 0 is for non-speech
+                non_speech = np.sum(Y, axis=1) == 0
+                y[non_speech] = 0
+
+                return np.int64(y)[:, np.newaxis]
+
+    @property
+    def specifications(self) -> Dict:
+        """Task & sample specifications
 
         Returns
         -------
-        hypothesis : pyannote.core.Annotation
-            Decoded scores.
+        specs : `dict`
+            ['task'] (`pyannote.audio.train.Task`) : task
+            ['X']['dimension'] (`int`) : features dimension
+            ['y']['classes'] (`list`) : list of classes
         """
 
-        # get ensemble scores (average of last self.ensemble epochs)
-        avg_scores = sum(s.data for s in scores) / len(scores)
+        specs = {'X': {'dimension': self.current_file['features'].dimension}}
 
-        # TODO. replace argmax by Viterbi decoding
-        self.y_ = np.argmax(avg_scores, axis=1)
-        return from_numpy(self.y_, self.precomputed,
-                          labels=self.batch_generator_.labels)
+        if self.allow_overlap:
+            # when allowing overlap, multiple speakers can be active at the
+            # same time (hence multi-label classification task)
+            specs['task'] = Task(type=TaskType.MULTI_LABEL_CLASSIFICATION,
+                                 output=TaskOutput.SEQUENCE)
+            specs['y'] = {'classes': self.segment_labels_}
 
-    def apply_iter(self, current_file, hypothesis,
-                   partial=True, device=None,
-                   log_dir=None):
-        """Yield re-segmentation results for each epoch
+        else:
+            # when overlap is not allowed, only one speaker can be active at
+            # a particular time (hence: multi-class classification)
+            specs['task'] = Task(type=TaskType.MULTI_CLASS_CLASSIFICATION,
+                                 output=TaskOutput.SEQUENCE)
+
+            if self.lock_speech:
+                # when locking speech / non-speech status,
+                # there is no non-speech class
+                specs['y'] = {'classes': self.segment_labels_}
+            else:
+                # when speech / non-speech status can be updated,
+                # one must add a non-speech class
+                specs['y'] = {'classes': ['non_speech'] + self.segment_labels_}
+
+        # for key, classes in self.file_labels_.items():
+        #     specs[key] = {'classes': classes}
+
+        return specs
+
+
+class Resegmentation(LabelingTask):
+    """Re-segmentation
+
+    Parameters
+    ----------
+    feature_extraction : FeatureExtraction
+        Feature extraction.
+    Architecture : Model subclass
+    architecture_params : dict
+    epochs : `int`, optional
+        (Self-)train for that many epochs. Defaults to 5.
+    ensemble : `int`, optional
+        Average output of last `ensemble` epochs. Defaults to no ensembling.
+    duration : float, optional
+        Duration of audio chunks. Defaults to 2s.
+    step : `float`, optional
+        Ratio of audio chunk duration used as step between two consecutive
+        audio chunks. Defaults to 0.1.
+    batch_size : int, optional
+        Batch size. Defaults to 32.
+    device : `torch.device`, optional
+    lock_speech: `boolean`, optional
+        Keep speech/non-speech state unchanged. Defaults to False.
+    allow_overlap : bool, optional
+        Allow overlapping speakers. Defaults to False.
+    mask : str, optional
+        When provided, current_file[mask] is used by the loss function to weigh
+        samples.
+    """
+
+    def __init__(self, feature_extraction: FeatureExtraction,
+                 Architecture: Type[Model],
+                 architecture_params: dict,
+                 lock_speech: bool = False,
+                 epochs: int = 5,
+                 learning_rate: float = 0.1,
+                 ensemble: int = 1,
+                 duration: float = 2.0,
+                 step: float = 0.1,
+                 n_jobs: int = 1,
+                 device: torch.device = None,
+                 batch_size: int = 32,
+                 allow_overlap: bool = False,
+                 mask: Text = None):
+
+        self.feature_extraction = feature_extraction
+
+        self.Architecture = Architecture
+        self.architecture_params = architecture_params
+
+        self.epochs = epochs
+        self.learning_rate = learning_rate
+
+        self.ensemble = ensemble
+
+        self.n_jobs = n_jobs
+
+        self.lock_speech = lock_speech
+        self.allow_overlap = allow_overlap
+        self.mask = mask
+
+        if device is None:
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device_ = torch.device(device)
+
+        super().__init__(duration=duration,
+                         batch_size=batch_size,
+                         per_epoch=None,
+                         step=step)
+
+    def get_batch_generator(self, current_file: ProtocolFile) -> ResegmentationGenerator:
+        """Get batch generator for current file
 
         Parameters
         ----------
-        current_file : pyannote.database dict
-            Currently processed file
-        hypothesis : pyannote.core.Annotation
-            Input segmentation
-        partial : bool, optional
-            Set to False to only yield final re-segmentation.
-            Set to True to yield re-segmentation after each epoch.
-        device : torch.device, optional
-            Defaults to torch.device('cpu')
-        log_dir : str, optional
-            Path to log directory.
+        current_file : `dict`
+            Dictionary obtained by iterating over a subset of a
+            `pyannote.database.Protocol` instance.
 
-        Yields
-        ------
-        resegmented : pyannote.core.Annotation
-            Resegmentation results after each epoch.
+        Returns
+        -------
+        batch_generator : `ResegmentationGenerator`
         """
 
-        device = torch.device('cpu') if device is None else device
+        resolution = self.Architecture.get_resolution(
+            **self.architecture_params)
+        alignment = self.Architecture.get_alignment(
+            **self.architecture_params)
 
+        return ResegmentationGenerator(current_file,
+                                       resolution=resolution,
+                                       alignment=alignment,
+                                       duration=self.duration,
+                                       batch_size=self.batch_size,
+                                       lock_speech=self.lock_speech,
+                                       allow_overlap=self.allow_overlap,
+                                       mask=self.mask)
+
+    def _decode(self, current_file: ProtocolFile,
+                      hypothesis: Annotation,
+                      scores: SlidingWindowFeature,
+                      labels: Iterable) -> Annotation:
+
+        N, K = scores.data.shape
+
+        if self.allow_overlap:
+            active_speakers = scores.data > 0.5
+
+        else:
+            if self.lock_speech:
+                active_speakers = np.argmax(scores.data, axis=1) + 1
+
+            else:
+                active_speakers = np.argmax(scores.data, axis=1)
+
+        # reconstruct annotation
+        new_hypothesis = one_hot_decoding(
+            active_speakers, scores.sliding_window, labels=labels)
+
+        new_hypothesis.uri = hypothesis.uri
+
+        if self.lock_speech:
+            speech = hypothesis.get_timeline().support()
+            new_hypothesis = new_hypothesis.crop(speech)
+
+        return new_hypothesis
+
+    def __call__(self, current_file: ProtocolFile,
+                       hypothesis: Annotation,
+                       debugging: bool = False) -> Annotation:
+        """Apply resegmentation using self-supervised sequence labeling
+
+        Parameters
+        ----------
+        current_file : ProtocolFile
+            Dictionary obtained by iterating over a subset of a
+            `pyannote.database.Protocol` instance.
+        hypothesis : Annotation, optional
+            Current diarization output. Defaults to current_file['hypothesis'].
+
+        Returns
+        -------
+        new_hypothesis : Annotation
+            Updated diarization output.
+        """
+
+        # make sure current_file is not modified
         current_file = dict(current_file)
+
         current_file['annotation'] = hypothesis
+        current_file['features'] = self.feature_extraction(current_file)
 
-        # set `per_epoch` attribute to current file annotated duration
-        self.per_epoch = get_annotated(current_file).duration()
+        debug = {}
 
-        # number of speakers + 1 for non-speech
-        self.n_classes_ = len(hypothesis.labels()) + 1
+        # when locking speech / non-speech status, we add a (or update
+        # existing) mask so that the loss is not computed on non-speech regions
+        if self.lock_speech:
 
-        model = StackedRNN(self.precomputed.dimension(), self.n_classes,
-                           rnn=self.rnn, recurrent=self.recurrent,
-                           linear=self.linear,
-                           bidirectional=self.bidirectional,
-                           logsoftmax=True)
+            encoded, _ = one_hot_encoding(hypothesis,
+                                          get_annotated(current_file),
+                                          current_file['features'].sliding_window,
+                                          mode='center')
+            speech = 1. * (np.sum(encoded, axis=1, keepdims=True) > 0)
+            current_file['speech'] = speech
+            debug['speech'] = speech
 
-        # initialize dummy protocol that has only one file
-        protocol = self.get_dummy_protocol(current_file)
+            if self.mask is None:
+                self.mask = 'speech'
 
-        if log_dir is None:
-            log_dir = tempfile.mkdtemp()
-        uri = get_unique_identifier(current_file)
-        log_dir = 'f{log_dir}/{uri}'
+            else:
+                mask = current_file[self.mask]
+                current_file[self.mask] = mask * speech.align(mask)
 
-        self.scores_ = collections.deque([], maxlen=self.ensemble)
+            debug['mask'] = current_file[self.mask]
 
-        iterations = self.fit_iter(
-            model, self.precomputed, protocol, subset='train',
-            restart=0, epochs=self.epochs, learning_rate='auto',
-            get_optimizer=SGD, get_scheduler=ConstantScheduler,
-            log_dir=log_dir, device=device)
+        batch_generator = self.get_batch_generator(current_file)
 
-        for i, iteration in enumerate(iterations):
+        model = self.Architecture(batch_generator.specifications,
+                                  **self.architecture_params)
 
-            # if 'partial', compute scores for every iteration
-            # if not, compute scores for last 'ensemble' iterations only
-            if partial or (i + 1 > self.epochs - self.ensemble):
-                iteration_score = self._score(iteration['model'],
-                                              current_file, device=device)
-                self.scores_.append(iteration_score)
+        chunks = SlidingWindow(duration=self.duration,
+                               step=self.step * self.duration)
 
-            # if 'partial', generate (and yield) hypothesis
-            if partial:
-                hypothesis = self._decode(self.scores_)
-                yield hypothesis
+        # create a temporary directory to store models and log files
+        # it is removed automatically before returning.
+        with tempfile.TemporaryDirectory() as train_dir:
 
-        # generate (and yield) final hypothesis in case it's not already
-        if not partial:
-            hypothesis = self._decode(self.scores_)
-            yield hypothesis
+            epochs = self.fit_iter(model,
+                                   batch_generator,
+                                   warm_start=0,
+                                   epochs=self.epochs,
+                                   get_optimizer=SGD,
+                                   scheduler=ConstantScheduler(),
+                                   learning_rate=self.learning_rate,
+                                   train_dir=Path(train_dir),
+                                   verbosity=1,
+                                   device=self.device,
+                                   callbacks=None,
+                                   n_jobs=self.n_jobs)
 
-    def apply(self, current_file, hypothesis, device=None, log_dir=None):
-        """Apply re-segmentation
+            scores = []
+            for i, current_model in enumerate(epochs):
 
-        Parameters
-        ----------
-        current_file : pyannote.database dict
-            Currently processed file
-        hypothesis : pyannote.core.Annotation
-            Input segmentation
-        device : torch.device, optional
-            Defaults to torch.device('cpu')
-        log_dir : str, optional
-            Path to log directory.
+                # do not compute scores that are not used in later ensembling
+                # simply jump to next training epoch (except when debugging)
+                if not debugging and i < self.epochs - self.ensemble:
+                    continue
 
-        Returns
-        -------
-        resegmented : pyannote.core.Annotation
-            Resegmentation result
-        """
+                current_model.eval()
 
-        for hypothesis in self.apply_iter(current_file, hypothesis,
-                                          partial=False, device=device):
-            pass
+                scores.append(current_model.slide(
+                    current_file['features'],
+                    chunks,
+                    batch_size=self.batch_size,
+                    device=self.device,
+                    return_intermediate=None,
+                    progress_hook=None))
+                current_model.train()
 
-        return hypothesis
+        debug['scores'] = scores
+
+        # ensemble scores
+        scores = SlidingWindowFeature(
+            np.mean([s.data for s in scores[-self.ensemble:]], axis=0),
+            scores[-1].sliding_window)
+        debug['final_scores'] = scores
+
+        labels = batch_generator.specifications['y']['classes']
+        if not self.lock_speech:
+            labels = labels[1:]
+
+        debug['labels'] = labels
+
+        decoded = self._decode(current_file,
+                               hypothesis,
+                               scores,
+                               labels)
+
+        decoded.debug = debug
+        return decoded
+
+
+class ResegmentationWithOverlap(Resegmentation):
+    """Re-segmentation with overlap
+
+    Parameters
+    ----------
+    feature_extraction : FeatureExtraction
+        Feature extraction.
+    Architecture : Model subclass
+    architecture_params : dict
+    overlap_threshold : `float`, optional
+        Defaults to 0.5.
+    lock_speech: `boolean`, optional
+        Keep speech/non-speech state unchanged. Defaults to False.
+    epochs : `int`, optional
+        (Self-)train for that many epochs. Defaults to 5.
+    ensemble : `int`, optional
+        Average output of last `ensemble` epochs. Defaults to no ensembling.
+    duration : float, optional
+        Duration of audio chunks. Defaults to 2s.
+    step : `float`, optional
+        Ratio of audio chunk duration used as step between two consecutive
+        audio chunks. Defaults to 0.1.
+    batch_size : int, optional
+        Batch size. Defaults to 32.
+    device : `torch.device`, optional
+    mask : str, optional
+        When provided, current_file[mask] is used by the loss function to weigh
+        samples.
+    """
+
+    def __init__(self,
+                 feature_extraction: FeatureExtraction,
+                 Architecture: Type[Model],
+                 architecture_params: dict,
+                 lock_speech: bool = False,
+                 overlap_threshold: float = 0.5,
+                 epochs: int = 5,
+                 learning_rate: float = 0.1,
+                 ensemble: int = 1,
+                 duration: float = 2.0,
+                 step: float = 0.1,
+                 n_jobs: int = 1,
+                 device: torch.device = None,
+                 batch_size: int = 32,
+                 mask: Text = None):
+
+        super().__init__(feature_extraction,
+                         Architecture,
+                         architecture_params,
+                         lock_speech=lock_speech,
+                         epochs=epochs,
+                         learning_rate=learning_rate,
+                         ensemble=ensemble,
+                         duration=duration,
+                         step=step,
+                         n_jobs=n_jobs,
+                         device=device,
+                         batch_size=batch_size,
+                         mask=mask)
+
+        self.overlap_threshold = overlap_threshold
+        self.binarizer_ = Binarize(onset=self.overlap_threshold,
+                                   offset=self.overlap_threshold,
+                                   scale='absolute',
+                                   log_scale=True)
+
+    def _decode(self, current_file: ProtocolFile,
+                      hypothesis: Annotation,
+                      scores: SlidingWindowFeature,
+                      labels: Iterable) -> Annotation:
+
+        # obtain overlapped speech regions
+        overlap = self.binarizer_.apply(current_file['overlap'], dimension=1)
+
+        frames = scores.sliding_window
+        N, K = scores.data.shape
+
+        if self.lock_speech:
+
+            # K = 1 <~~> only non-speech
+            # K = 2 <~~> just one speaker
+            if K < 3:
+                return hypothesis
+
+            # sequence of two most likely speaker indices
+            # (even when non-speech is in fact the most likely class)
+            best_speakers_indices = np.argsort(
+                -scores.data[:, 1:], axis=1)[:, :2]
+
+            active_speakers = np.zeros((N, K-1), dtype=np.int64)
+
+            # start by assigning most likely speaker...
+            for t, k in enumerate(best_speakers_indices[:, 0]):
+                active_speakers[t, k] = 1
+
+            # ... then add second most likely speaker in overlap regions
+            T = frames.crop(overlap, mode='strict')
+
+            # because overlap may use a different feature extraction step
+            # it might happen that T contains indices slightly large than
+            # the actual number of frames. the line below remove any such
+            # indices.
+            T = T[T < N]
+
+            # mark second most likely speaker as active
+            active_speakers[T, best_speakers_indices[T, 1]] = 1
+
+            # reconstruct annotation
+            new_hypothesis = one_hot_decoding(
+                active_speakers, frames, labels=labels)
+
+            # revert non-speech regions back to original
+            speech = hypothesis.get_timeline().support()
+            new_hypothesis = new_hypothesis.crop(speech)
+
+        else:
+
+            # K = 1 <~~> only non-speech
+            if K < 2:
+                return hypothesis
+
+            # sequence of two most likely class indices
+            # sequence of two most likely class indices
+            # (including 0=non-speech)
+            best_speakers_indices = np.argsort(
+                -scores.data, axis=1)[:, :2]
+
+            active_speakers = np.zeros((N, K-1), dtype=np.int64)
+
+            # start by assigning the most likely speaker...
+            for t, k in enumerate(best_speakers_indices[:, 0]):
+                # k = 0 is for non-speech
+                if k > 0:
+                    active_speakers[t, k-1] = 1
+
+            # ... then add second most likely speaker in overlap regions
+            T = frames.crop(overlap, mode='strict')
+
+            # because overlap may use a different feature extraction step
+            # it might happen that T contains indices slightly large than
+            # the actual number of frames. the line below remove any such
+            # indices.
+            T = T[T < N]
+
+            # remove timesteps where second most likely class is non-speech
+            T = T[best_speakers_indices[T, 1] > 0]
+
+            # mark second most likely speaker as active
+            active_speakers[T, best_speakers_indices[T, 1] - 1] = 1
+
+            # reconstruct annotation
+            new_hypothesis = one_hot_decoding(
+                active_speakers, frames, labels=labels)
+
+        new_hypothesis.uri = hypothesis.uri
+        return new_hypothesis

@@ -30,8 +30,8 @@
 Feature extraction
 
 Usage:
-  pyannote-speech-feature [--robust --parallel --database=<db.yml>] <experiment_dir> <database.task.protocol>
-  pyannote-speech-feature check [--database=<db.yml>] <experiment_dir> <database.task.protocol>
+  pyannote-speech-feature [--robust --parallel --database=<database.yml>] <experiment_dir> <database.task.protocol>
+  pyannote-speech-feature check [--database=<database.yml>] <experiment_dir> <database.task.protocol>
   pyannote-speech-feature -h | --help
   pyannote-speech-feature --version
 
@@ -41,17 +41,11 @@ Options:
                              in this directory. See "Configuration file"
                              section below for more details.
   <database.task.protocol>   Set evaluation protocol (e.g. "Etape.SpeakerDiarization.TV")
-  --database=<db.yml>        Path to database configuration file.
-                             [default: ~/.pyannote/db.yml]
+  --database=<database.yml>  Path to pyannote.database configuration file.
   --robust                   When provided, skip files for which feature extraction fails.
   --parallel                 When provided, process files in parallel.
   -h --help                  Show this screen.
   --version                  Show version.
-
-Database configuration file:
-    The database configuration provides details as to where actual files are
-    stored. See `pyannote.database.util.FileFinder` docstring for more
-    information on the expected format.
 
 Configuration file:
     The configuration of each experiment is described in a file called
@@ -60,7 +54,7 @@ Configuration file:
 
     ................... <experiment_dir>/config.yml ...................
     feature_extraction:
-       name: YaafeMFCC
+       name: LibrosaMFCC
        params:
           e: False                   # this experiments relies
           De: True                   # on 11 MFCC coefficients
@@ -81,9 +75,11 @@ from pyannote.database import FileFinder
 from pyannote.database import get_unique_identifier
 from pyannote.database import get_protocol
 
-from pyannote.audio.features.utils import Precomputed
+from pyannote.core.utils.helper import get_class_by_name
+
+from pyannote.audio.features import Precomputed
 from pyannote.audio.features.utils import get_audio_duration
-from pyannote.audio.features.utils import PyannoteFeatureExtractionError
+from pyannote.audio.features.precomputed import PyannoteFeatureExtractionError
 
 from multiprocessing import cpu_count, Pool
 
@@ -93,20 +89,18 @@ def init_feature_extraction(experiment_dir):
     # load configuration file
     config_yml = experiment_dir + '/config.yml'
     with open(config_yml, 'r') as fp:
-        config = yaml.load(fp)
+        config = yaml.load(fp, Loader=yaml.SafeLoader)
 
-    feature_extraction_name = config['feature_extraction']['name']
-    features = __import__('pyannote.audio.features',
-                          fromlist=[feature_extraction_name])
-    FeatureExtraction = getattr(features, feature_extraction_name)
+    FeatureExtraction = get_class_by_name(
+        config['feature_extraction']['name'],
+        default_module_name='pyannote.audio.features')
     feature_extraction = FeatureExtraction(
         **config['feature_extraction'].get('params', {}))
 
     return feature_extraction
 
 def process_current_file(current_file, file_finder=None, precomputed=None,
-                         feature_extraction=None, normalization=None,
-                         robust=False):
+                         feature_extraction=None, robust=False):
 
     try:
         current_file['audio'] = file_finder(current_file)
@@ -135,9 +129,6 @@ def process_current_file(current_file, file_finder=None, precomputed=None,
         msg = 'Feature extraction returned NaNs for file "{uri}".'
         return msg.format(uri=uri)
 
-    if normalization is not None:
-        features = normalization(features)
-
     precomputed.dump(current_file, features)
 
     return
@@ -145,7 +136,7 @@ def process_current_file(current_file, file_finder=None, precomputed=None,
 
 def helper_extract(current_file, file_finder=None, experiment_dir=None,
                    config_yml=None, feature_extraction=None,
-                   normalization=None, robust=False):
+                   robust=False):
 
     if feature_extraction is None:
         feature_extraction = init_feature_extraction(experiment_dir)
@@ -154,7 +145,6 @@ def helper_extract(current_file, file_finder=None, experiment_dir=None,
     return process_current_file(current_file, file_finder=file_finder,
                                 precomputed=precomputed,
                                 feature_extraction=feature_extraction,
-                                normalization=normalization,
                                 robust=robust)
 
 def extract(protocol_name, file_finder, experiment_dir,
@@ -165,27 +155,16 @@ def extract(protocol_name, file_finder, experiment_dir,
     # load configuration file
     config_yml = experiment_dir + '/config.yml'
     with open(config_yml, 'r') as fp:
-        config = yaml.load(fp)
+        config = yaml.load(fp, Loader=yaml.SafeLoader)
 
-    feature_extraction_name = config['feature_extraction']['name']
-    features = __import__('pyannote.audio.features',
-                          fromlist=[feature_extraction_name])
-    FeatureExtraction = getattr(features, feature_extraction_name)
+    FeatureExtraction = get_class_by_name(
+        config['feature_extraction']['name'],
+        default_module_name='pyannote.audio.features')
     feature_extraction = FeatureExtraction(
         **config['feature_extraction'].get('params', {}))
 
-    sliding_window = feature_extraction.sliding_window()
-    dimension = feature_extraction.dimension()
-
-    if 'normalization' in config:
-        normalization_name = config['normalization']['name']
-        normalization_module = __import__('pyannote.audio.features.normalization',
-                                   fromlist=[normalization_name])
-        Normalization = getattr(normalization_module, normalization_name)
-        normalization = Normalization(
-            **config['normalization'].get('params', {}))
-    else:
-        normalization = None
+    sliding_window = feature_extraction.sliding_window
+    dimension = feature_extraction.dimension
 
     # create metadata file at root that contains
     # sliding window and dimension information
@@ -200,7 +179,6 @@ def extract(protocol_name, file_finder, experiment_dir,
                                         file_finder=file_finder,
                                         experiment_dir=experiment_dir,
                                         config_yml=config_yml,
-                                        normalization=normalization,
                                         robust=robust)
 
         n_jobs = cpu_count()
@@ -214,13 +192,11 @@ def extract(protocol_name, file_finder, experiment_dir,
                                         file_finder=file_finder,
                                         experiment_dir=experiment_dir,
                                         feature_extraction=feature_extraction,
-                                        normalization=normalization,
                                         robust=robust)
         imap = map
 
 
-    for result in imap(extract_one, FileFinder.protocol_file_iter(
-        protocol, extra_keys=['audio'])):
+    for result in imap(extract_one, protocol.files()):
         if result is None:
             continue
         print(result)
@@ -270,8 +246,8 @@ def main():
 
     arguments = docopt(__doc__, version='Feature extraction')
 
-    db_yml = os.path.expanduser(arguments['--database'])
-    file_finder = FileFinder(db_yml)
+    db_yml = arguments['--database']
+    file_finder = FileFinder(config_yml=db_yml)
 
     protocol_name = arguments['<database.task.protocol>']
     experiment_dir = arguments['<experiment_dir>']

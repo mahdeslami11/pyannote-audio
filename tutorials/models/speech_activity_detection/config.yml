@@ -1,0 +1,50 @@
+# A speech activity detection model is trained.
+# Here, training relies on 2s-long audio chunks,
+# batches of 64 audio chunks, and saves model to
+# disk every one (1) day worth of audio.
+task:
+   name: SpeechActivityDetection
+   params:
+      duration: 2.0
+      batch_size: 64
+      per_epoch: 1
+
+# Data augmentation is applied during training.
+# Here, it consists in additive noise from the
+# MUSAN database, with random signal-to-noise
+# ratio between 5 and 20 dB
+data_augmentation:
+   name: AddNoise
+   params:
+      snr_min: 5
+      snr_max: 20
+      collection: MUSAN.Collection.BackgroundNoise
+
+# Since we are training an end-to-end model, the
+# feature extraction step simply returns the raw
+# waveform.
+feature_extraction:
+   name: RawAudio
+   params:
+      sample_rate: 16000
+
+# We use the PyanNet architecture in Figure 2 of
+# pyannote.audio introductory paper. More details
+# about the architecture and its parameters can be
+# found directly in PyanNet docstring.
+architecture:
+   name: pyannote.audio.models.PyanNet
+   params:
+      rnn:
+         unit: LSTM
+         hidden_size: 128
+         num_layers: 2
+         bidirectional: True
+      ff:
+         hidden_size: [128, 128]
+
+# We use a constant learning rate of 1e-2
+scheduler:
+   name: ConstantScheduler
+   params:
+      learning_rate: 0.01

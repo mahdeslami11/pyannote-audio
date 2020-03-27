@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016-2018 CNRS
+# Copyright (c) 2016-2019 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -26,27 +26,17 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-
-from __future__ import division
-
-import yaml
-import io
-from pathlib import Path
-from glob import glob
+import warnings
 import numpy as np
-from numpy.lib.format import open_memmap
-from struct import unpack
-import audioread
+
 import librosa
+from librosa.util import valid_audio
+from librosa.util.exceptions import ParameterError
+
 from pyannote.core import SlidingWindow, SlidingWindowFeature
-from pyannote.database.util import get_unique_identifier
-from pyannote.audio.util import mkdir_p
-import tempfile
 
-
-class PyannoteFeatureExtractionError(Exception):
-    pass
-
+from soundfile import SoundFile
+import soundfile as sf
 
 def get_audio_duration(current_file):
     """Return audio file duration
@@ -61,10 +51,9 @@ def get_audio_duration(current_file):
     duration : float
         Audio file duration.
     """
-    path = current_file['audio']
 
-    with audioread.audio_open(path) as f:
-        duration = f.duration
+    with SoundFile(current_file['audio'], 'r') as f:
+        duration = float(f.frames) / f.samplerate
 
     return duration
 
@@ -82,9 +71,7 @@ def get_audio_sample_rate(current_file):
     sample_rate : int
         Sampling rate
     """
-    path = current_file['audio']
-
-    with audioread.audio_open(path) as f:
+    with SoundFile(current_file['audio'], 'r') as f:
         sample_rate = f.samplerate
 
     return sample_rate
@@ -116,41 +103,30 @@ def read_audio(current_file, sample_rate=None, mono=True):
 
     """
 
-    # sphere files
-    if current_file['audio'][-4:] == '.sph':
-
-        # dump sphere file to a temporary wav file
-        # and load it from here...
-        from sphfile import SPHFile
-        sph = SPHFile(current_file['audio'])
-        with tempfile.NamedTemporaryFile() as f:
-            sph.write_wav(f.name)
-            y, sample_rate = librosa.load(f.name, sr=sample_rate, mono=False)
-
-    # all other files
-    else:
-        y, sample_rate = librosa.load(current_file['audio'],
-                                      sr=sample_rate,
-                                      mono=False)
-
-    # reshape mono files to (1, n) [was (n, )]
-    if y.ndim == 1:
-        y = y.reshape(1, -1)
+    y, file_sample_rate = sf.read(current_file['audio'],
+                                  dtype='float32',
+                                  always_2d=True)
 
     # extract specific channel if requested
     channel = current_file.get('channel', None)
     if channel is not None:
-        y = y[channel - 1, :]
+        y = y[:, channel-1:channel]
 
     # convert to mono
-    if mono:
-        y = librosa.to_mono(y)
+    if mono and y.shape[1] > 1:
+        y = np.mean(y, axis=1, keepdims=True)
 
-    return y.T, sample_rate
+    # resample if sample rates mismatch
+    if (sample_rate is not None) and (file_sample_rate != sample_rate):
+        y = librosa.core.resample(y.T, file_sample_rate, sample_rate).T
+    else:
+        sample_rate = file_sample_rate
+
+    return y, sample_rate
 
 
-class RawAudio(object):
-    """
+class RawAudio:
+    """Raw audio with on-the-fly data augmentation
 
     Parameters
     ----------
@@ -158,214 +134,232 @@ class RawAudio(object):
         Target sampling rate. Defaults to using native sampling rate.
     mono : int, optional
         Convert multi-channel to mono. Defaults to True.
-
+    augmentation : `pyannote.audio.augmentation.Augmentation`, optional
+        Data augmentation.
     """
 
-    def __init__(self, sample_rate=None, mono=True):
-        super(RawAudio, self).__init__()
+    def __init__(self, sample_rate=None, mono=True,
+                 augmentation=None):
+
+        super().__init__()
         self.sample_rate = sample_rate
         self.mono = mono
 
-    def __call__(self, current_file):
+        self.augmentation = augmentation
 
-        y, sample_rate = read_audio(current_file,
-                                    sample_rate=self.sample_rate,
-                                    mono=self.mono)
+        if sample_rate is not None:
+            self.sliding_window_ = SlidingWindow(start=-.5/sample_rate,
+                                                 duration=1./sample_rate,
+                                                 step=1./sample_rate)
 
-        sliding_window = SlidingWindow(start=0.,
-                                       duration=1./sample_rate,
-                                       step=1./sample_rate)
+    @property
+    def dimension(self):
+        return 1
+
+    @property
+    def sliding_window(self):
+        return self.sliding_window_
+
+    def get_features(self, y, sample_rate):
+
+        # convert to mono
+        if self.mono:
+            y = np.mean(y, axis=1, keepdims=True)
+
+        # resample if sample rates mismatch
+        if (self.sample_rate is not None) and (self.sample_rate != sample_rate):
+            y = librosa.core.resample(y.T, sample_rate, self.sample_rate).T
+            sample_rate = self.sample_rate
+
+        # augment data
+        if self.augmentation is not None:
+            y = self.augmentation(y, sample_rate)
+
+        # TODO: how time consuming is this thing (needs profiling...)
+        try:
+            valid = valid_audio(y[:, 0], mono=True)
+        except ParameterError as e:
+            msg = (f"Something went wrong when augmenting waveform.")
+            raise ValueError(msg)
+
+        return y
+
+    def __call__(self, current_file, return_sr=False):
+        """Obtain waveform
+
+        Parameters
+        ----------
+        current_file : dict
+            `pyannote.database` files.
+        return_sr : `bool`, optional
+            Return sample rate. Defaults to False
+
+        Returns
+        -------
+        waveform : `pyannote.core.SlidingWindowFeature`
+            Waveform
+        sample_rate : `int`
+            Only when `return_sr` is set to True
+        """
+
+        if 'waveform' in current_file:
+
+            if self.sample_rate is None:
+                msg = ('`RawAudio` needs to be instantiated with an actual '
+                       '`sample_rate` if one wants to use precomputed '
+                       'waveform.')
+                raise ValueError(msg)
+            sample_rate = self.sample_rate
+
+            y = current_file['waveform']
+
+            if len(y.shape) != 2:
+                msg = (
+                    f'Precomputed waveform should be provided as a '
+                    f'(n_samples, n_channels) `np.ndarray`.'
+                )
+                raise ValueError(msg)
+
+        else:
+            y, sample_rate = sf.read(current_file['audio'],
+                                     dtype='float32',
+                                     always_2d=True)
+
+        # extract specific channel if requested
+        channel = current_file.get('channel', None)
+        if channel is not None:
+            y = y[:, channel-1:channel]
+
+        y = self.get_features(y, sample_rate)
+
+        sliding_window = SlidingWindow(
+            start=-.5/sample_rate,
+            duration=1./sample_rate,
+            step=1./sample_rate)
+
+        if return_sr:
+            return (
+                SlidingWindowFeature(y, sliding_window),
+                sample_rate if self.sample_rate is None else self.sample_rate)
 
         return SlidingWindowFeature(y, sliding_window)
 
+    def get_context_duration(self):
+        return 0.
 
-class Precomputed(object):
-    """Precomputed features
+    def crop(self, current_file, segment, mode='center', fixed=None):
+        """Fast version of self(current_file).crop(segment, **kwargs)
 
-    Parameters
-    ----------
-    root_dir : `str`
-        Path to directory where precomputed features are stored.
-    use_memmap : `bool`, optional
-        Defaults to True.
-    sliding_window : `SlidingWindow`, optional
-        Sliding window used for feature extraction. This is not used when
-        `root_dir` already exists and contains `metadata.yml`.
-    dimension : `int`, optional
-        Dimension of feature vectors. This is not used when `root_dir` already
-        exists and contains `metadata.yml`.
+        Parameters
+        ----------
+        current_file : dict
+            `pyannote.database` file.
+        segment : `pyannote.core.Segment`
+            Segment from which to extract features.
+        mode : {'loose', 'strict', 'center'}, optional
+            In 'strict' mode, only frames fully included in 'segment' are
+            returned. In 'loose' mode, any intersecting frames are returned. In
+            'center' mode, first and last frames are chosen to be the ones
+            whose centers are the closest to 'focus' start and end times.
+            Defaults to 'center'.
+        fixed : float, optional
+            Overrides `Segment` 'focus' duration and ensures that the number of
+            returned frames is fixed (which might otherwise not be the case
+            because of rounding errors). Has no effect in 'strict' or 'loose'
+            modes.
 
-    Notes
-    -----
-    If `root_dir` directory does not exist, one must provide both
-    `sliding_window` and `dimension` parameters in order to create and
-    populate file `root_dir/metadata.yml` when instantiating.
+        Returns
+        -------
+        waveform : (n_samples, n_channels) numpy array
+            Waveform
 
-    """
+        See also
+        --------
+        `pyannote.core.SlidingWindowFeature.crop`
+        """
 
-    def get_path(self, item):
-        uri = get_unique_identifier(item)
-        path = '{root_dir}/{uri}.npy'.format(root_dir=self.root_dir, uri=uri)
-        return path
+        if self.sample_rate is None:
+            msg = ('`RawAudio` needs to be instantiated with an actual '
+                   '`sample_rate` if one wants to use `crop`.')
+            raise ValueError(msg)
 
-    def __init__(self, root_dir=None, use_memmap=True,
-                 sliding_window=None, dimension=None):
+        # find the start and end positions of the required segment
+        (start, end), = self.sliding_window_.crop(
+            segment, mode=mode, fixed=fixed, return_ranges=True)
 
-        super(Precomputed, self).__init__()
-        self.root_dir = Path(root_dir).expanduser().resolve(strict=False)
-        self.use_memmap = use_memmap
+        # this is expected number of samples.
+        # this will be useful later in case of on-the-fly resampling
+        n_samples = end - start
 
-        path = self.root_dir / 'metadata.yml'
-        if path.exists():
+        if 'waveform' in current_file:
 
-            with io.open(path, 'r') as f:
-                params = yaml.load(f)
+            y = current_file['waveform']
 
-            self.dimension_ = params.pop('dimension')
-            self.sliding_window_ = SlidingWindow(**params)
-
-            if dimension is not None and self.dimension_ != dimension:
-                msg = 'inconsistent "dimension" (is: {0}, should be: {1})'
-                raise ValueError(msg.format(dimension, self.dimensions_))
-
-            if ((sliding_window is not None) and
-                ((sliding_window.start != self.sliding_window_.start) or
-                 (sliding_window.duration != self.sliding_window_.duration) or
-                 (sliding_window.step != self.sliding_window_.step))):
-                msg = 'inconsistent "sliding_window"'
-                raise ValueError(msg)
-
-        else:
-
-            if sliding_window is None or dimension is None:
+            if len(y.shape) != 2:
                 msg = (
-                    f'Either directory {self.root_dir} does not exist or it '
-                    f'does not contain precomputed features. In case it exists '
-                    f'and this was done on purpose, please provide both '
-                    f'`sliding_window` and `dimension` parameters when '
-                    f'instantianting `Precomputed`.')
+                    f'Precomputed waveform should be provided as a '
+                    f'(n_samples, n_channels) `np.ndarray`.'
+                )
                 raise ValueError(msg)
 
-            # create parent directory
-            mkdir_p(path.parent)
+            sample_rate = self.sample_rate
+            data = y[start:end]
 
-            params = {'start': sliding_window.start,
-                      'duration': sliding_window.duration,
-                      'step': sliding_window.step,
-                      'dimension': dimension}
-
-            with io.open(path, 'w') as f:
-                yaml.dump(params, f, default_flow_style=False)
-
-            self.sliding_window_ = sliding_window
-            self.dimension_ = dimension
-
-    def sliding_window(self):
-        return self.sliding_window_
-
-    def dimension(self):
-        return self.dimension_
-
-    def __call__(self, item):
-
-        path = Path(self.get_path(item))
-
-        if not path.exists():
-            uri = get_unique_identifier(item)
-            msg = f'No precomputed features for "{uri}".'
-            raise PyannoteFeatureExtractionError(msg)
-
-        if self.use_memmap:
-            data = np.load(str(path), mmap_mode='r')
         else:
-            data = np.load(str(path))
+            # read file with SoundFile, which supports various fomats
+            # including NIST sphere
+            with SoundFile(current_file['audio'], 'r') as audio_file:
 
-        return SlidingWindowFeature(data, self.sliding_window_)
+                sample_rate = audio_file.samplerate
 
-    def crop(self, item, focus, mode='loose', fixed=None, return_data=True):
-        """Faster version of precomputed(item).crop(...)"""
-        memmap = open_memmap(self.get_path(item), mode='r')
-        swf = SlidingWindowFeature(memmap, self.sliding_window_)
-        result = swf.crop(focus, mode=mode, fixed=fixed,
-                          return_data=return_data)
-        del memmap
-        return result
+                # if the sample rates are mismatched,
+                # recompute the start and end
+                if sample_rate != self.sample_rate:
 
-    def shape(self, item):
-        """Faster version of precomputed(item).data.shape"""
-        memmap = open_memmap(self.get_path(item), mode='r')
-        shape = memmap.shape
-        del memmap
-        return shape
+                    sliding_window = SlidingWindow(start=-.5/sample_rate,
+                                                   duration=1./sample_rate,
+                                                   step=1./sample_rate)
+                    (start, end), = sliding_window.crop(
+                        segment, mode=mode, fixed=fixed,
+                        return_ranges=True)
 
-    def dump(self, item, features):
-        path = Path(self.get_path(item))
-        mkdir_p(path.parent)
-        np.save(path, features.data)
+                try:
+                    audio_file.seek(start)
+                    data = audio_file.read(end - start,
+                                           dtype='float32',
+                                           always_2d=True)
+                except RuntimeError as e:
+                    msg = (
+                        f"SoundFile failed to seek-and-read in "
+                        f"{current_file['audio']}: loading the whole file..."
+                    )
+                    warnings.warn(msg)
+                    return self(current_file).crop(segment,
+                                                   mode=mode,
+                                                   fixed=fixed)
 
+        # extract specific channel if requested
+        channel = current_file.get('channel', None)
+        if channel is not None:
+            data = data[:, channel-1:channel]
 
-class PrecomputedHTK(object):
+        return self.get_features(data, sample_rate)
 
-    def __init__(self, root_dir=None, duration=0.025, step=None):
-        super(PrecomputedHTK, self).__init__()
-        self.root_dir = root_dir
-        self.duration = duration
+# # THIS SCRIPT CAN BE USED TO CRASH-TEST THE ON-THE-FLY RESAMPLING
 
-        # load any htk file in root_dir/database
-        path = '{root_dir}/*/*.htk'.format(root_dir=root_dir)
-        found = glob(path)
-
-        # FIXME switch to Py3.5 and use glob 'recursive' parameter
-        # http://stackoverflow.com/questions/2186525/
-        # use-a-glob-to-find-files-recursively-in-python
-
-        if len(found) > 0:
-            file_htk = found[0]
-        else:
-            msg = "Could not find any HTK file in '{root_dir}'."
-            raise ValueError(msg.format(root_dir=root_dir))
-
-        X, sample_period = self.load_htk(file_htk)
-        self.dimension_ = X.shape[1]
-        self.step = sample_period * 1e-7
-
-        # don't trust HTK header when 'step' is provided by the user.
-        # HACK remove this when Pepe's HTK files are fixed...
-        if step is not None:
-            self.step = step
-
-        self.sliding_window_ = SlidingWindow(start=0.,
-                                             duration=self.duration,
-                                             step=self.step)
-
-    def sliding_window(self):
-        return self.sliding_window_
-
-    def dimension(self):
-        return self.dimension_
-
-    @staticmethod
-    def get_path(root_dir, item):
-        uri = get_unique_identifier(item)
-        path = '{root_dir}/{uri}.htk'.format(root_dir=root_dir, uri=uri)
-        return path
-
-    # http://codereview.stackexchange.com/questions/
-    # 1496/reading-a-binary-file-containing-periodic-samples
-    @staticmethod
-    def load_htk(file_htk):
-        with open(file_htk, 'rb') as fp:
-            data = fp.read(12)
-            num_samples, sample_period, sample_size, _ = unpack('>iihh', data)
-            num_features = int(sample_size / 4)
-            num_samples = int(num_samples)
-            X = np.empty((num_samples, num_features))
-            for i in range(num_samples):
-                data = fp.read(sample_size)
-                X[i, :] = unpack('>' + ('f' * (sample_size // 4)), data)
-        return X, sample_period
-
-    def __call__(self, item):
-        file_htk = self.get_path(self.root_dir, item)
-        X, _ = self.load_htk(file_htk)
-        return SlidingWindowFeature(X, self.sliding_window_)
+# import numpy as np
+# from pyannote.audio.features import RawAudio
+# from pyannote.core import Segment
+# from pyannote.audio.features.utils import get_audio_duration
+# from tqdm import tqdm
+#
+# TEST_FILE = '/Users/bredin/Corpora/etape/BFMTV_BFMStory_2010-09-03_175900.wav'
+# current_file = {'audio': TEST_FILE}
+# duration = get_audio_duration(current_file)
+#
+# for sample_rate in [8000, 16000, 44100, 48000]:
+#     raw_audio = RawAudio(sample_rate=sample_rate)
+#     for i in tqdm(range(1000), desc=f'{sample_rate:d}Hz'):
+#         start = np.random.rand() * (duration - 1.)
+#         data = raw_audio.crop(current_file, Segment(start, start + 1), fixed=1.)
+#         assert len(data) == sample_rate

@@ -25,3 +25,7 @@
 
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
+
+"""
+# Sequence embedding
+"""

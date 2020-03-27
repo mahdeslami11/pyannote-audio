@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2017-2018 CNRS
+# Copyright (c) 2017-2019 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -25,9 +25,12 @@
 
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
+# Juan Manuel CORIA
 
+
+from .classification import Classification
 from .triplet_loss import TripletLoss
-# from .softmax import Softmax
-# from .agg_triplet_loss import AggTripletLoss
-# from .wtf_triplet_loss import WTFTripletLoss
-# from .domain_adversarial_triplet_loss import DomainAdversarialTripletLoss
+from .arcface_loss import AdditiveAngularMarginLoss
+from .coco_loss import CongenerousCosineLoss
+from .contrastive_loss import ContrastiveLoss
+from .center_loss import CenterLoss

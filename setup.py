@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016-2018 CNRS
+# Copyright (c) 2016-2019 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -31,62 +31,44 @@ import versioneer
 
 from setuptools import setup, find_packages
 
+with open('README.md') as f:
+    long_description = f.read()
+
+with open('requirements.txt') as f:
+    requirements = f.read().splitlines()
+
 setup(
 
-    # package
+    name='pyannote.audio',
     namespace_packages=['pyannote'],
     packages=find_packages(),
-    install_requires=[
-        'pyannote.core >= 1.3.2',
-        'pyannote.metrics >= 1.7',
-        'pyannote.generators >= 1.0',
-        'pyannote.database >= 1.3.2',
-        'scikit-learn >= 0.19.1',
-        'torch == 0.4',
-        'pandas >= 0.18.0',
-        'audioread >= 2.1.5',
-        'librosa >= 0.5.1',
-        'python_speech_features == 0.6',
-        'sphfile == 1.0.0',
-        'pyYAML >= 3.12',
-        'cachetools >= 2.0.0',
-        'tqdm >= 4.11.2',
-        'sortedcontainers >= 2.0.4',
-        'sortedcollections >= 1.0.1',
-        'tensorboardX >= 1.2',
-        'chocolate >= 0.6',
-        'filelock >= 3.0.4',
-        'dlib >= 19.13.1',
-    ],
-    dependency_links=[
-        'git+https://github.com/AIworx-Labs/chocolate.git@master#egg=chocolate-0.6'
-    ],
+    install_requires=requirements,
     entry_points = {
         'console_scripts': [
+            'pyannote-audio=pyannote.audio.applications.pyannote_audio:main',
             'pyannote-speech-feature=pyannote.audio.applications.feature_extraction:main',
-            'pyannote-speech-detection=pyannote.audio.applications.speech_detection:main',
-            'pyannote-change-detection=pyannote.audio.applications.change_detection:main',
-            'pyannote-overlap-detection=pyannote.audio.applications.overlap_detection:main',
-            'pyannote-speaker-embedding=pyannote.audio.applications.speaker_embedding:main',
-            'pyannote-pipeline=pyannote.audio.applications.pipeline:main']
+        ],
     },
-    # versioneer
+
     version=versioneer.get_version(),
     cmdclass=versioneer.get_cmdclass(),
-    # PyPI
-    name='pyannote.audio',
+
     description='Neural building blocks for speaker diarization',
+    long_description=long_description,
+    long_description_content_type='text/markdown',
+
     author='Hervé Bredin',
     author_email='bredin@limsi.fr',
-    url='http://herve.niderb.fr/',
+    url='https://github.com/pyannote/pyannote-audio',
+
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Science/Research",
         "License :: OSI Approved :: MIT License",
         "Natural Language :: English",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
         "Topic :: Scientific/Engineering"
     ],
 )

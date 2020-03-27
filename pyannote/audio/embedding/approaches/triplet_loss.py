@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2018 CNRS
+# Copyright (c) 2018-2020 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -26,22 +26,56 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
+from typing import Optional
 import numpy as np
 import torch
-import torch.nn.functional as F
-from pyannote.audio.generators.speaker import SpeechSegmentGenerator
-from pyannote.audio.embedding.utils import to_condensed, pdist
+from pyannote.core.utils.distance import to_condensed
 from scipy.spatial.distance import squareform
-from pyannote.metrics.binary_classification import det_curve
-from collections import deque
-from pyannote.audio.train import Trainer
-from torch.nn.utils.rnn import pad_sequence
-from torch.nn.utils.rnn import pack_padded_sequence
+from .base import RepresentationLearning
 
 
-class TripletLoss(Trainer):
-    """
+class TripletLoss(RepresentationLearning):
+    """Triplet loss
 
+    TODO explain
+
+    Parameters
+    ----------
+    duration : float, optional
+        Chunks duration, in seconds. Defaults to 1.
+    min_duration : float, optional
+        When provided, use chunks of random duration between `min_duration` and
+        `duration` for training. Defaults to using fixed duration chunks.
+    per_turn : int, optional
+        Number of chunks per speech turn. Defaults to 1.
+        If per_turn is greater than one, embeddings of the same speech turn
+        are averaged before comparison. The intuition is that it might help
+        learn embeddings meant to be averaged/summed.
+    per_label : `int`, optional
+        Number of sequences per speaker in each batch. Defaults to 1.
+    per_fold : `int`, optional
+        Number of different speakers per batch. Defaults to 32.
+    per_epoch : `float`, optional
+        Force total audio duration per epoch, in days.
+        Defaults to total duration of protocol subset.
+    label_min_duration : `float`, optional
+        Remove speakers with less than that many seconds of speech.
+        Defaults to 0 (i.e. keep them all).
+    metric : {'euclidean', 'cosine', 'angular'}, optional
+        Defaults to 'cosine'.
+    margin: float, optional
+        Margin multiplicative factor. Defaults to 0.2.
+    clamp : {'positive', 'sigmoid', 'softmargin'}, optional
+        Defaults to 'positive'.
+    sampling : {'all', 'hard', 'negative', 'easy'}, optional
+        Triplet sampling strategy. Defaults to 'all' (i.e. use all possible
+        triplets). 'hard' sampling use both hardest positive and negative for
+        each anchor. 'negative' sampling use hardest negative for each
+        (anchor, positive) pairs. 'easy' sampling only use easy triplets (i.e.
+        those for which d(anchor, positive) < d(anchor, negative)).
+
+    Notes
+    -----
     delta = d(anchor, positive) - d(anchor, negative)
 
     * with 'positive' clamping:
@@ -51,55 +85,40 @@ class TripletLoss(Trainer):
 
     where d(., .) varies in range [0, D] (e.g. D=2 for euclidean distance).
 
-    Parameters
-    ----------
-    duration : float, optional
-        Use fixed duration segments with this `duration`.
-        Defaults (None) to using variable duration segments.
-    min_duration : float, optional
-        In case `duration` is None, set segment minimum duration.
-    max_duration : float, optional
-        In case `duration` is None, set segment maximum duration.
-    metric : {'euclidean', 'cosine', 'angular'}, optional
-        Defaults to 'cosine'.
-    margin: float, optional
-        Margin multiplicative factor. Defaults to 0.2.
-    clamp : {'positive', 'sigmoid', 'softmargin'}, optional
-        Defaults to 'positive'.
-    sampling : {'all', 'hard', 'negative'}, optional
-        Triplet sampling strategy.
-    per_label : int, optional
-        Number of sequences per speaker in each batch. Defaults to 3.
-    label_min_duration : float, optional
-        Remove speakers with less than `label_min_duration` seconds of speech.
-        Defaults to 0 (i.e. keep them all).
-    per_fold : int, optional
-        If provided, sample triplets from groups of `per_fold` speakers at a
-        time. Defaults to sample triplets from the whole speaker set.
-    parallel : int, optional
-        Number of prefetching background generators. Defaults to 1.
-        Each generator will prefetch enough batches to cover a whole epoch.
-        Set `parallel` to 0 to not use background generators.
-    optimizer : {'sgd', 'rmsprop', 'adam'}
-        Defaults to 'rmsprop'.
-    learning_rate : float, optional
-        Defaults to 1e-2.
-    enable_backtrack : bool, optional
-        Defaults to True.
+    Reference
+    ---------
+    TODO
     """
 
-    def __init__(self, duration=None, min_duration=None, max_duration=None,
-                 metric='cosine', margin=0.2, clamp='positive',
-                 sampling='all', per_label=3, per_fold=None, parallel=1,
-                 label_min_duration=0.,
-                 optimizer='rmsprop', learning_rate=1e-2,
-                 enable_backtrack=True):
+    def __init__(self, duration: float = 1.0,
+                       min_duration: float = None,
+                       per_turn: int = 1,
+                       per_label: int = 1,
+                       per_fold: int = 32,
+                       per_epoch: Optional[float] = None,
+                       label_min_duration: float = 0.,
+                       # FIXME create a Literal type for metric
+                       # FIXME maybe in pyannote.core.utils.distance
+                       metric: str = 'cosine',
+                       # FIXME homogeneize the meaning of margin parameter
+                       # FIXME it has a different meaning in ArcFace, right?
+                       margin: float = 0.2,
+                       # FIXME create a Literal type for clamp
+                       clamp='positive',
+                       # FIXME create a Literal type for sampling
+                       sampling='all'):
 
-        super(TripletLoss, self).__init__()
+        super().__init__(duration=duration,
+                         min_duration=min_duration,
+                         per_turn=per_turn,
+                         per_label=per_label,
+                         per_fold=per_fold,
+                         per_epoch=per_epoch,
+                         label_min_duration=label_min_duration)
 
         self.metric = metric
         self.margin = margin
-
+        # FIXME see above
         self.margin_ = self.margin * self.max_distance
 
         if clamp not in {'positive', 'sigmoid', 'softmargin'}:
@@ -107,72 +126,41 @@ class TripletLoss(Trainer):
             raise ValueError(msg)
         self.clamp = clamp
 
-        if sampling not in {'all', 'hard', 'negative'}:
-            msg = "'sampling' must be one of {'all', 'hard', 'negative'}."
+        if sampling not in {'all', 'hard', 'negative', 'easy'}:
+            msg = "'sampling' must be one of {'all', 'hard', 'negative', 'easy'}."
             raise ValueError(msg)
         self.sampling = sampling
 
-        self.per_fold = per_fold
-        self.per_label = per_label
-        self.label_min_duration = label_min_duration
+    def batch_easy(self, y, distances):
+        """Build easy triplets"""
 
-        self.duration = duration
-        self.min_duration = min_duration
-        self.max_duration = max_duration
+        anchors, positives, negatives = [], [], []
 
-        self.parallel = parallel
-        self.optimizer = optimizer
-        self.learning_rate = learning_rate
-        self.enable_backtrack = enable_backtrack
+        distances = squareform(self.to_numpy(distances))
 
-    @property
-    def max_distance(self):
-        if self.metric == 'cosine':
-            return 2.
-        elif self.metric == 'angular':
-            return np.pi
-        elif self.metric == 'euclidean':
-            # FIXME. incorrect if embedding are not unit-normalized
-            return 2.
-        else:
-            msg = "'metric' must be one of {'euclidean', 'cosine', 'angular'}."
-            raise ValueError(msg)
+        for anchor, y_anchor in enumerate(y):
+            for positive, y_positive in enumerate(y):
 
-    def pdist(self, fX):
-        """Compute pdist à-la scipy.spatial.distance.pdist
+                # if same embedding or different labels, skip
+                if (anchor == positive) or (y_anchor != y_positive):
+                    continue
 
-        Parameters
-        ----------
-        fX : (n, d) torch.Tensor
-            Embeddings.
+                d = distances[anchor, positive]
 
-        Returns
-        -------
-        distances : (n * (n-1) / 2,) torch.Tensor
-            Condensed pairwise distance matrix
-        """
+                for negative, y_negative in enumerate(y):
 
-        n_sequences, _ = fX.size()
-        distances = []
+                    if y_negative == y_anchor:
+                        continue
 
-        for i in range(n_sequences - 1):
+                    if d > distances[anchor, negative]:
+                        continue
 
-            if self.metric in ('cosine', 'angular'):
-                d = 1. - F.cosine_similarity(
-                    fX[i, :].expand(n_sequences - 1 - i, -1),
-                    fX[i+1:, :], dim=1, eps=1e-8)
+                    anchors.append(anchor)
+                    positives.append(positive)
+                    negatives.append(negative)
 
-                if self.metric == 'angular':
-                    d = torch.acos(torch.clamp(1. - d, -1 + 1e-6, 1 - 1e-6))
+        return anchors, positives, negatives
 
-            elif self.metric == 'euclidean':
-                d = F.pairwise_distance(
-                    fX[i, :].expand(n_sequences - 1 - i, -1),
-                    fX[i+1:, :], p=2, eps=1e-06).view(-1)
-
-            distances.append(d)
-
-        return torch.cat(distances)
 
     def batch_hard(self, y, distances):
         """Build triplet with both hardest positive and hardest negative
@@ -288,8 +276,10 @@ class TripletLoss(Trainer):
 
         return anchors, positives, negatives
 
-    def triplet_loss(self, distances, anchors, positives, negatives,
-                     return_delta=False):
+    def triplet_loss(self, distances,
+                           anchors,
+                           positives,
+                           negatives):
         """Compute triplet loss
 
         Parameters
@@ -298,8 +288,6 @@ class TripletLoss(Trainer):
             Condensed matrix of pairwise distances.
         anchors, positives, negatives : list of int
             Triplets indices.
-        return_delta : bool, optional
-            Return delta before clamping.
 
         Returns
         -------
@@ -309,12 +297,11 @@ class TripletLoss(Trainer):
 
         # estimate total number of embeddings from pdist shape
         n = int(.5 * (1 + np.sqrt(1 + 8 * len(distances))))
-        n = [n] * len(anchors)
 
         # convert indices from squared matrix
         # to condensed matrix referential
-        pos = list(map(to_condensed, n, anchors, positives))
-        neg = list(map(to_condensed, n, anchors, negatives))
+        pos = to_condensed(n, anchors, positives)
+        neg = to_condensed(n, anchors, negatives)
 
         # compute raw triplet loss (no margin, no clamping)
         # the lower, the better
@@ -330,70 +317,26 @@ class TripletLoss(Trainer):
         elif self.clamp == 'sigmoid':
             # TODO. tune this "10" hyperparameter
             # TODO. log-sigmoid
-            loss = F.sigmoid(10 * (delta + self.margin_))
+            loss = torch.sigmoid(10 * (delta + self.margin_))
 
-        # return triplet losses
-        if return_delta:
-            return loss, delta.view((-1, 1)), pos, neg
-        else:
-            return loss
+        return loss
 
-    def get_batch_generator(self, feature_extraction):
-        return SpeechSegmentGenerator(
-            feature_extraction, label_min_duration=self.label_min_duration,
-            per_label=self.per_label, per_fold=self.per_fold,
-            duration=self.duration, min_duration=self.min_duration,
-            max_duration=self.max_duration, parallel=self.parallel)
+    def batch_loss(self, batch):
+        """Compute loss for current `batch`
 
-    def aggregate(self, batch):
-        return batch
+        Parameters
+        ----------
+        batch : `dict`
+            ['X'] (`numpy.ndarray`)
+            ['y'] (`numpy.ndarray`)
 
-    def on_train_start(self, model, batches_per_epoch=None, **kwargs):
-        self.log_positive_ = deque([], maxlen=batches_per_epoch)
-        self.log_negative_ = deque([], maxlen=batches_per_epoch)
-        self.log_delta_ = deque([], maxlen=batches_per_epoch)
-        self.log_norm_ = deque([], maxlen=batches_per_epoch)
+        Returns
+        -------
+        batch_loss : `dict`
+            ['loss'] (`torch.Tensor`) : Triplet loss
+        """
 
-    def batch_loss(self, batch, model, device, writer=None, **kwargs):
-
-        lengths = torch.tensor([len(x) for x in batch['X']])
-        variable_lengths = len(set(lengths)) > 1
-
-        if variable_lengths:
-
-            sorted_lengths, sort = torch.sort(lengths, descending=True)
-            _, unsort = torch.sort(sort)
-
-            sequences = [torch.tensor(batch['X'][i],
-                                      dtype=torch.float32,
-                                      device=device) for i in sort]
-            padded = pad_sequence(sequences, batch_first=True, padding_value=0)
-            packed = pack_padded_sequence(padded, sorted_lengths,
-                                          batch_first=True)
-            batch['X'] = packed
-        else:
-            batch['X'] = torch.tensor(np.stack(batch['X']),
-                                      dtype=torch.float32,
-                                      device=device)
-
-        # forward pass
-        fX = model(batch['X'])
-
-        if variable_lengths:
-            fX = fX[unsort]
-
-        # log embedding norms
-        if writer is not None:
-            norm_npy = np.linalg.norm(self.to_numpy(fX), axis=1)
-            self.log_norm_.append(norm_npy)
-
-        batch['fX'] = fX
-        batch = self.aggregate(batch)
-
-        fX = batch['fX']
-        y = batch['y']
-
-        # pre-compute pairwise distances
+        fX, y = self.embed(batch)
         distances = self.pdist(fX)
 
         # sample triplets
@@ -401,53 +344,13 @@ class TripletLoss(Trainer):
         anchors, positives, negatives = triplets(y, distances)
 
         # compute loss for each triplet
-        losses, deltas, _, _ = self.triplet_loss(
-            distances, anchors, positives, negatives,
-            return_delta=True)
+        losses = self.triplet_loss(distances,
+                                   anchors,
+                                   positives,
+                                   negatives)
 
-        if writer is not None:
-            pdist_npy = self.to_numpy(distances)
-            delta_npy = self.to_numpy(deltas)
-            same_speaker = pdist(y.reshape((-1, 1)), metric='equal')
-            self.log_positive_.append(pdist_npy[np.where(same_speaker)])
-            self.log_negative_.append(pdist_npy[np.where(~same_speaker)])
-            self.log_delta_.append(delta_npy)
+        loss = torch.mean(losses)
 
         # average over all triplets
-        return torch.mean(losses)
-
-    def on_epoch_end(self, iteration, writer=None, **kwargs):
-
-        if writer is None:
-            return
-
-        # log intra class vs. inter class distance distributions
-        log_positive = np.hstack(self.log_positive_)
-        log_negative = np.hstack(self.log_negative_)
-        writer.add_histogram(
-            'train/distance/intra_class', log_positive,
-            global_step=iteration, bins='doane')
-        writer.add_histogram(
-            'train/distance/inter_class', log_negative,
-            global_step=iteration, bins='doane')
-
-        # log same/different experiment on training samples
-        _, _, _, eer = det_curve(
-            np.hstack([np.ones(len(log_positive)),
-                       np.zeros(len(log_negative))]),
-            np.hstack([log_positive, log_negative]),
-            distances=True)
-        writer.add_scalar('train/eer', eer,
-                          global_step=iteration)
-
-        # log raw triplet loss (before max(0, .))
-        log_delta = np.vstack(self.log_delta_)
-        writer.add_histogram(
-            'train/triplet/delta', log_delta,
-            global_step=iteration, bins='doane')
-
-        # log distribution of embedding norms
-        log_norm = np.hstack(self.log_norm_)
-        writer.add_histogram(
-            'train/embedding/norm', log_norm,
-            global_step=iteration, bins='doane')
+        return {'loss': loss,
+                'loss_triplet': loss}

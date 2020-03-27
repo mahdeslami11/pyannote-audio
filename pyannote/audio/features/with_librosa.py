@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2016-2017 CNRS
+# Copyright (c) 2016-2019 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -26,41 +26,37 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-from __future__ import unicode_literals
+"""
+Feature extraction using [`librosa`](https://librosa.github.io/librosa/)
+"""
 
-import warnings
+import librosa
 import numpy as np
 
-import matplotlib
-matplotlib.use('Agg')
-import librosa
-from pyannote.audio.features.utils import read_audio
-
-
+from .base import FeatureExtraction
 from pyannote.core.segment import SlidingWindow
-from pyannote.core.feature import SlidingWindowFeature
-from pyannote.audio.features.utils import PyannoteFeatureExtractionError
-from pyannote.database.util import get_unique_identifier
 
 
-class LibrosaFeatureExtractor(object):
-    """
+class LibrosaFeatureExtraction(FeatureExtraction):
+    """librosa feature extraction base class
 
     Parameters
     ----------
     sample_rate : int, optional
         Defaults to 16000 (i.e. 16kHz)
-    block_size : int, optional
-        Defaults to 512.
-    step_size : int, optional
-        Defaults to 256.
+    augmentation : `pyannote.audio.augmentation.Augmentation`, optional
+        Data augmentation.
+    duration : float, optional
+        Defaults to 0.025 (25ms).
+    step : float, optional
+        Defaults to 0.010 (10ms).
     """
 
-    def __init__(self, sample_rate=16000, duration=0.025, step=0.01):
+    def __init__(self, sample_rate=16000, augmentation=None,
+                 duration=0.025, step=0.01):
 
-        super(LibrosaFeatureExtractor, self).__init__()
-
-        self.sample_rate = sample_rate
+        super().__init__(sample_rate=sample_rate,
+                         augmentation=augmentation)
         self.duration = duration
         self.step = step
 
@@ -68,114 +64,115 @@ class LibrosaFeatureExtractor(object):
                                              duration=self.duration,
                                              step=self.step)
 
-    def sliding_window(self):
+    def get_resolution(self):
         return self.sliding_window_
 
-    def dimension(self):
-        raise NotImplementedError('')
 
-    def __call__(self, item):
-        """Extract features
+class LibrosaSpectrogram(LibrosaFeatureExtraction):
+    """librosa spectrogram
 
-        Parameters
-        ----------
-        item : dict
+    Parameters
+    ----------
+    sample_rate : int, optional
+        Defaults to 16000 (i.e. 16kHz)
+    augmentation : `pyannote.audio.augmentation.Augmentation`, optional
+        Data augmentation.
+    duration : float, optional
+        Defaults to 0.025.
+    step : float, optional
+        Defaults to 0.010.
+    """
 
-        Returns
-        -------
-        features : SlidingWindowFeature
+    def __init__(self, sample_rate=16000, augmentation=None,
+                 duration=0.025, step=0.010):
 
-        """
-
-        # --- load audio file
-        y, sample_rate = read_audio(item,
-                                    sample_rate=self.sample_rate,
-                                    mono=True)
-
-        data = self.process(y, sample_rate)
-
-        if np.any(np.isnan(data)):
-            uri = get_unique_identifier(item)
-            msg = 'Features extracted from "{uri}" contain NaNs.'
-            warnings.warn(msg.format(uri=uri))
-
-        return SlidingWindowFeature(data.T, self.sliding_window_)
-
-
-class LibrosaSpectrogram(LibrosaFeatureExtractor):
-
-    def __init__(self, sample_rate=16000, duration=0.025, step=0.010):
-
-        super(LibrosaSpectrogram, self).__init__(
-            sample_rate=sample_rate,
-            duration=duration,
-            step=step)
+        super().__init__(sample_rate=sample_rate, augmentation=augmentation,
+                         duration=duration, step=step)
 
         self.n_fft_ = int(self.duration * self.sample_rate)
         self.hop_length_ = int(self.step * self.sample_rate)
 
-    def process(self, y, sample_rate):
-
-        fft = librosa.core.stft(y=y, n_fft=self.n_fft_,
-                                hop_length=self.hop_length_,
-                                center=True, window='hamming')
-        return np.abs(fft)
-
-    def dimension(self):
+    def get_dimension(self):
         return self.n_fft_ // 2 + 1
 
+    def get_features(self, y, sample_rate):
+        """Feature extraction
 
-class LibrosaMelSpectrogram(LibrosaFeatureExtractor):
+        Parameters
+        ----------
+        y : (n_samples, 1) numpy array
+            Waveform
+        sample_rate : int
+            Sample rate
 
-    def __init__(self, sample_rate=16000, duration=0.025, step=0.010,
-                 n_mels=96):
+        Returns
+        -------
+        data : (n_frames, n_dimensions) numpy array
+            Features
+        """
 
-        super(LibrosaMelSpectrogram, self).__init__(
-            sample_rate=sample_rate,
-            duration=duration,
-            step=step)
+        fft = librosa.core.stft(y=y.squeeze(), n_fft=self.n_fft_,
+                                hop_length=self.hop_length_,
+                                center=True, window='hamming')
+        return np.abs(fft).T
+
+
+class LibrosaMelSpectrogram(LibrosaFeatureExtraction):
+    """librosa mel-spectrogram
+
+    Parameters
+    ----------
+    sample_rate : int, optional
+        Defaults to 16000 (i.e. 16kHz)
+    augmentation : `pyannote.audio.augmentation.Augmentation`, optional
+        Data augmentation.
+    duration : float, optional
+        Defaults to 0.025.
+    step : float, optional
+        Defaults to 0.010.
+    n_mels : int, optional
+        Defaults to 96.
+    """
+
+    def __init__(self, sample_rate=16000, augmentation=None,
+                 duration=0.025, step=0.010, n_mels=96):
+
+        super().__init__(sample_rate=sample_rate, augmentation=augmentation,
+                         duration=duration, step=step)
 
         self.n_mels = n_mels
         self.n_fft_ = int(self.duration * self.sample_rate)
         self.hop_length_ = int(self.step * self.sample_rate)
 
-    def process(self, y, sample_rate):
+    def get_dimension(self):
+        return self.n_mels
+
+    def get_features(self, y, sample_rate):
+        """Feature extraction
+
+        Parameters
+        ----------
+        y : (n_samples, 1) numpy array
+            Waveform
+        sample_rate : int
+            Sample rate
+
+        Returns
+        -------
+        data : (n_frames, n_mels) numpy array
+            Features
+        """
 
         X = librosa.feature.melspectrogram(
-            y, sr=sample_rate, n_mels=self.n_mels,
+            y.squeeze(), sr=sample_rate, n_mels=self.n_mels,
             n_fft=self.n_fft_, hop_length=self.hop_length_,
             power=2.0)
 
-        return librosa.amplitude_to_db(X, ref=1.0, amin=1e-5, top_db=80.0)
-
-    def dimension(self):
-        return self.n_mels
-
-class LibrosaRMSE(LibrosaFeatureExtractor):
-    """
-
-    Parameters
-    ----------
-    sample_rate : int, optional
-        Sampling rate.
-    duration : float, optional
-        Defaults to 0.025 (25ms)
-    step : float, optional
-        Defaults to 0.01 (10ms)
-
-    """
-
-    def process(self, y, sample_rate):
-        n_fft = int(self.duration * sample_rate)
-        hop_length = int(self.step * sample_rate)
-        return librosa.feature.rmse(y=y, n_fft=n_fft, hop_length=hop_length)
-
-    def dimension(self):
-        return 1
+        return librosa.amplitude_to_db(X, ref=1.0, amin=1e-5, top_db=80.0).T
 
 
-class LibrosaMFCC(LibrosaFeatureExtractor):
-    """
+class LibrosaMFCC(LibrosaFeatureExtraction):
+    """librosa MFCC
 
     ::
 
@@ -195,14 +192,17 @@ class LibrosaMFCC(LibrosaFeatureExtractor):
             | ΔΔc3 |
             | ...  |
 
+
     Parameters
     ----------
     sample_rate : int, optional
-        Sampling rate.
+        Defaults to 16000 (i.e. 16kHz)
+    augmentation : `pyannote.audio.augmentation.Augmentation`, optional
+        Data augmentation.
     duration : float, optional
-        Defaults to 0.025 (25ms)
+        Defaults to 0.025.
     step : float, optional
-        Defaults to 0.01 (10ms)
+        Defaults to 0.010.
     e : bool, optional
         Energy. Defaults to True.
     coefs : int, optional
@@ -226,13 +226,14 @@ class LibrosaMFCC(LibrosaFeatureExtractor):
 
     """
 
-    def __init__(self, sample_rate=16000, duration=0.025, step=0.01,
+    def __init__(self, sample_rate=16000, augmentation=None,
+                 duration=0.025, step=0.01,
                  e=False, De=True, DDe=True,
                  coefs=19, D=True, DD=True,
                  fmin=0.0, fmax=None, n_mels=40):
 
-        super(LibrosaMFCC, self).__init__(sample_rate=sample_rate,
-                                          duration=duration, step=step)
+        super().__init__(sample_rate=sample_rate, augmentation=augmentation,
+                         duration=duration, step=step)
 
         self.e = e
         self.coefs = coefs
@@ -245,7 +246,24 @@ class LibrosaMFCC(LibrosaFeatureExtractor):
         self.fmin = fmin      # yaafe / 130.0
         self.fmax = fmax      # yaafe / 6854.0
 
-    def process(self, y, sample_rate):
+    def get_context_duration(self):
+        return 0.
+
+    def get_features(self, y, sample_rate):
+        """Feature extraction
+
+        Parameters
+        ----------
+        y : (n_samples, 1) numpy array
+            Waveform
+        sample_rate : int
+            Sample rate
+
+        Returns
+        -------
+        data : (n_frames, n_dimensions) numpy array
+            Features
+        """
 
         # adding because C0 is the energy
         n_mfcc = self.coefs + 1
@@ -254,18 +272,18 @@ class LibrosaMFCC(LibrosaFeatureExtractor):
         hop_length = int(self.step * sample_rate)
 
         mfcc = librosa.feature.mfcc(
-            y=y, sr=sample_rate, n_mfcc=n_mfcc,
+            y=y.squeeze(), sr=sample_rate, n_mfcc=n_mfcc,
             n_fft=n_fft, hop_length=hop_length,
             n_mels=self.n_mels, htk=True,
             fmin=self.fmin, fmax=self.fmax)
 
         if self.De or self.D:
             mfcc_d = librosa.feature.delta(
-                mfcc, width=9, order=1, axis=-1, trim=True)
+                mfcc, width=9, order=1, axis=-1)
 
         if self.DDe or self.DD:
             mfcc_dd = librosa.feature.delta(
-                mfcc, width=9, order=2, axis=-1, trim=True)
+                mfcc, width=9, order=2, axis=-1)
 
         stack = []
 
@@ -286,10 +304,9 @@ class LibrosaMFCC(LibrosaFeatureExtractor):
         if self.DD:
             stack.append(mfcc_dd[1:, :])
 
-        return np.vstack(stack)
+        return np.vstack(stack).T
 
-    def dimension(self):
-
+    def get_dimension(self):
         n_features = 0
         n_features += self.e
         n_features += self.De
@@ -297,5 +314,4 @@ class LibrosaMFCC(LibrosaFeatureExtractor):
         n_features += self.coefs
         n_features += self.coefs * self.D
         n_features += self.coefs * self.DD
-
         return n_features

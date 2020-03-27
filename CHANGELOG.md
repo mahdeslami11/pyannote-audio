@@ -1,3 +1,10 @@
+### Version 1.1 (WIP)
+
+  - BREAKING: switch to new pyannote.pipeline package
+  - BREAKING: add unified FeatureExtraction base class
+  - feat: add support for on-the-fly data augmentation
+  - setup: switch to librosa 0.6
+
 ### Version 1.0.1 (2018--07-19)
 
   - fix: fix regression in Precomputed.__call__ (#110, #105)

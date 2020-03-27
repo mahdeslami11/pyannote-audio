@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2017-2018 CNRS
+# Copyright (c) 2017-2019 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -26,5 +26,17 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
+"""
+# Pipelines
+"""
+
 from .speech_activity_detection import SpeechActivityDetection
-from .speaker_diarization import Yin2018
+from .overlap_detection import OverlapDetection
+from .speech_turn_segmentation import SpeechTurnSegmentation
+from .speech_turn_segmentation import OracleSpeechTurnSegmentation
+from .speaker_diarization import SpeakerDiarization
+
+try:
+    from .resegmentation import Resegmentation
+except NotImplementedError:
+    pass

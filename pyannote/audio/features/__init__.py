@@ -27,12 +27,31 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 """
+# Feature extraction
 """
 
+from .base import FeatureExtraction
 
-from .with_yaafe import YaafeCompound, YaafeZCR, YaafeMFCC
-from .with_librosa import LibrosaMFCC, LibrosaRMSE, LibrosaSpectrogram, LibrosaMelSpectrogram
-from .with_python_speech_features import PySpeechFeaturesMFCC
-from .utils import Precomputed
-from .utils import PrecomputedHTK
-from .utils import RawAudio
+try:
+    from .with_librosa import LibrosaMFCC, LibrosaSpectrogram, LibrosaMelSpectrogram
+except Exception as e:
+        msg = (
+            f'Feature extractors based on "librosa" are not available '
+            f'because something went wrong when importing them: "{e}".')
+        print(msg)
+
+from .precomputed import Precomputed
+
+try:
+    from .utils import RawAudio
+except Exception as e:
+    msg = f'Loading raw audio might fail because something went wrong: {e}.'
+    print(msg)
+
+try:
+    from .pretrained import Pretrained
+except Exception as e:
+    msg = (
+        f'Feature extraction using pretrained models are not available '
+        f'because something went wrong at import: "{e}".')
+    print(msg)
