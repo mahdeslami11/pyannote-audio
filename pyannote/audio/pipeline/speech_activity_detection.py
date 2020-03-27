@@ -157,7 +157,7 @@ class SpeechActivityDetection(Pipeline):
 
         speech = self._binarize.apply(speech_prob)
 
-        speech.uri = current_file['uri']
+        speech.uri = current_file.get('uri', None)
         return speech.to_annotation(generator='string', modality='speech')
 
 
