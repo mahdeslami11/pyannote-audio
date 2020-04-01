@@ -34,6 +34,7 @@ try:
     from typing import Literal
 except ImportError as e:
     from typing_extensions import Literal
+from typing import Callable
 from pyannote.core import SlidingWindow
 from pyannote.core import SlidingWindowFeature
 
@@ -258,6 +259,8 @@ class Model(Module):
                     sliding_window: SlidingWindow,
                     batch_size: int = 32,
                     device: torch.device = None,
+                    skip_average: bool = None,
+                    postprocess: Callable[[np.ndarray], np.ndarray] = None,
                     return_intermediate = None,
                     progress_hook = None) -> SlidingWindowFeature:
         """Slide and apply model on features
@@ -272,6 +275,16 @@ class Model(Module):
             Batch size. Defaults to 32. Use large batch for faster inference.
         device : torch.device
             Device used for inference.
+        skip_average : bool, optional
+            For sequence labeling tasks (i.e. when model outputs a sequence of
+            scores), each time step may be scored by several consecutive
+            locations of the sliding window. Default behavior is to average
+            those multiple scores. Set `skip_average` to False to return raw
+            scores without averaging them.
+        postprocess : callable, optional
+            Function applied to the predictions of the model, for each batch
+            separately. Expects a (batch_size, n_samples, n_features) np.ndarray
+            as input, and returns a (batch_size, n_samples, any) np.ndarray.
         return_intermediate :
             Experimental. Not documented yet.
         progress_hook : callable
@@ -281,6 +294,10 @@ class Model(Module):
         if device is None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
         device = torch.device(device)
+
+        if skip_average is None:
+            skip_average = (self.resolution == RESOLUTION_CHUNK) or \
+                           (return_intermediate is not None)
 
         try:
             dimension = self.dimension
@@ -323,7 +340,11 @@ class Model(Module):
             # FIXME: fix support for return_intermediate
             tfX = self(tX, return_intermediate=return_intermediate)
 
-            fX.append(tfX.detach().to('cpu').numpy())
+            tfX_npy = tfX.detach().to('cpu').numpy()
+            if postprocess is not None:
+                tfX_npy = postprocess(tfX_npy)
+
+            fX.append(tfX_npy)
 
             if progress_hook is not None:
                 n_done += len(batch['X'])
@@ -331,8 +352,7 @@ class Model(Module):
 
         fX = np.vstack(fX)
 
-        if (self.resolution == RESOLUTION_CHUNK) or \
-           (return_intermediate is not None):
+        if skip_average:
             return SlidingWindowFeature(fX, sliding_window)
 
         # get total number of frames (based on last window end time)

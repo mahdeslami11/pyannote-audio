@@ -76,6 +76,7 @@ class OverlapDetection(Pipeline):
     """
 
     def __init__(self, scores: Wrappable = None,
+                       precision: float = 0.9,
                        fscore: bool = False):
         super().__init__()
 
@@ -144,7 +145,7 @@ class OverlapDetection(Pipeline):
 
         overlap = self._binarize.apply(overlap_prob)
 
-        overlap.uri = current_file['uri']
+        overlap.uri = current_file.get('uri', None)
         return overlap.to_annotation(generator='string', modality='overlap')
 
     @staticmethod
