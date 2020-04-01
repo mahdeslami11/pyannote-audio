@@ -150,7 +150,8 @@ class Application:
         config = load_config(Path(config_yml),
                              training=training,
                              config_default_module=config_default_module,
-                             pretrained_config_yml=pretrained_config_yml)
+                             pretrained_config_yml=pretrained_config_yml,
+                             add_audio_preprocessors=True)
 
         for key, value in config.items():
             setattr(self, f'{key}_', value)
