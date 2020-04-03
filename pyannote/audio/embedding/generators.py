@@ -29,6 +29,7 @@
 from typing import Optional
 import itertools
 import numpy as np
+from pyannote.core import Segment
 from pyannote.core.utils.random import random_segment
 from pyannote.core.utils.random import random_subsegment
 from pyannote.audio.train.task import Task, TaskType, TaskOutput
@@ -134,6 +135,10 @@ class SpeechSegmentGenerator(BatchGenerator):
                 file_labels[key].add(current_file[key])
 
             # get annotation for current file
+            # ensure annotation is cropped to actual file duration
+            support = Segment(start=0, end=current_file['duration'])
+            current_file['annotation'] = current_file['annotation'].crop(
+                support, mode='intersection')
             annotation = current_file['annotation']
 
             # loop on each label in current file
