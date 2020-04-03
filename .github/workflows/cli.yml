@@ -1,4 +1,4 @@
-name: Test API
+name: Test CLI
 
 on:
   pull_request:
@@ -11,13 +11,12 @@ on:
       - release/*
 
 jobs:
-  build:
-
+  cli:
     runs-on: ubuntu-latest
     strategy:
       max-parallel: 4
       matrix:
-        python-version: [3.6, 3.7]
+        python-version: [3.6, 3.7, 3.8]
 
     steps:
     - uses: actions/checkout@v1
@@ -27,17 +26,16 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install from source
       run: |
+        sudo apt-get install libsndfile1
         python -m pip install --upgrade pip
         pip install numpy scipy torch
         pip install .
-    - name: Lint with flake8
+    - name: Run a basic SAD experiment
       run: |
-        pip install flake8
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 ./pyannote --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        flake8 ./pyannote --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-    - name: Test with pytest
+        sh ./tests/cli/sad.sh
+    - name: Run a basic SCD experiment
       run: |
-        pip install pytest
-        pytest
+        sh ./tests/cli/scd.sh
+    - name: Run a basic OVL experiment
+      run: |
+        sh ./tests/cli/ovl.sh
