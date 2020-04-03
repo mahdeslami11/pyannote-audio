@@ -300,6 +300,7 @@ class SincNet(nn.Module):
                      self.stride,
                      self.max_pool)
 
+        in_channels = None
         for i, (out_channels, kernel_size, stride, max_pool) in enumerate(config):
 
             # 1D convolution

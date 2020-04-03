@@ -44,6 +44,9 @@ AUTOLR_BETA = 0.98
 MOMENTUM_MAX = 0.95
 MOMENTUM_MIN = 0.85
 
+if False:
+    from .trainer import Trainer
+
 
 def decreasing_probability(values: np.ndarray) -> float:
     """Compute probability that a sequence is decreasing

@@ -171,6 +171,8 @@ class RNN(nn.Module):
 
                 outputs = []
 
+                hidden = None
+                output = None
                 # apply each layer separately...
                 for i, rnn in enumerate(self.rnn_):
                     if i > 0:
