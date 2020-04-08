@@ -42,6 +42,7 @@ from .convolutional import Convolutional
 from .recurrent import Recurrent
 from .linear import Linear
 from .pooling import Pooling
+from .scaling import Scaling
 
 from pyannote.audio.train.model import Model
 from pyannote.audio.train.model import Resolution
@@ -725,6 +726,7 @@ class ACRoPoLiS(Model):
     linear : dict, optional
         Definition of linear layers.
         Defaults to linear.Linear default hyper-parameters.
+    scale : dict, optional
     """
 
     def init(
@@ -733,6 +735,7 @@ class ACRoPoLiS(Model):
         recurrent: dict = None,
         linear: dict = None,
         pooling: Text = None,
+        scale: dict = None,
     ):
 
         self.normalize = nn.InstanceNorm1d(self.n_features)
@@ -765,9 +768,20 @@ class ACRoPoLiS(Model):
         self.linear = linear
         self.ff = Linear(self.pool.dimension, **linear)
 
+        if self.task.is_representation_learning and scale is None:
+            scale = dict()
+        if not self.task.is_representation_learning and scale is not None:
+            msg = (
+                f"'scale' should not be used for representation learning (is: {scale})."
+            )
+            raise ValueError(msg)
+
+        self.scale = scale
+        self.scaling = Scaling(self.ff.dimension, **scale)
+
         if not self.task.is_representation_learning:
             self.final_linear = nn.Linear(
-                self.ff.dimension, len(self.classes), bias=True
+                self.scaling.dimension, len(self.classes), bias=True
             )
             self.final_activation = self.task.default_activation
 
