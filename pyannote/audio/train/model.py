@@ -164,7 +164,7 @@ class Model(Module):
         self._probes = []
 
     def forward(
-        self, sequences, **kwargs
+        self, sequences: torch.Tensor, **kwargs
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, Dict[Text, torch.Tensor]]]:
         """TODO
 
