@@ -100,7 +100,15 @@ class Trainer:
             optimizer_pt = model_pt.with_suffix(".optimizer.pt")
 
         model_state = torch.load(_model_pt, map_location=lambda storage, loc: storage)
-        self.model_.load_state_dict(model_state)
+        missing_keys, unexpected_keys = self.model_.load_state_dict(
+            model_state, strict=False
+        )
+        if missing_keys:
+            msg = f"Checkpoint misses the following weights: {missing_keys}."
+            warnings.warn(msg)
+        if unexpected_keys:
+            msg = f"Checkpoint contains unexpected weights: {unexpected_keys}."
+            warnings.warn(msg)
 
         success = self.load_more(model_pt=model_pt)
 
