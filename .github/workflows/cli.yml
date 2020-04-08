@@ -39,3 +39,9 @@ jobs:
     - name: Run a basic OVL experiment
       run: |
         sh ./tests/cli/ovl.sh
+    - name: Run a basic DOM experiment
+      run: |
+        sh ./tests/cli/dom.sh
+    - name: Run a basic EMB experiment
+      run: |
+        sh ./tests/cli/emb.sh
