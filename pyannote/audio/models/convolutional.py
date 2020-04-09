@@ -84,6 +84,8 @@ class Convolutional(nn.Module):
 
         self.conv1ds = nn.ModuleList()
         self.pool1ds = nn.ModuleList()
+        if self.instance_normalize:
+            self.norm1ds = nn.ModuleList()
         self.activation = nn.LeakyReLU(negative_slope=1e-2, inplace=False)
         if self.dropout > 0.0:
             self._dropout = nn.Dropout(p=self.dropout, inplace=False)
@@ -115,8 +117,9 @@ class Convolutional(nn.Module):
             )
             self.pool1ds.append(pool1d)
 
-            norm1d = nn.InstanceNorm1d(out_channels, affine=True)
-            self.norm1ds.append(norm1d)
+            if self.instance_normalize:
+                norm1d = nn.InstanceNorm1d(out_channels, affine=True)
+                self.norm1ds.append(norm1d)
 
             in_channels = out_channels
 
