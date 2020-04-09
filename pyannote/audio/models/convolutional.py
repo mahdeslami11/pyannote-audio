@@ -52,6 +52,9 @@ class Convolutional(nn.Module):
         Stride of the convolutions
     max_pool : list of int, optional
         Size and stride of the size of the windows to take a max over.
+    instance_normalize : bool, optional
+        Apply instance normalization after pooling. Set to False to not apply
+        any normalization. Defaults to True.
     dropout : float, optional
         If non-zero, introduces a Dropout layer on the outputs of each layer
         except the last layer, with dropout probability equal to dropout.
@@ -65,6 +68,7 @@ class Convolutional(nn.Module):
         kernel_size: List[int] = [251, 5, 5, 5, 5, 5],
         stride: List[int] = [5, 1, 1, 1, 1, 1],
         max_pool: List[int] = [3, 3, 3, 3, 3, 3],
+        instance_normalize: bool = True,
         dropout: float = 0.0,
     ):
         super().__init__()
@@ -75,6 +79,7 @@ class Convolutional(nn.Module):
         self.kernel_size = kernel_size
         self.stride = stride
         self.max_pool = max_pool
+        self.instance_normalize = instance_normalize
         self.dropout = dropout
 
         self.conv1ds = nn.ModuleList()
@@ -110,6 +115,9 @@ class Convolutional(nn.Module):
             )
             self.pool1ds.append(pool1d)
 
+            norm1d = nn.InstanceNorm1d(out_channels, affine=True)
+            self.norm1ds.append(norm1d)
+
             in_channels = out_channels
 
     def forward(self, waveforms: torch.Tensor) -> torch.Tensor:
@@ -131,6 +139,8 @@ class Convolutional(nn.Module):
         for i, (conv1d, pool1d) in enumerate(zip(self.conv1ds, self.pool1ds)):
             output = conv1d(output)
             output = pool1d(output)
+            if self.instance_normalize:
+                output = self.norm1ds[i](output)
             output = self.activation(output)
             if self.dropout > 0.0 and i + 1 < self.num_layers:
                 output = self._dropout(output)
