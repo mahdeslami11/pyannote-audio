@@ -29,6 +29,8 @@
 
 import torch
 import torch.nn as nn
+from torch.nn.utils import weight_norm
+
 from typing import Text
 from typing import List
 from pyannote.core import SlidingWindow
@@ -52,24 +54,16 @@ class Convolutional(nn.Module):
         Stride of the convolutions
     max_pool : list of int, optional
         Size and stride of the size of the windows to take a max over.
-    instance_normalize : bool, optional
-        Apply instance normalization after pooling. Set to False to not apply
-        any normalization. Defaults to True.
-    dropout : float, optional
-        If non-zero, introduces a Dropout layer on the outputs of each layer
-        except the last layer, with dropout probability equal to dropout.
     """
 
     def __init__(
         self,
         n_features: int,
         sample_rate: int = 16000,
-        out_channels: List[int] = [512, 512, 512, 512, 512, 512],
-        kernel_size: List[int] = [251, 5, 5, 5, 5, 5],
-        stride: List[int] = [5, 1, 1, 1, 1, 1],
-        max_pool: List[int] = [3, 3, 3, 3, 3, 3],
-        instance_normalize: bool = True,
-        dropout: float = 0.0,
+        out_channels: List[int] = [80, 60, 60, 512, 512, 512, 512, 1500],
+        kernel_size: List[int] = [251, 5, 5, 5, 5, 7, 1, 1],
+        stride: List[int] = [5, 1, 1, 1, 1, 1, 1, 1],
+        max_pool: List[int] = [3, 3, 3, 1, 1, 1, 1, 1],
     ):
         super().__init__()
 
@@ -79,31 +73,27 @@ class Convolutional(nn.Module):
         self.kernel_size = kernel_size
         self.stride = stride
         self.max_pool = max_pool
-        self.instance_normalize = instance_normalize
-        self.dropout = dropout
 
         self.conv1ds = nn.ModuleList()
         self.pool1ds = nn.ModuleList()
-        if self.instance_normalize:
-            self.norm1ds = nn.ModuleList()
-        self.activation = nn.LeakyReLU(negative_slope=1e-2, inplace=False)
-        if self.dropout > 0.0:
-            self._dropout = nn.Dropout(p=self.dropout, inplace=False)
+        self.activation = nn.ReLU()
 
         in_channels = self.n_features
         for i, (out_channels, kernel_size, stride, max_pool) in enumerate(
             zip(self.out_channels, self.kernel_size, self.stride, self.max_pool)
         ):
-            conv1d = nn.Conv1d(
-                in_channels,
-                out_channels,
-                kernel_size,
-                stride=stride,
-                padding=0,
-                dilation=1,
-                groups=1,
-                bias=True,
-                padding_mode="zeros",
+            conv1d = weight_norm(
+                nn.Conv1d(
+                    in_channels,
+                    out_channels,
+                    kernel_size,
+                    stride=stride,
+                    padding=0,
+                    dilation=1,
+                    groups=1,
+                    bias=True,
+                    padding_mode="zeros",
+                )
             )
             self.conv1ds.append(conv1d)
 
@@ -116,10 +106,6 @@ class Convolutional(nn.Module):
                 ceil_mode=False,
             )
             self.pool1ds.append(pool1d)
-
-            if self.instance_normalize:
-                norm1d = nn.InstanceNorm1d(out_channels, affine=True)
-                self.norm1ds.append(norm1d)
 
             in_channels = out_channels
 
@@ -142,11 +128,7 @@ class Convolutional(nn.Module):
         for i, (conv1d, pool1d) in enumerate(zip(self.conv1ds, self.pool1ds)):
             output = conv1d(output)
             output = pool1d(output)
-            if self.instance_normalize:
-                output = self.norm1ds[i](output)
             output = self.activation(output)
-            if self.dropout > 0.0 and i + 1 < self.num_layers:
-                output = self._dropout(output)
 
         return output.transpose(1, 2)
 
@@ -169,10 +151,10 @@ class Convolutional(nn.Module):
     def get_resolution(
         task: Task,
         sample_rate: int = 16000,
-        out_channels: List[int] = [512, 512, 512, 512, 512, 512],
-        kernel_size: List[int] = [251, 5, 5, 5, 5, 5],
+        out_channels: List[int] = [80, 60, 60, 512, 512, 1500],
+        kernel_size: List[int] = [251, 5, 5, 5, 5, 7],
         stride: List[int] = [5, 1, 1, 1, 1, 1],
-        max_pool: List[int] = [3, 3, 3, 3, 3, 3],
+        max_pool: List[int] = [3, 3, 3, 1, 1, 1],
         **kwargs,
     ) -> SlidingWindow:
         """Output frame resolution"""

@@ -40,7 +40,7 @@ from .pooling import TemporalPooling
 
 from .convolutional import Convolutional
 from .recurrent import Recurrent
-from .linear import Linear
+from .embedding import Embedding
 from .pooling import Pooling
 from .scaling import Scaling
 
@@ -723,9 +723,9 @@ class ACRoPoLiS(Model):
     pooling : {"last", ""}, optional
         Definition of pooling layer. Only used when self.task.returns_vector is
         True, in which case it defaults to "last" pooling.
-    linear : dict, optional
+    embedding : dict, optional
         Definition of linear layers.
-        Defaults to linear.Linear default hyper-parameters.
+        Defaults to embedding.Embedding default hyper-parameters.
     scale : dict, optional
     """
 
@@ -733,7 +733,7 @@ class ACRoPoLiS(Model):
         self,
         convolutional: dict = None,
         recurrent: dict = None,
-        linear: dict = None,
+        embedding: dict = None,
         pooling: Text = None,
         scale: dict = None,
     ):
@@ -763,10 +763,10 @@ class ACRoPoLiS(Model):
             bidirectional=self.rnn.bidirectional,
         )
 
-        if linear is None:
-            linear = dict()
-        self.linear = linear
-        self.ff = Linear(self.pool.dimension, **linear)
+        if embedding is None:
+            embedding = dict()
+        self.embedding = embedding
+        self.embedding = Embedding(self.pool.dimension, **linear)
 
         if self.task.is_representation_learning and scale is None:
             scale = dict()
@@ -777,7 +777,7 @@ class ACRoPoLiS(Model):
             raise ValueError(msg)
 
         self.scale = scale
-        self.scaling = Scaling(self.ff.dimension, **scale)
+        self.scaling = Scaling(self.embedding.dimension, **scale)
 
         if not self.task.is_representation_learning:
             self.final_linear = nn.Linear(
@@ -804,7 +804,7 @@ class ACRoPoLiS(Model):
         output = self.cnn(output)
         output = self.rnn(output)
         output = self.pool(output)
-        output = self.ff(output)
+        output = self.embedding(output)
 
         if not self.task.is_representation_learning:
             output = self.final_linear(output)
@@ -814,7 +814,7 @@ class ACRoPoLiS(Model):
     @property
     def dimension(self):
         if self.task.is_representation_learning:
-            return self.ff.dimension
+            return self.embedding.dimension
         else:
             return len(self.classes)
 

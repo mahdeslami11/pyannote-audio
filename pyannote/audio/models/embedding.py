@@ -32,21 +32,21 @@ import torch.nn as nn
 from typing import List
 
 
-class Linear(nn.Module):
-    """Linear layers
+class Embedding(nn.Module):
+    """Embedding layers
 
     Parameters
     ----------
     n_features : int
         Input feature shape.
     hidden_size : list of int, optional
-        Number of features in hidden. Defaults to [256, 128].
+        Number of features in hidden. Defaults to [3000, 512].
     bias : bool, optional
         If set to False, the layer will not learn an additive bias.
     """
 
     def __init__(
-        self, n_features: int, hidden_size: List[int] = [256, 128], bias: bool = True,
+        self, n_features: int, hidden_size: List[int] = [3000, 512], bias: bool = True,
     ):
         super().__init__()
 
@@ -61,7 +61,7 @@ class Linear(nn.Module):
             self.linear.append(linear)
             n_features = out_features
 
-        self.activation = nn.Tanh()
+        self.activation = nn.ReLU()
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         """Forward pass
@@ -80,9 +80,11 @@ class Linear(nn.Module):
         """
 
         output = features
-        for linear in self.linear:
+        for l, linear in enumerate(self.linear):
             output = linear(output)
-            output = self.activation(output)
+            # do not use activation for last layer
+            if l + 1 < self.num_layers:
+                output = self.activation(output)
         return output
 
     @property
