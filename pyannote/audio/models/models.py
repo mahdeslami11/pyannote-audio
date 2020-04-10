@@ -766,7 +766,7 @@ class ACRoPoLiS(Model):
         if embedding is None:
             embedding = dict()
         self.embedding = embedding
-        self.embedding = Embedding(self.pool.dimension, **linear)
+        self.embedding = Embedding(self.pool.dimension, **embedding)
 
         if self.task.is_representation_learning and scale is None:
             scale = dict()
