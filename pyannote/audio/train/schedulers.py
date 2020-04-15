@@ -172,14 +172,14 @@ class BaseSchedulerCallback(Callback):
         # to get from `min_lr` to `max_lr` in `n_batches` step.
         factor = (max_lr / min_lr) ** (1 / n_batches)
 
-        # `K` batches to increase the learning rate by one order of magnitude
+        # K batches to increase the learning rate by one order of magnitude
         K = int(np.log(10) / np.log(factor))
 
         # loss improvement on each [0.1 x lr, lr] range
         improvement = losses[:-K] - losses[K:]
 
-        # return lr such that [0.1 x lr, lr] leads to the best improvement
-        return lrs[K + np.argmax(improvement)]
+        # return half LR such that [0.1 x lr, lr] leads to the best improvement
+        return 0.5 * lrs[K + np.argmax(improvement)]
 
     def auto_lr(self, trainer: "Trainer") -> float:
         """Find optimal learning rate automatically
