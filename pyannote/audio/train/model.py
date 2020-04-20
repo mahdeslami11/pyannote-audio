@@ -48,6 +48,10 @@
 >>> model.freeze(["ff.1", "ff.2"])
 >>> model.unfreeze(["ff.2"])
 
+## Multi-tasking
+
+TODO
+
 """
 
 from typing import Union
@@ -63,6 +67,8 @@ except ImportError as e:
 from typing import Callable
 from pyannote.core import SlidingWindow
 from pyannote.core import SlidingWindowFeature
+from pyannote.core.utils.helper import get_class_by_name
+
 
 RESOLUTION_FRAME = "frame"
 RESOLUTION_CHUNK = "chunk"
@@ -77,18 +83,18 @@ from pyannote.audio.train.task import Task
 import numpy as np
 import pescador
 import torch
-from torch.nn import Module
+import torch.nn as nn
 from functools import partial
 
 
-class Model(Module):
+class Model(nn.Module):
     """Model
 
     A `Model` is nothing but a `torch.nn.Module` instance with a bunch of
     additional methods and properties specific to `pyannote.audio`.
 
     It is expected to be instantiated with a unique `specifications` positional
-    argument describing the task addressed by the model, and a user-defined
+    argument describing the task(s) addressed by the model, and a user-defined
     number of keyword arguments describing the model architecture.
 
     Parameters
@@ -101,10 +107,75 @@ class Model(Module):
 
     def __init__(self, specifications: dict, **architecture_params):
         super().__init__()
+
+        auxiliary_specifications = specifications.pop("auxiliary_tasks", dict())
+        auxiliary_configurations = architecture_params.pop("auxiliary_tasks", dict())
+
         self.specifications = specifications
         self.resolution_ = self.get_resolution(self.task, **architecture_params)
         self.alignment_ = self.get_alignment(self.task, **architecture_params)
         self.init(**architecture_params)
+
+        aux_spec = set(auxiliary_specifications)
+        aux_cnfg = set(auxiliary_configurations)
+        if aux_spec != aux_cnfg:
+            msg = (
+                f"Mismatch between auxiliary tasks specifications and "
+                "auxiliary tasks architectures: {aux_spec} vs. {aux_cnfg}"
+            )
+            raise ValueError(msg)
+        if aux_spec:
+            self.init_auxiliary(auxiliary_specifications, **auxiliary_configurations)
+
+    def init_auxiliary(self, specifications: dict, **configurations):
+
+        # hook handles (probably not needed as we will never unregister auxiliary hooks)
+        handles = []
+
+        # register hook that initialize 'auxiliaries_' attribute before each forward pass
+        def _init(module, input):
+            self.auxiliaries_ = dict()
+
+        handle = self.register_forward_pre_hook(_init)
+        handles.append(handle)
+
+        # register hook that change the output to (output, auxiliaries_)
+        def _return(module, input, output):
+            return output, self.auxiliaries_
+
+        handle = self.register_forward_hook(_return)
+        handles.append(handle)
+
+        # prepare hook that attaches the auxiliary branch
+        # and store its output in the auxiliaries_ attribute
+        def _attach(aux, module, input, output):
+            self.auxiliaries_[aux] = self.auxiliaries[aux](output)
+
+        self.auxiliaries = nn.ModuleDict()
+        for aux, specifications in specifications.items():
+            configuration = configurations[aux]
+
+            # ask trunk to
+            attach_to = configuration["attach"]
+            specifications["X"] = {"dimension": self.probe_dimension(attach_to)}
+
+            architecture = configuration["architecture"]
+            Architecture = get_class_by_name(
+                architecture["name"], default_module_name="pyannote.audio.models"
+            )
+
+            self.auxiliaries[aux] = Architecture(
+                specifications, **architecture.get("params", dict())
+            )
+
+            # register hook that attaches the auxiliary branch
+            for name, module in self.named_modules():
+                if name != attach_to:
+                    continue
+                handle = module.register_forward_hook(partial(_attach, aux))
+                handles.append(handle)
+
+        self.auxiliary_handles_ = handles
 
     def init(self, **architecture_params):
         """Initialize model architecture
@@ -136,7 +207,7 @@ class Model(Module):
             Names of modules to probe.
         """
 
-        for handle in getattr(self, "handles_", []):
+        for handle in getattr(self, "probe_handles_", []):
             handle.remove()
 
         self._probes = []
@@ -164,12 +235,12 @@ class Model(Module):
 
         handles.append(self.register_forward_hook(_return))
 
-        self.handles_ = handles
+        self.probe_handles_ = handles
 
     @probes.deleter
     def probes(self):
         """Remove all probes"""
-        for handle in getattr(self, "handles_", []):
+        for handle in getattr(self, "probe_handles_", []):
             handle.remove()
         self._probes = []
 
