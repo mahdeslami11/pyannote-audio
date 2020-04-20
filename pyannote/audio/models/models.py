@@ -774,13 +774,14 @@ class ACRoPoLiS(Model):
         self.linear = linear
         self.ff = Linear(self.pool.dimension, **linear)
 
-        if self.task.is_representation_learning and scale is None:
-            scale = dict()
         if not self.task.is_representation_learning and scale is not None:
             msg = (
                 f"'scale' should not be used for representation learning (is: {scale})."
             )
             raise ValueError(msg)
+
+        if scale is None:
+            scale = dict()
 
         self.scale = scale
         self.scaling = Scaling(self.ff.dimension, **scale)
