@@ -745,12 +745,16 @@ class ACRoPoLiS(Model):
         if convolutional is None:
             convolutional = dict()
         self.convolutional = convolutional
-        self.cnn = Convolutional(self.n_features, **convolutional)
+        if not self.convolutional.get("skip", False):
+            self.cnn = Convolutional(self.n_features, **convolutional)
+            n_features = self.cnn.dimension
+        else:
+            n_features = self.n_features
 
         if recurrent is None:
             recurrent = dict()
         self.recurrent = recurrent
-        self.rnn = Recurrent(self.cnn.dimension, **recurrent)
+        self.rnn = Recurrent(n_features, **recurrent)
 
         if pooling is None and self.task.returns_vector:
             pooling = "last"
@@ -803,7 +807,8 @@ class ACRoPoLiS(Model):
         """
 
         output = self.normalize(waveforms.transpose(1, 2)).transpose(1, 2)
-        output = self.cnn(output)
+        if not self.convolutional.get("skip", False):
+            output = self.cnn(output)
         output = self.rnn(output)
         output = self.pool(output)
         output = self.ff(output)
