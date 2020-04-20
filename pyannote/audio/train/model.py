@@ -121,7 +121,7 @@ class Model(nn.Module):
         if aux_spec != aux_cnfg:
             msg = (
                 f"Mismatch between auxiliary tasks specifications and "
-                "auxiliary tasks architectures: {aux_spec} vs. {aux_cnfg}"
+                f"auxiliary tasks architectures: {aux_spec} vs. {aux_cnfg}"
             )
             raise ValueError(msg)
         if aux_spec:
