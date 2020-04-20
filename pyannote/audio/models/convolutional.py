@@ -33,6 +33,7 @@ from typing import Text
 from typing import List
 from pyannote.core import SlidingWindow
 from pyannote.audio.train.task import Task
+from .sincnet import SincConv1d
 
 
 class Convolutional(nn.Module):
@@ -44,6 +45,8 @@ class Convolutional(nn.Module):
         Input feature shape. Should be 1.
     sample_rate: int, optional
         Input sample rate (in Hz). Defaults to 16000.
+    sinc : bool
+        Replace first layer by SincConv. Defaults to True.
     out_channels : list of int, optional
         Number of channels produced by the convolutions.
     kernel_size : list of int, optional
@@ -64,10 +67,11 @@ class Convolutional(nn.Module):
         self,
         n_features: int,
         sample_rate: int = 16000,
-        out_channels: List[int] = [512, 512, 512, 512, 512, 512],
-        kernel_size: List[int] = [251, 5, 5, 5, 5, 5],
-        stride: List[int] = [5, 1, 1, 1, 1, 1],
-        max_pool: List[int] = [3, 3, 3, 3, 3, 3],
+        sinc: bool = True,
+        out_channels: List[int] = [80, 60, 60],
+        kernel_size: List[int] = [251, 5, 5],
+        stride: List[int] = [5, 1, 1],
+        max_pool: List[int] = [3, 3, 3],
         instance_normalize: bool = True,
         dropout: float = 0.0,
     ):
@@ -75,6 +79,7 @@ class Convolutional(nn.Module):
 
         self.n_features = n_features
         self.sample_rate = sample_rate
+        self.sinc = sinc
         self.out_channels = out_channels
         self.kernel_size = kernel_size
         self.stride = stride
@@ -86,7 +91,7 @@ class Convolutional(nn.Module):
         self.pool1ds = nn.ModuleList()
         if self.instance_normalize:
             self.norm1ds = nn.ModuleList()
-        self.activation = nn.LeakyReLU(negative_slope=1e-2, inplace=False)
+        self.activation = nn.LeakyReLU(negative_slope=0.1, inplace=False)
         if self.dropout > 0.0:
             self._dropout = nn.Dropout(p=self.dropout, inplace=False)
 
@@ -94,17 +99,32 @@ class Convolutional(nn.Module):
         for i, (out_channels, kernel_size, stride, max_pool) in enumerate(
             zip(self.out_channels, self.kernel_size, self.stride, self.max_pool)
         ):
-            conv1d = nn.Conv1d(
-                in_channels,
-                out_channels,
-                kernel_size,
-                stride=stride,
-                padding=0,
-                dilation=1,
-                groups=1,
-                bias=True,
-                padding_mode="zeros",
-            )
+            if self.sinc and i == 0:
+                conv1d = SincConv1d(
+                    in_channels,
+                    out_channels,
+                    kernel_size,
+                    sample_rate=self.sample_rate,
+                    min_low_hz=50,
+                    min_band_hz=50,
+                    stride=stride,
+                    padding=0,
+                    dilation=1,
+                    bias=False,
+                    groups=1,
+                )
+            else:
+                conv1d = nn.Conv1d(
+                    in_channels,
+                    out_channels,
+                    kernel_size,
+                    stride=stride,
+                    padding=0,
+                    dilation=1,
+                    groups=1,
+                    bias=True,
+                    padding_mode="zeros",
+                )
             self.conv1ds.append(conv1d)
 
             pool1d = nn.MaxPool1d(
@@ -141,6 +161,8 @@ class Convolutional(nn.Module):
 
         for i, (conv1d, pool1d) in enumerate(zip(self.conv1ds, self.pool1ds)):
             output = conv1d(output)
+            if self.sinc and i == 0:
+                output = torch.abs(output)
             output = pool1d(output)
             if self.instance_normalize:
                 output = self.norm1ds[i](output)
