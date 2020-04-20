@@ -170,3 +170,28 @@ class Recurrent(nn.Module):
             dimension *= 2
 
         return dimension
+
+    def probe_dimension(self, name: Text) -> int:
+        """Return probe dimension
+
+        Parameter
+        ---------
+        name : Text
+            Probe name
+
+        Returns
+        -------
+        dimension : int
+            Probe dimension
+        """
+
+        if name.startswith("rnn"):
+            if name == "rnn":
+                return self.dimension
+
+            available_probes = set(f"rnn.{i}" for i in range(self.num_layers))
+            if name in available_probes:
+                return self.hidden_size * (2 if self.bidirectional else 1)
+
+        msg = f"Unsupported probe '{name}'."
+        raise ValueError(msg)
