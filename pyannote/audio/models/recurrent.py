@@ -52,7 +52,7 @@ class Recurrent(nn.Module):
         Defaults to 0.
     bidirectional : bool, optional
         Use bidirectional RNN. Defaults to True.
-    probes : bool, optional
+    probable : bool, optional
         Split multi-layer RNN into multiple one-layer RNNs to expose
         corresponding probes (see pyannote.audio.train.model.Model.probes).
         Might be useful when using a multi-layer RNN as the trunk of a larger
@@ -68,7 +68,7 @@ class Recurrent(nn.Module):
         bias: int = True,
         dropout: float = 0.0,
         bidirectional: bool = True,
-        probes: bool = False,
+        probable: bool = False,
     ):
         super().__init__()
 
@@ -79,7 +79,7 @@ class Recurrent(nn.Module):
         self.bias = bias
         self.dropout = dropout
         self.bidirectional = bidirectional
-        self.probes = probes
+        self.probable = probable
 
         if num_layers < 1:
             if bidirectional:
@@ -89,7 +89,7 @@ class Recurrent(nn.Module):
 
         Klass = getattr(nn, self.unit)
 
-        if probes:
+        if self.probable:
 
             self.rnn = nn.ModuleList([])
 
@@ -144,12 +144,10 @@ class Recurrent(nn.Module):
         if self.num_layers < 1:
             return features
 
-        if self.probes:
+        if self.probable:
 
             output, hidden = None, None
             for i, rnn in enumerate(self.rnn):
-
-                rnn = getattr(self, f"rnn{i+1:02d}")
 
                 if i > 0:
                     output, hidden = rnn(output, hidden)
