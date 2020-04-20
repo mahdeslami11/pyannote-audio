@@ -148,7 +148,18 @@ class Model(nn.Module):
 
         # prepare hook that attaches the auxiliary branch
         # and store its output in the auxiliaries_ attribute
-        def _attach(aux, module, input, output):
+        def _attach(aux, module, input, output, index=None):
+            """Apply auxiliary branch to output and store the result
+
+            Parameters
+            ----------
+            aux : Text
+                Auxiliary name
+            index : int
+                When provided, use `output[index]` instead of `output`.
+            """
+            if index is not None:
+                output = output[index]
             self.auxiliaries_[aux] = self.auxiliaries[aux](output)
 
         self.auxiliaries = nn.ModuleDict()
@@ -156,8 +167,12 @@ class Model(nn.Module):
             configuration = configurations[aux]
 
             # ask trunk to
-            attach_to = configuration["attach"]
-            specifications["X"] = {"dimension": self.probe_dimension(attach_to)}
+            attach = configuration["attach"]
+            index = None
+            if "|" in attach:
+                attach, index = attach.split("|")
+                index = int(index)
+            specifications["X"] = {"dimension": self.probe_dimension(attach)}
 
             architecture = configuration["architecture"]
             Architecture = get_class_by_name(
@@ -170,9 +185,11 @@ class Model(nn.Module):
 
             # register hook that attaches the auxiliary branch
             for name, module in self.named_modules():
-                if name != attach_to:
+                if name != attach:
                     continue
-                handle = module.register_forward_hook(partial(_attach, aux))
+                handle = module.register_forward_hook(
+                    partial(_attach, aux, index=index)
+                )
                 handles.append(handle)
 
         self.auxiliary_handles_ = handles
