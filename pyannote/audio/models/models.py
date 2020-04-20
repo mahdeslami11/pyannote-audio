@@ -858,3 +858,27 @@ class ACRoPoLiS(Model):
             convolutional = dict()
 
         return Convolutional.get_resolution(task, **convolutional)
+
+    def probe_dimension(self, name: Text) -> int:
+        """Return probe dimension
+
+        Parameters
+        ----------
+        name : Text
+            Probe name
+
+        Returns
+        -------
+        dimension : int
+            Probe dimension
+        """
+
+        if name.startswith("rnn"):
+            if name == "rnn":
+                return self.rnn.dimension
+
+            name_without_root = ".".join(name.split(".")[1:])
+            return self.rnn.probe_dimension(name_without_root)
+
+        msg = f"Unsupported probe '{name}'."
+        raise ValueError(msg)
