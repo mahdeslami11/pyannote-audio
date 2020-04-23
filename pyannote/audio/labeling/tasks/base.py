@@ -413,12 +413,12 @@ class LabelingTaskGenerator(BatchGenerator):
 
             y = self.crop_y(datum["y"], subsegment)
 
-            samples = {"X": X}
+            sample = {"X": X}
             if isinstance(y, dict):
                 for key, value in y.items():
-                    samples[f"y_{key}"] = value.data
+                    sample[f"y_{key}"] = value.data
             else:
-                samples["y"] = y.data
+                sample["y"] = y.data
 
             if self.mask is not None:
                 mask = self.crop_y(current_file[self.mask], subsegment)
