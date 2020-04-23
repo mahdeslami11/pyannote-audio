@@ -391,9 +391,11 @@ class LabelingTaskGenerator(BatchGenerator):
             sample = {"X": X}
             if isinstance(y, dict):
                 for key, value in y.items():
-                    sample[f"y_{key}"] = value.data
+                    sample[f"y_{key}"] = (
+                        value.data if isinstance(value, SlidingWindowFeature) else value
+                    )
             else:
-                sample["y"] = y.data
+                sample["y"] = y.data if isinstance(y, SlidingWindowFeature) else y
 
             if self.mask is not None:
                 mask = self.crop_y(current_file[self.mask], subsegment)
