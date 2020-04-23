@@ -100,7 +100,6 @@ class DomainClassificationGenerator(LabelingTaskGenerator):
             duration=duration,
             batch_size=batch_size,
             per_epoch=per_epoch,
-            exhaustive=False,
         )
 
     def initialize_y(self, current_file):
