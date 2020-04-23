@@ -68,6 +68,8 @@ from pyannote.audio.train.model import Alignment
 
 SECONDS_IN_A_DAY = 24 * 60 * 60
 
+normalize = lambda wav: wav / (np.sqrt(np.mean(wav ** 2)) + 1e-8)
+
 
 class LabelingTaskGenerator(BatchGenerator):
     """Base batch generator for various labeling tasks
@@ -109,6 +111,8 @@ class LabelingTaskGenerator(BatchGenerator):
     local_labels : bool, optional
         Set to True to yield samples with local (file-level) labels.
         Defaults to use global (protocol-level) labels.
+    waveform : bool, optional
+        Add "waveform" key to generated samples.
     """
 
     def __init__(
@@ -124,10 +128,15 @@ class LabelingTaskGenerator(BatchGenerator):
         per_epoch: float = None,
         mask: Text = None,
         local_labels: bool = False,
+        waveform: bool = False,
     ):
 
         self.task = task
         self.feature_extraction = Wrapper(feature_extraction)
+        self.waveform = waveform
+        if self.waveform:
+            self.raw_audio_ = RawAudio(sample_rate=self.feature_extraction.sample_rate)
+
         self.duration = duration
         self.mask = mask
         self.local_labels = local_labels
@@ -382,13 +391,21 @@ class LabelingTaskGenerator(BatchGenerator):
             # choose fixed-duration subsegment at random
             subsegment = next(random_subsegment(segment, self.duration))
 
-            X = self.feature_extraction.crop(
+            sample = dict()
+
+            sample["X"] = self.feature_extraction.crop(
                 current_file, subsegment, mode="center", fixed=self.duration
             )
 
+            if self.waveform:
+                sample["waveform"] = normalize(
+                    self.raw_audio_.crop(
+                        current_file, subsegment, mode="center", fixed=self.duration
+                    )
+                )
+
             y = self.crop_y(datum["y"], subsegment)
 
-            sample = {"X": X}
             if isinstance(y, dict):
                 for key, value in y.items():
                     sample[f"y_{key}"] = (
