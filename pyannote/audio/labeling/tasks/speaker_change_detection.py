@@ -127,7 +127,6 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
             duration=duration,
             batch_size=batch_size,
             per_epoch=per_epoch,
-            exhaustive=False,
             mask=mask,
             local_labels=True,
         )

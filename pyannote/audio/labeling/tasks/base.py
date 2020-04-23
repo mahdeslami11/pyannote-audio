@@ -100,12 +100,6 @@ class LabelingTaskGenerator(BatchGenerator):
     per_epoch : float, optional
         Force total audio duration per epoch, in days.
         Defaults to total duration of protocol subset.
-    exhaustive : bool, optional
-        Ensure training files are covered exhaustively (useful in case of
-        non-uniform label distribution).
-    step : `float`, optional
-        Ratio of audio chunk duration used as step between two consecutive
-        audio chunks. Defaults to 0.1. Has not effect when exhaustive is False.
     mask : str, optional
         When provided, protocol files are expected to contain a key named after
         this `mask` variable and providing a `SlidingWindowFeature` instance.
@@ -128,8 +122,6 @@ class LabelingTaskGenerator(BatchGenerator):
         duration: float = 2.0,
         batch_size: int = 32,
         per_epoch: float = None,
-        exhaustive: bool = False,
-        step: float = 0.1,
         mask: Text = None,
         local_labels: bool = False,
     ):
@@ -137,8 +129,6 @@ class LabelingTaskGenerator(BatchGenerator):
         self.task = task
         self.feature_extraction = Wrapper(feature_extraction)
         self.duration = duration
-        self.exhaustive = exhaustive
-        self.step = step
         self.mask = mask
         self.local_labels = local_labels
 
@@ -153,27 +143,18 @@ class LabelingTaskGenerator(BatchGenerator):
         # load metadata and estimate total duration of training data
         total_duration = self._load_metadata(protocol, subset=subset)
 
-        #
         if per_epoch is None:
 
             # 1 epoch = covering the whole training set once
-            #
             per_epoch = total_duration / SECONDS_IN_A_DAY
 
-            # when exhaustive is False, this is not completely correct.
+            # the above estimation is not completely correct.
             # in practice, it will randomly sample audio chunk until their
             # overall duration reaches the duration of the training set.
             # but nothing guarantees that every single part of the training set
             # has been seen exactly once: it might be more than once, it might
             # be less than once. on average, however, after a certain amount of
             # epoch, this will be correct
-
-            # when exhaustive is True, however, we can actually make sure every
-            # single part of the training set has been seen. we just have to
-            # make sur we account for the step used by the exhaustive sliding
-            # window
-            if self.exhaustive:
-                per_epoch *= np.ceil(1 / self.step)
 
         self.per_epoch = per_epoch
 
@@ -373,12 +354,6 @@ class LabelingTaskGenerator(BatchGenerator):
         return specs
 
     def samples(self):
-        if self.exhaustive:
-            return self._sliding_samples()
-        else:
-            return self._random_samples()
-
-    def _random_samples(self):
         """Random samples
 
         Returns
@@ -429,70 +404,6 @@ class LabelingTaskGenerator(BatchGenerator):
 
             yield sample
 
-    def _sliding_samples(self):
-
-        uris = list(self.data_)
-        durations = np.array([self.data_[uri]["duration"] for uri in uris])
-        probabilities = durations / np.sum(durations)
-        sliding_segments = SlidingWindow(
-            duration=self.duration, step=self.step * self.duration
-        )
-
-        while True:
-
-            np.random.shuffle(uris)
-
-            # loop on all files
-            for uri in uris:
-
-                datum = self.data_[uri]
-
-                # make a copy of current file
-                current_file = dict(datum["current_file"])
-
-                # compute features for the whole file
-                features = self.feature_extraction(current_file)
-
-                # randomly shift 'annotated' segments start time so that
-                # we avoid generating exactly the same subsequence twice
-                annotated = Timeline()
-                for segment in get_annotated(current_file):
-                    shifted_segment = Segment(
-                        segment.start + np.random.random() * self.duration, segment.end
-                    )
-                    if shifted_segment:
-                        annotated.add(shifted_segment)
-
-                samples = []
-                for sequence in sliding_segments(annotated):
-
-                    X = features.crop(sequence, mode="center", fixed=self.duration)
-                    y = self.crop_y(datum["y"], sequence)
-                    sample = {"X": X, "y": y}
-
-                    if self.mask is not None:
-
-                        # extract mask for current sub-segment
-                        mask = current_file[self.mask].crop(
-                            sequence, mode="center", fixed=self.duration
-                        )
-
-                        # it might happen that "mask" and "y" use different
-                        # sliding windows. therefore, we simply resample "mask"
-                        # to match "y"
-                        if len(mask) != len(y):
-                            mask = scipy.signal.resample(mask, len(y), axis=0)
-                        sample["mask"] = mask
-
-                    for key, classes in self.file_labels_.items():
-                        sample[key] = classes.index(current_file[key])
-
-                    samples.append(sample)
-
-                np.random.shuffle(samples)
-                for sample in samples:
-                    yield sample
-
     @property
     def batches_per_epoch(self):
         """Number of batches needed to complete an epoch"""
@@ -515,28 +426,15 @@ class LabelingTask(Trainer):
     per_epoch : float, optional
         Force total audio duration per epoch, in days.
         Defaults to total duration of protocol subset.
-    exhaustive : bool, optional
-        Ensure training files are covered exhaustively (useful in case of
-        non-uniform label distribution).
-    step : `float`, optional
-        Ratio of audio chunk duration used as step between two consecutive
-        audio chunks. Defaults to 0.1. Has not effect when exhaustive is False.
     """
 
     def __init__(
-        self,
-        duration: float = 2.0,
-        batch_size: int = 32,
-        per_epoch: float = None,
-        exhaustive: bool = False,
-        step: float = 0.1,
+        self, duration: float = 2.0, batch_size: int = 32, per_epoch: float = None,
     ):
         super(LabelingTask, self).__init__()
         self.duration = duration
         self.batch_size = batch_size
         self.per_epoch = per_epoch
-        self.exhaustive = exhaustive
-        self.step = step
 
     def get_batch_generator(
         self,
@@ -580,8 +478,6 @@ class LabelingTask(Trainer):
             duration=self.duration,
             per_epoch=self.per_epoch,
             batch_size=self.batch_size,
-            exhaustive=self.exhaustive,
-            step=self.step,
         )
 
     @property
