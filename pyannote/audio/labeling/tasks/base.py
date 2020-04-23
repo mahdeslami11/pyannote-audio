@@ -108,9 +108,6 @@ class LabelingTaskGenerator(BatchGenerator):
         Generated batches will contain an additional "mask" key (on top of
         existing "X" and "y" keys) computed as an excerpt of `current_file[mask]`
         time-aligned with "y". Defaults to not add any "mask" key.
-    local_labels : bool, optional
-        Set to True to yield samples with local (file-level) labels.
-        Defaults to use global (protocol-level) labels.
     waveform : bool, optional
         Add "waveform" key to generated samples.
     """
@@ -127,7 +124,6 @@ class LabelingTaskGenerator(BatchGenerator):
         batch_size: int = 32,
         per_epoch: float = None,
         mask: Text = None,
-        local_labels: bool = False,
         waveform: bool = False,
     ):
 
@@ -139,7 +135,6 @@ class LabelingTaskGenerator(BatchGenerator):
 
         self.duration = duration
         self.mask = mask
-        self.local_labels = local_labels
 
         self.resolution_ = resolution
 
@@ -210,11 +205,7 @@ class LabelingTaskGenerator(BatchGenerator):
             Precomputed y for the whole file
         """
 
-        if self.local_labels:
-            labels = current_file["annotation"].labels()
-        else:
-            labels = self.segment_labels_
-
+        labels = current_file["annotation"].labels()
         y = one_hot_encoding(
             current_file["annotation"],
             get_annotated(current_file),
@@ -356,9 +347,6 @@ class LabelingTaskGenerator(BatchGenerator):
             "task": self.task,
             "X": {"dimension": self.feature_extraction.dimension},
         }
-
-        if not self.local_labels:
-            specs["y"] = {"classes": self.segment_labels_}
 
         return specs
 

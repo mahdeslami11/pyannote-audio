@@ -109,7 +109,6 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
             batch_size=batch_size,
             per_epoch=per_epoch,
             mask=mask,
-            local_labels=True,
         )
 
     def postprocess_y(self, Y: SlidingWindowFeature) -> SlidingWindowFeature:

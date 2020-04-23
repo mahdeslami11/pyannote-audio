@@ -103,7 +103,6 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
 
         self.snr_min = snr_min
         self.snr_max = snr_max
-        self.raw_audio_ = RawAudio(sample_rate=feature_extraction.sample_rate)
 
         super().__init__(
             task,
@@ -115,135 +114,23 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
             duration=duration,
             batch_size=batch_size,
             per_epoch=per_epoch,
-            # TODO. be smart and find a way to use "local_labels"
-            local_labels=False,
+            waveform=True,
         )
 
-    def overlap_samples(self):
-        """Random overlap samples
-
-        Returns
-        -------
-        samples : generator
-            Generator that yields {'waveform': ..., 'y': ...} samples
-            indefinitely.
-        """
-
-        uris = list(self.data_)
-        durations = np.array([self.data_[uri]["duration"] for uri in uris])
-        probabilities = durations / np.sum(durations)
-
-        while True:
-
-            # choose file at random with probability
-            # proportional to its (annotated) duration
-            uri = uris[np.random.choice(len(uris), p=probabilities)]
-
-            datum = self.data_[uri]
-            current_file = datum["current_file"]
-
-            # choose one segment at random with probability
-            # proportional to its duration
-            segment = next(random_segment(datum["segments"], weighted=True))
-
-            # choose random subsegment
-            # duration = np.random.rand() * self.duration
-            sequence = next(random_subsegment(segment, self.duration))
-
-            # get corresponding waveform
-            X = self.raw_audio_.crop(
-                current_file, sequence, mode="center", fixed=self.duration
-            )
-
-            # get corresponding labels
-            y = datum["y"].crop(sequence, mode=self.alignment, fixed=self.duration)
-
-            yield {"waveform": normalize(X), "y": y}
-
-    def sliding_samples(self):
-        """Sliding window
-
-        Returns
-        -------
-        samples : generator
-            Generator that yields {'waveform': ..., 'y': ...} samples
-            indefinitely.
-        """
-
-        uris = list(self.data_)
-        durations = np.array([self.data_[uri]["duration"] for uri in uris])
-        probabilities = durations / np.sum(durations)
-
-        sliding_segments = SlidingWindow(duration=self.duration, step=self.duration)
-
-        while True:
-
-            # shuffle files
-            np.random.shuffle(uris)
-
-            # loop on shuffled files
-            for uri in uris:
-
-                datum = self.data_[uri]
-
-                # make a copy of current file
-                current_file = dict(datum["current_file"])
-
-                # read waveform for the whole file
-                waveform = self.raw_audio_(current_file)
-
-                # randomly shift 'annotated' segments start time so that
-                # we avoid generating exactly the same subsequence twice
-                shifted_segments = [
-                    Segment(s.start + np.random.random() * self.duration, s.end)
-                    for s in get_annotated(current_file)
-                ]
-                # deal with corner case where a shifted segment would be empty
-                shifted_segments = [s for s in shifted_segments if s]
-                annotated = Timeline(segments=shifted_segments)
-
-                samples = []
-                for sequence in sliding_segments(annotated):
-
-                    X = waveform.crop(sequence, mode="center", fixed=self.duration)
-
-                    y = datum["y"].crop(
-                        sequence, mode=self.alignment, fixed=self.duration
-                    )
-
-                    # FIXME -- this is ugly
-                    sample = {
-                        "waveform": normalize(X),
-                        "y": y,
-                        "database": current_file["database"],
-                        "uri": current_file["uri"],
-                        "audio": current_file["audio"],
-                        "duration": current_file["duration"],
-                    }
-
-                    samples.append(sample)
-
-                np.random.shuffle(samples)
-                for sample in samples:
-                    yield sample
-
     def samples(self):
-        """Training sample generator"""
 
-        sliding_samples = self.sliding_samples()
-        overlap_samples = self.overlap_samples()
+        samples = super().samples()
 
         while True:
 
-            # get fixed duration random sequence
-            original = next(sliding_samples)
-
+            sample = next(samples)
             if np.random.rand() < 0.5:
                 pass
 
             else:
+
                 # get random overlapping sequence
-                overlap = next(overlap_samples)
+                overlap = next(samples)
 
                 # select SNR at random
                 snr = (
@@ -251,18 +138,29 @@ class OverlapDetectionGenerator(LabelingTaskGenerator):
                 ) * np.random.random_sample() + self.snr_min
                 alpha = np.exp(-np.log(10) * snr / 20)
 
-                original["waveform"] += alpha * overlap["waveform"]
-                original["y"] += overlap["y"]
+                sample["waveform"] += alpha * overlap["waveform"]
 
-            speaker_count = np.sum(original["y"], axis=1, keepdims=True)
-            original["y"] = np.int64(speaker_count > 1)
+                # FIXME The call to hstack below is not correct because there
+                # is a non-zero probability that the two samples contain speech
+                # from a common speaker.
+                # A solution would be to pass SlidingWindowFeature instances
+                # instead of their (np.ndarray) "data" attribute and use their
+                # newly added "labels" attribute to decide how to stack.
+                # Sticking with SlidingWindowFeature instances all the way down
+                # to the subsequent call to torch.tensor(...) would be even
+                # better but for now this breaks (probably because of the
+                # current behavior of SlidingWindowFeature.__iter__.
+                sample["y"] = np.hstack([sample["y"], overlap["y"]])
 
-            # run feature extraction
-            original["X"] = self.feature_extraction.crop(
-                original, Segment(0, self.duration), mode="center", fixed=self.duration
+            speaker_count = np.sum(sample["y"], axis=1, keepdims=True)
+            sample["y"] = np.int64(speaker_count > 1)
+
+            # run feature extraction (using sample["waveform"])
+            sample["X"] = self.feature_extraction.crop(
+                sample, Segment(0, self.duration), mode="center", fixed=self.duration
             )
 
-            yield {"X": original["X"], "y": original["y"]}
+            yield {"X": sample["X"], "y": sample["y"]}
 
     @property
     def specifications(self):
