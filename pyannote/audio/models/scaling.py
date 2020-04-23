@@ -52,7 +52,9 @@ class Scaling(nn.Module):
         self.method = method
 
         if self.method == "logistic":
-            self.linear = nn.Linear(1, 1, bias=True)
+            self.batch_norm = nn.BatchNorm1d(
+                1, eps=1e-5, momentum=0.1, affine=True, track_running_stats=True
+            )
             self.activation = nn.Sigmoid()
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
@@ -78,7 +80,7 @@ class Scaling(nn.Module):
             new_norm = 1.0
 
         if self.method == "logistic":
-            new_norm = self.activation(self.linear(norm))
+            new_norm = self.activation(self.batch_norm(norm))
 
         return new_norm / (norm + 1e-6) * features
 
