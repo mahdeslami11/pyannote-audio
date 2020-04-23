@@ -40,6 +40,7 @@ from pyannote.audio.features.wrapper import Wrappable
 from pyannote.database.protocol.protocol import Protocol
 from pyannote.audio.train.model import Resolution
 from pyannote.audio.train.model import Alignment
+from pyannote.core import SlidingWindowFeature
 
 
 class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
@@ -131,17 +132,17 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
             local_labels=True,
         )
 
-    def postprocess_y(self, Y: np.ndarray) -> np.ndarray:
+    def postprocess_y(self, Y: SlidingWindowFeature) -> SlidingWindowFeature:
         """Generate labels for speaker change detection
 
         Parameters
         ----------
-        Y : (n_samples, n_speakers) numpy.ndarray
+        Y : (n_samples, n_speakers) SlidingWindowFeature
             Discretized annotation returned by `pyannote.core.utils.numpy.one_hot_encoding`.
 
         Returns
         -------
-        y : (n_samples, 1) numpy.ndarray
+        y : (n_samples, 1) SlidingWindowFeature
 
         See also
         --------
@@ -149,11 +150,11 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
         """
 
         # replace NaNs by 0s
-        Y = np.nan_to_num(Y)
-        n_samples, n_speakers = Y.shape
+        Y.data = np.nan_to_num(Y.data)
+        n_samples, n_speakers = Y.data.shape
 
         # True = change. False = no change
-        y = np.sum(np.abs(np.diff(Y, axis=0)), axis=1, keepdims=True)
+        y = np.sum(np.abs(np.diff(Y.data, axis=0)), axis=1, keepdims=True)
         y = np.vstack(([[0]], y > 0))
 
         # mark change points neighborhood as positive
@@ -172,9 +173,9 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
             # append (half collar) empty samples at the beginning/end
             expanded_Y = np.vstack(
                 [
-                    np.zeros(((self.collar_ + 1) // 2, n_speakers), dtype=Y.dtype),
-                    Y,
-                    np.zeros(((self.collar_ + 1) // 2, n_speakers), dtype=Y.dtype),
+                    np.zeros(((self.collar_ + 1) // 2, n_speakers), dtype=Y.data.dtype),
+                    Y.data,
+                    np.zeros(((self.collar_ + 1) // 2, n_speakers), dtype=Y.data.dtype),
                 ]
             )
 
@@ -183,7 +184,7 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
             data = np.lib.stride_tricks.as_strided(
                 expanded_Y,
                 shape=(n_samples, n_speakers, self.collar_),
-                strides=(Y.strides[0], Y.strides[1], Y.strides[0]),
+                strides=(Y.data.strides[0], Y.data.strides[1], Y.data.strides[0]),
             )
 
             # y[i] = 1 if more than one speaker are speaking in the
@@ -193,7 +194,7 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
 
             y *= x_speakers
 
-        return y
+        return SlidingWindowFeature(y, Y.sliding_window)
 
     @property
     def specifications(self):

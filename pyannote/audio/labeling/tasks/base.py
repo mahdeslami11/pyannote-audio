@@ -28,6 +28,8 @@
 
 from typing import Optional
 from typing import Text
+from typing import Union
+from typing import Dict
 
 import torch
 import torch.nn.functional as F
@@ -44,6 +46,7 @@ from pyannote.core import SlidingWindowFeature
 from pyannote.database import get_unique_identifier
 from pyannote.database import get_annotated
 from pyannote.database.protocol.protocol import Protocol
+from pyannote.database.protocol.protocol import ProtocolFile
 
 from pyannote.core.utils.numpy import one_hot_encoding
 
@@ -189,22 +192,21 @@ class LabelingTaskGenerator(BatchGenerator):
 
         return self.resolution_
 
-    def postprocess_y(self, Y: np.ndarray) -> np.ndarray:
+    def postprocess_y(self, Y: SlidingWindowFeature) -> SlidingWindowFeature:
         """This function does nothing but return its input.
         It should be overriden by subclasses.
 
         Parameters
         ----------
-        Y : (n_samples, n_speakers) numpy.ndarray
+        Y : (n_samples, n_speakers) SlidingWindowFeature
 
         Returns
         -------
-        postprocessed :
-
+        postprocessed_Y : SlidingWindowFeature
         """
         return Y
 
-    def initialize_y(self, current_file):
+    def initialize_y(self, current_file: ProtocolFile):
         """Precompute y for the whole file
 
         Parameters
@@ -214,7 +216,7 @@ class LabelingTaskGenerator(BatchGenerator):
 
         Returns
         -------
-        y : `SlidingWindowFeature`
+        y : SlidingWindowFeature
             Precomputed y for the whole file
         """
 
@@ -223,7 +225,7 @@ class LabelingTaskGenerator(BatchGenerator):
         else:
             labels = self.segment_labels_
 
-        y, _ = one_hot_encoding(
+        y = one_hot_encoding(
             current_file["annotation"],
             get_annotated(current_file),
             self.resolution,
@@ -231,7 +233,7 @@ class LabelingTaskGenerator(BatchGenerator):
             mode="center",
         )
 
-        return SlidingWindowFeature(self.postprocess_y(y.data), y.sliding_window)
+        return self.postprocess_y(y)
 
     def crop_y(self, y, segment):
         """Extract y for specified segment
@@ -249,7 +251,16 @@ class LabelingTaskGenerator(BatchGenerator):
             y for specified `segment`
         """
 
-        return y.crop(segment, mode=self.alignment, fixed=self.duration)
+        if isinstance(y, SlidingWindowFeature):
+            cropped = y.crop(
+                segment, mode=self.alignment, fixed=self.duration, return_data=False
+            )
+            return cropped
+
+
+        else:
+            msg = f"'crop_y' expects (dict of) SlidingWindowFeature instances."
+            raise NotImplementedError(msg)
 
     def _load_metadata(self, protocol, subset="train") -> float:
         """Load training set metadata
@@ -401,11 +412,17 @@ class LabelingTaskGenerator(BatchGenerator):
             )
 
             y = self.crop_y(datum["y"], subsegment)
-            sample = {"X": X, "y": y}
+
+            samples = {"X": X}
+            if isinstance(y, dict):
+                for key, value in y.items():
+                    samples[f"y_{key}"] = value.data
+            else:
+                samples["y"] = y.data
 
             if self.mask is not None:
                 mask = self.crop_y(current_file[self.mask], subsegment)
-                sample["mask"] = mask
+                sample["mask"] = mask.data
 
             for key, classes in self.file_labels_.items():
                 sample[key] = classes.index(current_file[key])

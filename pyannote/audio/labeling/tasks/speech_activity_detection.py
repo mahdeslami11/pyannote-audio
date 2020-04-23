@@ -43,6 +43,7 @@ from pyannote.audio.features.wrapper import Wrappable
 from pyannote.database.protocol.protocol import Protocol
 from pyannote.audio.train.model import Resolution
 from pyannote.audio.train.model import Alignment
+from pyannote.core import SlidingWindowFeature
 
 
 class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
@@ -112,18 +113,18 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
             local_labels=True,
         )
 
-    def postprocess_y(self, Y: np.ndarray) -> np.ndarray:
+    def postprocess_y(self, Y: SlidingWindowFeature) -> SlidingWindowFeature:
         """Generate labels for speech activity detection
 
         Parameters
         ----------
-        Y : (n_samples, n_speakers) numpy.ndarray
+        Y : (n_samples, n_speakers) SlidingWindowFeature
             Discretized annotation returned by
             `pyannote.core.utils.numpy.one_hot_encoding`.
 
         Returns
         -------
-        y : (n_samples, 1) numpy.ndarray
+        y : (n_samples, 1) SlidingWindowFeature
 
         See also
         --------
@@ -131,10 +132,10 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
         """
 
         # number of speakers for each frame
-        speaker_count = np.sum(Y, axis=1, keepdims=True)
+        speaker_count = np.sum(Y.data, axis=1, keepdims=True)
 
         # mark speech regions as such
-        return np.int64(speaker_count > 0)
+        return SlidingWindowFeature(np.int64(speaker_count > 0), Y.sliding_window)
 
     @property
     def specifications(self):

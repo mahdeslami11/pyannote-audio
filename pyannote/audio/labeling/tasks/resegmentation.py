@@ -151,12 +151,12 @@ class ResegmentationGenerator(LabelingTaskGenerator):
 
         return DummyProtocol()
 
-    def postprocess_y(self, Y: np.ndarray) -> np.ndarray:
+    def postprocess_y(self, Y: SlidingWindowFeature) -> SlidingWindowFeature:
         """Generate labels for resegmentation
 
         Parameters
         ----------
-        Y : (n_samples, n_speakers) numpy.ndarray
+        Y : (n_samples, n_speakers) SlidingWindowFeature
             Discretized annotation returned by
             `pyannote.core.utils.numpy.one_hot_encoding`.
 
@@ -180,25 +180,24 @@ class ResegmentationGenerator(LabelingTaskGenerator):
             return Y
 
         # when overlap is not allowed, reshape Y to (n_samples, 1)
-        else:
 
-            # if speech / non-speech status is locked
-            # there is no class for non-speech.
-            if self.lock_speech:
-                y = np.argmax(Y, axis=1)
-                return np.int64(y)[:, np.newaxis]
+        y = Y.data
 
-            # otherwise, we add a non-speech class at index 0
-            else:
+        # if speech / non-speech status is locked
+        # there is no class for non-speech.
+        if self.lock_speech:
+            y = np.argmax(Y, axis=1)
+            return SlidingWindowFeature(np.int64(y)[:, np.newaxis], Y.sliding_window)
 
-                # +1 because...
-                y = np.argmax(Y, axis=1) + 1
+        # otherwise, we add a non-speech class at index 0
 
-                # ... 0 is for non-speech
-                non_speech = np.sum(Y, axis=1) == 0
-                y[non_speech] = 0
+        # +1 because...
+        y = np.argmax(Y, axis=1) + 1
 
-                return np.int64(y)[:, np.newaxis]
+        # ... 0 is for non-speech
+        non_speech = np.sum(Y, axis=1) == 0
+        y[non_speech] = 0
+        return SlidingWindowFeature(np.int64(y)[:, np.newaxis], Y.sliding_window)
 
     @property
     def specifications(self) -> Dict:
