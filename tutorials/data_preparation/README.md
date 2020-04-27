@@ -55,7 +55,7 @@ $ export TUTORIAL_DIR="$PWD/tutorials/data_preparation"
 ```bash
 $ export DOWNLOAD_TO=/path/to/where/you/want/to/download/ami/database
 $ mkdir -p ${DOWNLOAD_TO}
-$ sh ${TUTORIAL_DIR}/download_ami.sh ${DOWNLOAD_TO}
+$ bash ${TUTORIAL_DIR}/download_ami.sh ${DOWNLOAD_TO}
 ```
 
 This script also *fixes* some of the files from the dataset that are unreadable with `scipy` because of wrongly formatted wav chunks. The audio files are therefore not exactly the same as the original ones. You should end up with a collection of `wav` files in the `${DOWNLOAD_TO}/amicorpus` directory:
@@ -74,7 +74,7 @@ Most `pyannote.audio` tutorials rely on noise extracted from the [MUSAN corpus](
 For convenience, we also provide a [script](./download_musan.sh) that downloads it for you.
 
 ```bash
-$ sh ${TUTORIAL_DIR}/download_musan.sh ${DOWNLOAD_TO}
+$ bash ${TUTORIAL_DIR}/download_musan.sh ${DOWNLOAD_TO}
 ```
 
 You should end up with a collection of `wav` files in the `${DOWNLOAD_TO}/musan` directory:
