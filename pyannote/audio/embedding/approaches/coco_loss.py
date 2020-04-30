@@ -25,8 +25,10 @@
 
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
-# Juan Manuel CORIA
+# Juan Manuel CORIA - https://juanmc2005.github.io
 
+import math
+import warnings
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -36,19 +38,19 @@ from .classification import Classification
 class CocoLinear(nn.Module):
     """Congenerous Cosine linear module (for CoCo loss)
 
-        Parameters
-        ----------
-        nfeat : int
-            Embedding dimension
-        nclass : int
-            Number of classes
-        alpha : float
-            Scaling factor used in embedding L2-normalization
-        """
+    Parameters
+    ----------
+    nfeat : int
+        Embedding dimension
+    nclass : int
+        Number of classes
+    scale : float
+        Scaling factor used in embedding L2-normalization
+    """
 
-    def __init__(self, nfeat, nclass, alpha):
+    def __init__(self, nfeat, nclass, scale):
         super(CocoLinear, self).__init__()
-        self.alpha = alpha
+        self.scale = scale
         self.centers = nn.Parameter(torch.randn(nclass, nfeat))
 
     def forward(self, x, target=None):
@@ -67,14 +69,19 @@ class CocoLinear(nn.Module):
         # normalize centers
         cnorm = F.normalize(self.centers)
         # normalize scaled embeddings
-        xnorm = self.alpha * F.normalize(x)
+        xnorm = self.scale * F.normalize(x)
         # calculate logits like in `nn.Linear`
         logits = torch.matmul(xnorm, torch.transpose(cnorm, 0, 1))
         return logits
 
 
 class CongenerousCosineLoss(Classification):
-    """Train embeddings as last hidden layer of an additive angular margin loss classifier
+    """Congenerous cosine loss
+
+    Train embeddings by maximizing the cosine similarity between
+    an embedding and its class center.
+    A hyper-parameter `alpha` is used to scale logits before
+    applying softmax.
 
     Parameters
     ----------
@@ -98,8 +105,13 @@ class CongenerousCosineLoss(Classification):
     label_min_duration : `float`, optional
         Remove speakers with less than that many seconds of speech.
         Defaults to 0 (i.e. keep them all).
-    alpha : float
-        Scaling factor used in embedding L2-normalization. Defaults to 6.25.
+    scale : float
+        Scaling factor used in embedding L2-normalization. Defaults to sqrt(2) * log(n_classes - 1).
+
+    Reference
+    ---------
+    Rethinking Feature Discrimination and Polymerization for Large-scale Recognition
+    https://arxiv.org/abs/1710.00870
     """
 
     def __init__(
@@ -111,7 +123,9 @@ class CongenerousCosineLoss(Classification):
         per_fold: int = 32,
         per_epoch: float = None,
         label_min_duration: float = 0.0,
-        alpha: float = 6.25,
+        # `alpha` is deprecated in favor of `scale`
+        alpha: float = None,
+        scale: float = None
     ):
 
         super().__init__(
@@ -124,7 +138,13 @@ class CongenerousCosineLoss(Classification):
             label_min_duration=label_min_duration,
         )
 
-        self.alpha = alpha
+        if alpha is not None:
+            msg = "The 'alpha' parameter is deprecated in favor of 'scale', " \
+                  "and will be removed in a future release"
+            warnings.warn(msg, FutureWarning)
+            self.scale = alpha
+        else:
+            self.scale = scale
 
     def more_parameters(self):
         """Initialize trainable trainer parameters
@@ -135,8 +155,13 @@ class CongenerousCosineLoss(Classification):
             Trainable trainer parameters
         """
 
+        nclass = len(self.specifications["y"]["classes"])
+        # Use scaling initialization trick from AdaCos
+        # Reference: https://arxiv.org/abs/1905.00292
+        scale = math.sqrt(2) * math.log(nclass - 1) if self.scale is None else self.scale
+
         self.classifier_ = CocoLinear(
-            self.model.dimension, len(self.specifications["y"]["classes"]), self.alpha
+            self.model.dimension, nclass, scale
         ).to(self.device)
 
         return self.classifier_.parameters()
