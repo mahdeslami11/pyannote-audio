@@ -27,13 +27,7 @@ $ git checkout develop
 $ pip install .
 ```
 
-## Documentation
-
-Part of the API is described in [this](tutorials/pretrained/model) tutorial.  
-
-Documentation is a work in progress and is scheduled to be ready by end of April 2020.
-
-## Tutorials
+## Documentation and tutorials
 
 * Use [pretrained](https://github.com/pyannote/pyannote-audio-hub) models and pipelines
   * [Apply pretrained pipelines on your own data](tutorials/pretrained/pipeline)
@@ -48,6 +42,9 @@ Documentation is a work in progress and is scheduled to be ready by end of April
 * Tune pipelines on your own data
   * [Speech activity detection pipeline](tutorials/pipelines/speech_activity_detection)
   * [Speaker diarization pipeline](tutorials/pipelines/speaker_diarization)
+
+Until a proper documentation is released, note that part of the API is described in [this](tutorials/pretrained/model) tutorial.  
+
 
 ## Citation
 
