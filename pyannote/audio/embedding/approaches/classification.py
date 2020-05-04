@@ -67,6 +67,8 @@ class Classification(RepresentationLearning):
     bias : `bool`, optional
         Use bias in the classification layer
         Defaults to False.
+    self_confidence : bool, optional
+        Defaults to False
     """
 
     # TODO. add option to see this classification step
@@ -80,6 +82,7 @@ class Classification(RepresentationLearning):
         min_duration: float = None,
         per_turn: int = 1,
         per_label: int = 1,
+        self_confidence: bool = False,
         per_fold: int = 32,
         per_epoch: float = None,
         label_min_duration: float = 0.0,
@@ -91,6 +94,7 @@ class Classification(RepresentationLearning):
             min_duration=min_duration,
             per_turn=per_turn,
             per_label=per_label,
+            self_confidence=self_confidence,
             per_fold=per_fold,
             per_epoch=per_epoch,
             label_min_duration=label_min_duration,

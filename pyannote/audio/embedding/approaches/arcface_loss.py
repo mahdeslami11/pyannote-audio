@@ -94,7 +94,9 @@ class ArcLinear(nn.Module):
         one_hot = torch.zeros_like(cos_theta_j)
         one_hot.scatter_(1, target, 1.0)
         # project margin differences into cosθj
-        return self.scale * (cos_theta_j + one_hot * (cos_theta_yi_margin - cos_theta_yi))
+        return self.scale * (
+            cos_theta_j + one_hot * (cos_theta_yi_margin - cos_theta_yi)
+        )
 
 
 class AdditiveAngularMarginLoss(Classification):
@@ -131,6 +133,8 @@ class AdditiveAngularMarginLoss(Classification):
         Angular margin value. Defaults to 0.1.
     scale : float, optional
         Scaling parameter value for the logits. Defaults to sqrt(2) * log(n_classes - 1).
+    self_confidence : bool, optional
+
 
     Reference
     ---------
@@ -144,13 +148,14 @@ class AdditiveAngularMarginLoss(Classification):
         min_duration: float = None,
         per_turn: int = 1,
         per_label: int = 1,
+        self_confidence: bool = False,
         per_fold: int = 32,
         per_epoch: float = None,
         label_min_duration: float = 0.0,
         margin: float = 0.1,
         # `s` is deprecated in favor of `scale`
         s: float = None,
-        scale: float = None
+        scale: float = None,
     ):
 
         super().__init__(
@@ -158,6 +163,7 @@ class AdditiveAngularMarginLoss(Classification):
             min_duration=min_duration,
             per_turn=per_turn,
             per_label=per_label,
+            self_confidence=self_confidence,
             per_fold=per_fold,
             per_epoch=per_epoch,
             label_min_duration=label_min_duration,
@@ -165,8 +171,10 @@ class AdditiveAngularMarginLoss(Classification):
 
         self.margin = margin
         if s is not None:
-            msg = "The 's' parameter is deprecated in favor of 'scale', " \
-                  "and will be removed in a future release"
+            msg = (
+                "The 's' parameter is deprecated in favor of 'scale', "
+                "and will be removed in a future release"
+            )
             warnings.warn(msg, FutureWarning)
             self.scale = s
         else:
@@ -184,13 +192,12 @@ class AdditiveAngularMarginLoss(Classification):
         nclass = len(self.specifications["y"]["classes"])
         # Use scaling initialization trick from AdaCos
         # Reference: https://arxiv.org/abs/1905.00292
-        scale = math.sqrt(2) * math.log(nclass - 1) if self.scale is None else self.scale
+        scale = (
+            math.sqrt(2) * math.log(nclass - 1) if self.scale is None else self.scale
+        )
 
         self.classifier_ = ArcLinear(
-            self.model.dimension,
-            nclass,
-            self.margin,
-            scale,
+            self.model.dimension, nclass, self.margin, scale,
         ).to(self.device)
 
         return self.classifier_.parameters()

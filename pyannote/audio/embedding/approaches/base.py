@@ -65,6 +65,7 @@ class RepresentationLearning(Trainer):
     label_min_duration : `float`, optional
         Remove speakers with less than that many seconds of speech.
         Defaults to 0 (i.e. keep them all).
+    self_confidence : bool, optional
     """
 
     def __init__(
@@ -83,6 +84,10 @@ class RepresentationLearning(Trainer):
         self.min_duration = min_duration
         self.per_turn = per_turn
         self.per_label = per_label
+        self.self_confidence = self_confidence
+        if self.self_confidence and self.per_label < 2:
+            msg = f"per_label must be greater than 1 with self_confidence."
+            raise ValueError(msg)
         self.per_fold = per_fold
         self.per_epoch = per_epoch
         self.label_min_duration = label_min_duration
@@ -188,6 +193,16 @@ class RepresentationLearning(Trainer):
         else:
             agg_fX = fX
             agg_y = batch["y"]
+
+        if self.self_confidence:
+
+            confidence = agg_fX.norm(p=2, dim=-1, keepdim=True) + 1e-6
+            relative_confidence = F.softmax(
+                confidence.view(self.per_fold, self.per_label, -1), dim=1
+            ).view(self.per_fold * self.per_label, -1)
+            agg_fX = relative_confidence / confidence * agg_fX
+            agg_fX = fX.view(self.per_fold, self.per_label, -1).mean(axis=1)
+            agg_y = agg_y[:: self.per_label]
 
         return agg_fX, agg_y
 
