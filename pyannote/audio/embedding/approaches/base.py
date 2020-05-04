@@ -74,6 +74,7 @@ class RepresentationLearning(Trainer):
         min_duration: float = None,
         per_turn: int = 1,
         per_label: int = 1,
+        self_confidence: bool = False,
         per_fold: Optional[int] = None,
         per_epoch: Optional[float] = None,
         label_min_duration: float = 0.0,
