@@ -45,6 +45,7 @@ import scipy.optimize
 import scipy.special
 from scipy.cluster.hierarchy import fcluster
 from pyannote.core.utils.hierarchy import linkage
+from pyannote.core.utils.hierarchy import pool
 
 from pyannote.core.utils.distance import pdist
 from pyannote.core.utils.distance import cdist
@@ -279,9 +280,10 @@ class SpeakerEmbedding(Application):
             min_d = min(np.min(D), min_d)
             max_d = max(np.max(D), max_d)
 
-            Z[uri] = linkage(
-                X_, method="pool", metric=metric, pooling_func=pooling_func
-            )
+            # Z[uri] = linkage(
+            #     X_, method="pool", metric=metric, pooling_func=pooling_func
+            # )
+            Z[uri] = pool(X_, metric=metric, pooling_func=pooling_func)
             t[uri] = np.array(t_)
 
         def fun(threshold):
