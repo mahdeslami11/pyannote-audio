@@ -42,6 +42,7 @@ from pyannote.database.protocol import SpeakerDiarizationProtocol
 from pyannote.database.protocol import SpeakerVerificationProtocol
 
 import scipy.optimize
+import scipy.special
 from scipy.cluster.hierarchy import fcluster
 from pyannote.core.utils.hierarchy import linkage
 
@@ -223,6 +224,32 @@ class SpeakerEmbedding(Application):
         Z, t = dict(), dict()
         min_d, max_d = np.inf, -np.inf
 
+        def pooling_func(
+            C_u: np.ndarray, C_v: np.ndarray, X_u: np.ndarray, X_v: np.ndarray
+        ) -> np.ndarray:
+            """
+            Parameters
+            ----------
+            C_u : (dimension, ) np.ndarray
+                Centroid of u^th cluster.
+            C_v : (dimension, ) np.ndarray
+                Centroid of v^th cluster.
+            X_u : (n_samples_u, dimension) np.ndarray
+                Elements of u^th cluster.
+            X_v : (n_samples_v, dimension) np.ndarray
+                Elements of v^th cluster.
+
+            Returns
+            -------
+            C : (dimension, ) np.ndarray
+                Centroid of newly formed cluster.
+            """
+
+            X_uv = np.vstack([X_u, X_v])
+            confidence = np.linalg.norm(X_uv, ord=2, axis=1, keepdims=True) + 1e-6
+            relative_confidence = scipy.special.softmax(confidence)
+            return np.average(X_uv, weights=relative_confidence / confidence)
+
         for current_file in getattr(_protocol, subset)():
 
             uri = get_unique_identifier(current_file)
@@ -252,7 +279,9 @@ class SpeakerEmbedding(Application):
             min_d = min(np.min(D), min_d)
             max_d = max(np.max(D), max_d)
 
-            Z[uri] = linkage(X_, method="pool", metric=metric)
+            Z[uri] = linkage(
+                X_, method="pool", metric=metric, pooling_func=pooling_func
+            )
             t[uri] = np.array(t_)
 
         def fun(threshold):
