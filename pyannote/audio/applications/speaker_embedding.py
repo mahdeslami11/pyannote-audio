@@ -249,7 +249,7 @@ class SpeakerEmbedding(Application):
             X_uv = np.vstack([X_u, X_v])
             confidence = np.linalg.norm(X_uv, ord=2, axis=1, keepdims=False) + 1e-6
             relative_confidence = scipy.special.softmax(confidence)
-            return np.average(X_uv, weights=relative_confidence / confidence)
+            return np.average(X_uv, weights=relative_confidence / confidence, axis=0)
 
         for current_file in getattr(_protocol, subset)():
 
