@@ -162,9 +162,9 @@ class SimpleDiarization(Pipeline):
             Z = pool(
                 emb_long,
                 metric="cosine",
-                pooling_func="average",
-                cannot_link=None,
-                must_link=None,
+                #pooling_func="average",
+                #cannot_link=None,
+                #must_link=None,
             )
             cluster_long = fcluster(Z, self.emb_threshold, criterion="distance")
 
