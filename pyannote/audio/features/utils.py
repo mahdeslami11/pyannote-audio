@@ -34,6 +34,7 @@ from librosa.util import valid_audio
 from librosa.util.exceptions import ParameterError
 
 from pyannote.core import SlidingWindow, SlidingWindowFeature
+from pyannote.database.protocol.protocol import ProtocolFile
 
 from soundfile import SoundFile
 import soundfile as sf
@@ -57,6 +58,13 @@ def get_audio_duration(current_file):
         duration = float(f.frames) / f.samplerate
 
     return duration
+
+
+class GetAudioDuration:
+    """Wrap get_audio_duration in a class for use as pyannote.pipeline preprocessor"""
+
+    def __call__(self, current_file: ProtocolFile) -> float:
+        return get_audio_duration(current_file)
 
 
 def get_audio_sample_rate(current_file):
