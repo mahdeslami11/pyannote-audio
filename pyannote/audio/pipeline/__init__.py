@@ -30,6 +30,7 @@
 # Pipelines
 """
 
+from .simple import SimpleDiarization
 from .speech_activity_detection import SpeechActivityDetection
 from .overlap_detection import OverlapDetection
 from .speech_turn_segmentation import SpeechTurnSegmentation
