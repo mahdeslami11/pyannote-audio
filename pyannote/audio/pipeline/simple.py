@@ -33,12 +33,15 @@ from pathlib import Path
 import numpy as np
 from pyannote.pipeline import Pipeline
 from pyannote.pipeline.parameter import Uniform
+from pyannote.pipeline.parameter import LogUniform
+
 from pyannote.audio.features.wrapper import Wrapper
 from pyannote.database.protocol.protocol import ProtocolFile
 from pyannote.database import get_annotated
 from pyannote.metrics.diarization import DiarizationErrorRate
 from pyannote.core import Annotation
 from pyannote.core import Timeline
+from pyannote.core import Segment
 from pyannote.audio.utils.signal import Binarize
 from pyannote.audio.utils.signal import Peak
 from pyannote.core.utils.hierarchy import pool
@@ -60,12 +63,16 @@ class SimpleDiarization(Pipeline):
 
     Hyper-parameters
     ----------------
-    sad_threshold : float
+    sad_onset : float
         Threshold applied on speech activity detection scores.
     scd_threshold : float
         Threshold applied on speaker change detection scores local maxima.
-    seg_threshold : float
-        Do not cluster segments shorter than `seg_threshold` duration. Short
+    seg_min_duration : float
+        Minimum duration of speech turns.
+    min_duration_off : float
+        Minimum duration of gaps between speech turns.
+    emb_duration : float
+        Do not cluster segments shorter than `emb_duration` duration. Short
         segments will eventually be assigned to the most similar cluster.
     emb_threshold : float
         Distance threshold used as stopping criterion for hierarchical
@@ -88,27 +95,61 @@ class SimpleDiarization(Pipeline):
         self.scd_change_index_ = self.scd.classes.index("change")
         self.emb = Wrapper(emb)
 
-        self.sad_threshold = Uniform(0.0, 1.0)
-        self.scd_threshold = Uniform(0.0, 1.0)
-        self.seg_threshold = Uniform(1.0, 4.0)
+        self.sad_threshold_on = Uniform(0.0, 1.0)
+        self.sad_threshold_off = Uniform(0.0, 1.0)
+        self.scd_threshold = LogUniform(1e-8, 1.0)
+        self.seg_min_duration = Uniform(0.0, 0.5)
+        self.gap_min_duration = Uniform(0.0, 0.5)
+        self.emb_duration = Uniform(0.5, 4.0)
         self.emb_threshold = Uniform(0.0, 2.0)
 
     def initialize(self):
 
         self.sad_binarize_ = Binarize(
-            onset=self.sad_threshold,
-            offset=self.sad_threshold,
-            min_duration_on=0.5,
-            min_duration_off=0.5,
-            pad_onset=0.0,
-            pad_offset=0.0,
+            onset=self.sad_onset,
+            offset=self.sad_onset,
+            min_duration_on=self.seg_min_duration,
+            min_duration_off=self.gap_min_duration,
         )
 
-        self.scd_peak_ = Peak(alpha=self.scd_threshold, min_duration=0.250)
+        self.scd_peak_ = Peak(
+            alpha=self.scd_threshold, min_duration=self.seg_min_duration
+        )
+
+    def get_embedding(self, current_file, segment):
+
+        try:
+            embeddings = self.emb.crop(current_file, segment)
+
+        except RuntimeError as e:
+
+            # A RuntimeError exception is raised by the pretrained "emb" model
+            # when the input waveform is too short (i.e. < 157ms).
+
+            # We catch it and extend the segment on both sides until it reaches
+            # this target duration.
+
+            # This ugly hack will probably bite us later...
+
+            MIN_DURATION = 0.157
+            if segment.middle - 0.5 * MIN_DURATION < 0.0:
+                extended_segment = Segment(0.0, MIN_DURATION)
+            elif segment.middle + 0.5 * MIN_DURATION > current_file["duration"]:
+                extended_segment = Segment(
+                    current_file["duration"] - MIN_DURATION, current_file["duration"]
+                )
+            else:
+                extended_segment = Segment(
+                    segment.middle - 0.5 * MIN_DURATION,
+                    segment.middle + 0.5 * MIN_DURATION,
+                )
+            embeddings = self.emb.crop(current_file, extended_segment)
+
+        return np.mean(embeddings, axis=0)
 
     def __call__(self, current_file: ProtocolFile) -> Annotation:
 
-        uri = current_file["uri"]
+        uri = current_file.get("uri", "pyannote")
 
         # apply pretrained SAD model and turn log-probabilities into probabilities
         if "sad_scores" in current_file:
@@ -138,10 +179,10 @@ class SimpleDiarization(Pipeline):
         seg = scd.crop(sad, mode="intersection")
 
         # remove resulting tiny segments, inconsistent with SCD duration constraint
-        seg = [s for s in seg if s.duration > self.scd_peak_.min_duration]
+        seg = [s for s in seg if s.duration > min(0.1, self.seg_min_duration)]
 
         # separate long segments from short ones
-        seg_long = [s for s in seg if s.duration >= self.seg_threshold]
+        seg_long = [s for s in seg if s.duration >= self.emb_duration]
 
         if len(seg_long) == 0:
             # there are only short segments. put each of them in its own cluster
@@ -157,20 +198,20 @@ class SimpleDiarization(Pipeline):
 
             # extract embeddings of long segments
             emb_long = np.vstack(
-                [np.mean(self.emb.crop(current_file, s), axis=0) for s in seg_long]
+                [self.get_embedding(current_file, s) for s in seg_long]
             )
 
             # apply clustering
             Z = pool(
                 emb_long,
                 metric="cosine",
-                #pooling_func="average",
-                #cannot_link=None,
-                #must_link=None,
+                # pooling_func="average",
+                # cannot_link=None,
+                # must_link=None,
             )
             cluster_long = fcluster(Z, self.emb_threshold, criterion="distance")
 
-            seg_shrt = [s for s in seg if s.duration < self.seg_threshold]
+            seg_shrt = [s for s in seg if s.duration < self.emb_duration]
 
             if len(seg_shrt) == 0:
                 # there are only long segments.
@@ -180,7 +221,7 @@ class SimpleDiarization(Pipeline):
 
             # extract embeddings of short segments
             emb_shrt = np.vstack(
-                [np.mean(self.emb.crop(current_file, s), axis=0) for s in seg_shrt]
+                [self.get_embedding(current_file, s) for s in seg_shrt]
             )
 
             # assign each short segment to the cluster containing the closest long segment
@@ -214,3 +255,6 @@ class SimpleDiarization(Pipeline):
         return DiarizationErrorRate()(
             current_file["annotation"], hypothesis, uem=get_annotated(current_file)
         )
+
+    def get_metric(self) -> DiarizationErrorRate:
+        return DiarizationErrorRate(collar=0.0, skip_overlap=False)
