@@ -108,6 +108,8 @@ class SimpleDiarization(Pipeline):
 
     def __call__(self, current_file: ProtocolFile) -> Annotation:
 
+        uri = current_file["uri"]
+
         # apply pretrained SAD model and turn log-probabilities into probabilities
         if "sad_scores" in current_file:
             sad_scores = current_file["sad_scores"]
@@ -143,11 +145,11 @@ class SimpleDiarization(Pipeline):
 
         if len(seg_long) == 0:
             # there are only short segments. put each of them in its own cluster
-            return Timeline(segments=seg).to_annotation(generator="string")
+            return Timeline(segments=seg, uri=uri).to_annotation(generator="string")
 
         elif len(seg_long) == 1:
             # there is exactly one long segment. put everything in one cluster
-            return Timeline(segments=seg).to_annotation(
+            return Timeline(segments=seg, uri=uri).to_annotation(
                 generator=iter(lambda: "A", None)
             )
 
@@ -172,7 +174,7 @@ class SimpleDiarization(Pipeline):
 
             if len(seg_shrt) == 0:
                 # there are only long segments.
-                return Timeline(segments=seg).to_annotation(
+                return Timeline(segments=seg, uri=uri).to_annotation(
                     generator=iter(cluster_long)
                 )
 
@@ -186,8 +188,8 @@ class SimpleDiarization(Pipeline):
                 np.argmin(cdist(emb_long, emb_shrt, metric="cosine"), axis=0)
             ]
 
-            seg_shrt = Timeline(segments=seg_shrt)
-            seg_long = Timeline(segments=seg_long)
+            seg_shrt = Timeline(segments=seg_shrt, uri=uri)
+            seg_long = Timeline(segments=seg_long, uri=uri)
 
             return seg_long.to_annotation(generator=iter(cluster_long)).update(
                 seg_shrt.to_annotation(generator=iter(cluster_shrt))
