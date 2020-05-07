@@ -106,8 +106,8 @@ class SimpleDiarization(Pipeline):
     def initialize(self):
 
         self.sad_binarize_ = Binarize(
-            onset=self.sad_onset,
-            offset=self.sad_onset,
+            onset=self.sad_threshold_on,
+            offset=self.sad_threshold_off,
             min_duration_on=self.seg_min_duration,
             min_duration_off=self.gap_min_duration,
         )
