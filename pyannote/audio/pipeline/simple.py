@@ -272,6 +272,9 @@ class DiscreteDiarization(Pipeline):
         Pretrained speech activity detection model. Defaults to "sad".
     emb : str or Path, optional
         Pretrained speaker embedding model. Defaults to "emb".
+    ovl : str or Path, optional
+        Pretrained overlapped speech detection model.
+        Default behavior is to not use overlapped speech detection.
     batch_size : int, optional
         Batch size.
 
@@ -292,6 +295,7 @@ class DiscreteDiarization(Pipeline):
         self,
         sad: Union[Text, Path] = "sad",
         emb: Union[Text, Path] = "emb",
+        ovl: Union[Text, Path] = None,
         batch_size: int = None,
     ):
 
@@ -302,20 +306,33 @@ class DiscreteDiarization(Pipeline):
             self.sad.batch_size = batch_size
         self.sad_speech_index_ = self.sad.classes.index("speech")
 
-        self.emb = Wrapper(emb)
-        if batch_size is not None:
-            self.emb.batch_size = batch_size
-
         self.sad_threshold_on = Uniform(0.0, 1.0)
         self.sad_threshold_off = Uniform(0.0, 1.0)
         self.sad_min_duration_on = Uniform(0.0, 0.5)
         self.sad_min_duration_off = Uniform(0.0, 0.5)
+
+        self.emb = Wrapper(emb)
+        if batch_size is not None:
+            self.emb.batch_size = batch_size
 
         max_duration = self.emb.duration
         min_duration = getattr(self.emb, "min_duration", 0.5 * max_duration)
         self.emb_duration = Uniform(min_duration, max_duration)
         self.emb_step_ratio = Uniform(0.1, 1.0)
         self.emb_threshold = Uniform(0.0, 2.0)
+
+        if ovl is None:
+            self.ovl = None
+        else:
+            self.ovl = Wrapper(ovl)
+            if batch_size is not None:
+                self.ovl.batch_size = batch_size
+            self.ovl_overlap_index_ = self.ovl.classes.index("overlap")
+
+            self.ovl_threshold_on = Uniform(0.0, 1.0)
+            self.ovl_threshold_off = Uniform(0.0, 1.0)
+            self.ovl_min_duration_on = Uniform(0.0, 0.5)
+            self.ovl_min_duration_off = Uniform(0.0, 0.5)
 
     def initialize(self):
 
@@ -330,6 +347,14 @@ class DiscreteDiarization(Pipeline):
         # of "emb_duration" duration and "emb_step_ratio x emb_duration" step.
         self.emb.duration = self.emb_duration
         self.emb.step = self.emb_step_ratio
+
+        if self.ovl is not None:
+            self.ovl_binarize_ = Binarize(
+                onset=self.ovl_threshold_on,
+                offset=self.ovl_threshold_off,
+                min_duration_on=self.ovl_min_duration_on,
+                min_duration_off=self.ovl_min_duration_off,
+            )
 
     def __call__(self, current_file: ProtocolFile) -> Annotation:
 
@@ -352,32 +377,96 @@ class DiscreteDiarization(Pipeline):
             sad_scores, dimension=self.sad_speech_index_
         )
 
-        speech_indices: np.ndarray = np.where(
-            one_hot_encoding(
-                speech.to_annotation(generator=iter(lambda: "speech", None)),
+        speech_discrete: np.ndarray = one_hot_encoding(
+            speech.to_annotation(generator=iter(lambda: "speech", None)),
+            Timeline(segments=[extent]),
+            emb.sliding_window,
+            labels=["speech",],
+            mode="center",
+        )[: len(emb)]
+
+        speech_indices: np.ndarray = np.where(speech_discrete)[0]
+
+        if len(speech_indices) == 0:
+            return Annotation(uri=uri)
+
+        if self.ovl is not None:
+
+            # overlapped speech detection
+            if "ovl_scores" in current_file:
+                ovl_scores: SlidingWindowFeature = current_file["ovl_scores"]
+            else:
+                ovl_scores: SlidingWindowFeature = self.ovl(current_file)
+                if np.nanmean(ovl_scores) < 0:
+                    ovl_scores = np.exp(ovl_scores)
+                current_file["ovl_scores"] = ovl_scores
+
+            overlap: Timeline = self.ovl_binarize_.apply(
+                ovl_scores, dimension=self.ovl_overlap_index_
+            )
+
+            clean_speech: Timeline = speech.crop(
+                overlap.gaps(support=extent), mode="intersection"
+            )
+            noisy_speech: Timeline = speech.crop(overlap, mode="intersection")
+
+            overlap_discrete = one_hot_encoding(
+                overlap.to_annotation(generator=iter(lambda: "overlap", None)),
                 Timeline(segments=[extent]),
                 emb.sliding_window,
-                labels=["speech",],
+                labels=["overlap",],
                 mode="center",
             )[: len(emb)]
-        )[0]
+
+            overlap_indices: np.ndarray = np.where(overlap_discrete)[0]
+
+            clean_speech_indices = np.where(speech_discrete * (1 - overlap_discrete))[0]
+            noisy_speech_indices = np.where(speech_discrete * overlap_discrete)[0]
 
         # TODO. use overlap speech detection to not use overlap regions for initial clustering
 
         # hierarchical agglomerative clustering
-        dendrogram = pool(emb[speech_indices], metric="cosine")
-        cluster = fcluster(dendrogram, self.emb_threshold, criterion="distance")
-        num_clusters = np.max(cluster)
-
+        indices = speech_indices if self.ovl is None else clean_speech_indices
+        dendrogram = pool(emb[indices], metric="cosine")
+        cluster = fcluster(dendrogram, self.emb_threshold, criterion="distance") - 1
+        num_clusters = np.max(cluster) + 1
         y = np.zeros((len(emb), num_clusters), dtype=np.int8)
-        for i, k in zip(speech_indices, cluster):
-            y[i, k - 1] = 1
+        for i, k in zip(indices, cluster):
+            y[i, k] = 1
 
-        # TODO. use speaker change detection to refine boundaries
-        hypothesis: Annotation = one_hot_decoding(y, emb.sliding_window)
+        hypothesis: Annotation = one_hot_decoding(
+            y, emb.sliding_window, labels=list(range(num_clusters))
+        )
         hypothesis.uri = uri
+        if self.ovl is None:
+            hypothesis = hypothesis.crop(speech, mode="intersection")
 
-        return hypothesis.crop(speech, mode="intersection")
+        else:
+            hypothesis = hypothesis.crop(clean_speech, mode="intersection")
+
+        if self.ovl is not None:
+            # assign each overlap embedding to 2 most similar clusters (where
+            # each cluster is represented by its average embedding)
+            cluster_emb = np.vstack(
+                [np.mean(emb[cluster == k], axis=0) for k in range(num_clusters)]
+            )
+            distance = cdist(cluster_emb, emb[noisy_speech_indices], metric="cosine")
+            most_similar_cluster_indices = np.argpartition(distance, 2, axis=0,)[:2]
+
+            y = np.zeros((len(emb), num_clusters), dtype=np.int8)
+            for i, (k1, k2) in zip(
+                noisy_speech_indices, most_similar_cluster_indices.T
+            ):
+                y[i, k1] = 1
+                y[i, k2] = 1
+
+            noisy_hypothesis: Annotation = one_hot_decoding(
+                y, emb.window, labels=list(range(num_clusters))
+            )
+            noisy_hypothesis = noisy_hypothesis.crop(noisy_speech, mode="intersection")
+            hypothesis = hypothesis.update(noisy_hypothesis)
+
+        return hypothesis
 
     def loss(self, current_file: ProtocolFile, hypothesis: Annotation) -> float:
         """Compute diarization error rate
