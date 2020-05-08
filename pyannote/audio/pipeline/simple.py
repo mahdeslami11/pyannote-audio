@@ -464,7 +464,7 @@ class DiscreteDiarization(Pipeline):
                 y[i, k2] = 1
 
             noisy_hypothesis: Annotation = one_hot_decoding(
-                y, emb.window, labels=list(range(num_clusters))
+                y, emb.sliding_window, labels=list(range(num_clusters))
             )
             noisy_hypothesis = noisy_hypothesis.crop(noisy_speech, mode="intersection")
             hypothesis = hypothesis.update(noisy_hypothesis)
