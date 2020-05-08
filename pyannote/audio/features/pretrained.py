@@ -176,7 +176,7 @@ class Pretrained(FeatureExtraction):
     @duration.setter
     def duration(self, duration: float):
         self.duration_ = duration
-        self.chunk_ = SlidingWindow(
+        self.chunks_ = SlidingWindow(
             duration=self.duration, step=self.step * self.duration
         )
 
@@ -187,7 +187,7 @@ class Pretrained(FeatureExtraction):
     @step.setter
     def step(self, step: float):
         self.step_ = step
-        self.chunk_ = SlidingWindow(
+        self.chunks_ = SlidingWindow(
             duration=self.duration, step=self.step * self.duration
         )
 
