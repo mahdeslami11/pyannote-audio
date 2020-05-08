@@ -454,14 +454,14 @@ class DiscreteDiarization(Pipeline):
                 ]
             )
             distance = cdist(cluster_emb, emb[noisy_speech_indices], metric="cosine")
-            most_similar_cluster_indices = np.argpartition(distance, 2, axis=0,)[:2]
+            most_similar_cluster_indices = np.argpartition(
+                distance, min(2, num_clusters), axis=0,
+            )[: min(2, num_clusters)]
 
             y = np.zeros((len(emb), num_clusters), dtype=np.int8)
-            for i, (k1, k2) in zip(
-                noisy_speech_indices, most_similar_cluster_indices.T
-            ):
-                y[i, k1] = 1
-                y[i, k2] = 1
+            for i, ks in zip(noisy_speech_indices, most_similar_cluster_indices.T):
+                for k in ks:
+                    y[i, k] = 1
 
             noisy_hypothesis: Annotation = one_hot_decoding(
                 y, emb.sliding_window, labels=list(range(num_clusters))
