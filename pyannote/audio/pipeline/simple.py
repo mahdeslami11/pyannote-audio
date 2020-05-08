@@ -350,7 +350,7 @@ class DiscreteDiarization(Pipeline):
                 emb.sliding_window,
                 labels=["speech",],
                 mode="center",
-            )
+            )[: len(emb)]
         )[0]
 
         # TODO. use overlap speech detection to not use overlap regions for initial clustering
