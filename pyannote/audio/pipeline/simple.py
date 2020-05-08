@@ -42,6 +42,9 @@ from pyannote.metrics.diarization import DiarizationErrorRate
 from pyannote.core import Annotation
 from pyannote.core import Timeline
 from pyannote.core import Segment
+from pyannote.core import SlidingWindowFeature
+from pyannote.core.utils.numpy import one_hot_encoding
+from pyannote.core.utils.numpy import one_hot_decoding
 from pyannote.audio.utils.signal import Binarize
 from pyannote.audio.utils.signal import Peak
 from pyannote.core.utils.hierarchy import pool
@@ -235,6 +238,137 @@ class SimpleDiarization(Pipeline):
             return seg_long.to_annotation(generator=iter(cluster_long)).update(
                 seg_shrt.to_annotation(generator=iter(cluster_shrt))
             )
+
+    def loss(self, current_file: ProtocolFile, hypothesis: Annotation) -> float:
+        """Compute diarization error rate
+
+        Parameters
+        ----------
+        current_file : ProtocolFile
+            Protocol file
+        hypothesis : Annotation
+            Hypothesized diarization output
+
+        Returns
+        -------
+        der : float
+            Diarization error rate.
+        """
+
+        return DiarizationErrorRate()(
+            current_file["annotation"], hypothesis, uem=get_annotated(current_file)
+        )
+
+    def get_metric(self) -> DiarizationErrorRate:
+        return DiarizationErrorRate(collar=0.0, skip_overlap=False)
+
+
+class DiscreteDiarization(Pipeline):
+    """Very simple diarization pipeline
+
+    Parameters
+    ----------
+    sad : str or Path, optional
+        Pretrained speech activity detection model. Defaults to "sad".
+    emb : str or Path, optional
+        Pretrained speaker embedding model. Defaults to "emb".
+
+    Hyper-parameters
+    ----------------
+    sad_threshold_on, sad_threshold_off : float
+        Onset/offset speech activity detection thresholds.
+    sad_min_duration_on, sad_min_duration_off : float
+        Minimum duration of speech/non-speech regions.
+    emb_duration, emb_step_ratio : float
+        Sliding window used for embedding extraction.
+    emb_threshold : float
+        Distance threshold used as stopping criterion for hierarchical
+        agglomeratice clustering.
+    """
+
+    def __init__(
+        self, sad: Union[Text, Path] = "sad", emb: Union[Text, Path] = "emb",
+    ):
+
+        super().__init__()
+
+        self.sad = Wrapper(sad)
+        self.sad_speech_index_ = self.sad.classes.index("speech")
+
+        self.emb = Wrapper(emb)
+
+        self.sad_threshold_on = Uniform(0.0, 1.0)
+        self.sad_threshold_off = Uniform(0.0, 1.0)
+        self.sad_min_duration_on = Uniform(0.0, 0.5)
+        self.sad_min_duration_off = Uniform(0.0, 0.5)
+
+        max_duration = self.emb.duration
+        min_duration = getattr(self.emb, "min_duration", 0.5 * max_duration)
+        self.emb_duration = Uniform(min_duration, max_duration)
+        self.emb_step_ratio = Uniform(0.1, 1.0)
+        self.emb_threshold = Uniform(0.0, 2.0)
+
+    def initialize(self):
+
+        self.sad_binarize_ = Binarize(
+            onset=self.sad_threshold_on,
+            offset=self.sad_threshold_off,
+            min_duration_on=self.sad_min_duration_on,
+            min_duration_off=self.sad_min_duration_off,
+        )
+
+        # embeddings will be extracted with a sliding window
+        # of "emb_duration" duration and "emb_step_ratio x emb_duration" step.
+        self.emb.duration = self.emb_duration
+        self.emb.step = self.emb_step_ratio
+
+    def __call__(self, current_file: ProtocolFile) -> Annotation:
+
+        uri = current_file.get("uri", "pyannote")
+        extent = Segment(0, current_file["duration"])
+
+        # speaker embedding
+        emb: SlidingWindowFeature = self.emb(current_file)
+
+        # speech activity detection
+        if "sad_scores" in current_file:
+            sad_scores: SlidingWindowFeature = current_file["sad_scores"]
+        else:
+            sad_scores: SlidingWindowFeature = self.sad(current_file)
+            if np.nanmean(sad_scores) < 0:
+                sad_scores = np.exp(sad_scores)
+            current_file["sad_scores"] = sad_scores
+
+        speech: Timeline = self.sad_binarize_.apply(
+            sad_scores, dimension=self.sad_speech_index_
+        )
+
+        speech_indices: np.ndarray = np.where(
+            one_hot_encoding(
+                speech.to_annotation(generator=iter(lambda: "speech", None)),
+                Timeline(segments=[extent]),
+                emb.sliding_window,
+                labels=["speech",],
+                mode="center",
+            )
+        )[0]
+
+        # TODO. use overlap speech detection to not use overlap regions for initial clustering
+
+        # hierarchical agglomerative clustering
+        dendrogram = pool(emb[speech_indices], metric="cosine")
+        cluster = fcluster(dendrogram, self.emb_threshold, criterion="distance")
+        num_clusters = np.max(cluster)
+
+        y = np.zeros((len(emb), num_clusters), dtype=np.int8)
+        for i, k in zip(speech_indices, cluster):
+            y[i, k - 1] = 1
+
+        # TODO. use speaker change detection to refine boundaries
+        hypothesis: Annotation = one_hot_decoding(y, emb.sliding_window)
+        hypothesis.uri = uri
+
+        return hypothesis.crop(speech, mode="intersection")
 
     def loss(self, current_file: ProtocolFile, hypothesis: Annotation) -> float:
         """Compute diarization error rate
