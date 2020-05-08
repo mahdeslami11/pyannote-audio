@@ -448,7 +448,10 @@ class DiscreteDiarization(Pipeline):
             # assign each overlap embedding to 2 most similar clusters (where
             # each cluster is represented by its average embedding)
             cluster_emb = np.vstack(
-                [np.mean(emb[cluster == k], axis=0) for k in range(num_clusters)]
+                [
+                    np.mean(emb[indices][cluster == k], axis=0)
+                    for k in range(num_clusters)
+                ]
             )
             distance = cdist(cluster_emb, emb[noisy_speech_indices], metric="cosine")
             most_similar_cluster_indices = np.argpartition(distance, 2, axis=0,)[:2]
