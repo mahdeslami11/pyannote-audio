@@ -63,13 +63,13 @@ class SimpleDiarization(Pipeline):
 
     Hyper-parameters
     ----------------
-    sad_onset : float
-        Threshold applied on speech activity detection scores.
+    sad_threshold_on, sad_threshold_off : float
+        Thresholds applied on speech activity detection scores.
     scd_threshold : float
         Threshold applied on speaker change detection scores local maxima.
     seg_min_duration : float
         Minimum duration of speech turns.
-    min_duration_off : float
+    gap_min_duration : float
         Minimum duration of gaps between speech turns.
     emb_duration : float
         Do not cluster segments shorter than `emb_duration` duration. Short
