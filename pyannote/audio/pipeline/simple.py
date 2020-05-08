@@ -272,6 +272,8 @@ class DiscreteDiarization(Pipeline):
         Pretrained speech activity detection model. Defaults to "sad".
     emb : str or Path, optional
         Pretrained speaker embedding model. Defaults to "emb".
+    batch_size : int, optional
+        Batch size.
 
     Hyper-parameters
     ----------------
@@ -287,15 +289,22 @@ class DiscreteDiarization(Pipeline):
     """
 
     def __init__(
-        self, sad: Union[Text, Path] = "sad", emb: Union[Text, Path] = "emb",
+        self,
+        sad: Union[Text, Path] = "sad",
+        emb: Union[Text, Path] = "emb",
+        batch_size: int = None,
     ):
 
         super().__init__()
 
         self.sad = Wrapper(sad)
+        if batch_size is not None:
+            self.sad.batch_size = batch_size
         self.sad_speech_index_ = self.sad.classes.index("speech")
 
         self.emb = Wrapper(emb)
+        if batch_size is not None:
+            self.emb.batch_size = batch_size
 
         self.sad_threshold_on = Uniform(0.0, 1.0)
         self.sad_threshold_off = Uniform(0.0, 1.0)
