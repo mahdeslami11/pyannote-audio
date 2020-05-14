@@ -40,6 +40,7 @@ from pyannote.audio.features.wrapper import Wrappable
 from pyannote.database.protocol.protocol import Protocol
 from pyannote.audio.train.model import Resolution
 from pyannote.audio.train.model import Alignment
+from pyannote.audio.train.model import RESOLUTION_FRAME
 
 
 class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
@@ -109,9 +110,9 @@ class SpeakerChangeDetectionGenerator(LabelingTaskGenerator):
         self.non_speech = non_speech
 
         # number of samples in collar
-        if resolution is None:
+        if resolution in [None, RESOLUTION_FRAME]:
             resolution = feature_extraction.sliding_window
-        self.collar_ = resolution.durationToSamples(collar)
+        self.collar_ = resolution.duration_to_samples(collar)
 
         # window
         self.window_ = scipy.signal.triang(self.collar_)[:, np.newaxis]
