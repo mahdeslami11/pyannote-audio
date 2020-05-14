@@ -223,7 +223,7 @@ class LabelingTaskGenerator(BatchGenerator):
         else:
             labels = self.segment_labels_
 
-        y, _ = one_hot_encoding(
+        y = one_hot_encoding(
             current_file["annotation"],
             get_annotated(current_file),
             self.resolution,
@@ -231,7 +231,8 @@ class LabelingTaskGenerator(BatchGenerator):
             mode="center",
         )
 
-        return SlidingWindowFeature(self.postprocess_y(y.data), y.sliding_window)
+        y.data = self.postprocess_y(y.data)
+        return y
 
     def crop_y(self, y, segment):
         """Extract y for specified segment
