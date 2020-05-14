@@ -33,6 +33,9 @@ jobs:
     - name: Run a basic SAD experiment
       run: |
         sh ./tests/cli/sad.sh
+    - name: Run a basic SAD experiment with MFCC features
+      run: |
+        sh ./tests/cli/sad_mfcc.sh
     - name: Run a basic SCD experiment
       run: |
         sh ./tests/cli/scd.sh
