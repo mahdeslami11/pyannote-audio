@@ -423,7 +423,7 @@ class Resegmentation(LabelingTask):
         # existing) mask so that the loss is not computed on non-speech regions
         if self.lock_speech:
 
-            encoded, _ = one_hot_encoding(
+            encoded = one_hot_encoding(
                 hypothesis,
                 get_annotated(current_file),
                 current_file["features"].sliding_window,
