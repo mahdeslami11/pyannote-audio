@@ -609,7 +609,7 @@ class DiscreteDiarization2(Pipeline):
         num_clusters = np.max(clean_clusters)
         y = np.zeros((len(emb), num_clusters), dtype=np.int8)
         for i, k in zip(clean_speech_indices, clean_clusters):
-            y[i, k] = 1
+            y[i, k - 1] = 1
 
         mostly_speech_indices: np.ndarray = np.where(
             one_hot_encoding(
@@ -634,7 +634,7 @@ class DiscreteDiarization2(Pipeline):
 
         for i, nn in zip(noisy_speech_indices, nearest_clean_neighbor):
             k = clean_clusters[nn]
-            y[i, k] = 1
+            y[i, k - 1] = 1
 
         hypothesis: Annotation = one_hot_decoding(
             y, emb.sliding_window, labels=list(range(num_clusters))
