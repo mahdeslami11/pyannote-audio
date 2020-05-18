@@ -493,3 +493,154 @@ class DiscreteDiarization(Pipeline):
 
     def get_metric(self) -> DiarizationErrorRate:
         return DiarizationErrorRate(collar=0.0, skip_overlap=False)
+
+
+class DiscreteDiarization2(Pipeline):
+    """Very simple diarization pipeline
+
+    Parameters
+    ----------
+    sad : str or Path, optional
+        Pretrained speech activity detection model. Defaults to "sad".
+    emb : str or Path, optional
+        Pretrained speaker embedding model. Defaults to "emb".
+    batch_size : int, optional
+        Batch size.
+
+    Hyper-parameters
+    ----------------
+    sad_threshold_on, sad_threshold_off : float
+        Onset/offset speech activity detection thresholds.
+    sad_min_duration_on, sad_min_duration_off : float
+        Minimum duration of speech/non-speech regions.
+    emb_duration, emb_step_ratio : float
+        Sliding window used for embedding extraction.
+    emb_threshold : float
+        Distance threshold used as stopping criterion for hierarchical
+        agglomerative clustering.
+    """
+
+    def __init__(
+        self,
+        sad: Union[Text, Path] = "sad",
+        emb: Union[Text, Path] = "emb",
+        ovl: Union[Text, Path] = None,
+        batch_size: int = None,
+    ):
+
+        super().__init__()
+
+        self.sad = Wrapper(sad)
+        if batch_size is not None:
+            self.sad.batch_size = batch_size
+        self.sad_speech_index_ = self.sad.classes.index("speech")
+
+        self.sad_threshold_on = Uniform(0.0, 1.0)
+        self.sad_threshold_off = Uniform(0.0, 1.0)
+        self.sad_min_duration_on = Uniform(0.0, 0.5)
+        self.sad_min_duration_off = Uniform(0.0, 0.5)
+
+        self.emb = Wrapper(emb)
+        if batch_size is not None:
+            self.emb.batch_size = batch_size
+
+        max_duration = self.emb.duration
+        min_duration = getattr(self.emb, "min_duration", 0.25 * max_duration)
+        self.emb_duration = Uniform(min_duration, max_duration)
+        self.emb_step_ratio = Uniform(0.1, 1.0)
+        self.emb_threshold = Uniform(0.0, 2.0)
+
+    def initialize(self):
+
+        self.sad_binarize_ = Binarize(
+            onset=self.sad_threshold_on,
+            offset=self.sad_threshold_off,
+            min_duration_on=self.sad_min_duration_on,
+            min_duration_off=self.sad_min_duration_off,
+        )
+
+        # embeddings will be extracted with a sliding window
+        # of "emb_duration" duration and "emb_step_ratio x emb_duration" step.
+        self.emb.duration = self.emb_duration
+        self.emb.step = self.emb_step_ratio
+
+    def __call__(self, current_file: ProtocolFile) -> Annotation:
+
+        uri = current_file.get("uri", "pyannote")
+        extent = Segment(0, current_file["duration"])
+
+        # speaker embedding
+        emb: SlidingWindowFeature = self.emb(current_file)
+
+        # speech activity detection
+        if "sad_scores" in current_file:
+            sad_scores: SlidingWindowFeature = current_file["sad_scores"]
+        else:
+            sad_scores: SlidingWindowFeature = self.sad(current_file)
+            if np.nanmean(sad_scores) < 0:
+                sad_scores = np.exp(sad_scores)
+            current_file["sad_scores"] = sad_scores
+        speech: Annotation = self.sad_binarize_.apply(
+            sad_scores, dimension=self.sad_speech_index_
+        ).to_annotation(generator=iter(lambda: "speech", None))
+
+        # only keep indices of embeddings whose receptive field is strictly
+        # included in speech regions, as they are expected to be easier to
+        # cluster.
+        clean_speech_indices: np.ndarray = np.where(
+            one_hot_encoding(
+                speech,
+                Timeline(segments=[extent]),
+                emb.sliding_window,
+                labels=["speech",],
+                mode="strict",
+            )[: len(emb)]
+        )[0]
+
+        # cluster...
+        if len(clean_speech_indices) == 0:
+            return Annotation(uri=uri)
+        else:
+            dendrogram = pool(emb[clean_speech_indices], metric="cosine")
+            clean_clusters = fcluster(
+                dendrogram, self.emb_threshold, criterion="distance"
+            )
+
+        num_clusters = np.max(clean_clusters)
+        y = np.zeros((len(emb), num_clusters), dtype=np.int8)
+        for i, k in zip(clean_speech_indices, clean_clusters):
+            y[i, k] = 1
+
+        mostly_speech_indices: np.ndarray = np.where(
+            one_hot_encoding(
+                speech.support(collar=0.5 * self.emb_duration),
+                Timeline(segments=[extent]),
+                emb.sliding_window,
+                labels=["speech",],
+                mode="center",
+            )[: len(emb)]
+        )[0]
+
+        noisy_speech_indices = np.array(
+            sorted(set(mostly_speech_indices) - set(clean_speech_indices))
+        )
+
+        nearest_clean_neighbor = np.argmin(
+            cdist(
+                emb[clean_speech_indices], emb[noisy_speech_indices], metric="cosine"
+            ),
+            axis=0,
+        )
+
+        for i, nn in zip(noisy_speech_indices, nearest_clean_neighbor):
+            k = clean_clusters[nn]
+            y[i, k] = 1
+
+        hypothesis: Annotation = one_hot_decoding(
+            y, emb.sliding_window, labels=list(range(num_clusters))
+        )
+        hypothesis.uri = uri
+        return hypothesis.crop(speech.get_timeline(), mode="intersection")
+
+    def get_metric(self) -> DiarizationErrorRate:
+        return DiarizationErrorRate(collar=0.0, skip_overlap=False)
