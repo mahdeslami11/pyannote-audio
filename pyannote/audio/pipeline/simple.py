@@ -598,7 +598,7 @@ class DiscreteDiarization2(Pipeline):
         )[0]
 
         # cluster...
-        if len(clean_speech_indices) == 0:
+        if len(clean_speech_indices) < 2:
             return Annotation(uri=uri)
         else:
             dendrogram = pool(emb[clean_speech_indices], metric="cosine")
