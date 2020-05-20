@@ -501,7 +501,7 @@ class DiscreteDiarization2(Pipeline):
     Parameters
     ----------
     sad : str or Path, optional
-        Pretrained speech activity detection model. Defaults to "sad".
+        Pretrained speech activity detection model. Defaults to "sad" model.
     emb : str or Path, optional
         Pretrained speaker embedding model. Defaults to "emb".
     batch_size : int, optional
@@ -522,7 +522,7 @@ class DiscreteDiarization2(Pipeline):
 
     def __init__(
         self,
-        sad: Union[Text, Path] = "sad",
+        sad: Union[Text, Path] = {"sad": {"duration": 2.0, "step": 0.1}},
         emb: Union[Text, Path] = "emb",
         ovl: Union[Text, Path] = None,
         batch_size: int = None,
@@ -580,67 +580,89 @@ class DiscreteDiarization2(Pipeline):
             if np.nanmean(sad_scores) < 0:
                 sad_scores = np.exp(sad_scores)
             current_file["sad_scores"] = sad_scores
-        speech: Annotation = self.sad_binarize_.apply(
+        speech: Timeline = self.sad_binarize_.apply(
             sad_scores, dimension=self.sad_speech_index_
-        ).to_annotation(generator=iter(lambda: "speech", None))
+        )
 
-        # only keep indices of embeddings whose receptive field is strictly
-        # included in speech regions, as they are expected to be easier to
-        # cluster.
-        clean_speech_indices: np.ndarray = np.where(
-            one_hot_encoding(
-                speech,
-                Timeline(segments=[extent]),
-                emb.sliding_window,
-                labels=["speech",],
-                mode="strict",
-            )[: len(emb)]
-        )[0]
+        # strict_segment_assignment[i] = s (s > 0) means that the ith embedding belongs
+        #                           to sth speech segment.
+        # strict_segment_assignment[i] = 0 means that the ith embedding either contains
+        #                           some non-speech region or overlaps with two
+        #                           adjacent speech segments
+        strict_segment_assignment: np.ndarray = np.zeros((len(emb),), dtype=np.int32)
+        loose_segment_assignment: np.ndarray = np.zeros((len(emb),), dtype=np.int32)
+        for s, segment in enumerate(speech):
+            indices = emb.sliding_window.crop(segment, mode="strict")
+            if len(indices) > 0:
+                assignment = strict_segment_assignment
+            else:
+                indices = emb.sliding_window.crop(segment, mode="center")
+                assignment = loose_segment_assignment
+            for i in indices:
+                if i < 0:
+                    continue
+                if i >= len(emb):
+                    break
+                assignment[i] = s + 1
 
-        # cluster...
-        if len(clean_speech_indices) < 2:
-            return Annotation(uri=uri)
+        # cluster_assignment[i] = k (k > 0) means that the ith embedding belongs
+        #                           to kth cluster
+        # cluster_assignment[i] = 0 when strict_segment_assignment[i] = 0
+        cluster_assignment: np.ndarray = np.zeros((len(emb),), dtype=np.int32)
+
+        strict_indices = np.where(strict_segment_assignment > 0)[0]
+        if len(strict_indices) < 2:
+            cluster_assignment[strict_indices] = 1
+
         else:
-            dendrogram = pool(emb[clean_speech_indices], metric="cosine")
-            clean_clusters = fcluster(
-                dendrogram, self.emb_threshold, criterion="distance"
-            )
+            dendrogram = pool(emb[strict_indices], metric="cosine")
+            clusters = fcluster(dendrogram, self.emb_threshold, criterion="distance")
+            for i, k in zip(strict_indices, clusters):
+                cluster_assignment[i] = k
 
-        num_clusters = np.max(clean_clusters)
-        y = np.zeros((len(emb), num_clusters), dtype=np.int8)
-        for i, k in zip(clean_speech_indices, clean_clusters):
-            y[i, k - 1] = 1
+        loose_indices = np.where(loose_segment_assignment > 0)[0]
+        if len(strict_indices) == 0:
+            if len(loose_indices) < 2:
+                clusters = [1] * len(loose_indices)
+            else:
+                dendrogram = pool(emb[loose_indices], metric="cosine")
+                clusters = fcluster(
+                    dendrogram, self.emb_threshold, criterion="distance"
+                )
+            for i, k in zip(loose_indices, clusters):
+                cluster_assignment[i] = k
 
-        mostly_speech_indices: np.ndarray = np.where(
-            one_hot_encoding(
-                speech.support(collar=0.5 * self.emb_duration),
-                Timeline(segments=[extent]),
-                emb.sliding_window,
-                labels=["speech",],
-                mode="center",
-            )[: len(emb)]
-        )[0]
+        else:
+            # TODO. try distance to average instead
+            distance = cdist(emb[strict_indices], emb[loose_indices], metric="cosine")
+            nearest_neighbor = np.argmin(distance, axis=0)
+            for loose_index, nn in zip(loose_indices, nearest_neighbor):
+                strict_index = strict_indices[nn]
+                cluster_assignment[loose_index] = cluster_assignment[strict_index]
 
-        noisy_speech_indices = np.array(
-            sorted(set(mostly_speech_indices) - set(clean_speech_indices))
-        )
+        # convert cluster assignment to pyannote.core.Annotation
+        # (make sure to keep speech regions unchanged)
+        hypothesis = Annotation(uri=uri)
+        for s, segment in enumerate(speech):
 
-        nearest_clean_neighbor = np.argmin(
-            cdist(
-                emb[clean_speech_indices], emb[noisy_speech_indices], metric="cosine"
-            ),
-            axis=0,
-        )
+            indices = np.where(strict_segment_assignment == s + 1)[0]
+            if len(indices) == 0:
+                indices = np.where(loose_segment_assignment == s + 1)[0]
+                if len(indices) == 0:
+                    continue
 
-        for i, nn in zip(noisy_speech_indices, nearest_clean_neighbor):
-            k = clean_clusters[nn]
-            y[i, k - 1] = 1
+            clusters = cluster_assignment[indices]
 
-        hypothesis: Annotation = one_hot_decoding(
-            y, emb.sliding_window, labels=list(range(num_clusters))
-        )
-        hypothesis.uri = uri
-        return hypothesis.crop(speech.get_timeline(), mode="intersection")
+            start, k = segment.start, clusters[0]
+            change_point = np.diff(clusters) != 0
+            for i, new_k in zip(indices[1:][change_point], clusters[1:][change_point]):
+                end = emb.sliding_window[i].middle
+                hypothesis[Segment(start, end)] = k
+                start = end
+                k = new_k
+            hypothesis[Segment(start, segment.end)] = k
+
+        return hypothesis
 
     def get_metric(self) -> DiarizationErrorRate:
         return DiarizationErrorRate(collar=0.0, skip_overlap=False)
