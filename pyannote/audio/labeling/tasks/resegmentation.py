@@ -377,6 +377,7 @@ class Resegmentation(LabelingTask):
                 active_speakers = np.argmax(scores.data, axis=1)
 
         # reconstruct annotation
+        # FIXME. one_hot_decoding is not what you think it is
         new_hypothesis = one_hot_decoding(
             active_speakers, scores.sliding_window, labels=labels
         )
@@ -628,6 +629,7 @@ class ResegmentationWithOverlap(Resegmentation):
             active_speakers[T, best_speakers_indices[T, 1]] = 1
 
             # reconstruct annotation
+            # FIXME. one_hot_decoding is not what you think it is
             new_hypothesis = one_hot_decoding(active_speakers, frames, labels=labels)
 
             # revert non-speech regions back to original
@@ -669,6 +671,7 @@ class ResegmentationWithOverlap(Resegmentation):
             active_speakers[T, best_speakers_indices[T, 1] - 1] = 1
 
             # reconstruct annotation
+            # FIXME. one_hot_decoding is not what you think it is
             new_hypothesis = one_hot_decoding(active_speakers, frames, labels=labels)
 
         new_hypothesis.uri = hypothesis.uri

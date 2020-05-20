@@ -347,6 +347,7 @@ class GMMResegmentation(object):
         y = np.argmax(log_probs, axis=0)
 
         # reconstruct the annotation
+        # FIXME. one_hot_decoding is not what you think it is
         hypothesis = one_hot_decoding(y, sliding_window, labels=labels)
 
         # remove original non-speech regions

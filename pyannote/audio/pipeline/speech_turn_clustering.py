@@ -157,6 +157,7 @@ class SpeechTurnClustering(Pipeline):
             s_pred += e - s
 
         # reconstruct hypothesis
+        # FIXME. one_hot_decoding is not what you think it is
         return one_hot_decoding(y, window)
 
     def _turn_level(self, current_file: dict, speech_turns: Annotation) -> Annotation:
