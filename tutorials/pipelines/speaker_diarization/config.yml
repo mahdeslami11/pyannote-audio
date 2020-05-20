@@ -5,6 +5,7 @@ pipeline:
       scd_scores: scd_ami
       embedding: emb_ami
       evaluation_only: True
+      method: affinity_propagation
 
 freeze:
    speech_turn_segmentation:

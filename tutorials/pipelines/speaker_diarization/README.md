@@ -95,6 +95,7 @@ pipeline:
     sad_scores: {{EXP_DIR}}/sad_ami
     scd_scores: {{EXP_DIR}}/scd_ami
     embedding: {{EXP_DIR}}/emb_ami
+    method: affinity_propagation
 
 # one can freeze some of the hyper-parameters
 # for instance, in this example, we are using
