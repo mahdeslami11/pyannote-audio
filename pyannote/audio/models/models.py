@@ -651,13 +651,15 @@ class SincTDNN(Model):
             sincnet = dict()
         self.sincnet = sincnet
 
-        if n_features != 1:
-            raise ValueError(
-                "SincNet only supports mono waveforms. "
-                f"Here, waveform has {n_features} channels."
-            )
-        self.sincnet_ = SincNet(**sincnet)
-        n_features = self.sincnet_.dimension
+        if not self.sincnet.get("skip", False):
+
+            if n_features != 1:
+                raise ValueError(
+                    "SincNet only supports mono waveforms. "
+                    f"Here, waveform has {n_features} channels."
+                )
+            self.sincnet_ = SincNet(**sincnet)
+            n_features = self.sincnet_.dimension
 
         if tdnn is None:
             tdnn = dict()
@@ -689,7 +691,10 @@ class SincTDNN(Model):
             (only when `return_intermediate` is provided).
         """
 
-        output = self.sincnet_(waveforms)
+        if self.sincnet.get("skip", False):
+            output = waveforms
+        else:
+            output = self.sincnet_(waveforms)
 
         return_intermediate = (
             "segment6" if self.task.is_representation_learning else None
