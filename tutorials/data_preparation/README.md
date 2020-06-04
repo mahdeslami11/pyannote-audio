@@ -93,7 +93,7 @@ $ find . | grep wav | sort | head -n 5
 For convenience, we also provide [such a file](./database.yml) that needs to be copied at the root of the directory that contains the datasets.
 
 ```bash
-$ cp ${TUTORIAL}/database.yml ${DOWNLOAD_TO}
+$ cp ${TUTORIAL_DIR}/database.yml ${DOWNLOAD_TO}
 ```
 
 See [`pyannote.database` documentation](https://github.com/pyannote/pyannote-database#preprocessors) for other possible locations for `database.yml`.
