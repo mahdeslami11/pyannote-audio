@@ -12,6 +12,6 @@ sortedcontainers >= 2.0.4
 soundfile >= 0.10.2
 tqdm >= 4.29.1
 tensorboard >= 2.0.0
-typing_extensions >= 3.7.4
+typing_extensions >= 3.7.4;python_version < '3.8'
 pescador >= 2.1.0
 Pillow >= 6.2.1
