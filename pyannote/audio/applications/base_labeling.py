@@ -66,9 +66,7 @@ class BaseLabeling(Application):
             preprocessors["audio"] = FileFinder()
         if "duration" not in preprocessors:
             preprocessors["duration"] = get_audio_duration
-        protocol = get_protocol(
-            protocol_name, progress=False, preprocessors=preprocessors
-        )
+        protocol = get_protocol(protocol_name, preprocessors=preprocessors)
         files = getattr(protocol, subset)()
 
         # convert lazy ProtocolFile to regular dict for multiprocessing

@@ -154,7 +154,7 @@ class SpeakerEmbedding(Application):
             preprocessors["audio"] = FileFinder()
         if "duration" not in preprocessors:
             preprocessors["duration"] = get_audio_duration
-        _protocol = get_protocol(protocol, progress=False, preprocessors=preprocessors)
+        _protocol = get_protocol(protocol, preprocessors=preprocessors)
 
         y_true, y_pred, cache = [], [], {}
 
@@ -218,7 +218,7 @@ class SpeakerEmbedding(Application):
             preprocessors["audio"] = FileFinder()
         if "duration" not in preprocessors:
             preprocessors["duration"] = get_audio_duration
-        _protocol = get_protocol(protocol, progress=False, preprocessors=preprocessors)
+        _protocol = get_protocol(protocol, preprocessors=preprocessors)
 
         Z, t = dict(), dict()
         min_d, max_d = np.inf, -np.inf

@@ -35,6 +35,8 @@ import torch.nn.functional as F
 import numpy as np
 import scipy.signal
 
+from tqdm import tqdm
+
 from pyannote.core import Segment
 from pyannote.core import SlidingWindow
 from pyannote.core import Timeline
@@ -283,7 +285,8 @@ class LabelingTaskGenerator(BatchGenerator):
         segment_labels, file_labels = set(), dict()
 
         # loop once on all files
-        for current_file in getattr(protocol, subset)():
+        files = getattr(protocol, subset)()
+        for current_file in tqdm(files, desc="Loading labels", unit="file"):
 
             # ensure annotation/annotated are cropped to actual file duration
             support = Segment(start=0, end=current_file["duration"])

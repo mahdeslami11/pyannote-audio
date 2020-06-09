@@ -194,9 +194,7 @@ class Application:
             preprocessors["audio"] = FileFinder()
         if "duration" not in preprocessors:
             preprocessors["duration"] = get_audio_duration
-        protocol = get_protocol(
-            protocol_name, progress=True, preprocessors=preprocessors
-        )
+        protocol = get_protocol(protocol_name, preprocessors=preprocessors)
 
         batch_generator = self.task_.get_batch_generator(
             self.feature_extraction_,
@@ -586,9 +584,10 @@ def apply_pretrained(
         preprocessors["audio"] = FileFinder()
     if "duration" not in preprocessors:
         preprocessors["duration"] = get_audio_duration
-    protocol = get_protocol(protocol_name, progress=True, preprocessors=preprocessors)
+    protocol = get_protocol(protocol_name, preprocessors=preprocessors)
 
-    for current_file in getattr(protocol, subset)():
+    files = getattr(protocol, subset)()
+    for current_file in tqdm(iterable=files, desc=f"{subset.title()}", unit="file"):
         fX = pretrained(current_file)
         precomputed.dump(current_file, fX)
 
@@ -617,7 +616,8 @@ def apply_pretrained(
     # apply pipeline and dump output to RTTM files
     output_rttm = output_dir / f"{protocol_name}.{subset}.rttm"
     with open(output_rttm, "w") as fp:
-        for current_file in getattr(protocol, subset)():
+        files = getattr(protocol, subset)()
+        for current_file in tqdm(iterable=files, desc=f"{subset.title()}", unit="file"):
             hypothesis = pipeline(current_file)
             pipeline.write_rttm(fp, hypothesis)
 

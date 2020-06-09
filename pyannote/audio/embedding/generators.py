@@ -31,6 +31,7 @@ from typing import Text
 from pyannote.database.protocol.protocol import Protocol
 import itertools
 import numpy as np
+from tqdm import tqdm
 from pyannote.core import Segment
 from pyannote.core.utils.random import random_segment
 from pyannote.core.utils.random import random_subsegment
@@ -130,7 +131,8 @@ class SpeechSegmentGenerator(BatchGenerator):
         segment_labels, file_labels = set(), dict()
 
         # loop once on all files
-        for current_file in getattr(protocol, subset)():
+        files = getattr(protocol, subset)()
+        for current_file in tqdm(files, desc="Loading labels", unit="file"):
 
             # keep track of unique file labels
             for key in current_file:
