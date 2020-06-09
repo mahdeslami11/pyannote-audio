@@ -46,6 +46,7 @@ from pyannote.core import SlidingWindowFeature
 from pyannote.database import get_unique_identifier
 from pyannote.database import get_annotated
 from pyannote.database import Protocol
+from pyannote.database import Subset
 
 from pyannote.core.utils.numpy import one_hot_encoding
 
@@ -121,7 +122,7 @@ class LabelingTaskGenerator(BatchGenerator):
         task: Task,
         feature_extraction: Wrappable,
         protocol: Protocol,
-        subset: Text = "train",
+        subset: Subset = "train",
         resolution: Optional[Resolution] = None,
         alignment: Optional[Alignment] = None,
         duration: float = 2.0,
@@ -254,7 +255,7 @@ class LabelingTaskGenerator(BatchGenerator):
 
         return y.crop(segment, mode=self.alignment, fixed=self.duration)
 
-    def _load_metadata(self, protocol, subset="train") -> float:
+    def _load_metadata(self, protocol, subset: Subset = "train") -> float:
         """Load training set metadata
 
         This function is called once at instantiation time, returns the total
@@ -529,7 +530,7 @@ class LabelingTask(Trainer):
         self,
         feature_extraction: Wrappable,
         protocol: Protocol,
-        subset: Text = "train",
+        subset: Subset = "train",
         resolution: Optional[Resolution] = None,
         alignment: Optional[Alignment] = None,
     ) -> LabelingTaskGenerator:

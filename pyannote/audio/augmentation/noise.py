@@ -39,6 +39,7 @@ from pyannote.audio.features.utils import get_audio_duration
 from pyannote.core.utils.random import random_subsegment
 from pyannote.core.utils.random import random_segment
 from pyannote.database import get_protocol
+from pyannote.database import Subset
 from pyannote.database import get_annotated
 from pyannote.database import FileFinder
 from .base import Augmentation
@@ -154,7 +155,7 @@ class AddNoiseFromGaps(Augmentation):
     `AddNoise`
     """
 
-    def __init__(self, protocol=None, subset="train", snr_min=5, snr_max=20):
+    def __init__(self, protocol=None, subset: Subset = "train", snr_min=5, snr_max=20):
         super().__init__()
 
         self.protocol = protocol

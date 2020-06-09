@@ -33,8 +33,13 @@ import zipfile
 import hashlib
 import torch
 import multiprocessing
-from typing_extensions import Literal
-from typing import Optional, Union
+
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
+
+from typing import Optional, Union, Text
 from pathlib import Path
 from os.path import basename
 import numpy as np
@@ -43,6 +48,7 @@ from glob import glob
 from pyannote.database import FileFinder
 from pyannote.database import get_protocol
 from pyannote.database import get_annotated
+from pyannote.database import Subset
 from pyannote.audio.features.utils import get_audio_duration
 from sortedcontainers import SortedDict
 from torch.utils.tensorboard import SummaryWriter
@@ -162,8 +168,8 @@ class Application:
 
     def train(
         self,
-        protocol_name: str,
-        subset: str = "train",
+        protocol_name: Text,
+        subset: Subset = "train",
         warm_start: Union[int, Literal["last"], Path] = 0,
         epochs: int = 1000,
         device: Optional[torch.device] = None,
@@ -268,7 +274,7 @@ class Application:
 
         return (number_of_epochs, first_epoch) if return_first else number_of_epochs
 
-    def validate_init(self, protocol_name, subset="development"):
+    def validate_init(self, protocol_name: Text, subset: Subset = "development"):
         raise NotImplementedError("")
 
     def validate_epoch(
@@ -276,7 +282,7 @@ class Application:
         epoch,
         validation_data,
         protocol=None,
-        subset="development",
+        subset: Subset = "development",
         device: Optional[torch.device] = None,
         batch_size: int = 32,
         n_jobs: int = 1,
@@ -291,7 +297,7 @@ class Application:
     def validate(
         self,
         protocol: str,
-        subset: str = "development",
+        subset: Subset = "development",
         every: int = 1,
         start: Union[int, Literal["last"]] = 1,
         end: Union[int, Literal["last"]] = 100,
@@ -512,8 +518,8 @@ class Application:
 
 def apply_pretrained(
     validate_dir: Path,
-    protocol_name: str,
-    subset: Optional[str] = "test",
+    protocol_name: Text,
+    subset: Subset = "test",
     duration: Optional[float] = None,
     step: float = 0.25,
     device: Optional[torch.device] = None,

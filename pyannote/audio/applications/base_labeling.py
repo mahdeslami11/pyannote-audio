@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2019 CNRS
+# Copyright (c) 2019-2020 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -26,7 +26,7 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-from typing import Optional
+from typing import Optional, Text
 from pathlib import Path
 from tqdm import tqdm
 
@@ -39,13 +39,15 @@ from pyannote.audio.features import Precomputed
 from pyannote.audio.features import RawAudio
 from pyannote.audio.features.utils import get_audio_duration
 
+from pyannote.database import Subset
+
 
 class BaseLabeling(Application):
     @property
     def config_default_module(self):
         return "pyannote.audio.labeling.tasks"
 
-    def validate_init(self, protocol_name, subset="development"):
+    def validate_init(self, protocol_name: Text, subset: Subset = "development"):
         """Initialize validation data
 
         Parameters
