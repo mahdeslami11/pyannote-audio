@@ -36,7 +36,7 @@ from pyannote.core import (
     Annotation,
     SlidingWindowFeature,
 )
-from pyannote.database.protocol.protocol import ProtocolFile
+from pyannote.database import ProtocolFile
 
 import numpy as np
 

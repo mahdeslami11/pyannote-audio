@@ -45,7 +45,7 @@ from pyannote.core import SlidingWindowFeature
 
 from pyannote.database import get_unique_identifier
 from pyannote.database import get_annotated
-from pyannote.database.protocol.protocol import Protocol
+from pyannote.database import Protocol
 
 from pyannote.core.utils.numpy import one_hot_encoding
 

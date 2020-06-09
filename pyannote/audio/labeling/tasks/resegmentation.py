@@ -55,7 +55,7 @@ from pathlib import Path
 from pyannote.audio.utils.signal import Binarize
 
 from pyannote.audio.features import FeatureExtraction
-from pyannote.database.protocol.protocol import ProtocolFile
+from pyannote.database import ProtocolFile
 from pyannote.audio.train.model import Model
 from pyannote.audio.train.model import Resolution
 from pyannote.audio.train.model import Alignment

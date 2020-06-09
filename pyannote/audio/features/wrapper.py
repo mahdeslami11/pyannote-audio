@@ -32,7 +32,7 @@ from typing import Text
 from typing import Union
 from typing import Dict
 from functools import partial
-from pyannote.database.protocol.protocol import ProtocolFile
+from pyannote.database import ProtocolFile
 from pyannote.core import Segment
 from pyannote.core import SlidingWindowFeature
 import numpy as np

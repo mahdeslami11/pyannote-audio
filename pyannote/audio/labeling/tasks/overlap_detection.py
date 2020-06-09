@@ -45,7 +45,7 @@ from .base import LabelingTaskGenerator
 from pyannote.audio.train.task import Task, TaskType, TaskOutput
 
 from pyannote.audio.features.wrapper import Wrappable
-from pyannote.database.protocol.protocol import Protocol
+from pyannote.database import Protocol
 from pyannote.audio.train.model import Resolution
 from pyannote.audio.train.model import Alignment
 

@@ -39,7 +39,7 @@ from typing_extensions import Literal
 Subset = Literal["train", "development", "test"]
 
 from pyannote.audio.features.base import FeatureExtraction
-from pyannote.database.protocol.protocol import Protocol
+from pyannote.database import Protocol
 
 import warnings
 import numpy as np

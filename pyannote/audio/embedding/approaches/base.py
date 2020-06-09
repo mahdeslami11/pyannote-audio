@@ -35,7 +35,7 @@ from typing import Text
 from typing import Optional
 from pyannote.audio.embedding.generators import SpeechSegmentGenerator
 from pyannote.audio.features import FeatureExtraction
-from pyannote.database.protocol.protocol import Protocol
+from pyannote.database import Protocol
 from pyannote.audio.features.wrapper import Wrappable
 from pyannote.audio.train.task import Task, TaskType, TaskOutput
 

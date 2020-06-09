@@ -40,7 +40,7 @@ from pyannote.audio.train.task import Task, TaskType, TaskOutput
 from ..gradient_reversal import GradientReversal
 from pyannote.audio.models.models import RNN
 from pyannote.audio.features.wrapper import Wrappable
-from pyannote.database.protocol.protocol import Protocol
+from pyannote.database import Protocol
 from pyannote.audio.train.model import Resolution
 from pyannote.audio.train.model import Alignment
 

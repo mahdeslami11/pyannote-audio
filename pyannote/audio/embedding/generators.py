@@ -28,7 +28,7 @@
 
 from typing import Optional
 from typing import Text
-from pyannote.database.protocol.protocol import Protocol
+from pyannote.database import Protocol
 import itertools
 import numpy as np
 from tqdm import tqdm
