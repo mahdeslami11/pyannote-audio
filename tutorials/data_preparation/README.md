@@ -187,24 +187,31 @@ Protocols:
       SpeakerDiarization:
          MixHeadset:
            train:
+              uri: ./AMI/MixHeadset.train.lst
               annotation: ./AMI/MixHeadset.train.rttm
               annotated: ./AMI/MixHeadset.train.uem
            development:
+              uri: ./AMI/MixHeadset.development.lst
               annotation: ./AMI/MixHeadset.development.rttm
               annotated: ./AMI/MixHeadset.development.uem
            test:
+              uri: ./AMI/MixHeadset.test.lst
               annotation: ./AMI/MixHeadset.test.rttm
               annotated: ./AMI/MixHeadset.test.uem
+   MUSAN:
+      Collection:
+         BackgroundNoise:
+            uri: ./MUSAN/background_noise.txt
+         Noise:
+            uri: ./MUSAN/noise.txt
+         Music:
+            uri: ./MUSAN/music.txt
+         Speech:
+            uri: ./MUSAN/speech.txt
+
 ```
 
 You might want to have a look at `pyannote.database` [documentation](http://github.com/pyannote/pyannote-database) to learn more about other features provided by `pyannote.database` and the syntax of its configuration file.
-
-Did you notice that we did not provide any `MUSAN` entry in the `Protocols` section. This is because another (more flexible) way of providing annotations is possible through the provision of `pyannote.database` [plugins](https://github.com/pyannote/pyannote-db-template). And it happens that `MUSAN` has one called `pyannote.db.musan`. Simply install it with the following command line:
-
-```bash
-# install MUSAN plugin
-$ pip install pyannote.db.musan
-```
 
 The final step is to tell `pyannote.database` about the location of the configuration file:
 
@@ -213,6 +220,6 @@ The final step is to tell `pyannote.database` about the location of the configur
 $ export PYANNOTE_DATABASE_CONFIG=${DOWNLOAD_TO}/database.yml
 ```
 
-**Congratulations:** you have just defined a new `pyannote.database` protocol called `AMI.SpeakerDiarization.MixHeadset` that will be used in other tutorials.
+**Congratulations:** you have just defined a new experimental protocol called `AMI.SpeakerDiarization.MixHeadset` and a bunch of `MUSAN` collections that will be used in other tutorials.
 
 That's all folks!

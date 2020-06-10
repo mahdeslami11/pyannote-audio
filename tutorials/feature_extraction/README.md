@@ -1,6 +1,6 @@
 > The MIT License (MIT)
 >
-> Copyright (c) 2017-2019 CNRS
+> Copyright (c) 2017-2020 CNRS
 >
 > Permission is hereby granted, free of charge, to any person obtaining a copy
 > of this software and associated documentation files (the "Software"), to deal
@@ -27,29 +27,15 @@
 
 In this tutorial, you will learn how to perform feature extraction using `pyannote-speech-feature` command line tool.
 
+It is assumed that you have already followed the [data preparation](../../data_preparation) tutorial.
+
+
 ## Table of contents
-- [AMI database](#etape-database)
+- [Table of contents](#table-of-contents)
 - [Configuration](#configuration)
 - [Extraction](#extraction)
 - [Usage](#usage)
-
-## AMI database
-([↑up to table of contents](#table-of-contents))
-
-```bash
-$ source activate pyannote
-$ pip install pyannote.db.odessa.ami
-```
-
-This tutorial relies on the [AMI database](http://groups.inf.ed.ac.uk/ami/corpus). We first need to tell `pyannote` where the audio files are located:
-
-```bash
-$ cat ~/.pyannote/database.yml
-Databases:
-  AMI: /path/to/ami/amicorpus/*/audio/{uri}.wav
-```
-
-Have a look at `pyannote.database` [documentation](http://github.com/pyannote/pyannote-database) to learn how to use other datasets.
+- [Going further...](#going-further)
 
 ## Configuration
 ([↑up to table of contents](#table-of-contents))
