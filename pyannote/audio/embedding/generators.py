@@ -28,9 +28,11 @@
 
 from typing import Optional
 from typing import Text
-from pyannote.database.protocol.protocol import Protocol
+from pyannote.database import Protocol
+from pyannote.database import Subset
 import itertools
 import numpy as np
+from tqdm import tqdm
 from pyannote.core import Segment
 from pyannote.core.utils.random import random_segment
 from pyannote.core.utils.random import random_subsegment
@@ -75,7 +77,7 @@ class SpeechSegmentGenerator(BatchGenerator):
         self,
         feature_extraction: Wrappable,
         protocol: Protocol,
-        subset: Text = "train",
+        subset: Subset = "train",
         duration: float = 1.0,
         min_duration: float = None,
         per_turn: int = 1,
@@ -99,7 +101,7 @@ class SpeechSegmentGenerator(BatchGenerator):
             per_epoch = total_duration / (24 * 60 * 60)
         self.per_epoch = per_epoch
 
-    def _load_metadata(self, protocol: Protocol, subset: Text = "train") -> float:
+    def _load_metadata(self, protocol: Protocol, subset: Subset = "train") -> float:
         """Load training set metadata
 
         This function is called once at instantiation time, returns the total
@@ -130,7 +132,8 @@ class SpeechSegmentGenerator(BatchGenerator):
         segment_labels, file_labels = set(), dict()
 
         # loop once on all files
-        for current_file in getattr(protocol, subset)():
+        files = getattr(protocol, subset)()
+        for current_file in tqdm(files, desc="Loading labels", unit="file"):
 
             # keep track of unique file labels
             for key in current_file:

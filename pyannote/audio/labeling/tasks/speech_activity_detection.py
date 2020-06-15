@@ -40,7 +40,8 @@ from pyannote.audio.train.task import Task, TaskType, TaskOutput
 from ..gradient_reversal import GradientReversal
 from pyannote.audio.models.models import RNN
 from pyannote.audio.features.wrapper import Wrappable
-from pyannote.database.protocol.protocol import Protocol
+from pyannote.database import Protocol
+from pyannote.database import Subset
 from pyannote.audio.train.model import Resolution
 from pyannote.audio.train.model import Alignment
 
@@ -88,7 +89,7 @@ class SpeechActivityDetectionGenerator(LabelingTaskGenerator):
         task: Task,
         feature_extraction: Wrappable,
         protocol: Protocol,
-        subset: Text = "train",
+        subset: Subset = "train",
         resolution: Optional[Resolution] = None,
         alignment: Optional[Alignment] = None,
         duration: float = 2.0,
@@ -173,7 +174,7 @@ class SpeechActivityDetection(LabelingTask):
         self,
         feature_extraction,
         protocol,
-        subset="train",
+        subset: Subset = "train",
         resolution=None,
         alignment=None,
     ):

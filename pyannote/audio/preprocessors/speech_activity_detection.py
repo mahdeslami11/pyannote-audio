@@ -27,7 +27,7 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 from pathlib import Path
-from pyannote.database.protocol.protocol import ProtocolFile
+from pyannote.database import ProtocolFile
 from pyannote.core import Annotation
 from pyannote.database.util import load_rttm
 

@@ -165,7 +165,7 @@ def helper_extract(
 
 def extract(protocol_name, file_finder, experiment_dir, robust=False, parallel=False):
 
-    protocol = get_protocol(protocol_name, progress=False)
+    protocol = get_protocol(protocol_name)
 
     # load configuration file
     config_yml = experiment_dir + "/config.yml"

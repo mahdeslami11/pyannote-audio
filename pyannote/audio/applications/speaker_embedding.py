@@ -28,7 +28,7 @@
 
 import torch
 import numpy as np
-from typing import Optional
+from typing import Optional, Text
 
 from .base import Application
 
@@ -36,6 +36,7 @@ from pyannote.core import Segment, Timeline, Annotation
 
 from pyannote.database import get_protocol
 from pyannote.database import get_annotated
+from pyannote.database import Subset
 from pyannote.database import get_unique_identifier
 from pyannote.database import FileFinder
 from pyannote.database.protocol import SpeakerDiarizationProtocol
@@ -68,7 +69,7 @@ class SpeakerEmbedding(Application):
         elif isinstance(protocol, SpeakerDiarizationProtocol):
             return "diarization_fscore"
 
-    def validate_init(self, protocol_name, subset="development"):
+    def validate_init(self, protocol_name: Text, subset: Subset = "development"):
 
         protocol = get_protocol(protocol_name)
 
@@ -129,7 +130,7 @@ class SpeakerEmbedding(Application):
         epoch,
         validation_data,
         protocol=None,
-        subset="development",
+        subset: Subset = "development",
         device: Optional[torch.device] = None,
         batch_size: int = 32,
         n_jobs: int = 1,
@@ -154,11 +155,11 @@ class SpeakerEmbedding(Application):
             preprocessors["audio"] = FileFinder()
         if "duration" not in preprocessors:
             preprocessors["duration"] = get_audio_duration
-        _protocol = get_protocol(protocol, progress=False, preprocessors=preprocessors)
+        _protocol = get_protocol(protocol, preprocessors=preprocessors)
 
         y_true, y_pred, cache = [], [], {}
 
-        for trial in getattr(_protocol, "{0}_trial".format(subset))():
+        for trial in getattr(_protocol, f"{subset}_trial")():
 
             # compute embedding for file1
             file1 = trial["file1"]
@@ -193,7 +194,7 @@ class SpeakerEmbedding(Application):
         epoch,
         validation_data,
         protocol=None,
-        subset="development",
+        subset: Subset = "development",
         device: Optional[torch.device] = None,
         batch_size: int = 32,
         n_jobs: int = 1,
@@ -218,7 +219,7 @@ class SpeakerEmbedding(Application):
             preprocessors["audio"] = FileFinder()
         if "duration" not in preprocessors:
             preprocessors["duration"] = get_audio_duration
-        _protocol = get_protocol(protocol, progress=False, preprocessors=preprocessors)
+        _protocol = get_protocol(protocol, preprocessors=preprocessors)
 
         Z, t = dict(), dict()
         min_d, max_d = np.inf, -np.inf

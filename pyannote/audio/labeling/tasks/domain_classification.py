@@ -36,7 +36,8 @@ from .base import LabelingTask
 from .base import LabelingTaskGenerator
 from pyannote.audio.train.task import Task, TaskType, TaskOutput
 from pyannote.audio.features.wrapper import Wrappable
-from pyannote.database.protocol.protocol import Protocol
+from pyannote.database import Protocol
+from pyannote.database import Subset
 from pyannote.audio.train.model import Resolution
 from pyannote.audio.train.model import Alignment
 
@@ -79,7 +80,7 @@ class DomainClassificationGenerator(LabelingTaskGenerator):
         task: Task,
         feature_extraction: Wrappable,
         protocol: Protocol,
-        subset: Text = "train",
+        subset: Subset = "train",
         resolution: Optional[Resolution] = None,
         alignment: Optional[Alignment] = None,
         duration: float = 2.0,
@@ -142,7 +143,7 @@ class DomainClassification(LabelingTask):
         self,
         feature_extraction: Wrappable,
         protocol: Protocol,
-        subset: Text = "train",
+        subset: Subset = "train",
         **kwargs
     ) -> DomainClassificationGenerator:
         """Get batch generator for domain classification

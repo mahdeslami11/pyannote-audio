@@ -33,13 +33,9 @@ TODO
 from abc import ABCMeta, abstractmethod
 from typing import Iterator
 
-# TODO: move this to pyannote.database
-from typing_extensions import Literal
-
-Subset = Literal["train", "development", "test"]
-
 from pyannote.audio.features.base import FeatureExtraction
-from pyannote.database.protocol.protocol import Protocol
+from pyannote.database import Protocol
+from pyannote.database import Subset
 
 import warnings
 import numpy as np
