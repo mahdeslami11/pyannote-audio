@@ -179,7 +179,7 @@ This will create a bunch of files in `${TRN_DIR}/apply/latest` subdirectory, inc
 This pipeline reaches 32.2% DER with no collar:
 
 ```bash
-$ pyannote-metrics.py diarization AMI.SpeakerDiarization.MixHeadset ${TRN_DIR}/apply/latest/AMI.SpeakerDiarization.MixHeadset.test.rttm
+$ pyannote-metrics diarization AMI.SpeakerDiarization.MixHeadset ${TRN_DIR}/apply/latest/AMI.SpeakerDiarization.MixHeadset.test.rttm
 ```
 ```
 Diarization (collar = 0 ms)      diarization error rate    purity    coverage     total    correct      %    false alarm     %    missed detection      %    confusion      %
@@ -214,7 +214,7 @@ TOTAL                                             32.24     72.22       73.84  5
 and 11.7% DER with +/- 250ms collar and without scoring overlap regions:
 
 ```bash
-$ pyannote-metrics.py diarization --collar=0.5 --skip-overlap AMI.SpeakerDiarization.MixHeadset ${TRN_DIR}/apply/latest/AMI.SpeakerDiarization.MixHeadset.test.rttm
+$ pyannote-metrics diarization --collar=0.5 --skip-overlap AMI.SpeakerDiarization.MixHeadset ${TRN_DIR}/apply/latest/AMI.SpeakerDiarization.MixHeadset.test.rttm
 ```
 ```
 Diarization (collar = 500 ms, no overlap)      diarization error rate    purity    coverage     total    correct      %    false alarm      %    missed detection     %    confusion      %
