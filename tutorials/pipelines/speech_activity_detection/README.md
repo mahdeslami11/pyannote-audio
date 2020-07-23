@@ -156,7 +156,7 @@ This will create a bunch of files in `${TRN_DIR}/apply/latest` subdirectory, inc
 This pipeline reaches 6.0x% detection error rate on the test set:
 
 ```bash
-$ pyannote-metrics.py detection AMI.SpeakerDiarization.MixHeadset ${TRN_DIR}/apply/latest/AMI.SpeakerDiarization.MixHeadset.test.rttm
+$ pyannote-metrics detection AMI.SpeakerDiarization.MixHeadset ${TRN_DIR}/apply/latest/AMI.SpeakerDiarization.MixHeadset.test.rttm
 ```
 ```
 Detection (collar = 0 ms)      detection error rate    accuracy    precision    recall     total    false alarm     %     miss     %
