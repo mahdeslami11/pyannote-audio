@@ -1,6 +1,8 @@
 name: Test CLI
 
 on:
+  schedule:
+    - cron: 30 10 * * *
   pull_request:
     branches:
       - develop
