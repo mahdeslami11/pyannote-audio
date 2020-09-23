@@ -78,6 +78,7 @@ $ for SUBSET in developement test
 ```
 
 This tutorial relies on pretrained models available on `torch.hub` but you could (should?) obviously use a locally [trained](../../models/speech_activity_detection) or [fine-tuned](../../finetune) model.
+In case you trained, validated and applied your own models by following the above tutorials, you may safely skip the corresponding `pyannote-audio ... apply` steps because you do not need to extract scores and/or embeddings again.
 
 ## Configuration
 ([↑up to table of contents](#table-of-contents))
@@ -94,6 +95,37 @@ pipeline:
     # replace {{EXP_DIR}} by its actual value
     sad_scores: {{EXP_DIR}}/sad_ami
     scd_scores: {{EXP_DIR}}/scd_ami
+    embedding: {{EXP_DIR}}/emb_ami
+    method: affinity_propagation
+
+# one can freeze some of the hyper-parameters
+# for instance, in this example, we are using
+# hyper-parameters obtained in the speech 
+# actitivy detection pipeline tutorial
+freeze:
+  speech_turn_segmentation:
+    speech_activity_detection:
+      min_duration_off: 0.6315121069334447
+      min_duration_on: 0.0007366523493967721
+      offset: 0.5727193137037349
+      onset: 0.5842225805454029
+      pad_offset: 0.0
+      pad_onset: 0.0
+```
+
+
+If you are using any models that you trained, validated and applied locally [trained](../../models/speech_activity_detection) or [fine-tuned](../../finetune) models, and want to use your own set of scores, use their own paths instead. The example below uses pretrained embeddings but locally trained `sad` and `scd` scores:
+
+```bash
+$ cat ${EXP_DIR}/config.yml
+```
+```yaml
+pipeline:
+  name: pyannote.audio.pipeline.speaker_diarization.SpeakerDiarization
+  params:
+    sad_scores: /path/to/sad/experiment/train/{{TRAINING_SET}}/validate_detection_fscore/{{VALIDATION_SET}}/apply/{{BEST_EPOCH}}
+    scd_scores: /path/to/scd/experiment/train/{{TRAINING_SET}}/validate_detection_fscore/{{VALIDATION_SET}}/apply/{{BEST_EPOCH}}
+    # replace {{EXP_DIR}} by its actual value
     embedding: {{EXP_DIR}}/emb_ami
     method: affinity_propagation
 
