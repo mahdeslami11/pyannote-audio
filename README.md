@@ -1,8 +1,8 @@
-# `pyannote-audio` | neural building blocks for speaker diarization
+# Neural speaker diarization with `pyannote-audio`
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pyannote/pyannote-audio/blob/develop/notebooks/introduction_to_pyannote_audio_speaker_diarization_toolkit.ipynb)
-
-[![Introductory video](https://img.youtube.com/vi/37R_R82lfwA/0.jpg)](https://www.youtube.com/watch?v=37R_R82lfwA)
+<p align="center"> 
+ <a href="https://www.youtube.com/watch?v=37R_R82lfwA"><img src="https://img.youtube.com/vi/37R_R82lfwA/0.jpg"></a>
+</p>
 
 `pyannote.audio` is an open-source toolkit written in Python for speaker diarization. Based on [PyTorch](pytorch.org) machine learning framework, it provides a set of trainable end-to-end neural building blocks that can be combined and jointly optimized to build speaker diarization pipelines:
 
@@ -13,6 +13,8 @@
 `pyannote.audio` also comes with [pretrained models](https://github.com/pyannote/pyannote-audio-hub) covering a wide range of domains for voice activity detection, speaker change detection, overlapped speech detection, and speaker embedding:
 
 ![segmentation](tutorials/pretrained/model/segmentation.png)
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pyannote/pyannote-audio/blob/develop/notebooks/introduction_to_pyannote_audio_speaker_diarization_toolkit.ipynb)
 
 ## Installation
 
