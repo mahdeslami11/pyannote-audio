@@ -628,14 +628,14 @@ def apply_pretrained(
             pipeline.write_rttm(fp, hypothesis)
 
             # compute evaluation metric (when possible)
-            if "annotation" not in current_file:
+            reference = current_file.get("annotation", None)
+            if reference is None:
                 metric = None
 
             # compute evaluation metric (when available)
             if metric is None:
                 continue
 
-            reference = current_file["annotation"]
             uem = get_annotated(current_file)
             _ = metric(reference, hypothesis, uem=uem)
 
