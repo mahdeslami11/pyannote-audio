@@ -1,0 +1,9 @@
+torch >= 1.6
+torchaudio >= 0.6
+pytorch_lightning >= 1.0.0rc4
+pytorch_metric_learning >= 0.9.93
+einops >= 0.3.0
+pyannote.core >= 4.1
+pyannote.database >= 4.0.1
+librosa >= 0.8
+soundfile >= 0.10.2
