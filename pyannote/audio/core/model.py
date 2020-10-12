@@ -20,18 +20,18 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import pytorch_lightning as pl
-from pyannote.audio.core.task import Task, Problem
 from typing import Optional
 
+import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 from pyannote.audio.core.io import Audio
+from pyannote.audio.core.task import Problem, Task
 
 
 class Model(pl.LightningModule):
     """Base model
-    
+
     Parameters
     ----------
     sample_rate : int, optional
@@ -39,9 +39,9 @@ class Model(pl.LightningModule):
     num_channels : int, optional
         Number of channels. Defaults to mono (1).
     task : Task, optional
-        Task addressed by the model. Only provided when training the model. 
-        A model should be `load_from_checkpoint`-able without a task as  
-        `on_load_checkpoint` hook takes care of calling `setup`. 
+        Task addressed by the model. Only provided when training the model.
+        A model should be `load_from_checkpoint`-able without a task as
+        `on_load_checkpoint` hook takes care of calling `setup`.
     """
 
     def __init__(

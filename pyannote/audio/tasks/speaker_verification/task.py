@@ -20,20 +20,19 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import math
+import random
+from itertools import chain
 from typing import TYPE_CHECKING
-from pyannote.audio.core.task import TaskSpecification, Problem, Scale, Task
+
+import pytorch_metric_learning.losses
+import torch.optim
+from pyannote.audio.core.task import Problem, Scale, Task, TaskSpecification
+from pyannote.core import Segment
+from pyannote.database import Protocol
 
 if TYPE_CHECKING:
     from pyannote.audio.core.model import Model
-from pyannote.database import Protocol
-
-import random
-import math
-from pyannote.core import Segment
-
-import pytorch_metric_learning.losses
-from itertools import chain
-import torch.optim
 
 
 class SpeakerEmbeddingArcFace(Task):
@@ -103,7 +102,7 @@ class SpeakerEmbeddingArcFace(Task):
 
     def train__iter__(self):
         """Iterate over training samples
-        
+
         Yields
         ------
         X: (time, channel)
