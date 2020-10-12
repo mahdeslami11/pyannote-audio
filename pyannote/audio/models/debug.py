@@ -21,15 +21,14 @@
 # SOFTWARE.
 
 
-from pyannote.audio.core.model import Model
-from pyannote.audio.core.task import Task
 from typing import Optional
 
-
-from torchaudio.transforms import MFCC
 import torch
 import torch.nn as nn
 from einops import rearrange, reduce
+from pyannote.audio.core.model import Model
+from pyannote.audio.core.task import Task
+from torchaudio.transforms import MFCC
 
 
 class SimpleSegmentationModel(Model):
@@ -72,14 +71,14 @@ class SimpleSegmentationModel(Model):
 
     def forward(self, waveforms: torch.Tensor) -> torch.Tensor:
         """
-        
+
         Parameters
         ----------
         waveforms : (batch, time, channel)
-        
+
         Returns
         -------
-        scores : (batch, time, classes)        
+        scores : (batch, time, classes)
         """
 
         # extract MFCC
@@ -131,14 +130,14 @@ class SimpleEmbeddingModel(Model):
 
     def forward(self, waveforms: torch.Tensor) -> torch.Tensor:
         """
-        
+
         Parameters
         ----------
         waveforms : (batch, time, channel)
-        
+
         Returns
         -------
-        embedding : (batch, dimension)        
+        embedding : (batch, dimension)
         """
 
         mfcc = self.mfcc(rearrange(waveforms, "b t c -> b c t"))

@@ -20,31 +20,29 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import Union, Optional, Text
-from pathlib import Path
-from pyannote.database import ProtocolFile
-import soundfile as sf
-
 import warnings
-import numpy as np
+from pathlib import Path
+from typing import Optional, Text, Union
 
 import librosa
-
+import numpy as np
+import soundfile as sf
 from pyannote.core import Segment, SlidingWindow, SlidingWindowFeature
 from pyannote.core.utils.types import Alignment
+from pyannote.database import ProtocolFile
 
 AudioFile = Union[Path, Text, ProtocolFile, dict]
-""" 
+"""
 Audio files can be provided to the Audio class using different types:
     - a "str" instance: "/path/to/audio.wav"
     - a "Path" instance: Path("/path/to/audio.wav")
-    - a ProtocolFile (or regular dict) with an "audio" key: 
+    - a ProtocolFile (or regular dict) with an "audio" key:
         {"audio": Path("/path/to/audio.wav")}
     - a ProtocolFile (or regular dict) with both "waveform" and "sample_rate" key:
         {"waveform": (time, channel) numpy array, "sample_rate": 44100}
 
 For last two options, an additional "channel" key can be provided as a zero-indexed
-integer to load a specific channel: 
+integer to load a specific channel:
         {"audio": Path("/path/to/stereo.wav"), "channel": 0}
 """
 
@@ -79,7 +77,7 @@ class Audio:
         ----------
         file : AudioFile
             Audio file.
-        
+
         Returns
         -------
         duration : float
@@ -119,15 +117,15 @@ class Audio:
                 return True
 
             elif "audio" in file:
-                audio = file["audio"]
-
+                # audio = file["audio"]
+                pass
             else:
                 # TODO improve error message
                 raise ValueError("either 'audio' or 'waveform' key must be provided.")
 
         else:
-            audio = file
-
+            # audio = file
+            pass
         #  should we check here that "audio" file exists?
         #  this will slow things down and will fail later anyway.
 
@@ -141,7 +139,7 @@ class Audio:
     def downmix_and_resample(
         self, waveform: np.ndarray, sample_rate: int
     ) -> np.ndarray:
-        """Downmix and resample 
+        """Downmix and resample
 
         Parameters
         ----------
