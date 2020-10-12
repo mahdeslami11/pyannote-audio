@@ -1,0 +1,8 @@
+name: pyannote-audio
+channels:
+  - defaults
+dependencies:
+  - python>=3.6
+  - pip>=20.2
+  - pip:
+    - -r requirements.txt
