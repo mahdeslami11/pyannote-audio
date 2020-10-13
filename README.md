@@ -6,6 +6,6 @@ Rewriting pyannote.audio from scratch
 The commands below will setup pre-commit hooks and packages needed for developing the `pyannote.audio` library.
 
 ```bash
-pip install -e[dev,testing]
+pip install -e .[dev,testing]
 pre-commit install
 ```
