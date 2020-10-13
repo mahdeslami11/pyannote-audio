@@ -20,14 +20,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from pyannote.audio.core.task import TaskSpecification, Problem, Scale, Task
-from pyannote.database import Protocol
-
-import numpy as np
 import math
 import random
-from pyannote.core import Segment, Timeline, SlidingWindow
+
+import numpy as np
+from pyannote.audio.core.task import Problem, Scale, Task, TaskSpecification
+from pyannote.core import Segment, SlidingWindow, Timeline
 from pyannote.core.utils.numpy import one_hot_encoding
+from pyannote.database import Protocol
 
 
 class VoiceActivityDetection(Task):
@@ -79,14 +79,14 @@ class VoiceActivityDetection(Task):
 
     def train__iter__(self):
         """Iterate over training samples
-        
+
         Yields
         ------
         X: (time, channel)
             Audio chunks.
         y: (frame, )
             Frame-level targets. Note that frame < time.
-            `frame` is infered automagically from the 
+            `frame` is infered automagically from the
             example model output.
         """
 
@@ -96,12 +96,16 @@ class VoiceActivityDetection(Task):
 
             # select one file at random (with probability proportional to its annotated duration)
             file, *_ = random.choices(
-                self.train, weights=[f["duration"] for f in self.train], k=1,
+                self.train,
+                weights=[f["duration"] for f in self.train],
+                k=1,
             )
 
             # select one annotated region at random (with probability proportional to its duration)
             segment, *_ = random.choices(
-                file["annotated"], weights=[s.duration for s in file["annotated"]], k=1,
+                file["annotated"],
+                weights=[s.duration for s in file["annotated"]],
+                k=1,
             )
 
             # select one chunk at random (with uniform distribution)

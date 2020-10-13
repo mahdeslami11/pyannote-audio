@@ -20,21 +20,21 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from pyannote.audio.core.task import TaskSpecification, Problem, Scale, Task
-from pyannote.database import Protocol
-
 import math
 import random
-from pyannote.core import Segment, Timeline, SlidingWindow
+
+from pyannote.audio.core.task import Problem, Scale, Task, TaskSpecification
+from pyannote.core import Segment, SlidingWindow, Timeline
 from pyannote.core.utils.numpy import one_hot_encoding
+from pyannote.database import Protocol
 
 
 class SpeakerTracking(Task):
     """Speaker tracking
-    
-    Speaker tracking is the process of determining if and when a (previously 
+
+    Speaker tracking is the process of determining if and when a (previously
     enrolled) person's voice can be heard in an audio recording.
-    
+
     Here, it is addressed with the same approach as voice activity detection,
     except {"non-speech", "speech"} classes are replaced by {"speaker1", ...,
     "speaker_N"} where N is the number of speakers in the training set.
@@ -101,14 +101,14 @@ class SpeakerTracking(Task):
 
     def train__iter__(self):
         """Iterate over training samples
-        
+
         Yields
         ------
         X: (time, channel)
             Audio chunks.
         y: (frame, num_speakers)
             Frame-level targets. Note that frame < time.
-            `frame` is infered automagically from the 
+            `frame` is infered automagically from the
             example model output.
         """
 
@@ -118,12 +118,16 @@ class SpeakerTracking(Task):
 
             # select one file at random (with probability proportional to its annotated duration)
             file, *_ = random.choices(
-                self.train, weights=[f["duration"] for f in self.train], k=1,
+                self.train,
+                weights=[f["duration"] for f in self.train],
+                k=1,
             )
 
             # select one annotated region at random (with probability proportional to its duration)
             segment, *_ = random.choices(
-                file["annotated"], weights=[s.duration for s in file["annotated"]], k=1,
+                file["annotated"],
+                weights=[s.duration for s in file["annotated"]],
+                k=1,
             )
 
             # select one chunk at random (with uniform distribution)

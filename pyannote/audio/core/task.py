@@ -21,17 +21,19 @@
 # SOFTWARE.
 
 
-from enum import Enum
 from dataclasses import dataclass
-from typing import Optional, List, Text
+from enum import Enum
+from typing import TYPE_CHECKING, List, Optional, Text
 
 import pytorch_lightning as pl
 import torch
-import torch.optim
-from torch.utils.data import DataLoader
-from torch.utils.data import IterableDataset
 import torch.nn.functional as F
+import torch.optim
 from pyannote.database import Protocol
+from torch.utils.data import DataLoader, IterableDataset
+
+if TYPE_CHECKING:
+    from pyannote.audio.core.model import Model
 
 
 # Type of machine learning problem
@@ -63,7 +65,7 @@ class TaskSpecification:
 # note how a task is actually a LightningDataModule
 class Task(pl.LightningDataModule):
     """Base task class
-    
+
     A task is the combination of a "problem" and a "dataset".
     For example, here are a few tasks:
     - voice activity detection on the AMI corpus
@@ -71,7 +73,7 @@ class Task(pl.LightningDataModule):
     - end-to-end speaker diarization on the VoxConverse corpus
 
     A task is expected to be solved by a "model" that takes an
-    audio chunk as input and returns the solution. Hence, the 
+    audio chunk as input and returns the solution. Hence, the
     task is in charge of generating (input, expected_output)
     samples used for training the model.
 
