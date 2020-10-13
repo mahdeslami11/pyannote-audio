@@ -192,7 +192,7 @@ class Task(pl.LightningDataModule):
 
     # default training_step provided for convenience
     # can obviously be overriden for each task
-    def training_step(self, model: Model, batch, batch_idx: int):
+    def training_step(self, model: "Model", batch, batch_idx: int):
         X, y = batch["X"], batch["y"]
         if self.specifications.problem == Problem.MONO_LABEL_CLASSIFICATION:
             loss = F.nll_loss(
@@ -211,7 +211,7 @@ class Task(pl.LightningDataModule):
 
     # default configure_optimizers provided for convenience
     # can obviously be overriden for each task
-    def configure_optimizers(self, model: Model):
+    def configure_optimizers(self, model: "Model"):
         # for tasks such as SpeakerEmbedding,
         # other parameters should be added here
         return torch.optim.Adam(model.parameters(), lr=1e-3)
