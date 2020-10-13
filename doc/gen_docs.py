@@ -8,7 +8,7 @@ from os import path
 bp = breakpoint
 
 
-def capatilise(s):
+def capitalise(s):
     news = ""
     for word in s.split("_"):
         news += word.capitalize()
@@ -19,7 +19,7 @@ def process_dir(level, p):
     md = ""
     basename = path.basename(p)
 
-    title = capatilise(basename)
+    title = capitalise(basename)
     md += f"{'#'*level} {title}\n\n"
     subdirs = os.listdir(p)
 
