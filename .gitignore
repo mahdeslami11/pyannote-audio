@@ -80,3 +80,5 @@ gh-pages.pub
 *.zip
 .mypy_cache/
 .vscode/
+
+**/lightning_logs/**
