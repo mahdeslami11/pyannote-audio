@@ -20,10 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from pkg_resources import get_distribution, DistributionNotFound
-
 try:
-    __version__ = get_distribution(__name__).version
-except DistributionNotFound:
-    # package is not installed
+    from .version import __version__, git_version  # noqa: F401
+except ImportError:
     pass
