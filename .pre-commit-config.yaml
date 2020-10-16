@@ -2,12 +2,10 @@ exclude: '^docs/conf.py'
 
 repos:
     # Clean Notebooks
-    - repo: https://gitlab.com/iamlikeme/nbhooks
-      rev: 1.0.0  # Set to the most recent version
+    - repo: https://github.com/kynan/nbstripout
+      rev: master
       hooks:
-      - id: nb-ensure-clean
-        args: [--meta, ExecuteTime]  # Optional blacklist of metadata keys (you can use regex)
-
+        - id: nbstripout
     # Format Code
     - repo: https://github.com/ambv/black
       rev: stable
