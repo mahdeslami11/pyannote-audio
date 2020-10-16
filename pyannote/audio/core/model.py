@@ -20,13 +20,18 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import Optional
+import warnings
+from importlib import import_module
+from typing import Any, Dict, Optional, Text
 
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+from pyannote.audio import __version__
 from pyannote.audio.core.io import Audio
 from pyannote.audio.core.task import Problem, Task
+from pytorch_lightning.utilities.cloud_io import load as pl_load
+from semver import VersionInfo
 
 
 class Model(pl.LightningModule):
@@ -76,6 +81,8 @@ class Model(pl.LightningModule):
 
         if stage == "fit":
 
+            # TODO: move these to self.hparams.task
+
             # keep track of the classes here because it is used
             # to setup the final classification layer (even when stage != fit)
             self.hparams.classes = self.task.specifications.classes
@@ -107,7 +114,40 @@ class Model(pl.LightningModule):
                 self.task.example_input_array()
             )
 
-    def on_load_checkpoint(self, checkpoint):
+    @staticmethod
+    def check_version(library: Text, theirs: Text, mine: Text):
+        theirs = VersionInfo.parse(theirs)
+        mine = VersionInfo.parse(mine)
+        if theirs.major != mine.major:
+            warnings.warn(
+                f"Model was trained with {library} {theirs}, yours is {mine}. "
+                f"Bad things will probably happen unless you update {library} to {theirs.major}.x."
+            )
+        if theirs.minor > mine.minor:
+            warnings.warn(
+                f"Model was trained with {library} {theirs}, yours is {mine}. "
+                f"This should be OK but you might want to update {library}."
+            )
+
+    def on_load_checkpoint(self, checkpoint: Dict[str, Any]):
+
+        try:
+            self.check_version(
+                "pyannote.audio",
+                checkpoint["pyannote.audio"]["versions"]["pyannote.audio"],
+                __version__,
+            )
+        except ValueError:
+            warnings.warn("FIXME: could not check pyannote.audio version")
+
+        self.check_version(
+            "torch",
+            checkpoint["pyannote.audio"]["versions"]["torch"],
+            torch.__version__,
+        )
+        self.check_version(
+            "pytorch-lightning", checkpoint["pytorch-lightning_version"], pl.__version__
+        )
 
         # only hyper-parameters defined in __init__ are loaded automatically.
         # therefore, we have to manually load hyper-parameters that were
@@ -121,6 +161,24 @@ class Model(pl.LightningModule):
         # now that setup()-defined hyper-parameters are available,
         # we can actually setup() the model.
         self.setup()
+
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]):
+
+        #  put everything pyannote.audio-specific under pyannote.audio
+        #  to avoid any future conflicts with pytorch-lightning updates
+        checkpoint["pyannote.audio"] = {
+            "versions": {
+                "torch": torch.__version__,
+                "pyannote.audio": __version__,
+            },
+            "model": {
+                "module": self.__class__.__module__,
+                "class": self.__class__.__name__,
+            },
+        }
+
+        # TODO give self.task a chance to save some hyper-parameters as well (e.g. chunk duration)
+        # TODO self.task.on_save_checkpoint(checkpoint)
 
     def forward(self, waveforms: torch.Tensor) -> torch.Tensor:
         msg = "Class {self.__class__.__name__} should define a `forward` method."
@@ -147,3 +205,29 @@ class Model(pl.LightningModule):
     # optimizer is defined by the task for the same reason as above
     def configure_optimizers(self):
         return self.task.configure_optimizers(self)
+
+
+def load_from_checkpoint(checkpoint_path: str, map_location=None) -> Model:
+    """Load model from checkpoint
+
+    Parameters
+    ----------
+    checkpoint_path: str
+        Path to checkpoint. This can also be a URL.
+
+    Returns
+    -------
+    model : Model
+        Model
+    """
+
+    # obtain model class from the checkpoint
+    checkpoint = pl_load(checkpoint_path, map_location=map_location)
+
+    module_name: str = checkpoint["pyannote.audio"]["model"]["module"]
+    module = import_module(module_name)
+
+    class_name: str = checkpoint["pyannote.audio"]["model"]["class"]
+    Klass: Model = getattr(module, class_name)
+
+    return Klass.load_from_checkpoint(checkpoint_path)

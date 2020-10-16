@@ -82,3 +82,6 @@ gh-pages.pub
 .vscode/
 
 **/lightning_logs/**
+
+# Version Output
+pyannote/audio/version.py

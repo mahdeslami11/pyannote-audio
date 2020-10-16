@@ -1,4 +1,6 @@
+import os
 import sys
+from pathlib import Path
 
 from pkg_resources import VersionConflict, require
 from setuptools import find_packages, setup
@@ -16,13 +18,31 @@ except VersionConflict:
     sys.exit(1)
 
 
-if __name__ == "__main__":
+ROOT_DIR = Path(__file__).parent.resolve()
+# Creating the version file
 
+with open("version.txt") as f:
+    version = f.read()
+
+version = version.strip()
+sha = "Unknown"
+
+if os.getenv("BUILD_VERSION"):
+    version = os.getenv("BUILD_VERSION")
+elif sha != "Unknown":
+    version += "+" + sha[:7]
+print("-- Building version " + version)
+
+version_path = ROOT_DIR / "pyannote" / "audio" / "version.py"
+
+with open(version_path, "w") as f:
+    f.write("__version__ = '{}'\n".format(version))
+
+if __name__ == "__main__":
     setup(
         name="pyannote.audio",
         namespace_packages=["pyannote"],
-        use_scm_version=True,
-        setup_requires=["setuptools_scm"],
+        version=version,
         packages=find_packages(),
         install_requires=requirements,
         description="Neural building blocks for speaker diarization",

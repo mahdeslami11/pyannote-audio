@@ -3,8 +3,9 @@ librosa >= 0.8
 pyannote.core >= 4.1
 pyannote.database >= 4.0.1
 pyscaffold
-pytorch_lightning >= 1.0.0rc4
+pytorch_lightning >= 1.0.0
 pytorch_metric_learning >= 0.9.93
+semver >= 2.10.2
 soundfile >= 0.10.2
 torch >= 1.6
 torchaudio >= 0.6
