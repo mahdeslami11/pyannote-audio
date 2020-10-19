@@ -85,3 +85,6 @@ gh-pages.pub
 
 # Version Output
 pyannote/audio/version.py
+
+# vim
+.vim
