@@ -80,27 +80,8 @@ class Model(pl.LightningModule):
     def setup(self, stage=None):
 
         if stage == "fit":
-
-            # TODO: move these to self.hparams.task
-
-            # keep track of the classes here because it is used
-            # to setup the final classification layer (even when stage != fit)
-            self.hparams.classes = self.task.specifications.classes
-
-            # keep track of the type of problem here because it is used
-            # to setup the final activation layer (even when stage != fit)
-            self.hparams.problem = self.task.specifications.problem
-
-            # any other common parameters should be saved?
-            # maybe the class of the model (and pyannote.audio semantic version?)
-            # so that it can be loaded without knowing what type of model it is.
-            # this would probably make distributing pretrained models much easier.
-
-        else:
-            # should we do something specific when stage != fit?
-            # hparams.classes and hparams.problem should already exist
-            # because they should have been loaded on_load_checkpoint
-            pass
+            #  keep track of task specifications
+            self.hparams.task_specifications = self.task.specifications
 
         # add task-dependent layers to the model
         # (e.g. the final classification and activation layers)
@@ -113,6 +94,24 @@ class Model(pl.LightningModule):
             self.task.example_output_array = self.forward(
                 self.task.example_input_array()
             )
+
+    def on_save_checkpoint(self, checkpoint):
+
+        #  put everything pyannote.audio-specific under pyannote.audio
+        #  to avoid any future conflicts with pytorch-lightning updates
+        checkpoint["pyannote.audio"] = {
+            "versions": {
+                "torch": torch.__version__,
+                "pyannote.audio": __version__,
+            },
+            "model": {
+                "module": self.__class__.__module__,
+                "class": self.__class__.__name__,
+            },
+        }
+
+        # TODO give self.task a chance to save some hyper-parameters as well (e.g. chunk duration)
+        # TODO self.task.on_save_checkpoint(checkpoint)
 
     @staticmethod
     def check_version(library: Text, theirs: Text, mine: Text):
@@ -131,14 +130,11 @@ class Model(pl.LightningModule):
 
     def on_load_checkpoint(self, checkpoint: Dict[str, Any]):
 
-        try:
-            self.check_version(
-                "pyannote.audio",
-                checkpoint["pyannote.audio"]["versions"]["pyannote.audio"],
-                __version__,
-            )
-        except ValueError:
-            warnings.warn("FIXME: could not check pyannote.audio version")
+        self.check_version(
+            "pyannote.audio",
+            checkpoint["pyannote.audio"]["versions"]["pyannote.audio"],
+            __version__,
+        )
 
         self.check_version(
             "torch",
@@ -149,36 +145,13 @@ class Model(pl.LightningModule):
             "pytorch-lightning", checkpoint["pytorch-lightning_version"], pl.__version__
         )
 
-        # only hyper-parameters defined in __init__ are loaded automatically.
-        # therefore, we have to manually load hyper-parameters that were
-        # defined during setup()
-        self.hparams.classes = checkpoint["hyper_parameters"]["classes"]
-        self.hparams.problem = checkpoint["hyper_parameters"]["problem"]
-        # TODO: would have to check pytorch-lightning documentation to see
-        # if we can get rid of this... it is weird that only "some" parameters
-        # in self.hparams are assigned at __init__ time...
+        self.hparams.task_specifications = checkpoint["hyper_parameters"][
+            "task_specifications"
+        ]
 
         # now that setup()-defined hyper-parameters are available,
         # we can actually setup() the model.
         self.setup()
-
-    def on_save_checkpoint(self, checkpoint: Dict[str, Any]):
-
-        #  put everything pyannote.audio-specific under pyannote.audio
-        #  to avoid any future conflicts with pytorch-lightning updates
-        checkpoint["pyannote.audio"] = {
-            "versions": {
-                "torch": torch.__version__,
-                "pyannote.audio": __version__,
-            },
-            "model": {
-                "module": self.__class__.__module__,
-                "class": self.__class__.__name__,
-            },
-        }
-
-        # TODO give self.task a chance to save some hyper-parameters as well (e.g. chunk duration)
-        # TODO self.task.on_save_checkpoint(checkpoint)
 
     def forward(self, waveforms: torch.Tensor) -> torch.Tensor:
         msg = "Class {self.__class__.__name__} should define a `forward` method."
@@ -187,10 +160,12 @@ class Model(pl.LightningModule):
     # convenience function to automate the choice of the final activation function
     def default_activation(self) -> nn.Module:
 
-        if self.hparams.problem == Problem.MONO_LABEL_CLASSIFICATION:
+        problem = self.hparams.task_specifications.problem
+
+        if problem == Problem.MONO_LABEL_CLASSIFICATION:
             return nn.LogSoftmax(dim=-1)
 
-        elif self.hparams.problem == Problem.MULTI_LABEL_CLASSIFICATION:
+        elif problem == Problem.MULTI_LABEL_CLASSIFICATION:
             return nn.Sigmoid()
 
         else:

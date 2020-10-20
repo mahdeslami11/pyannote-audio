@@ -58,11 +58,14 @@ class TaskSpecification:
     problem: Problem
     scale: Scale
 
-    # for classification tasks only
+    # chunk duration in seconds.
+    # use None for variable-length chunks
+    duration: Optional[float] = None
+
+    # (for classification tasks only) list of classes
     classes: Optional[List[Text]] = None
 
 
-# note how a task is actually a LightningDataModule
 class Task(pl.LightningDataModule):
     """Base task class
 

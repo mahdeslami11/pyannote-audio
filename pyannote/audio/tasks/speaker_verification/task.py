@@ -51,7 +51,9 @@ class SpeakerEmbeddingArcFace(Task):
         # there is no such thing as a "class" in representation
         # learning, so we do not need to define it here.
         self.specifications = TaskSpecification(
-            problem=Problem.REPRESENTATION, scale=Scale.CHUNK
+            problem=Problem.REPRESENTATION,
+            scale=Scale.CHUNK,
+            duration=self.duration,
         )
 
     def setup(self, stage=None):

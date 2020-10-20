@@ -49,6 +49,7 @@ class VoiceActivityDetection(Task):
         self.specifications = TaskSpecification(
             problem=Problem.MONO_LABEL_CLASSIFICATION,
             scale=Scale.FRAME,
+            duration=self.duration,
             classes=["non_speech", "speech"],
         )
 

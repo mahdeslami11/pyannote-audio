@@ -96,6 +96,7 @@ class SpeakerTracking(Task):
         self.specifications = TaskSpecification(
             problem=Problem.MULTI_LABEL_CLASSIFICATION,
             scale=Scale.FRAME,
+            duration=self.duration,
             classes=sorted(speakers),
         )
 
