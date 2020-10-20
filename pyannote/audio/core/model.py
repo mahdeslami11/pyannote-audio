@@ -22,7 +22,7 @@
 
 import warnings
 from importlib import import_module
-from typing import Any, Dict, Optional, Text
+from typing import Any, Dict, List, Optional, Text, Union
 
 import pytorch_lightning as pl
 import torch
@@ -180,6 +180,173 @@ class Model(pl.LightningModule):
     # optimizer is defined by the task for the same reason as above
     def configure_optimizers(self):
         return self.task.configure_optimizers(self)
+
+    def _helper_up_to(
+        self, module_name: Text, requires_grad: bool = False
+    ) -> List[Text]:
+        """Helper function for freeze_up_to and unfreeze_up_to"""
+
+        tokens = module_name.split(".")
+        updated_modules = list()
+
+        for name, module in self.summarize("full").named_modules:
+            name_tokens = name.split(".")
+            matching_tokens = list(
+                token
+                for token, other_token in zip(name_tokens, tokens)
+                if token == other_token
+            )
+
+            # if module is A.a.1 & name is A.a, we do not want to freeze the whole A.a module
+            # because it might contain other modules like A.a.2 and A.a.3
+            if matching_tokens and len(matching_tokens) == len(tokens) - 1:
+                continue
+
+            for parameter in module.parameters(recurse=True):
+                parameter.requires_grad = requires_grad
+
+            updated_modules.append(name)
+
+            #  stop once we reached the requested module
+            if module_name == name:
+                break
+
+        if module_name not in updated_modules:
+            raise ValueError(f"Could not find module {module_name}")
+
+        return updated_modules
+
+    def freeze_up_to(self, module_name: Text) -> List[Text]:
+        """Freeze model up to specific module
+
+        Parameters
+        ----------
+        module_name : str
+            Name of module (included) up to which the model will be frozen.
+
+        Returns
+        -------
+        frozen_modules : list of str
+            List of names of frozen modules
+
+        Raises
+        ------
+        ValueError when requested module does not exist
+
+        Note
+        ----
+        The order of modules is the one reported by self.summary("full").
+        If your model does not follow a sequential structure, you might
+        want to use freeze_by_name for more control.
+        """
+        return self._helper_up_to(module_name, requires_grad=False)
+
+    def unfreeze_up_to(self, module_name: Text) -> List[Text]:
+        """Unfreeze model up to specific module
+
+        Parameters
+        ----------
+        module_name : str
+            Name of module (included) up to which the model will be unfrozen.
+
+        Returns
+        -------
+        unfrozen_modules : list of str
+            List of names of frozen modules
+
+        Raises
+        ------
+        ValueError when requested module does not exist
+
+        Note
+        ----
+        The order of modules is the one reported by self.summary("full").
+        If your model does not follow a sequential structure, you might
+        want to use freeze_by_name for more control.
+        """
+        return self._helper_up_to(module_name, requires_grad=True)
+
+    def _helper_by_name(
+        self,
+        modules: Union[List[Text], Text],
+        recurse: bool = True,
+        requires_grad: bool = False,
+    ) -> List[Text]:
+        """Helper function for freeze_by_name and unfreeze_by_name"""
+
+        updated_modules = list()
+
+        # Force modules to be a list
+        if isinstance(modules, str):
+            modules = [modules]
+
+        for name, module in self.summarize("full").named_modules:
+
+            if name not in modules:
+                continue
+
+            for parameter in module.parameters(recurse=True):
+                parameter.requires_grad = requires_grad
+
+            # keep track of updated modules
+            updated_modules.append(name)
+
+        missing = list(set(modules) - set(updated_modules))
+        if missing:
+            raise ValueError(f"Could not find the following modules: {missing}.")
+
+        return updated_modules
+
+    def freeze_by_name(
+        self, modules: Union[Text, List[Text]], recurse: bool = True
+    ) -> List[Text]:
+        """Freeze modules
+
+        Parameters
+        ----------
+        modules : list of str, str
+            Name(s) of modules to freeze
+        recurse : bool, optional
+            If True (default), freezes parameters of these modules and all submodules.
+            Otherwise, only freezes parameters that are direct members of these modules.
+
+        Returns
+        -------
+        frozen_modules: list of str
+            Names of frozen modules
+
+        Raises
+        ------
+        ValueError if at least one of `modules` does not exist.
+        """
+
+        return self._helper_by_name(
+            modules,
+            recurse=recurse,
+            requires_grad=False,
+        )
+
+    def unfreeze_by_name(
+        self, modules: Union[List[Text], Text], recurse: bool = True
+    ) -> List[Text]:
+        """Unfreeze modules
+
+        Parameters
+        ----------
+        modules : list of str, str
+            Name(s) of modules to unfreeze
+
+        Returns
+        -------
+        unfrozen_modules: list of str
+            Names of unfrozen modules
+
+        Raises
+        ------
+        ValueError if at least one of `modules` does not exist.
+        """
+
+        return self._helper_by_name(modules, recurse=recurse, requires_grad=True)
 
 
 def load_from_checkpoint(checkpoint_path: str, map_location=None) -> Model:
