@@ -13,10 +13,11 @@ repos:
         - id: black
 
     # Sort imports
-    - repo: https://github.com/pre-commit/mirrors-isort
-      rev: v4.3.4
+    - repo: https://github.com/PyCQA/isort
+      rev: 5.5.4
       hooks:
       - id: isort
+        args: ["--profile", "black"]
 
     # Formatting, Whitespace, etc
     - repo: git://github.com/pre-commit/pre-commit-hooks
