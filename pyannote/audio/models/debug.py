@@ -59,7 +59,9 @@ class SimpleSegmentationModel(Model):
 
     def build(self):
         # define task-dependent layers
-        self.classifier = nn.Linear(32 * 2, len(self.hparams.classes))
+        self.classifier = nn.Linear(
+            32 * 2, len(self.hparams.task_specifications.classes)
+        )
         self.activation = self.default_activation()
 
         # why do we define those layers here and not in task.setup()?

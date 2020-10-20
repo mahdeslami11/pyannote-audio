@@ -35,12 +35,12 @@ better options become available: we welcome PRs!
 
 import warnings
 from pathlib import Path
-from typing import Optional, Text, Union
+from typing import Optional, Text, Tuple, Union
 
 import librosa
 import numpy as np
 import soundfile as sf
-from pyannote.core import Segment, SlidingWindow, SlidingWindowFeature
+from pyannote.core import Segment, SlidingWindow
 from pyannote.core.utils.types import Alignment
 from pyannote.database import ProtocolFile
 
@@ -188,7 +188,7 @@ class Audio:
 
         return waveform, sample_rate
 
-    def __call__(self, file: AudioFile):
+    def __call__(self, file: AudioFile) -> Tuple[np.ndarray, int]:
         """Obtain waveform
 
         Parameters
@@ -197,8 +197,10 @@ class Audio:
 
         Returns
         -------
-        waveform : `pyannote.core.SlidingWindowFeature`
-            Waveform.
+        waveform : (time, channel) numpy array
+            Waveform
+        sample_rate : int
+            Sample rate
 
         See also
         --------
@@ -239,13 +241,7 @@ class Audio:
         if channel is not None:
             waveform = waveform[:, channel - 1 : channel]
 
-        waveform = self.downmix_and_resample(waveform, sample_rate)
-
-        sliding_window = SlidingWindow(
-            start=-0.5 / sample_rate, duration=1.0 / sample_rate, step=1.0 / sample_rate
-        )
-
-        return SlidingWindowFeature(waveform, sliding_window)
+        return self.downmix_and_resample(waveform, sample_rate)
 
     def crop(
         self,
@@ -253,7 +249,7 @@ class Audio:
         segment: Segment,
         mode: Alignment = "center",
         fixed: Optional[float] = None,
-    ) -> np.ndarray:
+    ) -> Tuple[np.ndarray, int]:
         """Fast version of self(file).crop(segment, **kwargs)
 
         Parameters
@@ -282,10 +278,6 @@ class Audio:
             Sample rate
 
         TODO: remove support for "mode" option. It is always "center" anyway.
-
-        See also
-        --------
-        `pyannote.core.SlidingWindowFeature.crop`
         """
 
         self.is_valid(file)
