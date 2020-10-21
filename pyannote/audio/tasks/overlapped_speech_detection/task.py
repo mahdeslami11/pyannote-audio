@@ -64,9 +64,6 @@ class OverlappedSpeechDetection(Task):
         Indicate that data augmentation will only overlap chunks from the same domain
         (i.e. share the same file[domain] value). Default behavior is to not contrain
         data augmentation with regards to domain.
-    collar : int, optional.
-        Mark frames less than `collar` frames away from actual change point as positive.
-        Defaults to 1.
     batch_size : int, optional
         Number of training samples per batch.
     num_workers : int, optional
