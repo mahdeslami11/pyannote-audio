@@ -21,13 +21,14 @@
 # SOFTWARE.
 
 import math
-import random
 from itertools import chain
 from typing import TYPE_CHECKING
 
 import pytorch_metric_learning.losses
 import torch.optim
+
 from pyannote.audio.core.task import Problem, Scale, Task, TaskSpecification
+from pyannote.audio.utils.random import create_rng_for_worker
 from pyannote.core import Segment
 from pyannote.database import Protocol
 
@@ -113,7 +114,8 @@ class SpeakerEmbeddingArcFace(Task):
             Speaker index.
         """
 
-        random.seed()
+        # create worker-specific random number generator
+        rng = create_rng_for_worker()
 
         speakers = list(self.speakers)
 
@@ -123,7 +125,7 @@ class SpeakerEmbeddingArcFace(Task):
             # groups of speakers in a batch (which might be especially
             # problematic for contrast-based losses like contrastive
             # or triplet loss.
-            random.shuffle(speakers)
+            rng.shuffle(speakers)
 
             for speaker in speakers:
 
@@ -134,21 +136,21 @@ class SpeakerEmbeddingArcFace(Task):
                 for _ in range(3):
 
                     # select one file at random (with probability proportional to its speaker duration)
-                    file, *_ = random.choices(
+                    file, *_ = rng.choices(
                         self.speakers[speaker],
                         weights=[f["duration"] for f in self.speakers[speaker]],
                         k=1,
                     )
 
                     # select one speech turn at random (with probability proportional to its duration)
-                    speech_turn, *_ = random.choices(
+                    speech_turn, *_ = rng.choices(
                         file["speech_turns"],
                         weights=[s.duration for s in file["speech_turns"]],
                         k=1,
                     )
 
                     # select one chunk at random (with uniform distribution)
-                    start_time = random.uniform(
+                    start_time = rng.uniform(
                         speech_turn.start, speech_turn.end - self.duration
                     )
                     chunk = Segment(start_time, start_time + self.duration)
