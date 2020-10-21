@@ -23,14 +23,18 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, List, Optional, Text
+from typing import TYPE_CHECKING, List, Optional, Text, Tuple, Union
 
+import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
 import torch.optim
-from pyannote.database import Protocol
 from torch.utils.data import DataLoader, IterableDataset
+
+from pyannote.audio.core.io import AudioFile
+from pyannote.core import Segment, SlidingWindow
+from pyannote.database import Protocol
 
 if TYPE_CHECKING:
     from pyannote.audio.core.model import Model
@@ -116,6 +120,76 @@ class Task(pl.LightningDataModule):
         # that we directly provide a pyannote.database.Protocol.
         pass
 
+    def prepare_chunk(
+        self,
+        file: AudioFile,
+        chunk: Segment,
+        duration: float = None,
+        return_y: bool = False,
+        labels: List[Text] = None,
+    ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray, List[Text]]]:
+        """Extract audio chunk and corresponding frame-wise labels
+
+        Parameters
+        ----------
+        file : AudioFile
+            Audio file.
+        chunk : Segment
+            Audio chunk.
+        duration : float, optional
+            Fix chunk duration to avoid rounding errors. Defaults to self.duration
+        return_y : bool, optional
+            Set to True to return frame-wise labels.
+        labels : list of str, optional
+            Ordered labels such that y[:, k] corresponds to activity of labels[k].
+            Defaults to file['annotation'].crop(chunk).labels()
+
+        Returns
+        -------
+        X : np.ndarray
+            Audio chunk as (num_samples, num_channels) array.
+        y : np.ndarray, optional
+            Frame-wise labels (if return_y is True) as (num_frames, num_labels) array.
+        labels : list of str, optional
+            Labels (if return_y is True), index-aligned with y.
+        """
+
+        X, _ = self.audio.crop(
+            file,
+            chunk,
+            mode="center",
+            fixed=self.duration if duration is None else duration,
+        )
+        if not return_y:
+            return X
+
+        num_frames, _ = self.model_introspection(X.shape[0])
+        annotation = file["annotation"].crop(chunk)
+        labels = annotation.labels() if labels is None else labels
+
+        y = np.zeros((num_frames, len(labels)), dtype=np.int8)
+        frames = SlidingWindow(
+            start=chunk.start,
+            duration=self.duration / num_frames,
+            step=self.duration / num_frames,
+        )
+        for label in annotation.labels():
+            try:
+                k = labels.index(label)
+            except ValueError:
+                raise ValueError(
+                    f"File {file['uri']} contains unexpected label '{label}'."
+                )
+
+            segments = annotation.label_timeline(label)
+            for start, stop in frames.crop(segments, mode="center", return_ranges=True):
+                y[start:stop, k] += 1
+
+        # handle corner case when the same label is active more than once
+        y = np.minimum(y, 1, out=y)
+
+        return X, y, labels
+
     def train__iter__(self):
         # will become train_dataset.__iter__ method
         msg = f"Missing '{self.__class__.__name__}.train__iter__' method."
@@ -146,7 +220,7 @@ class Task(pl.LightningDataModule):
         return 2.0 if self.duration is None else self.duration
 
     def example_input_array(self):
-        # this method is called in Model.setup where it is used
+        # this method is called in Model.introspect where it is used
         # to automagically infer the temporal resolution of the
         # model output, and hence allow the dataloader to shape
         # its targets correctly.
@@ -168,30 +242,6 @@ class Task(pl.LightningDataModule):
                 num_channels,
             )
         )
-
-    # below is a (hacky) way to automagically infer the expected
-    # resolution of the target. basically, we do a forward pass
-    # of an example input array and look at the resulting shape
-    # of the output. the problem with this approach is that we
-    # may encounter weird rounding errors in case of variable-length
-    # chunks. TODO: someone should look at this to make it more robust.
-
-    @property
-    def example_output_array(self) -> torch.Tensor:
-        return self.example_output_array_
-
-    @example_output_array.setter
-    def example_output_array(self, example_output_array: torch.Tensor):
-        self.example_output_array_ = example_output_array
-        if self.specifications.scale == Scale.FRAME:
-            self.frame_duration_ = (
-                self.example_input_duration / example_output_array.shape[1]
-            )
-
-    @property
-    def frame_duration(self) -> float:
-        if self.specifications.scale == Scale.FRAME:
-            return self.frame_duration_
 
     # default training_step provided for convenience
     # can obviously be overriden for each task
