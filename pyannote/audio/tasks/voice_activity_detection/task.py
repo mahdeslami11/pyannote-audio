@@ -21,10 +21,11 @@
 # SOFTWARE.
 
 import math
-import random
 
 import numpy as np
+
 from pyannote.audio.core.task import Problem, Scale, Task, TaskSpecification
+from pyannote.audio.utils.random import create_rng_for_worker
 from pyannote.core import Segment, SlidingWindow, Timeline
 from pyannote.core.utils.numpy import one_hot_encoding
 from pyannote.database import Protocol
@@ -90,27 +91,27 @@ class VoiceActivityDetection(Task):
             `frame` is infered automagically from the
             example model output.
         """
-
-        random.seed()
+        # create worker-specific random number generator
+        rng = create_rng_for_worker()
 
         while True:
 
             # select one file at random (with probability proportional to its annotated duration)
-            file, *_ = random.choices(
+            file, *_ = rng.choices(
                 self.train,
                 weights=[f["duration"] for f in self.train],
                 k=1,
             )
 
             # select one annotated region at random (with probability proportional to its duration)
-            segment, *_ = random.choices(
+            segment, *_ = rng.choices(
                 file["annotated"],
                 weights=[s.duration for s in file["annotated"]],
                 k=1,
             )
 
             # select one chunk at random (with uniform distribution)
-            start_time = random.uniform(segment.start, segment.end - self.duration)
+            start_time = rng.uniform(segment.start, segment.end - self.duration)
             chunk = Segment(start_time, start_time + self.duration)
 
             # extract features
