@@ -23,6 +23,7 @@
 import math
 
 import numpy as np
+import scipy.signal
 
 from pyannote.audio.core.task import Problem, Scale, Task, TaskSpecification
 from pyannote.audio.utils.random import create_rng_for_worker
@@ -30,14 +31,17 @@ from pyannote.core import Segment
 from pyannote.database import Protocol
 
 
-class VoiceActivityDetection(Task):
-    """Voice activity detection
+class SpeakerChangeDetection(Task):
+    """Speaker change detection
 
-    Voice activity detection (or VAD) is the task of detecting speech regions
+    Speaker change detection is the task of detecting speaker change points
     in a given audio recording.
 
-    It is addressed as a binary {"non-speech", "speech"} sequence labeling task.
-    A frame is marked as "speech" as soon as at least one speaker is active.
+    Here, it is addressed with the same approach as voice activity detection,
+    except {"non-speech", "speech"} classes are replaced by {"non-change", "change"}
+    where a frame is marked as "change" if a speaker change happens less than
+    `collar` frames away. Note that non-speech/speech changes are not marked as
+    speaker change.
 
     Parameters
     ----------
@@ -45,6 +49,9 @@ class VoiceActivityDetection(Task):
         pyannote.database protocol
     duration : float, optional
         Chunks duration. Defaults to 2s.
+    collar : int, optional.
+        Mark frames less than `collar` frames away from actual change point as positive.
+        Defaults to 1.
     batch_size : int, optional
         Number of training samples per batch.
     num_workers : int, optional
@@ -55,6 +62,7 @@ class VoiceActivityDetection(Task):
         self,
         protocol: Protocol,
         duration: float = 2.0,
+        collar: int = 1,
         batch_size: int = None,
         num_workers: int = 1,
     ):
@@ -63,15 +71,13 @@ class VoiceActivityDetection(Task):
             protocol, duration=duration, batch_size=batch_size, num_workers=num_workers
         )
 
-        # for voice activity detection, task specification
-        # does not depend on the data: we can define it in
-        # __init__
         self.specifications = TaskSpecification(
             problem=Problem.MONO_LABEL_CLASSIFICATION,
             scale=Scale.FRAME,
-            duration=self.duration,
-            classes=["non_speech", "speech"],
+            classes=["non_change", "change"],
         )
+
+        self.collar = collar
 
     def setup(self, stage=None):
         if stage == "fit":
@@ -94,8 +100,8 @@ class VoiceActivityDetection(Task):
                     }
                 )
 
-    def prepare_y(self, one_hot_y: np.ndarray):
-        """Get voice activity detection targets
+    def prepare_y(self, one_hot_y: np.ndarray, collar: int = None):
+        """Get speaker change detection targets
 
         Parameters
         ----------
@@ -103,13 +109,57 @@ class VoiceActivityDetection(Task):
             One-hot-encoding of current chunk speaker activity:
                 * one_hot_y[t, k] = 1 if kth speaker is active at tth frame
                 * one_hot_y[t, k] = 0 otherwise.
+        collar : int, optional
+            Mark frames less than `collar` frames away from actual change point as positive.
 
         Returns
         -------
         y : (num_frames, ) np.ndarray
-            y[t] = 1 if at least one speaker is active at tth frame, 0 otherwise.
+            y[t] = 1 if there is a change of speaker at tth frame, 0 otherwise.
         """
-        return np.int64(np.sum(one_hot_y, axis=1) > 0)
+
+        if collar is None:
+            collar = self.collar
+
+        num_frames, num_speakers = one_hot_y.shape
+
+        #  y[t] = True if speaker change, False otherwise
+        y = np.sum(np.abs(np.diff(one_hot_y, axis=0)), axis=1, keepdims=True)
+        y = np.vstack(([[0]], y > 0))
+
+        # mark frames in the neighborhood of actual change point as positive.
+        window = scipy.signal.triang(2 * collar + 1)[:, np.newaxis]
+        y = np.minimum(1, scipy.signal.convolve(y, window, mode="same"))
+        y = 1 * (y > 1e-10)
+
+        # at this point, all segment boundaries are marked as change, including non-speech/speaker changes.
+        # let's remove non-speech/speaker change
+
+        # append empty samples at the beginning/end
+        expanded_y = np.vstack(
+            [
+                np.zeros((collar, num_speakers), dtype=one_hot_y.dtype),
+                one_hot_y,
+                np.zeros((collar, num_speakers), dtype=one_hot_y.dtype),
+            ]
+        )
+
+        # stride trick. data[i] is now a sliding window of collar length
+        # centered at time step i.
+        data = np.lib.stride_tricks.as_strided(
+            expanded_y,
+            shape=(num_frames, num_speakers, 2 * collar + 1),
+            strides=(one_hot_y.strides[0], one_hot_y.strides[1], one_hot_y.strides[0]),
+        )
+
+        # y[i] = 1 if more than one speaker are speaking in the
+        # corresponding window. 0 otherwise
+        x_speakers = 1 * (np.sum(np.sum(data, axis=2) > 0, axis=1) > 1)
+        x_speakers = x_speakers.reshape(-1, 1)
+
+        y *= x_speakers
+
+        return y
 
     def train__iter__(self):
         """Iterate over training samples
@@ -123,6 +173,7 @@ class VoiceActivityDetection(Task):
             `frame` is infered automagically from the
             example model output.
         """
+
         # create worker-specific random number generator
         rng = create_rng_for_worker()
 
@@ -153,7 +204,7 @@ class VoiceActivityDetection(Task):
                 return_y=True,
             )
 
-            y = self.prepare_y(one_hot_y)
+            y = self.prepare_y(one_hot_y, collar=self.collar)
 
             yield {"X": X, "y": y}
 

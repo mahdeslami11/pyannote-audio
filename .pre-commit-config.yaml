@@ -36,4 +36,4 @@ repos:
       - id: mixed-line-ending
         args: ['--fix=no']
       - id: flake8
-        args: ['--ignore=E203,E501,F811,E712,']  # default of Black
+        args: ['--ignore=E203,E501,F811,E712,W503']

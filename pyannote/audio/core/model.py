@@ -21,17 +21,60 @@
 # SOFTWARE.
 
 import warnings
+from dataclasses import dataclass
 from importlib import import_module
-from typing import Any, Dict, List, Optional, Text, Union
+from typing import Any, Dict, List, Optional, Text, Tuple, Union
 
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-from pyannote.audio import __version__
-from pyannote.audio.core.io import Audio
-from pyannote.audio.core.task import Problem, Task
 from pytorch_lightning.utilities.cloud_io import load as pl_load
 from semver import VersionInfo
+
+from pyannote.audio import __version__
+from pyannote.audio.core.io import Audio
+from pyannote.audio.core.task import Problem, Scale, Task
+
+
+@dataclass
+class ModelIntrospection:
+    # minimum number of input samples
+    min_num_samples: int
+    # corresponding minimum number of output frames
+    min_num_frames: int
+    # number of input samples leading to an increase of number of output frames
+    inc_num_samples: int
+    # corresponding increase in number of output frames
+    inc_num_frames: int
+    # output dimension
+    dimension: int
+
+    def __call__(self, num_samples: int) -> Tuple[int, int]:
+        """Estimate output shape
+
+        Parameters
+        ----------
+        num_samples : int
+            Number of input samples.
+
+        Returns
+        -------
+        num_frames : int
+            Number of output frames
+        dimension : int
+            Dimension of output frames
+
+        """
+
+        if num_samples < self.min_num_samples:
+            return 0, self.dimension
+
+        return (
+            self.min_num_frames
+            + self.inc_num_frames
+            * ((num_samples - self.min_num_samples + 1) // self.inc_num_samples),
+            self.dimension,
+        )
 
 
 class Model(pl.LightningModule):
@@ -77,6 +120,108 @@ class Model(pl.LightningModule):
         # (e.g. the final classification and activation layers)
         pass
 
+    def introspect(self) -> Union[ModelIntrospection, Dict[Text, ModelIntrospection]]:
+        """Perform model introspection
+
+        Returns
+        -------
+        specifications: ModelIntrospection
+            Model specifications.
+
+        FIXME: add support for multi-output models (dict of specs)
+        """
+
+        example_input_array = self.task.example_input_array()
+        batch_size, num_samples, num_channels = example_input_array.shape
+        example_input_array = torch.randn(
+            (1, num_samples, num_channels),
+            dtype=example_input_array.dtype,
+            layout=example_input_array.layout,
+            device=example_input_array.device,
+            requires_grad=False,
+        )
+
+        # dichotomic search of "min_num_samples"
+        lower, upper = 1, num_samples
+        while True:
+            num_samples = (lower + upper) // 2
+            try:
+                with torch.no_grad():
+                    frames = self(example_input_array[:, :num_samples])
+            except Exception:
+                lower = num_samples
+            else:
+                min_num_samples = num_samples
+                if self.task.specifications.scale == Scale.FRAME:
+                    _, min_num_frames, dimension = frames.shape
+                elif self.task.specifications.scale == Scale.CHUNK:
+                    min_num_frames, dimension = frames.shape
+                else:
+                    # should never happen
+                    pass
+                upper = num_samples
+
+            if lower + 1 == upper:
+                break
+
+        # corner case for chunk-scale tasks
+        if self.task.specifications.scale == Scale.CHUNK:
+            return ModelIntrospection(
+                min_num_samples=min_num_samples,
+                min_num_frames=1,
+                inc_num_samples=0,
+                inc_num_frames=0,
+                dimension=dimension,
+            )
+
+        # search reasonable upper bound for "inc_num_samples"
+        while True:
+            num_samples = 2 * min_num_samples
+            example_input_array = torch.randn(
+                (1, num_samples, num_channels),
+                dtype=example_input_array.dtype,
+                layout=example_input_array.layout,
+                device=example_input_array.device,
+                requires_grad=False,
+            )
+            with torch.no_grad():
+                frames = self(example_input_array)
+            _, num_frames, _ = frames.shape
+            if num_frames > min_num_frames:
+                break
+
+        # dichotomic search of "inc_num_samples"
+        lower, upper = min_num_samples, num_samples
+        while True:
+            num_samples = (lower + upper) // 2
+            example_input_array = torch.randn(
+                (1, num_samples, num_channels),
+                dtype=example_input_array.dtype,
+                layout=example_input_array.layout,
+                device=example_input_array.device,
+                requires_grad=False,
+            )
+            with torch.no_grad():
+                frames = self(example_input_array)
+            _, num_frames, _ = frames.shape
+            if num_frames > min_num_frames:
+                inc_num_frames = num_frames - min_num_frames
+                inc_num_samples = num_samples - min_num_samples
+                upper = num_samples
+            else:
+                lower = num_samples
+
+            if lower + 1 == upper:
+                break
+
+        return ModelIntrospection(
+            min_num_samples=min_num_samples,
+            min_num_frames=min_num_frames,
+            inc_num_samples=inc_num_samples,
+            inc_num_frames=inc_num_frames,
+            dimension=dimension,
+        )
+
     def setup(self, stage=None):
 
         if stage == "fit":
@@ -88,12 +233,12 @@ class Model(pl.LightningModule):
         self.build()
 
         if stage == "fit":
+            # model introspection
+            self.hparams.model_introspection = self.introspect()
 
-            # let task know about the shape of model output
+            # let task know about model introspection
             # so that its dataloader knows how to generate targets
-            self.task.example_output_array = self.forward(
-                self.task.example_input_array()
-            )
+            self.task.model_introspection = self.hparams.model_introspection
 
     def on_save_checkpoint(self, checkpoint):
 
@@ -109,9 +254,6 @@ class Model(pl.LightningModule):
                 "class": self.__class__.__name__,
             },
         }
-
-        # TODO give self.task a chance to save some hyper-parameters as well (e.g. chunk duration)
-        # TODO self.task.on_save_checkpoint(checkpoint)
 
     @staticmethod
     def check_version(library: Text, theirs: Text, mine: Text):
@@ -149,6 +291,10 @@ class Model(pl.LightningModule):
             "task_specifications"
         ]
 
+        self.hparams.model_introspection = checkpoint["hyper_parameters"][
+            "model_introspection"
+        ]
+
         # now that setup()-defined hyper-parameters are available,
         # we can actually setup() the model.
         self.setup()
@@ -172,12 +318,12 @@ class Model(pl.LightningModule):
             msg = "TODO: implement default activation for other types of problems"
             raise NotImplementedError(msg)
 
-    # training step logic is defined by the task because the
+    # training step logic is delegated to the task because the
     # model does not really need to know how it is being used.
     def training_step(self, batch, batch_idx):
         return self.task.training_step(self, batch, batch_idx)
 
-    # optimizer is defined by the task for the same reason as above
+    # optimizer is delegated to the task for the same reason as above
     def configure_optimizers(self):
         return self.task.configure_optimizers(self)
 

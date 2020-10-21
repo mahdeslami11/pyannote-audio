@@ -155,10 +155,7 @@ class SpeakerEmbeddingArcFace(Task):
                     )
                     chunk = Segment(start_time, start_time + self.duration)
 
-                    # extract features
-                    X, _ = self.audio.crop(
-                        file, chunk, mode="center", fixed=self.duration
-                    )
+                    X = self.prepare_chunk(file, chunk, duration=self.duration)
 
                     yield {"X": X, "y": y}
 

@@ -24,8 +24,7 @@ import math
 
 from pyannote.audio.core.task import Problem, Scale, Task, TaskSpecification
 from pyannote.audio.utils.random import create_rng_for_worker
-from pyannote.core import Segment, SlidingWindow, Timeline
-from pyannote.core.utils.numpy import one_hot_encoding
+from pyannote.core import Segment
 from pyannote.database import Protocol
 
 
@@ -33,11 +32,22 @@ class SpeakerTracking(Task):
     """Speaker tracking
 
     Speaker tracking is the process of determining if and when a (previously
-    enrolled) person's voice can be heard in an audio recording.
+    enrolled) person's voice can be heard in a given audio recording.
 
     Here, it is addressed with the same approach as voice activity detection,
     except {"non-speech", "speech"} classes are replaced by {"speaker1", ...,
     "speaker_N"} where N is the number of speakers in the training set.
+
+    Parameters
+    ----------
+    protocol : Protocol
+        pyannote.database protocol
+    duration : float, optional
+        Chunks duration. Defaults to 2s.
+    batch_size : int, optional
+        Number of training samples per batch.
+    num_workers : int, optional
+        Number of workers used for generating training samples.
     """
 
     def __init__(
@@ -61,14 +71,10 @@ class SpeakerTracking(Task):
 
         if stage == "fit":
 
-            # this is where we load the training set metadata
-            # to be used later by the train_dataloader.
+            # loop over the training set, remove annotated regions shorter than
+            # chunk duration, and keep track of the reference annotations.
 
-            # here, we simply loop over the training set, remove
-            # annotated regions shorter than chunk duration, and
-            # keep track of the reference annotations.
-
-            # we also build the list of speakers to be tracked.
+            # also build the list of speakers to be tracked.
 
             self.train, speakers = [], set()
             for f in self.protocol.train():
@@ -135,27 +141,15 @@ class SpeakerTracking(Task):
             start_time = rng.uniform(segment.start, segment.end - self.duration)
             chunk = Segment(start_time, start_time + self.duration)
 
-            # extract features
-            X, _ = self.audio.crop(file, chunk, mode="center", fixed=self.duration)
-
-            # TODO | this one_hot_encoding thing needs to be rewritten into pyannote.audio
-            # TODO | to make sure we always return the same number of frames for the same
-            # TODO | input duration. we should also support variable-length chunks.
-            frames = SlidingWindow(
-                start=chunk.start,
-                duration=self.frame_duration,
-                step=self.frame_duration,
+            X, one_hot_y, _ = self.prepare_chunk(
+                file,
+                chunk,
+                duration=self.duration,
+                return_y=True,
+                labels=self.specifications.classes,
             )
 
-            y = one_hot_encoding(
-                file["annotation"].crop(chunk),
-                Timeline([chunk]),
-                frames,
-                labels=self.specifications.classes,
-                mode="center",
-            ).data
-
-            yield {"X": X, "y": y}
+            yield {"X": X, "y": one_hot_y}
 
     def train__len__(self):
         # Number of training samples in one epoch

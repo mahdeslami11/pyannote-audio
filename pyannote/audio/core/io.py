@@ -29,7 +29,7 @@ The reasons behind this technical choice are summarized in the following benchma
 - Loading: https://gist.github.com/fcbec863c79e8b63242779f77f87a995
 - Resampling: https://gist.github.com/mogwai/a5df03e89ab33bc0a5648965280d5445
 
-Those benchmarks (and implementation choices) are meant to be updated when 
+Those benchmarks (and implementation choices) are meant to be updated when
 better options become available: we welcome PRs!
 """
 
@@ -79,8 +79,12 @@ class Audio:
     >>> two_seconds_stereo = np.random.rand(44100 * 2, 2, dtype=np.float32)
     >>> waveform, sample_rate = audio({"waveform": two_seconds_stereo, "sample_rate": 44100})
     >>> assert sample_rate == 16000
-    >>> assert waveform.shape[1] == 1    
+    >>> assert waveform.shape[1] == 1
     """
+
+    @staticmethod
+    def normalize(waveform: np.ndarray) -> np.ndarray:
+        return waveform / (np.sqrt(np.mean(waveform ** 2)) + 1e-8)
 
     @staticmethod
     def get_duration(file: AudioFile) -> float:

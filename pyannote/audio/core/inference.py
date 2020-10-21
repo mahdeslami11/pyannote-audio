@@ -20,18 +20,18 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import math
 import warnings
 from typing import List, Optional, Text, Tuple, Union
 
 import numpy as np
 import torch
 from einops import rearrange
+from pytorch_lightning.utilities.memory import is_oom_error
+
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.core.model import Model
 from pyannote.audio.core.task import Scale
 from pyannote.core import Segment, SlidingWindow
-from pytorch_lightning.utilities.memory import is_oom_error
 
 
 class Inference:
@@ -116,12 +116,28 @@ class Inference:
     def slide(
         self, waveform: torch.Tensor, sample_rate: int
     ) -> Tuple[np.ndarray, SlidingWindow]:
+        """Slide model on a waveform
+
+        Parameters
+        ----------
+        waveform: torch.Tensor
+            (num_samples, num_channels) waveform.
+        sample_rate : int
+            Sample rate.
+
+        Returns
+        -------
+        output : np.ndarray
+            Shape is (num_chunks, dimension) for chunk-scaled tasks,
+            and (num_frames, dimension) for frame-scaled tasks.
+        frames : pyannote.core.SlidingWindow
+        """
 
         file_duration = len(waveform) / sample_rate
 
         # prepare sliding audio chunks
         num_samples, num_channels = waveform.shape
-        window_size: int = math.floor(self.duration * sample_rate)
+        window_size: int = round(self.duration * sample_rate)
 
         # corner case: waveform is shorter than chunk duration
         if num_samples <= window_size:
@@ -132,23 +148,26 @@ class Inference:
             )
 
             with torch.no_grad():
-                outputs = self.model(waveform[None, :].to(self.device)).cpu().numpy()
+                one_output: np.ndarray = (
+                    self.model(waveform[None, :].to(self.device)).cpu().numpy()
+                )
 
             if self.model.hparams.task_specifications.scale == Scale.CHUNK:
                 frames = SlidingWindow(
                     start=0.0, duration=self.duration, step=self.step
                 )
-                return outputs, frames
+                return one_output, frames
 
-            _, num_frames, dimension = outputs.shape
+            _, num_frames, dimension = one_output.shape
             frames = SlidingWindow(
                 start=0,
                 duration=file_duration / num_frames,
                 step=file_duration / num_frames,
             )
-            return outputs[0], frames
+            return one_output[0], frames
 
-        step_size: int = math.floor(self.step * sample_rate)
+        # prepare (and count) sliding audio chunks
+        step_size: int = round(self.step * sample_rate)
         chunks: torch.Tensor = rearrange(
             waveform.unfold(0, window_size, step_size),
             "chunk channel frame -> chunk frame channel",
@@ -159,8 +178,9 @@ class Inference:
         if (num_samples - window_size) % step_size > 0:
             last_start = num_samples - window_size
             last_chunk: torch.Tensor = waveform[last_start:]
+            has_last_chunk = True
         else:
-            last_chunk = None
+            has_last_chunk = False
 
         outputs: Union[List[np.ndarray], np.ndarray] = list()
 
@@ -191,15 +211,15 @@ class Inference:
             return outputs, frames
 
         # process orphan last chunk
-        if last_chunk is not None:
+        if has_last_chunk:
             with torch.no_grad():
                 last_output: np.ndarray = (
                     self.model(last_chunk[None, :].to(self.device))[0].cpu().numpy()
                 )
 
-        # estimate total number of aggregated output frames
-        _, num_frames_per_chunk, dimension = outputs.shape
-        num_frames = math.ceil(num_frames_per_chunk * file_duration / self.duration)
+        #  use model introspection to estimate the total number of frames
+        num_frames, dimension = self.model.hparams.model_introspection(num_samples)
+        num_frames_per_chunk, _ = self.model.hparams.model_introspection(window_size)
 
         # aggregated_output[i] will be used to store the sum of all predictions for frame #i
         aggregated_output: np.ndarray = np.zeros(
@@ -212,17 +232,19 @@ class Inference:
 
         # loop on the outputs of sliding chunks
         for c, output in enumerate(outputs):
-            start_frame = round(c * self.step / file_duration * num_frames)
-            stop_frame = start_frame + num_frames_per_chunk
-            aggregated_output[start_frame:stop_frame] += output
-            overlapping_chunk_count[start_frame:stop_frame] += 1
+            start_sample = c * step_size
+            start_frame, _ = self.model.hparams.model_introspection(start_sample)
+            aggregated_output[
+                start_frame : start_frame + num_frames_per_chunk
+            ] += output
+            overlapping_chunk_count[
+                start_frame : start_frame + num_frames_per_chunk
+            ] += 1
 
         # process last (right-aligned) chunk separately
         if last_chunk is not None:
-            start_frame = round((last_start / sample_rate) / file_duration * num_frames)
-            stop_frame = start_frame + last_output.shape[0]
-            aggregated_output[start_frame:stop_frame] += last_output
-            overlapping_chunk_count[start_frame:stop_frame] += 1
+            aggregated_output[-num_frames_per_chunk:] += last_output
+            overlapping_chunk_count[-num_frames_per_chunk:] += 1
 
         aggregated_output /= np.maximum(overlapping_chunk_count, 1)
 
