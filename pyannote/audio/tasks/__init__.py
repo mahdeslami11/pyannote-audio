@@ -20,4 +20,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-__import__("pkg_resources").declare_namespace(__name__)
+from .voice_activity_detection.task import VoiceActivityDetection  # isort:skip
+from .speaker_change_detection.task import SpeakerChangeDetection  # isort:skip
+from .overlapped_speech_detection.task import OverlappedSpeechDetection  # isort:skip
+from .multi_task_segmentation.task import MultiTaskSegmentation  # isort:skip
+
+__all__ = [
+    "VoiceActivityDetection",
+    "SpeakerChangeDetection",
+    "OverlappedSpeechDetection",
+    "MultiTaskSegmentation",
+]
