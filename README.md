@@ -22,13 +22,9 @@
 
 The instructions below assume that `pytorch` has been installed using the instructions from https://pytorch.org.
 
-Until a proper release of `pyannote.audio` is available on `PyPI`, it must be installed from source using the develop branch of the official repository:
 
 ```bash
-$ git clone https://github.com/pyannote/pyannote-audio.git
-$ cd pyannote-audio
-$ git checkout develop
-$ pip install .
+$ pip install pyannote.audio==1.1
 ```
 
 ## Documentation and tutorials
