@@ -4,7 +4,7 @@ Changelog
 
 Version 1.1 (2020-11-08)
 ~~~~~~~~~~~~~~~~~~~~~~~~
-  
+
   - last release before complete rewriting
 
 Version 1.0.1 (2018--07-19)
