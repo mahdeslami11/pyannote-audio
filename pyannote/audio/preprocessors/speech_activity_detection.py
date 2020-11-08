@@ -27,7 +27,7 @@
 # Hervé BREDIN - http://herve.niderb.fr
 
 from pathlib import Path
-from pyannote.database.protocol.protocol import ProtocolFile
+from pyannote.database import ProtocolFile
 from pyannote.core import Annotation
 from pyannote.database.util import load_rttm
 
@@ -66,12 +66,12 @@ class RemoveNonSpeech:
     def __call__(self, current_file: ProtocolFile) -> Annotation:
 
         # get speech regions as Annotation instances
-        speech_regions = self.sad_.get(current_file['uri'], Annotation())
+        speech_regions = self.sad_.get(current_file["uri"], Annotation())
 
         # remove non-speech regions from current annotation
         # aka only keep speech regions
         try:
-            annotation = current_file['annotation']
+            annotation = current_file["annotation"]
             return annotation.crop(speech_regions.get_timeline())
 
         # this haapens when current_file has no "annotation" key

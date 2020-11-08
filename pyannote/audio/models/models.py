@@ -28,7 +28,7 @@
 # Juan Manuel Coria
 
 from typing import Optional
-
+from typing import Text
 
 import torch
 import torch.nn as nn
@@ -36,10 +36,19 @@ import torch.nn as nn
 from .sincnet import SincNet
 from .tdnn import XVectorNet
 from .pooling import TemporalPooling
+
+
+from .convolutional import Convolutional
+from .recurrent import Recurrent
+from .linear import Linear
+from .pooling import Pooling
+from .scaling import Scaling
+
 from pyannote.audio.train.model import Model
 from pyannote.audio.train.model import Resolution
 from pyannote.audio.train.model import RESOLUTION_CHUNK
 from pyannote.audio.train.model import RESOLUTION_FRAME
+from pyannote.audio.train.task import Task
 
 
 class RNN(nn.Module):
@@ -70,9 +79,18 @@ class RNN(nn.Module):
         Temporal pooling strategy. Defaults to no pooling.
     """
 
-    def __init__(self, n_features, unit='LSTM', hidden_size=16, num_layers=1,
-                 bias=True, dropout=0, bidirectional=False, concatenate=False,
-                 pool=None):
+    def __init__(
+        self,
+        n_features,
+        unit="LSTM",
+        hidden_size=16,
+        num_layers=1,
+        bias=True,
+        dropout=0,
+        bidirectional=False,
+        concatenate=False,
+        pool=None,
+    ):
         super().__init__()
 
         self.n_features = n_features
@@ -90,10 +108,10 @@ class RNN(nn.Module):
         self.pool_ = TemporalPooling.create(pool) if pool is not None else None
 
         if num_layers < 1:
-            msg = ('"bidirectional" must be set to False when num_layers < 1')
+            msg = '"bidirectional" must be set to False when num_layers < 1'
             if bidirectional:
                 raise ValueError(msg)
-            msg = ('"concatenate" must be set to False when num_layers < 1')
+            msg = '"concatenate" must be set to False when num_layers < 1'
             if concatenate:
                 raise ValueError(msg)
             return
@@ -115,18 +133,28 @@ class RNN(nn.Module):
                 else:
                     dropout = self.dropout
 
-                rnn = Klass(input_dim, self.hidden_size,
-                            num_layers=1, bias=self.bias,
-                            batch_first=True, dropout=dropout,
-                            bidirectional=self.bidirectional)
+                rnn = Klass(
+                    input_dim,
+                    self.hidden_size,
+                    num_layers=1,
+                    bias=self.bias,
+                    batch_first=True,
+                    dropout=dropout,
+                    bidirectional=self.bidirectional,
+                )
 
                 self.rnn_.append(rnn)
 
         else:
-            self.rnn_ = Klass(self.n_features, self.hidden_size,
-                              num_layers=self.num_layers, bias=self.bias,
-                              batch_first=True, dropout=self.dropout,
-                              bidirectional=self.bidirectional)
+            self.rnn_ = Klass(
+                self.n_features,
+                self.hidden_size,
+                num_layers=self.num_layers,
+                bias=self.bias,
+                batch_first=True,
+                dropout=self.dropout,
+                bidirectional=self.bidirectional,
+            )
 
     def forward(self, features, return_intermediate=False):
         """Apply recurrent layer (and optional temporal pooling)
@@ -149,8 +177,9 @@ class RNN(nn.Module):
         if self.num_layers < 1:
 
             if return_intermediate:
-                msg = ('"return_intermediate" must be set to False '
-                       'when num_layers < 1')
+                msg = (
+                    '"return_intermediate" must be set to False ' "when num_layers < 1"
+                )
                 raise ValueError(msg)
 
             output = features
@@ -171,6 +200,8 @@ class RNN(nn.Module):
 
                 outputs = []
 
+                hidden = None
+                output = None
                 # apply each layer separately...
                 for i, rnn in enumerate(self.rnn_):
                     if i > 0:
@@ -186,16 +217,18 @@ class RNN(nn.Module):
                 output, hidden = self.rnn_(features)
 
                 if return_intermediate:
-                    if self.unit == 'LSTM':
+                    if self.unit == "LSTM":
                         h = hidden[0]
-                    elif self.unit == 'GRU':
+                    elif self.unit == "GRU":
                         h = hidden
 
                     # to (num_layers, batch_size, num_directions * hidden_size)
-                    h = h.view(
-                        self.num_layers, num_directions, -1, self.hidden_size)
-                    intermediate = h.transpose(2, 1).contiguous().view(
-                        self.num_layers, -1, num_directions * self.hidden_size)
+                    h = h.view(self.num_layers, num_directions, -1, self.hidden_size)
+                    intermediate = (
+                        h.transpose(2, 1)
+                        .contiguous()
+                        .view(self.num_layers, -1, num_directions * self.hidden_size)
+                    )
 
         if self.pool_ is not None:
             output = self.pool_(output)
@@ -207,6 +240,7 @@ class RNN(nn.Module):
 
     def dimension():
         doc = "Output features dimension."
+
         def fget(self):
             if self.num_layers < 1:
                 dimension = self.n_features
@@ -219,11 +253,13 @@ class RNN(nn.Module):
             if self.concatenate:
                 dimension *= self.num_layers
 
-            if self.pool == 'x-vector':
+            if self.pool == "x-vector":
                 dimension *= 2
 
             return dimension
+
         return locals()
+
     dimension = property(**dimension())
 
     def intermediate_dimension(self, layer):
@@ -249,7 +285,7 @@ class FF(nn.Module):
         Linear layers hidden dimensions. Defaults to [16, ].
     """
 
-    def __init__(self, n_features, hidden_size=[16, ]):
+    def __init__(self, n_features, hidden_size=[16,]):
         super().__init__()
 
         self.n_features = n_features
@@ -283,11 +319,14 @@ class FF(nn.Module):
 
     def dimension():
         doc = "Output dimension."
+
         def fget(self):
             if self.hidden_size:
                 return self.hidden_size[-1]
             return self.n_features
+
         return locals()
+
     dimension = property(**dimension())
 
 
@@ -301,40 +340,46 @@ class Embedding(nn.Module):
     batch_normalize : `boolean`, optional
         Apply batch normalization. This is more or less equivalent to
         embedding whitening.
-    unit_normalize : `boolean`, optional
-        Normalize embeddings. Defaults to False.
+    scale : {"fixed", "logistic"}, optional
+        Scaling method. Defaults to no scaling.
+    unit_normalize : deprecated in favor of 'scale'
     """
 
-    def __init__(self, n_features, batch_normalize=False, unit_normalize=False):
+    def __init__(
+        self,
+        n_features: int,
+        batch_normalize: bool = False,
+        scale: Text = None,
+        unit_normalize: bool = False,
+    ):
         super().__init__()
 
         self.n_features = n_features
-        # batch normalization ~= embeddings whitening.
 
         self.batch_normalize = batch_normalize
         if self.batch_normalize:
             self.batch_normalize_ = nn.BatchNorm1d(
-                n_features, eps=1e-5, momentum=0.1, affine=False)
+                n_features, eps=1e-5, momentum=0.1, affine=False
+            )
 
-        self.unit_normalize = unit_normalize
+        self.scale = scale
+        self.scaling = Scaling(n_features, method=scale)
+
+        if unit_normalize is True:
+            msg = f"'unit_normalize' has been deprecated in favor of 'scale'."
+            raise ValueError(msg)
 
     def forward(self, embedding):
 
         if self.batch_normalize:
             embedding = self.batch_normalize_(embedding)
 
-        if self.unit_normalize:
-            norm = torch.norm(embedding, p=2, dim=1, keepdim=True)
-            embedding = embedding / norm
+        return self.scaling(embedding)
 
-        return embedding
-
-    def dimension():
-        doc = "Output dimension."
-        def fget(self):
-            return self.n_features
-        return locals()
-    dimension = property(**dimension())
+    @property
+    def dimension(self):
+        """Output dimension."""
+        return self.n_features
 
 
 class PyanNet(Model):
@@ -357,28 +402,29 @@ class PyanNet(Model):
     """
 
     @staticmethod
-    def get_alignment(sincnet=None, **kwargs):
-        """
-        """
+    def get_alignment(task: Task, sincnet=None, **kwargs):
+        """Get frame alignment"""
 
         if sincnet is None:
             sincnet = dict()
 
-        if sincnet.get('skip', False):
-            return 'center'
+        if sincnet.get("skip", False):
+            return "center"
 
-        return SincNet.get_alignment(**sincnet)
-
-    supports_packed = False
+        return SincNet.get_alignment(task, **sincnet)
 
     @staticmethod
-    def get_resolution(sincnet : Optional[dict] = None,
-                       rnn : Optional[dict] = None,
-                       **kwargs) -> Resolution:
+    def get_resolution(
+        task: Task,
+        sincnet: Optional[dict] = None,
+        rnn: Optional[dict] = None,
+        **kwargs,
+    ) -> Resolution:
         """Get sliding window used for feature extraction
 
         Parameters
         ----------
+        task : Task
         sincnet : dict, optional
         rnn : dict, optional
 
@@ -391,24 +437,26 @@ class PyanNet(Model):
         """
 
         if rnn is None:
-            rnn = {'pool': None}
+            rnn = {"pool": None}
 
-        if rnn.get('pool', None) is not None:
+        if rnn.get("pool", None) is not None:
             return RESOLUTION_CHUNK
 
         if sincnet is None:
-            sincnet = {'skip': False}
+            sincnet = {"skip": False}
 
-        if sincnet.get('skip', False):
+        if sincnet.get("skip", False):
             return RESOLUTION_FRAME
 
-        return SincNet.get_resolution(**sincnet)
+        return SincNet.get_resolution(task, **sincnet)
 
-    def init(self,
-             sincnet : Optional[dict] = None,
-             rnn : Optional[dict] = None,
-             ff : Optional[dict] = None,
-             embedding : Optional[dict] = None):
+    def init(
+        self,
+        sincnet: Optional[dict] = None,
+        rnn: Optional[dict] = None,
+        ff: Optional[dict] = None,
+        embedding: Optional[dict] = None,
+    ):
         """waveform -> SincNet -> RNN [-> merge] [-> time_pool] -> FC -> output
 
         Parameters
@@ -433,11 +481,11 @@ class PyanNet(Model):
             sincnet = dict()
         self.sincnet = sincnet
 
-        if not sincnet.get('skip', False):
+        if not sincnet.get("skip", False):
             if n_features != 1:
                 msg = (
-                    f'SincNet only supports mono waveforms. '
-                    f'Here, waveform has {n_features} channels.'
+                    f"SincNet only supports mono waveforms. "
+                    f"Here, waveform has {n_features} channels."
                 )
                 raise ValueError(msg)
             self.sincnet_ = SincNet(**sincnet)
@@ -486,7 +534,7 @@ class PyanNet(Model):
             is provided).
         """
 
-        if self.sincnet.get('skip', False):
+        if self.sincnet.get("skip", False):
             output = waveforms
         else:
             output = self.sincnet_(waveforms)
@@ -526,7 +574,7 @@ class PyanNet(Model):
     def intermediate_dimension(self, layer):
         if layer == 0:
             return self.sincnet_.dimension
-        return self.rnn_.intermediate_dimension(layer-1)
+        return self.rnn_.intermediate_dimension(layer - 1)
 
 
 class SincTDNN(Model):
@@ -546,23 +594,25 @@ class SincTDNN(Model):
     """
 
     @staticmethod
-    def get_alignment(sincnet=None, **kwargs):
-        """
-        """
+    def get_alignment(task: Task, sincnet=None, **kwargs):
+        """Get frame alignment"""
 
         if sincnet is None:
             sincnet = dict()
 
-        return SincNet.get_alignment(**sincnet)
+        return SincNet.get_alignment(task, **sincnet)
 
     supports_packed = False
 
     @staticmethod
-    def get_resolution(sincnet : Optional[dict] = None, **kwargs) -> Resolution:
+    def get_resolution(
+        task: Task, sincnet: Optional[dict] = None, **kwargs
+    ) -> Resolution:
         """Get sliding window used for feature extraction
 
         Parameters
         ----------
+        task : Task
         sincnet : dict, optional
 
         Returns
@@ -574,10 +624,12 @@ class SincTDNN(Model):
         # TODO https://github.com/pyannote/pyannote-audio/issues/290
         return RESOLUTION_CHUNK
 
-    def init(self,
-             sincnet : Optional[dict] = None,
-             tdnn : Optional[dict] = None,
-             embedding : Optional[dict] = None):
+    def init(
+        self,
+        sincnet: Optional[dict] = None,
+        tdnn: Optional[dict] = None,
+        embedding: Optional[dict] = None,
+    ):
         """waveform -> SincNet -> XVectorNet (TDNN -> FC) -> output
 
         Parameters
@@ -600,8 +652,10 @@ class SincTDNN(Model):
         self.sincnet = sincnet
 
         if n_features != 1:
-            raise ValueError('SincNet only supports mono waveforms. '
-                             f'Here, waveform has {n_features} channels.')
+            raise ValueError(
+                "SincNet only supports mono waveforms. "
+                f"Here, waveform has {n_features} channels."
+            )
         self.sincnet_ = SincNet(**sincnet)
         n_features = self.sincnet_.dimension
 
@@ -637,7 +691,9 @@ class SincTDNN(Model):
 
         output = self.sincnet_(waveforms)
 
-        return_intermediate = 'segment6' if self.task.is_representation_learning else None
+        return_intermediate = (
+            "segment6" if self.task.is_representation_learning else None
+        )
         output = self.tdnn_(output, return_intermediate=return_intermediate)
 
         if self.task.is_representation_learning:
@@ -645,10 +701,154 @@ class SincTDNN(Model):
 
         return self.activation_(self.linear_(output))
 
-
     @property
     def dimension(self):
         if self.task.is_representation_learning:
             return self.embedding_.dimension
 
         return Model.dimension.fget(self)
+
+
+class ACRoPoLiS(Model):
+    """Audio -> Convolutional -> Recurrent (-> optional Pooling) -> Linear -> Scores
+
+    Parameters
+    ----------
+    specifications : dict
+        Task specifications.
+    convolutional : dict, optional
+        Definition of convolutional layers.
+        Defaults to convolutional.Convolutional default hyper-parameters.
+    recurrent : dict, optional
+        Definition of recurrent layers.
+        Defaults to recurrent.Recurrent default hyper-parameters.
+    pooling : {"last", ""}, optional
+        Definition of pooling layer. Only used when self.task.returns_vector is
+        True, in which case it defaults to "last" pooling.
+    linear : dict, optional
+        Definition of linear layers.
+        Defaults to linear.Linear default hyper-parameters.
+    scale : dict, optional
+    """
+
+    def init(
+        self,
+        convolutional: dict = None,
+        recurrent: dict = None,
+        linear: dict = None,
+        pooling: Text = None,
+        scale: dict = None,
+    ):
+
+        self.normalize = nn.InstanceNorm1d(self.n_features)
+
+        if convolutional is None:
+            convolutional = dict()
+        self.convolutional = convolutional
+        self.cnn = Convolutional(self.n_features, **convolutional)
+
+        if recurrent is None:
+            recurrent = dict()
+        self.recurrent = recurrent
+        self.rnn = Recurrent(self.cnn.dimension, **recurrent)
+
+        if pooling is None and self.task.returns_vector:
+            pooling = "last"
+        if pooling is not None and self.task.returns_sequence:
+            msg = f"'pooling' should not be used for labeling tasks (is: {pooling})."
+            raise ValueError(msg)
+
+        self.pooling = pooling
+        self.pool = Pooling(
+            self.rnn.dimension,
+            method=self.pooling,
+            bidirectional=self.rnn.bidirectional,
+        )
+
+        if linear is None:
+            linear = dict()
+        self.linear = linear
+        self.ff = Linear(self.pool.dimension, **linear)
+
+        if self.task.is_representation_learning and scale is None:
+            scale = dict()
+        if not self.task.is_representation_learning and scale is not None:
+            msg = (
+                f"'scale' should not be used for representation learning (is: {scale})."
+            )
+            raise ValueError(msg)
+
+        self.scale = scale
+        self.scaling = Scaling(self.ff.dimension, **scale)
+
+        if not self.task.is_representation_learning:
+            self.final_linear = nn.Linear(
+                self.scaling.dimension, len(self.classes), bias=True
+            )
+            self.final_activation = self.task.default_activation
+
+    def forward(self, waveforms: torch.Tensor, **kwargs) -> torch.Tensor:
+        """Forward pass
+
+        Parameters
+        ----------
+        waveforms : (batch_size, n_samples, 1) `torch.Tensor`
+            Batch of waveforms
+
+        Returns
+        -------
+        output : `torch.Tensor`
+            Final network output or intermediate network output
+            (only when `return_intermediate` is provided).
+        """
+
+        output = self.normalize(waveforms.transpose(1, 2)).transpose(1, 2)
+        output = self.cnn(output)
+        output = self.rnn(output)
+        output = self.pool(output)
+        output = self.ff(output)
+
+        if not self.task.is_representation_learning:
+            output = self.final_linear(output)
+            output = self.final_activation(output)
+        return output
+
+    @property
+    def dimension(self):
+        if self.task.is_representation_learning:
+            return self.ff.dimension
+        else:
+            return len(self.classes)
+
+    @staticmethod
+    def get_alignment(task: Task, convolutional: Optional[dict] = None, **kwargs):
+        """Get frame alignment"""
+
+        if convolutional is None:
+            convolutional = dict()
+
+        return Convolutional.get_alignment(task, **convolutional)
+
+    @staticmethod
+    def get_resolution(
+        task: Task, convolutional: Optional[dict] = None, **kwargs
+    ) -> Resolution:
+        """Get frame resolution
+
+        Parameters
+        ----------
+        task : Task
+        convolutional : dict, optional
+
+        Returns
+        -------
+        sliding_window : `pyannote.core.SlidingWindow` or {`window`, `frame`}
+        """
+
+        if task.returns_vector:
+            return RESOLUTION_CHUNK
+
+        if convolutional is None:
+            convolutional = dict()
+
+        return Convolutional.get_resolution(task, **convolutional)

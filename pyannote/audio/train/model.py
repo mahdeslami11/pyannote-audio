@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2019 CNRS
+# Copyright (c) 2019-2020 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -26,10 +26,36 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-"""This is the content of pyannote.audio.train.model"""
+"""Models
+
+## Parts
+
+>>> model.parts
+["ff.1", "ff.2", "ff.3"]
+
+## Probes
+
+>>> model.probes = ["ff.1", "ff.2"]
+>>> output, probes = model(input)
+>>> ff1 = probes["ff.1"]
+>>> ff2 = probes["ff.2"]
+
+>>> del model.probes
+>>> output = model(input)
+
+## Freeze/unfreeze layers
+
+>>> model.freeze(["ff.1", "ff.2"])
+>>> model.unfreeze(["ff.2"])
+
+"""
 
 from typing import Union
 from typing import List
+from typing import Text
+from typing import Tuple
+from typing import Dict
+
 try:
     from typing import Literal
 except ImportError as e:
@@ -38,13 +64,13 @@ from typing import Callable
 from pyannote.core import SlidingWindow
 from pyannote.core import SlidingWindowFeature
 
-RESOLUTION_FRAME = 'frame'
-RESOLUTION_CHUNK = 'chunk'
+RESOLUTION_FRAME = "frame"
+RESOLUTION_CHUNK = "chunk"
 Resolution = Union[SlidingWindow, Literal[RESOLUTION_FRAME, RESOLUTION_CHUNK]]
 
-ALIGNMENT_CENTER = 'center'
-ALIGNMENT_STRICT = 'strict'
-ALIGNMENT_LOOSE = 'loose'
+ALIGNMENT_CENTER = "center"
+ALIGNMENT_STRICT = "strict"
+ALIGNMENT_LOOSE = "loose"
 Alignment = Literal[ALIGNMENT_CENTER, ALIGNMENT_STRICT, ALIGNMENT_LOOSE]
 
 from pyannote.audio.train.task import Task
@@ -52,6 +78,7 @@ import numpy as np
 import pescador
 import torch
 from torch.nn import Module
+from functools import partial
 
 
 class Model(Module):
@@ -72,13 +99,11 @@ class Model(Module):
         Architecture hyper-parameters.
     """
 
-    def __init__(self,
-                 specifications: dict,
-                 **architecture_params):
+    def __init__(self, specifications: dict, **architecture_params):
         super().__init__()
         self.specifications = specifications
-        self.resolution_ = self.get_resolution(**architecture_params)
-        self.alignment_ = self.get_alignment(**architecture_params)
+        self.resolution_ = self.get_resolution(self.task, **architecture_params)
+        self.alignment_ = self.get_alignment(self.task, **architecture_params)
         self.init(**architecture_params)
 
     def init(self, **architecture_params):
@@ -96,7 +121,93 @@ class Model(Module):
         msg = 'Method "init" must be overriden.'
         raise NotImplementedError(msg)
 
-    def forward(self, sequences, **kwargs):
+    @property
+    def probes(self):
+        """Get list of probes"""
+        return list(getattr(self, "_probes", []))
+
+    @probes.setter
+    def probes(self, names: List[Text]):
+        """Set list of probes
+
+        Parameters
+        ----------
+        names : list of string
+            Names of modules to probe.
+        """
+
+        for handle in getattr(self, "handles_", []):
+            handle.remove()
+
+        self._probes = []
+
+        if not names:
+            return
+
+        handles = []
+
+        def _init(module, input):
+            self.probed_ = dict()
+
+        handles.append(self.register_forward_pre_hook(_init))
+
+        def _append(name, module, input, output):
+            self.probed_[name] = output
+
+        for name, module in self.named_modules():
+            if name in names:
+                handles.append(module.register_forward_hook(partial(_append, name)))
+                self._probes.append(name)
+
+        def _return(module, input, output):
+            return output, self.probed_
+
+        handles.append(self.register_forward_hook(_return))
+
+        self.handles_ = handles
+
+    @probes.deleter
+    def probes(self):
+        """Remove all probes"""
+        for handle in getattr(self, "handles_", []):
+            handle.remove()
+        self._probes = []
+
+    @property
+    def parts(self):
+        """Names of (freezable / probable) modules"""
+        return [n for n, _ in self.named_modules()]
+
+    def freeze(self, names: List[Text]):
+        """Freeze parts of the model
+
+        Parameters
+        ----------
+        names : list of string
+            Names of modules to freeze.
+        """
+        for name, module in self.named_modules():
+            if name in names:
+                for parameter in module.parameters(recurse=True):
+                    parameter.requires_grad = False
+
+    def unfreeze(self, names: List[Text]):
+        """Unfreeze parts of the model
+
+        Parameters
+        ----------
+        names : list of string
+            Names of modules to unfreeze.
+        """
+
+        for name, module in self.named_modules():
+            if name in names:
+                for parameter in module.parameters(recurse=True):
+                    parameter.requires_grad = True
+
+    def forward(
+        self, sequences: torch.Tensor, **kwargs
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, Dict[Text, torch.Tensor]]]:
         """TODO
 
         Parameters
@@ -107,6 +218,7 @@ class Model(Module):
         Returns
         -------
         output : (batch_size, ...) `torch.Tensor`
+        probes : dict, optional
         """
 
         # TODO
@@ -119,10 +231,10 @@ class Model(Module):
 
         Shortcut for self.specifications['task']
         """
-        return self.specifications['task']
+        return self.specifications["task"]
 
-    def get_resolution(self, **architecture_params) -> Resolution:
-        """Get target resolution
+    def get_resolution(self, task: Task, **architecture_params) -> Resolution:
+        """Get frame resolution
 
         This method is called by `BatchGenerator` instances to determine how
         target tensors should be built.
@@ -139,6 +251,7 @@ class Model(Module):
 
         Parameters
         ----------
+        task : Task
         **architecture_params
             Parameters used for instantiating the model architecture.
 
@@ -151,23 +264,23 @@ class Model(Module):
                of the input sequence.
         """
 
-        if self.task.returns_sequence:
+        if task.returns_sequence:
             return RESOLUTION_FRAME
 
-        elif self.task.returns_vector:
+        elif task.returns_vector:
             return RESOLUTION_CHUNK
 
         else:
             # this should never happened
-            msg = f"{self.task} tasks are not supported."
+            msg = f"{task} tasks are not supported."
             raise NotImplementedError(msg)
 
     @property
     def resolution(self) -> Resolution:
         return self.resolution_
 
-    def get_alignment(self, **architecture_params) -> Alignment:
-        """Get target alignment
+    def get_alignment(self, task: Task, **architecture_params) -> Alignment:
+        """Get frame alignment
 
         This method is called by `BatchGenerator` instances to dermine how
         target tensors should be aligned with the output of the model.
@@ -175,6 +288,12 @@ class Model(Module):
         Default behavior is to return 'center'. In most cases, you should not
         need to worry about this but if you do, this method can be overriden to
         return 'strict' or 'loose'.
+
+        Parameters
+        ----------
+        task : Task
+        architecture_params : dict
+            Architecture hyper-parameters.
 
         Returns
         -------
@@ -200,7 +319,7 @@ class Model(Module):
         n_features : `int`
             Number of input features
         """
-        return self.specifications['X']['dimension']
+        return self.specifications["X"]["dimension"]
 
     @property
     def dimension(self) -> int:
@@ -228,7 +347,7 @@ class Model(Module):
             )
             raise NotImplementedError(msg)
 
-        msg = (f"{self.task} tasks do not define attribute 'dimension'.")
+        msg = f"{self.task} tasks do not define attribute 'dimension'."
         raise AttributeError(msg)
 
     @property
@@ -250,19 +369,22 @@ class Model(Module):
         """
 
         if not self.task.is_representation_learning:
-            return self.specifications['y']['classes']
+            return self.specifications["y"]["classes"]
 
-        msg = (f"{self.task} tasks do not define attribute 'classes'.")
+        msg = f"{self.task} tasks do not define attribute 'classes'."
         raise AttributeError(msg)
 
-    def slide(self, features: SlidingWindowFeature,
-                    sliding_window: SlidingWindow,
-                    batch_size: int = 32,
-                    device: torch.device = None,
-                    skip_average: bool = None,
-                    postprocess: Callable[[np.ndarray], np.ndarray] = None,
-                    return_intermediate = None,
-                    progress_hook = None) -> SlidingWindowFeature:
+    def slide(
+        self,
+        features: SlidingWindowFeature,
+        sliding_window: SlidingWindow,
+        batch_size: int = 32,
+        device: torch.device = None,
+        skip_average: bool = None,
+        postprocess: Callable[[np.ndarray], np.ndarray] = None,
+        return_intermediate=None,
+        progress_hook=None,
+    ) -> SlidingWindowFeature:
         """Slide and apply model on features
 
         Parameters
@@ -292,12 +414,13 @@ class Model(Module):
         """
 
         if device is None:
-            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            device = "cuda" if torch.cuda.is_available() else "cpu"
         device = torch.device(device)
 
         if skip_average is None:
-            skip_average = (self.resolution == RESOLUTION_CHUNK) or \
-                           (return_intermediate is not None)
+            skip_average = (self.resolution == RESOLUTION_CHUNK) or (
+                return_intermediate is not None
+            )
 
         try:
             dimension = self.dimension
@@ -328,26 +451,31 @@ class Model(Module):
             progress_hook(n_done, n_chunks)
 
         batches = pescador.maps.buffer_stream(
-            iter({'X': features.crop(window, mode='center', fixed=fixed)}
-                 for window in chunks),
-            batch_size, partial=True)
+            iter(
+                {"X": features.crop(window, mode="center", fixed=fixed)}
+                for window in chunks
+            ),
+            batch_size,
+            partial=True,
+        )
 
         fX = []
         for batch in batches:
 
-            tX = torch.tensor(batch['X'], dtype=torch.float32, device=device)
+            tX = torch.tensor(batch["X"], dtype=torch.float32, device=device)
 
             # FIXME: fix support for return_intermediate
-            tfX = self(tX, return_intermediate=return_intermediate)
+            with torch.no_grad():
+                tfX = self(tX, return_intermediate=return_intermediate)
 
-            tfX_npy = tfX.detach().to('cpu').numpy()
+            tfX_npy = tfX.detach().to("cpu").numpy()
             if postprocess is not None:
                 tfX_npy = postprocess(tfX_npy)
 
             fX.append(tfX_npy)
 
             if progress_hook is not None:
-                n_done += len(batch['X'])
+                n_done += len(batch["X"])
                 progress_hook(n_done, n_chunks)
 
         fX = np.vstack(fX)
@@ -356,7 +484,7 @@ class Model(Module):
             return SlidingWindowFeature(fX, sliding_window)
 
         # get total number of frames (based on last window end time)
-        n_frames = resolution.samples(chunks[-1].end, mode='center')
+        n_frames = resolution.samples(chunks[-1].end, mode="center")
 
         # data[i] is the sum of all predictions for frame #i
         data = np.zeros((n_frames, dimension), dtype=np.float32)

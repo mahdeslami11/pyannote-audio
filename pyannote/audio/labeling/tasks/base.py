@@ -35,6 +35,8 @@ import torch.nn.functional as F
 import numpy as np
 import scipy.signal
 
+from tqdm import tqdm
+
 from pyannote.core import Segment
 from pyannote.core import SlidingWindow
 from pyannote.core import Timeline
@@ -43,7 +45,8 @@ from pyannote.core import SlidingWindowFeature
 
 from pyannote.database import get_unique_identifier
 from pyannote.database import get_annotated
-from pyannote.database.protocol.protocol import Protocol
+from pyannote.database import Protocol
+from pyannote.database import Subset
 
 from pyannote.core.utils.numpy import one_hot_encoding
 
@@ -73,6 +76,8 @@ class LabelingTaskGenerator(BatchGenerator):
 
     Parameters
     ----------
+    task : Task
+        Task
     feature_extraction : Wrappable
         Describes how features should be obtained.
         See pyannote.audio.features.wrapper.Wrapper documentation for details.
@@ -102,33 +107,45 @@ class LabelingTaskGenerator(BatchGenerator):
         Ratio of audio chunk duration used as step between two consecutive
         audio chunks. Defaults to 0.1. Has not effect when exhaustive is False.
     mask : str, optional
-        When provided, current_file[mask] is used by the loss function to weigh
-        samples.
+        When provided, protocol files are expected to contain a key named after
+        this `mask` variable and providing a `SlidingWindowFeature` instance.
+        Generated batches will contain an additional "mask" key (on top of
+        existing "X" and "y" keys) computed as an excerpt of `current_file[mask]`
+        time-aligned with "y". Defaults to not add any "mask" key.
+    local_labels : bool, optional
+        Set to True to yield samples with local (file-level) labels.
+        Defaults to use global (protocol-level) labels.
     """
 
-    def __init__(self,
-                 feature_extraction: Wrappable,
-                 protocol: Protocol,
-                 subset: Text = 'train',
-                 resolution: Optional[Resolution] = None,
-                 alignment: Optional[Alignment] = None,
-                 duration: float = 2.0,
-                 batch_size: int = 32,
-                 per_epoch: float = None,
-                 exhaustive: bool = False,
-                 step: float = 0.1,
-                 mask: Text = None):
+    def __init__(
+        self,
+        task: Task,
+        feature_extraction: Wrappable,
+        protocol: Protocol,
+        subset: Subset = "train",
+        resolution: Optional[Resolution] = None,
+        alignment: Optional[Alignment] = None,
+        duration: float = 2.0,
+        batch_size: int = 32,
+        per_epoch: float = None,
+        exhaustive: bool = False,
+        step: float = 0.1,
+        mask: Text = None,
+        local_labels: bool = False,
+    ):
 
+        self.task = task
         self.feature_extraction = Wrapper(feature_extraction)
         self.duration = duration
         self.exhaustive = exhaustive
         self.step = step
         self.mask = mask
+        self.local_labels = local_labels
 
         self.resolution_ = resolution
 
         if alignment is None:
-            alignment = 'center'
+            alignment = "center"
         self.alignment = alignment
 
         self.batch_size = batch_size
@@ -169,8 +186,9 @@ class LabelingTaskGenerator(BatchGenerator):
             return self.feature_extraction.sliding_window
 
         if self.resolution_ == RESOLUTION_CHUNK:
-            return self.SlidingWindow(duration=self.duration,
-                                      step=self.step * self.duration)
+            return self.SlidingWindow(
+                duration=self.duration, step=self.step * self.duration
+            )
 
         return self.resolution_
 
@@ -202,14 +220,22 @@ class LabelingTaskGenerator(BatchGenerator):
         y : `SlidingWindowFeature`
             Precomputed y for the whole file
         """
-        y, _ = one_hot_encoding(current_file['annotation'],
-                                get_annotated(current_file),
-                                self.resolution,
-                                labels=self.segment_labels_,
-                                mode='center')
 
-        return SlidingWindowFeature(self.postprocess_y(y.data),
-                                    y.sliding_window)
+        if self.local_labels:
+            labels = current_file["annotation"].labels()
+        else:
+            labels = self.segment_labels_
+
+        y = one_hot_encoding(
+            current_file["annotation"],
+            get_annotated(current_file),
+            self.resolution,
+            labels=labels,
+            mode="center",
+        )
+
+        y.data = self.postprocess_y(y.data)
+        return y
 
     def crop_y(self, y, segment):
         """Extract y for specified segment
@@ -227,11 +253,9 @@ class LabelingTaskGenerator(BatchGenerator):
             y for specified `segment`
         """
 
-        return y.crop(segment,
-                      mode=self.alignment,
-                      fixed=self.duration)
+        return y.crop(segment, mode=self.alignment, fixed=self.duration)
 
-    def _load_metadata(self, protocol, subset='train') -> float:
+    def _load_metadata(self, protocol, subset: Subset = "train") -> float:
         """Load training set metadata
 
         This function is called once at instantiation time, returns the total
@@ -262,17 +286,20 @@ class LabelingTaskGenerator(BatchGenerator):
         segment_labels, file_labels = set(), dict()
 
         # loop once on all files
-        for current_file in getattr(protocol, subset)():
+        files = getattr(protocol, subset)()
+        for current_file in tqdm(files, desc="Loading labels", unit="file"):
 
             # ensure annotation/annotated are cropped to actual file duration
-            support = Segment(start=0, end=current_file['duration'])
-            current_file['annotated'] = get_annotated(current_file).crop(
-                support, mode='intersection')
-            current_file['annotation'] = current_file['annotation'].crop(
-                support, mode='intersection')
+            support = Segment(start=0, end=current_file["duration"])
+            current_file["annotated"] = get_annotated(current_file).crop(
+                support, mode="intersection"
+            )
+            current_file["annotation"] = current_file["annotation"].crop(
+                support, mode="intersection"
+            )
 
             # keep track of unique segment labels
-            segment_labels.update(current_file['annotation'].labels())
+            segment_labels.update(current_file["annotation"].labels())
 
             # keep track of unique file labels
             for key, value in current_file.items():
@@ -282,8 +309,9 @@ class LabelingTaskGenerator(BatchGenerator):
                     file_labels[key] = set()
                 file_labels[key].add(value)
 
-            segments = [s for s in current_file['annotated']
-                          if s.duration > self.duration]
+            segments = [
+                s for s in current_file["annotated"] if s.duration > self.duration
+            ]
 
             # corner case where no segment is long enough
             # and we removed them all...
@@ -295,9 +323,11 @@ class LabelingTaskGenerator(BatchGenerator):
             duration = sum(s.duration for s in segments)
 
             # store all these in data_ dictionary
-            datum = {'segments': segments,
-                     'duration': duration,
-                     'current_file': current_file}
+            datum = {
+                "segments": segments,
+                "duration": duration,
+                "current_file": current_file,
+            }
             uri = get_unique_identifier(current_file)
             self.data_[uri] = datum
 
@@ -305,14 +335,14 @@ class LabelingTaskGenerator(BatchGenerator):
         self.segment_labels_ = sorted(segment_labels)
 
         for uri in list(self.data_):
-            current_file = self.data_[uri]['current_file']
+            current_file = self.data_[uri]["current_file"]
             y = self.initialize_y(current_file)
-            self.data_[uri]['y'] = y
+            self.data_[uri]["y"] = y
             if self.mask is not None:
                 mask = current_file[self.mask]
                 current_file[self.mask] = mask.align(y)
 
-        return sum(datum['duration'] for datum in self.data_.values())
+        return sum(datum["duration"] for datum in self.data_.values())
 
     @property
     def specifications(self):
@@ -327,11 +357,12 @@ class LabelingTaskGenerator(BatchGenerator):
         """
 
         specs = {
-            'task': Task(type=TaskType.MULTI_CLASS_CLASSIFICATION,
-                         output=TaskOutput.SEQUENCE),
-            'X': {'dimension': self.feature_extraction.dimension},
-            'y': {'classes': self.segment_labels_},
+            "task": self.task,
+            "X": {"dimension": self.feature_extraction.dimension},
         }
+
+        if not self.local_labels:
+            specs["y"] = {"classes": self.segment_labels_}
 
         return specs
 
@@ -351,7 +382,7 @@ class LabelingTaskGenerator(BatchGenerator):
         """
 
         uris = list(self.data_)
-        durations = np.array([self.data_[uri]['duration'] for uri in uris])
+        durations = np.array([self.data_[uri]["duration"] for uri in uris])
         probabilities = durations / np.sum(durations)
 
         while True:
@@ -361,28 +392,25 @@ class LabelingTaskGenerator(BatchGenerator):
             uri = uris[np.random.choice(len(uris), p=probabilities)]
 
             datum = self.data_[uri]
-            current_file = datum['current_file']
+            current_file = datum["current_file"]
 
             # choose one segment at random with probability
             # proportional to its duration
-            segment = next(random_segment(datum['segments'], weighted=True))
+            segment = next(random_segment(datum["segments"], weighted=True))
 
             # choose fixed-duration subsegment at random
             subsegment = next(random_subsegment(segment, self.duration))
 
-            X = self.feature_extraction.crop(current_file,
-                                             subsegment,
-                                             mode='center',
-                                             fixed=self.duration)
+            X = self.feature_extraction.crop(
+                current_file, subsegment, mode="center", fixed=self.duration
+            )
 
-            y = self.crop_y(datum['y'],
-                            subsegment)
-            sample = {'X': X, 'y': y}
+            y = self.crop_y(datum["y"], subsegment)
+            sample = {"X": X, "y": y}
 
             if self.mask is not None:
-                mask = self.crop_y(current_file[self.mask],
-                                   subsegment)
-                sample['mask'] = mask
+                mask = self.crop_y(current_file[self.mask], subsegment)
+                sample["mask"] = mask
 
             for key, classes in self.file_labels_.items():
                 sample[key] = classes.index(current_file[key])
@@ -392,10 +420,11 @@ class LabelingTaskGenerator(BatchGenerator):
     def _sliding_samples(self):
 
         uris = list(self.data_)
-        durations = np.array([self.data_[uri]['duration'] for uri in uris])
+        durations = np.array([self.data_[uri]["duration"] for uri in uris])
         probabilities = durations / np.sum(durations)
-        sliding_segments = SlidingWindow(duration=self.duration,
-                                         step=self.step * self.duration)
+        sliding_segments = SlidingWindow(
+            duration=self.duration, step=self.step * self.duration
+        )
 
         while True:
 
@@ -407,7 +436,7 @@ class LabelingTaskGenerator(BatchGenerator):
                 datum = self.data_[uri]
 
                 # make a copy of current file
-                current_file = dict(datum['current_file'])
+                current_file = dict(datum["current_file"])
 
                 # compute features for the whole file
                 features = self.feature_extraction(current_file)
@@ -417,32 +446,31 @@ class LabelingTaskGenerator(BatchGenerator):
                 annotated = Timeline()
                 for segment in get_annotated(current_file):
                     shifted_segment = Segment(
-                        segment.start + np.random.random() * self.duration,
-                        segment.end)
+                        segment.start + np.random.random() * self.duration, segment.end
+                    )
                     if shifted_segment:
                         annotated.add(shifted_segment)
 
                 samples = []
                 for sequence in sliding_segments(annotated):
 
-                    X = features.crop(sequence, mode='center',
-                                      fixed=self.duration)
-                    y = self.crop_y(datum['y'], sequence)
-                    sample = {'X': X, 'y': y}
+                    X = features.crop(sequence, mode="center", fixed=self.duration)
+                    y = self.crop_y(datum["y"], sequence)
+                    sample = {"X": X, "y": y}
 
                     if self.mask is not None:
 
                         # extract mask for current sub-segment
-                        mask = current_file[self.mask].crop(sequence,
-                                                            mode='center',
-                                                            fixed=self.duration)
+                        mask = current_file[self.mask].crop(
+                            sequence, mode="center", fixed=self.duration
+                        )
 
                         # it might happen that "mask" and "y" use different
                         # sliding windows. therefore, we simply resample "mask"
                         # to match "y"
                         if len(mask) != len(y):
                             mask = scipy.signal.resample(mask, len(y), axis=0)
-                        sample['mask'] = mask
+                        sample["mask"] = mask
 
                     for key, classes in self.file_labels_.items():
                         sample[key] = classes.index(current_file[key])
@@ -483,11 +511,14 @@ class LabelingTask(Trainer):
         audio chunks. Defaults to 0.1. Has not effect when exhaustive is False.
     """
 
-    def __init__(self, duration: float = 2.0,
-                       batch_size: int = 32,
-                       per_epoch: float = None,
-                       exhaustive: bool = False,
-                       step: float = 0.1):
+    def __init__(
+        self,
+        duration: float = 2.0,
+        batch_size: int = 32,
+        per_epoch: float = None,
+        exhaustive: bool = False,
+        step: float = 0.1,
+    ):
         super(LabelingTask, self).__init__()
         self.duration = duration
         self.batch_size = batch_size
@@ -495,11 +526,14 @@ class LabelingTask(Trainer):
         self.exhaustive = exhaustive
         self.step = step
 
-    def get_batch_generator(self, feature_extraction: Wrappable,
-                                  protocol: Protocol,
-                                  subset: Text = 'train',
-                                  resolution: Optional[Resolution] = None,
-                                  alignment: Optional[Alignment] = None) -> LabelingTaskGenerator:
+    def get_batch_generator(
+        self,
+        feature_extraction: Wrappable,
+        protocol: Protocol,
+        subset: Subset = "train",
+        resolution: Optional[Resolution] = None,
+        alignment: Optional[Alignment] = None,
+    ) -> LabelingTaskGenerator:
         """This method should be overriden by subclass
 
         Parameters
@@ -524,16 +558,19 @@ class LabelingTask(Trainer):
         batch_generator : `LabelingTaskGenerator`
         """
 
-        return LabelingTaskGenerator(feature_extraction,
-                                     protocol,
-                                     subset=subset,
-                                     resolution=resolution,
-                                     alignment=alignment,
-                                     duration=self.duration,
-                                     per_epoch=self.per_epoch,
-                                     batch_size=self.batch_size,
-                                     exhaustive=self.exhaustive,
-                                     step=self.step)
+        return LabelingTaskGenerator(
+            self.task,
+            feature_extraction,
+            protocol,
+            subset=subset,
+            resolution=resolution,
+            alignment=alignment,
+            duration=self.duration,
+            per_epoch=self.per_epoch,
+            batch_size=self.batch_size,
+            exhaustive=self.exhaustive,
+            step=self.step,
+        )
 
     @property
     def weight(self):
@@ -559,36 +596,37 @@ class LabelingTask(Trainer):
 
             def loss_func(input, target, weight=None, mask=None):
                 if mask is None:
-                    return F.nll_loss(input, target, weight=weight,
-                                      reduction='mean')
+                    return F.nll_loss(input, target, weight=weight, reduction="mean")
                 else:
                     return torch.mean(
-                        mask * F.nll_loss(input, target,
-                                          weight=weight,
-                                          reduction='none'))
+                        mask
+                        * F.nll_loss(input, target, weight=weight, reduction="none")
+                    )
 
         if self.task_.is_multilabel_classification:
 
             def loss_func(input, target, weight=None, mask=None):
                 if mask is None:
-                    return F.binary_cross_entropy(input, target, weight=weight,
-                                                  reduction='mean')
+                    return F.binary_cross_entropy(
+                        input, target, weight=weight, reduction="mean"
+                    )
                 else:
                     return torch.mean(
-                        mask * F.binary_cross_entropy(input, target,
-                                                      weight=weight,
-                                                      reduction='none'))
+                        mask
+                        * F.binary_cross_entropy(
+                            input, target, weight=weight, reduction="none"
+                        )
+                    )
 
         if self.task_.is_regression:
 
             def loss_func(input, target, weight=None, mask=None):
                 if mask is None:
-                    return F.mse_loss(input, target,
-                                      reduction='mean')
+                    return F.mse_loss(input, target, reduction="mean")
                 else:
                     return torch.mean(
-                        mask * F.mse_loss(input, target,
-                                          reduction='none'))
+                        mask * F.mse_loss(input, target, reduction="none")
+                    )
 
         self.loss_func_ = loss_func
 
@@ -609,9 +647,7 @@ class LabelingTask(Trainer):
         """
 
         # forward pass
-        X = torch.tensor(batch['X'],
-                         dtype=torch.float32,
-                         device=self.device_)
+        X = torch.tensor(batch["X"], dtype=torch.float32, device=self.device_)
         fX = self.model_(X)
 
         mask = None
@@ -619,38 +655,40 @@ class LabelingTask(Trainer):
 
             fX = fX.view((-1, self.n_classes_))
 
-            target = torch.tensor(
-                batch['y'],
-                dtype=torch.int64,
-                device=self.device_).contiguous().view((-1, ))
+            target = (
+                torch.tensor(batch["y"], dtype=torch.int64, device=self.device_)
+                .contiguous()
+                .view((-1,))
+            )
 
-            if 'mask' in batch:
+            if "mask" in batch:
+                mask = (
+                    torch.tensor(
+                        batch["mask"], dtype=torch.float32, device=self.device_
+                    )
+                    .contiguous()
+                    .view((-1,))
+                )
+
+        elif self.task_.is_multilabel_classification or self.task_.is_regression:
+
+            target = torch.tensor(batch["y"], dtype=torch.float32, device=self.device_)
+
+            if "mask" in batch:
                 mask = torch.tensor(
-                    batch['mask'],
-                    dtype=torch.float32,
-                    device=self.device_).contiguous().view((-1, ))
-
-
-        elif self.task_.is_multilabel_classification or \
-             self.task_.is_regression:
-
-            target = torch.tensor(
-                batch['y'],
-                dtype=torch.float32,
-                device=self.device_)
-
-            if 'mask' in batch:
-                mask = torch.tensor(
-                    batch['mask'],
-                    dtype=torch.float32,
-                    device=self.device_)
+                    batch["mask"], dtype=torch.float32, device=self.device_
+                )
 
         weight = self.weight
         if weight is not None:
             weight = weight.to(device=self.device_)
 
         return {
-            'loss': self.loss_func_(fX, target,
-                                    weight=weight,
-                                    mask=mask),
+            "loss": self.loss_func_(fX, target, weight=weight, mask=mask),
         }
+
+    @property
+    def task(self):
+        return Task(
+            type=TaskType.MULTI_CLASS_CLASSIFICATION, output=TaskOutput.SEQUENCE
+        )

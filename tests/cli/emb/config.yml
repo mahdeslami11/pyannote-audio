@@ -1,0 +1,30 @@
+task:
+   name: TripletLoss
+   params:
+      duration: 2.0
+      per_label: 2
+      per_fold: 4
+      clamp: sigmoid
+      sampling: all
+
+feature_extraction:
+   name: RawAudio
+   params:
+      sample_rate: 16000
+
+architecture:
+   name: pyannote.audio.models.PyanNet
+   params:
+      rnn:
+         unit: LSTM
+         hidden_size: 16
+         num_layers: 1
+         bidirectional: False
+         pool: sum
+      ff:
+         hidden_size: [16]
+
+scheduler:
+   name: ConstantScheduler
+   params:
+      learning_rate: 0.01
