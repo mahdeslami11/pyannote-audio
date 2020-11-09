@@ -3,12 +3,10 @@ name: Test API
 on:
   pull_request:
     branches:
-      - develop
+      - master
   push:
     branches:
-      - develop
       - master
-      - release/*
 
 jobs:
   build:
