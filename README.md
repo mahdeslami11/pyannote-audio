@@ -14,7 +14,7 @@
 
 ![segmentation](tutorials/pretrained/model/segmentation.png)
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pyannote/pyannote-audio/blob/develop/notebooks/introduction_to_pyannote_audio_speaker_diarization_toolkit.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pyannote/pyannote-audio/blob/master/notebooks/introduction_to_pyannote_audio_speaker_diarization_toolkit.ipynb)
 
 ## Installation
 
