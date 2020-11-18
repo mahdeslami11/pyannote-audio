@@ -20,12 +20,16 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+
+from __future__ import annotations
+
 import math
 from itertools import chain
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Iterable
 
 import pytorch_metric_learning.losses
-import torch.optim
+from torch.nn import Parameter
+from torch.optim import Optimizer
 
 from pyannote.audio.core.task import Problem, Scale, Task, TaskSpecification
 from pyannote.audio.utils.random import create_rng_for_worker
@@ -44,6 +48,11 @@ class SpeakerEmbeddingArcFace(Task):
         If True, data loaders will copy tensors into CUDA pinned
         memory before returning them. See pytorch documentation
         for more details. Defaults to False.
+    optimizer : callable, optional
+        Callable that takes model parameters as input and returns
+        an Optimizer instance. Defaults to `torch.optim.Adam`.
+    learning_rate : float, optional
+        Learning rate. Defaults to 1e-3.
 
 
     """
@@ -56,10 +65,18 @@ class SpeakerEmbeddingArcFace(Task):
         self,
         protocol: Protocol,
         duration: float = 2.0,
-        batch_size: int = None,
+        num_chunks_per_speaker: int = 1,
+        num_speakers_per_batch: int = 32,
         num_workers: int = 1,
         pin_memory: bool = False,
+        optimizer: Callable[[Iterable[Parameter]], Optimizer] = None,
+        learning_rate: float = 1e-3,
     ):
+
+        self.num_chunks_per_speaker = num_chunks_per_speaker
+        self.num_speakers_per_batch = num_speakers_per_batch
+
+        batch_size = self.num_chunks_per_speaker * self.num_speakers_per_batch
 
         super().__init__(
             protocol,
@@ -67,6 +84,8 @@ class SpeakerEmbeddingArcFace(Task):
             batch_size=batch_size,
             num_workers=num_workers,
             pin_memory=pin_memory,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
         )
 
         # there is no such thing as a "class" in representation
@@ -152,8 +171,8 @@ class SpeakerEmbeddingArcFace(Task):
                 # speaker index in original sorted order
                 y = self.specifications.classes.index(speaker)
 
-                # three chunks per speaker
-                for _ in range(3):
+                # multiple chunks per speaker
+                for _ in range(self.num_chunks_per_speaker):
 
                     # select one file at random (with probability proportional to its speaker duration)
                     file, *_ = rng.choices(
@@ -199,6 +218,5 @@ class SpeakerEmbeddingArcFace(Task):
     def val_dataloader(self):
         return None
 
-    def configure_optimizers(self, model: "Model"):
-        parameters = chain(model.parameters(), self.loss_func.parameters())
-        return torch.optim.Adam(parameters, lr=1e-3)
+    def parameters(self, model: Model) -> Iterable[Parameter]:
+        return chain(model.parameters(), self.loss_func.parameters())

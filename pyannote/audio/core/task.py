@@ -28,12 +28,13 @@ import warnings
 from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
-from typing import TYPE_CHECKING, List, Optional, Text
+from typing import TYPE_CHECKING, Callable, Iterable, List, Optional, Text
 
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
-import torch.optim
+from torch.nn import Parameter
+from torch.optim import Adam, Optimizer
 from torch.utils.data import DataLoader, IterableDataset
 
 from pyannote.database import Protocol
@@ -86,21 +87,26 @@ class TrainDataset(IterableDataset):
     def __init__(self, task: Task):
         super().__init__()
         self.task = task
+
     def __iter__(self):
         return self.task.train__iter__()
+
     def __len__(self):
         return self.task.train__len__()
-        
+
+
 class ValDataset(IterableDataset):
     def __init__(self, task: Task):
         super().__init__()
         self.task = task
+
     def __iter__(self):
         return self.task.val__iter__()
+
     def __len__(self):
         return self.task.val__len__()
 
-        
+
 class Task(pl.LightningDataModule):
     """Base task class
 
@@ -122,13 +128,18 @@ class Task(pl.LightningDataModule):
     duration : float, optional
         Chunks duration. Defaults to variable duration (None).
     batch_size : int, optional
-        Number of training samples per batch.
+        Number of training samples per batch. Defaults to 32.
     num_workers : int, optional
         Number of workers used for generating training samples.
     pin_memory : bool, optional
         If True, data loaders will copy tensors into CUDA pinned
         memory before returning them. See pytorch documentation
         for more details. Defaults to False.
+    optimizer : callable, optional
+        Callable that takes model parameters as input and returns
+        an Optimizer instance. Defaults to `torch.optim.Adam`.
+    learning_rate : float, optional
+        Learning rate. Defaults to 1e-3.
 
     Attributes
     ----------
@@ -142,9 +153,11 @@ class Task(pl.LightningDataModule):
         self,
         protocol: Protocol,
         duration: float = None,
-        batch_size: int = None,
+        batch_size: int = 32,
         num_workers: int = 1,
         pin_memory: bool = False,
+        optimizer: Callable[[Iterable[Parameter]], Optimizer] = None,
+        learning_rate: float = 1e-3,
     ):
         super().__init__()
 
@@ -171,6 +184,11 @@ class Task(pl.LightningDataModule):
         self.num_workers = num_workers
 
         self.pin_memory = pin_memory
+
+        if optimizer is None:
+            optimizer = Adam
+        self.optimizer = optimizer
+        self.learning_rate = learning_rate
 
     def prepare_data(self):
         """Use this to download and prepare data
@@ -384,9 +402,35 @@ class Task(pl.LightningDataModule):
         model.log("val_loss", loss)
         return {"loss": loss}
 
+    def parameters(self, model: Model) -> Iterable[Parameter]:
+        return model.parameters()
+
     # default configure_optimizers provided for convenience
     # can obviously be overriden for each task
     def configure_optimizers(self, model: Model):
-        # for tasks such as SpeakerEmbedding,
-        # other parameters should be added here
-        return torch.optim.Adam(model.parameters(), lr=1e-3)
+        # this is needed to support pytorch-lightning auto_lr_find feature
+        # as it modifies model.hparams.learning_rate and not task.learning_rate.
+        # in case one does not use auto_lr_find, Model.setup() takes care of
+        # setting model.hparams.learning_rate to task.learning_rate so we are safe.
+        lr = model.hparams.learning_rate
+        return self.optimizer(self.parameters(model), lr=lr)
+
+    @property
+    def validation_monitor(self):
+        """Quantity (and direction) to monitor
+
+        Useful for model checkpointing or early stopping.
+
+        Returns
+        -------
+        monitor : str
+            Name of quantity to monitor.
+        mode : {'min', 'max}
+            Minimize
+
+        See also
+        --------
+        pytorch_lightning.callbacks.ModelCheckpoint
+        pytorch_lightning.callbacks.EarlyStopping
+        """
+        return "val_loss", "min"
