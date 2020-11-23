@@ -104,7 +104,7 @@ class Precomputed:
 
             if dimension is not None and self.dimension_ != dimension:
                 msg = 'inconsistent "dimension" (is: {0}, should be: {1})'
-                raise ValueError(msg.format(dimension, self.dimensions_))
+                raise ValueError(msg.format(dimension, self.dimension_))
 
             if classes is not None and self.classes_ != classes:
                 msg = 'inconsistent "classes" (is {0}, should be: {1})'
