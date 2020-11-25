@@ -24,7 +24,7 @@ The instructions below assume that `pytorch` has been installed using the instru
 
 
 ```bash
-$ pip install pyannote.audio==1.1
+$ pip install pyannote.audio==1.1.1
 ```
 
 ## Documentation and tutorials
