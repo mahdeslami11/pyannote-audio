@@ -22,39 +22,32 @@
 
 
 import random
-from typing import Callable, Iterable, Mapping
+from typing import Callable, Iterable, Literal
 
 import numpy as np
+import torch
+import torch.nn.functional as F
 from pytorch_lightning.metrics.functional.classification import auroc
+from scipy.optimize import linear_sum_assignment
 from torch.nn import Parameter
 from torch.optim import Optimizer
 from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
 
 from pyannote.audio.core.io import Audio
 from pyannote.audio.core.model import Model
-from pyannote.audio.core.task import Task
-from pyannote.audio.tasks import (
-    OverlappedSpeechDetection,
-    SpeakerChangeDetection,
-    VoiceActivityDetection,
-)
+from pyannote.audio.core.task import Problem, Scale, Task, TaskSpecification
 from pyannote.audio.tasks.segmentation.mixins import SegmentationTaskMixin
 from pyannote.audio.utils.random import create_rng_for_worker
 from pyannote.core import Segment
 from pyannote.database import Protocol
 
 
-class MultiTaskSegmentation(SegmentationTaskMixin, Task):
-    """Multi-task segmentation
+class Segmentation(SegmentationTaskMixin, Task):
+    """Segmentation
 
-    Multi-task training of segmentation tasks, including:
-        - vad: voice activity detection
-        - scd: speaker change detection
-        - osd: overlapped speech detection
-
-    Note that, when "osd" is one of the tasks considered, data augmentation is used
-    to artificially increase the proportion of "overlap". This is achieved by
-    generating chunks made out of the (weighted) sum of two random chunks.
+    Note that data augmentation is used to increase the proportion of "overlap".
+    This is achieved by generating chunks made out of the (weighted) sum of two
+    random chunks.
 
     Parameters
     ----------
@@ -62,24 +55,20 @@ class MultiTaskSegmentation(SegmentationTaskMixin, Task):
         pyannote.database protocol
     duration : float, optional
         Chunks duration. Defaults to 2s.
-    vad : bool, optional
-        Add voice activity detection in the pool of tasks.
-        Defaults to False.
-    vad_params : dict, optional
-        Additional vad-specific parameters. Has no effect when `vad` is False.
-        See VoiceActivityDetection docstring for details and default value.
-    scd : bool, optional
-        Add speaker change detection to the pool of tasks.
-        Defaults to False.
-    scd_params : dict, optional
-        Additional scd-specific parameters. Has no effect when `scd` is False.
-        See SpeakerChangeDetection docstring for details and default value.
-    osd : bool, optional
-        Add overlapped speech detection to the pool of tasks.
-        Defaults to False.
-    osd_params : dict, optional
-        Additional osd-specific parameters. Has no effect when `osd` is False.
-        See OverlappedSpeechDetection docstring for details and default value.
+    num_speakers : int, optional
+        Maximum number of speakers per chunk. Defaults to 4. Note that one should account
+        for artificial chunks (see below) when setting this number.
+    augmentation_probability : float, optional
+        Probability of artificial overlapping chunks. A probability of 0.6 means that,
+        on average, 40% of training chunks are "real" chunks, while 60% are artifical
+        chunks made out of the (weighted) sum of two chunks. Defaults to 0.5.
+    snr_min, snr_max : float, optional
+        Minimum and maximum signal-to-noise ratio between summed chunks, in dB.
+        Defaults to 0.0 and 10.
+    domain : str, optional
+        Indicate that data augmentation will only overlap chunks from the same domain
+        (i.e. share the same file[domain] value). Default behavior is to not contrain
+        data augmentation with regards to domain.
     batch_size : int, optional
         Number of training samples per batch. Defaults to 32.
     num_workers : int, optional
@@ -96,27 +85,26 @@ class MultiTaskSegmentation(SegmentationTaskMixin, Task):
     augmentation : BaseWaveformTransform, optional
         torch_audiomentations waveform transform, used by dataloader
         during training.
-
     """
 
-    ACRONYM = "xseg"
+    ACRONYM = "seg"
 
     def __init__(
         self,
         protocol: Protocol,
         duration: float = 2.0,
-        vad: bool = False,
-        vad_params: Mapping = None,
-        scd: bool = False,
-        scd_params: Mapping = None,
-        osd: bool = False,
-        osd_params: Mapping = None,
+        num_speakers: int = 4,
+        augmentation_probability: float = 0.5,
+        snr_min: float = 0.0,
+        snr_max: float = 10.0,
+        domain: str = None,
         batch_size: int = 32,
         num_workers: int = 1,
         pin_memory: bool = False,
         optimizer: Callable[[Iterable[Parameter]], Optimizer] = None,
         learning_rate: float = 1e-3,
         augmentation: BaseWaveformTransform = None,
+        loss: Literal["bce", "mse"] = "bce",
     ):
 
         super().__init__(
@@ -130,48 +118,24 @@ class MultiTaskSegmentation(SegmentationTaskMixin, Task):
             augmentation=augmentation,
         )
 
-        self.vad = vad
-        self.vad_params = dict() if vad_params is None else vad_params
+        self.num_speakers = num_speakers
 
-        self.scd = scd
-        self.scd_params = dict() if scd_params is None else scd_params
+        self.augmentation_probability = augmentation_probability
+        self.snr_min = snr_min
+        self.snr_max = snr_max
+        self.domain = domain
 
-        self.osd = osd
-        self.osd_params = dict() if osd_params is None else osd_params
+        if loss not in ["bce", "mse"]:
+            raise ValueError("'loss' must be one of {'bce', 'mse'}.")
+        self.loss = loss
 
-        if sum([vad, scd, osd]) < 2:
-            raise ValueError(
-                "You must activate at least two tasks among 'vad', 'scd', and 'osd'."
-            )
-
-        self.tasks = dict()
-        if self.vad:
-            self.tasks["vad"] = VoiceActivityDetection(
-                protocol,
-                duration=duration,
-                batch_size=batch_size,
-                num_workers=num_workers,
-                pin_memory=pin_memory,
-                **self.vad_params,
-            )
-        if self.scd:
-            self.tasks["scd"] = SpeakerChangeDetection(
-                protocol,
-                duration=duration,
-                batch_size=batch_size,
-                num_workers=num_workers,
-                pin_memory=pin_memory,
-                **self.scd_params,
-            )
-        if self.osd:
-            self.tasks["osd"] = OverlappedSpeechDetection(
-                protocol,
-                duration=duration,
-                batch_size=batch_size,
-                num_workers=num_workers,
-                pin_memory=pin_memory,
-                **self.osd_params,
-            )
+        self.specifications = TaskSpecification(
+            problem=Problem.MULTI_LABEL_CLASSIFICATION,
+            scale=Scale.FRAME,
+            duration=self.duration,
+            classes=[f"speaker#{i+1}" for i in range(self.num_speakers)],
+            permutation_invariant=True,
+        )
 
     def setup(self, stage=None):
 
@@ -179,17 +143,28 @@ class MultiTaskSegmentation(SegmentationTaskMixin, Task):
 
         if stage == "fit":
 
-            if self.osd and self.tasks["osd"].domain is not None:
+            # build the list of domains
+            if self.domain is not None:
                 for f in self.train:
-                    f["domain"] = f[self.tasks["osd"].domain]
+                    f["domain"] = f[self.domain]
                 self.domains = list(set(f["domain"] for f in self.train))
 
-            self.specifications = {
-                name: task.specifications for name, task in self.tasks.items()
-            }
+    def setup_loss_func(self, model: Model):
+
+        batch_size, num_frames, num_speakers = model(self.example_input_array).shape
+        kaiser_window = torch.kaiser_window(
+            num_frames, periodic=False, beta=12.0
+        ).reshape(-1, 1)
+        model.register_buffer("kaiser_window", kaiser_window)
+
+        val_sample_weight = kaiser_window.expand(
+            batch_size, num_frames, num_speakers
+        ).flatten()
+
+        model.register_buffer("val_sample_weight", val_sample_weight)
 
     def prepare_y(self, one_hot_y: np.ndarray):
-        """Get multi-task targets
+        """Get segmentation targets
 
         Parameters
         ----------
@@ -204,7 +179,26 @@ class MultiTaskSegmentation(SegmentationTaskMixin, Task):
             y[t] = 1 if there is two or more active speakers at tth frame, 0 otherwise.
         """
 
-        return {name: task.prepare_y(one_hot_y) for name, task in self.tasks.items()}
+        num_frames, num_speakers = one_hot_y.shape
+
+        # in case there are too many speakers, remove less talkative ones
+        if num_speakers > self.num_speakers:
+
+            # TODO: warn
+
+            most_talkative = np.argpartition(
+                np.sum(one_hot_y, axis=0), num_speakers - self.num_speakers
+            )[-self.num_speakers :]
+
+            one_hot_y = np.take(one_hot_y, most_talkative, axis=1)
+
+        # in case there are not enough speakers, add empty ones
+        elif num_speakers < self.num_speakers:
+            one_hot_y = np.pad(
+                one_hot_y, ((0, 0), (0, self.num_speakers - num_speakers))
+            )
+
+        return one_hot_y
 
     def train__iter__helper(self, rng: random.Random, domain: str = None):
 
@@ -251,17 +245,17 @@ class MultiTaskSegmentation(SegmentationTaskMixin, Task):
         # create worker-specific random number generator
         rng = create_rng_for_worker(self.current_epoch)
 
-        if self.osd and self.tasks["osd"].domain is not None:
+        if self.domain is None:
+            chunks = self.train__iter__helper(rng)
+        else:
             chunks_by_domain = {
                 domain: self.train__iter__helper(rng, domain=domain)
                 for domain in self.domains
             }
-        else:
-            chunks = self.train__iter__helper(rng)
 
         while True:
 
-            if self.osd and self.tasks["osd"].domain is not None:
+            if self.domain is not None:
                 #  draw domain at random
                 domain = rng.choice(self.domains)
                 chunks = chunks_by_domain[domain]
@@ -269,10 +263,7 @@ class MultiTaskSegmentation(SegmentationTaskMixin, Task):
             # generate random chunk
             X, one_hot_y, labels = next(chunks)
 
-            if (
-                not self.osd
-                or rng.random() > self.tasks["osd"].augmentation_probability
-            ):
+            if rng.random() > self.augmentation_probability:
                 # yield it as it is
                 yield {"X": X, "y": self.prepare_y(one_hot_y)}
                 continue
@@ -281,9 +272,7 @@ class MultiTaskSegmentation(SegmentationTaskMixin, Task):
             other_X, other_one_hot_y, other_labels = next(chunks)
 
             #  sum both chunks with random SNR
-            random_snr = (
-                self.tasks["osd"].snr_max - self.tasks["osd"].snr_min
-            ) * rng.random() + self.tasks["osd"].snr_min
+            random_snr = (self.snr_max - self.snr_min) * rng.random() + self.snr_min
             alpha = np.exp(-np.log(10) * random_snr / 20)
             X = Audio.power_normalize(X) + alpha * Audio.power_normalize(other_X)
 
@@ -307,8 +296,71 @@ class MultiTaskSegmentation(SegmentationTaskMixin, Task):
 
             yield {"X": X, "y": self.prepare_y(combined_y)}
 
+    def permutate(self, y: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
+        """Find permutation that minimizes average pairwise mean squared error"""
+
+        # TODO use Asteroid's PIT wrapper
+
+        batch_size, num_samples, num_speakers = y_pred.shape
+
+        cost = np.zeros((num_speakers, num_speakers))
+        mapping = []
+        for b in range(batch_size):
+            for r in range(num_speakers):
+                for h in range(num_speakers):
+                    cost[r, h] = (
+                        F.mse_loss(y[b, :, r], y_pred[b, :, h], reduction="mean")
+                        .detach()
+                        .cpu()
+                    )
+            mapping.append(linear_sum_assignment(cost, maximize=False)[1])
+
+        return torch.stack([y_pred[b, :, mapping[b]] for b in range(batch_size)])
+
+    def training_step(self, model: Model, batch, batch_idx: int):
+        """Compute permutation-invariant binary cross-entropy
+
+        Parameters
+        ----------
+        model : Model
+            Model currently being trained.
+        batch : (usually) dict of torch.Tensor
+            Current batch.
+        batch_idx: int
+            Batch index.
+
+        Returns
+        -------
+        loss : {str: torch.tensor}
+            {"loss": loss} with additional "loss_{task_name}" keys for multi-task models.
+        """
+
+        X, y = batch["X"], batch["y"]
+        y_pred = self.permutate(y, model(X))
+
+        batch_size, num_frames, num_speakers = y_pred.shape
+
+        if self.loss == "bce":
+            losses = F.binary_cross_entropy(y_pred, y.float(), reduction="none")
+        elif self.loss == "mse":
+            losses = F.mse_loss(y_pred, y.float(), reduction="none")
+
+        # give less importance to start and end of chunks
+        # using the same (Kaiser) window as inference.
+        loss = torch.mean(losses * model.kaiser_window)
+
+        model.log(
+            f"{self.ACRONYM}@train_loss",
+            loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+        return {"loss": loss}
+
     def validation_step(self, model: Model, batch, batch_idx: int):
-        """Compute areas under ROC curve
+        """
 
         Parameters
         ----------
@@ -321,40 +373,24 @@ class MultiTaskSegmentation(SegmentationTaskMixin, Task):
         """
 
         X, y = batch["X"], batch["y"]
-        y_pred = model(X)
+        y_pred = self.permutate(y, model(X))
 
-        auc = dict()
-        skipped = False
-
-        for task_name in self.specifications:
-            try:
-                auc[task_name] = auroc(
-                    y_pred[task_name].view(-1),
-                    y[task_name].view(-1),
-                    sample_weight=None,
-                    pos_label=1.0,
-                )
-            except ValueError:
-                # in case of all positive or all negative samples, auroc will raise a ValueError.
-                skipped = True
-                continue
-
-            model.log(
-                f"{task_name}@val_auroc",
-                auc[task_name],
-                on_step=False,
-                on_epoch=True,
-                prog_bar=True,
-                logger=True,
-                sync_dist=True,
+        try:
+            auc = auroc(
+                y_pred.flatten(),
+                y.flatten(),
+                # give less importance to start and end of chunks
+                # using the same (Kaiser) window as inference.
+                sample_weight=model.val_sample_weight,
+                pos_label=1.0,
             )
-
-        if skipped:
+        except ValueError:
+            # in case of all positive or all negative samples, auroc will raise a ValueError.
             return
 
         model.log(
             f"{self.ACRONYM}@val_auroc",
-            sum(auc.values()) / len(auc),
+            auc,
             on_step=False,
             on_epoch=True,
             prog_bar=True,
