@@ -20,22 +20,31 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import os
 import warnings
 from dataclasses import dataclass
 from functools import cached_property
 from importlib import import_module
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Text, Tuple, Union
+from urllib.parse import urlparse
 
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+from huggingface_hub import cached_download, hf_hub_url
 from pytorch_lightning.utilities.cloud_io import load as pl_load
 from semver import VersionInfo
 
 from pyannote.audio import __version__
 from pyannote.audio.core.io import Audio
 from pyannote.audio.core.task import Problem, Scale, Task, TaskSpecification
+
+CACHE_DIR = os.getenv(
+    "PYANNOTE_CACHE",
+    os.path.expanduser("~/.cache/torch/pyannote"),
+)
+HF_PYTORCH_WEIGHTS_NAME = "pytorch_model.bin"
 
 
 @dataclass
@@ -628,7 +637,8 @@ def load_from_checkpoint(
     Parameters
     ----------
     checkpoint_path : Path or str
-        Path to checkpoint. This can also be a URL.
+        Path to checkpoint, or a remote URL, or a model identifier from
+        the huggingface.co model hub.
     map_location: optional
         If your checkpoint saved a GPU model and you now load on CPUs
         or a different number of GPUs, use this to map to the new setup.
@@ -661,8 +671,34 @@ def load_from_checkpoint(
     if hparams_file is not None:
         hparams_file = str(hparams_file)
 
+    # resolve the checkpoint_path to
+    # something that pl will handle
+    if os.path.isfile(checkpoint_path):
+        path_for_pl = checkpoint_path
+    elif urlparse(checkpoint_path).scheme in ("http", "https"):
+        path_for_pl = checkpoint_path
+    else:
+        # Finally, let's try to find it on Hugging Face model hub
+        # e.g. julien-c/voice-activity-detection is a valid model id
+        # and  julien-c/voice-activity-detection@main supports specifying a commit/branch/tag.
+        if "@" in checkpoint_path:
+            model_id = checkpoint_path.split("@")[0]
+            revision = checkpoint_path.split("@")[1]
+        else:
+            model_id = checkpoint_path
+            revision = None
+        url = hf_hub_url(
+            model_id=model_id, filename=HF_PYTORCH_WEIGHTS_NAME, revision=revision
+        )
+        path_for_pl = cached_download(
+            url=url,
+            library_name="pyannote",
+            library_version=__version__,
+            cache_dir=CACHE_DIR,
+        )
+
     # obtain model class from the checkpoint
-    checkpoint = pl_load(checkpoint_path, map_location=map_location)
+    checkpoint = pl_load(path_for_pl, map_location=map_location)
 
     module_name: str = checkpoint["pyannote.audio"]["model"]["module"]
     module = import_module(module_name)
@@ -671,7 +707,7 @@ def load_from_checkpoint(
     Klass: Model = getattr(module, class_name)
 
     return Klass.load_from_checkpoint(
-        checkpoint_path,
+        path_for_pl,
         map_location=map_location,
         hparams_file=hparams_file,
         strict=strict,
