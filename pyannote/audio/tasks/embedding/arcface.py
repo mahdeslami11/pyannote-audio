@@ -26,6 +26,7 @@ from __future__ import annotations
 from typing import Callable, Iterable
 
 import pytorch_metric_learning.losses
+import torch
 from torch.nn import Parameter
 from torch.optim import Optimizer
 from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
@@ -120,7 +121,8 @@ class SupervisedRepresentationLearningWithArcFace(
 
     def setup_loss_func(self, model: Model):
 
-        _, embedding_size = model(self.example_input_array).shape
+        with torch.no_grad():
+            _, embedding_size = model(self.example_input_array[:1]).shape
 
         model.loss_func = pytorch_metric_learning.losses.ArcFaceLoss(
             len(self.specifications.classes),
