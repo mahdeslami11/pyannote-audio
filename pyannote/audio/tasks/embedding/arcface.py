@@ -121,6 +121,10 @@ class SupervisedRepresentationLearningWithArcFace(
 
     def setup_loss_func(self, model: Model):
 
+        # FIXME: for some reason, "model" is still on CPU here
+        # it should be sent to GPU (along with example_input_array) when training on GPU
+        # https://pytorch-lightning.slack.com/archives/CQXV8BRH9/p1609941680349000
+
         with torch.no_grad():
             _, embedding_size = model(self.example_input_array[:1]).shape
 
