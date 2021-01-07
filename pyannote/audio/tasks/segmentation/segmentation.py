@@ -142,56 +142,16 @@ class Segmentation(SegmentationTaskMixin, Task):
         )
 
     def setup(self, stage=None):
-        if stage == "fit":
 
-            # loop over the training set, remove annotated regions shorter than
-            # chunk duration, and keep track of the reference annotations.
-            self.train = []
-            for f in self.protocol.train():
-                segments = [
-                    segment
-                    for segment in f["annotated"]
-                    if segment.duration > self.duration
-                ]
-                duration = sum(segment.duration for segment in segments)
-                self.train.append(
-                    {
-                        "uri": f["uri"],
-                        "annotated": segments,
-                        "annotation": f["annotation"],
-                        "duration": duration,
-                        "audio": f["audio"],
-                    }
-                )
+        super().setup(stage=stage)
+
+        if stage == "fit":
 
             # build the list of domains
             if self.domain is not None:
                 for f in self.train:
                     f["domain"] = f[self.domain]
                 self.domains = list(set(f["domain"] for f in self.train))
-
-            # loop over the validation set, remove annotated regions shorter than
-            # chunk duration, and keep track of the reference annotations.
-            self.validation = []
-
-            for f in self.protocol.development():
-                segments = [
-                    segment
-                    for segment in f["annotated"]
-                    if segment.duration > self.duration
-                ]
-                num_chunks = sum(
-                    round(segment.duration // self.duration) for segment in segments
-                )
-                self.validation.append(
-                    {
-                        "uri": f["uri"],
-                        "annotated": segments,
-                        "annotation": f["annotation"],
-                        "num_chunks": num_chunks,
-                        "audio": f["audio"],
-                    }
-                )
 
     def setup_loss_func(self, model: Model):
 
@@ -470,8 +430,8 @@ class Segmentation(SegmentationTaskMixin, Task):
 
         try:
             auc = auroc(
-                y_pred.flatten(),
-                y.flatten(),
+                y_pred[:, ::10].flatten(),
+                y[:, ::10].flatten(),
                 # give less importance to start and end of chunks
                 # using the same (Hamming) window as inference.
                 sample_weight=model.val_sample_weight,
