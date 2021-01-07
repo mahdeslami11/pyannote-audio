@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2020 CNRS
+# Copyright (c) 2020-2021 CNRS
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -20,13 +20,15 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Literal
 
 import numpy as np
+import torch
 from torch.nn import Parameter
 from torch.optim import Optimizer
 from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
 
+from pyannote.audio.core.model import Model
 from pyannote.audio.core.task import Problem, Scale, Task, TaskSpecification
 from pyannote.audio.tasks.segmentation.mixins import SegmentationTaskMixin
 from pyannote.database import Protocol
@@ -63,6 +65,8 @@ class VoiceActivityDetection(SegmentationTaskMixin, Task):
     augmentation : BaseWaveformTransform, optional
         torch_audiomentations waveform transform, used by dataloader
         during training.
+    loss : {'bce', 'f1'}, optional
+        Defaults to 'bce' (binary cross-entropy).
     """
 
     ACRONYM = "vad"
@@ -77,6 +81,7 @@ class VoiceActivityDetection(SegmentationTaskMixin, Task):
         optimizer: Callable[[Iterable[Parameter]], Optimizer] = None,
         learning_rate: float = 1e-3,
         augmentation: BaseWaveformTransform = None,
+        loss: Literal["bce", "f1"] = "bce",
     ):
 
         super().__init__(
@@ -99,6 +104,8 @@ class VoiceActivityDetection(SegmentationTaskMixin, Task):
             ],
         )
 
+        self.loss = loss
+
     def prepare_y(self, one_hot_y: np.ndarray):
         """Get voice activity detection targets
 
@@ -115,3 +122,33 @@ class VoiceActivityDetection(SegmentationTaskMixin, Task):
             y[t] = 1 if at least one speaker is active at tth frame, 0 otherwise.
         """
         return np.int64(np.sum(one_hot_y, axis=1) > 0)
+
+    def training_step(self, model: Model, batch, batch_idx: int):
+
+        if self.loss == "bce":
+            return super().training_step(model, batch, batch_idx)
+
+        elif self.loss == "f1":
+
+            EPSILON = 1e-12
+
+            X, y = batch["X"], batch["y"]
+            y_pred = model(X)
+
+            pos = torch.sum(y)
+            pos_true = torch.sum(y.flatten() * y_pred.flatten())
+            pos_pred = torch.sum(y_pred)
+            precision = pos_true / (pos_pred + EPSILON)
+            recall = pos_true / (pos + EPSILON)
+            f1 = 2 * (precision * recall) / (precision + recall + EPSILON)
+            loss = 1 - f1
+
+            model.log(
+                f"{self.ACRONYM}@train_f1",
+                f1,
+                on_step=True,
+                on_epoch=True,
+                prog_bar=True,
+                logger=True,
+            )
+            return {"loss": loss}
