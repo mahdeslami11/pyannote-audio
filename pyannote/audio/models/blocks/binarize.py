@@ -46,10 +46,12 @@ binarize = BinarizeFunction.apply
 class Binarize(nn.Module):
     """Binarization made differentiable with sigmoid surrogate gradient"""
 
-    def __init__(self, in_features: int):
+    def __init__(self, in_features: int, bias: bool = False):
         super().__init__()
         self.in_features = in_features
-        self.threshold = nn.Parameter(torch.zeros(in_features))
+        self.bias = bias
+        if self.bias:
+            self.threshold = nn.Parameter(torch.zeros(in_features))
 
     def forward(self, scores: torch.Tensor) -> torch.Tensor:
         """
@@ -65,4 +67,8 @@ class Binarize(nn.Module):
             (batch_size, *, in_features) binarized (i.e. 0 or 1) scores.
 
         """
-        return binarize(scores - torch.sigmoid(self.threshold))
+
+        if self.bias:
+            return binarize(scores - torch.sigmoid(self.threshold))
+        else:
+            return binarize(scores - 0.5)
