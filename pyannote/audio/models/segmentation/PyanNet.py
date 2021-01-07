@@ -30,6 +30,7 @@ from einops import rearrange
 
 from pyannote.audio.core.model import Model
 from pyannote.audio.core.task import Task
+from pyannote.audio.models.blocks.binarize import Binarize
 from pyannote.audio.models.blocks.sincnet import SincNet
 from pyannote.core.utils.generators import pairwise
 
@@ -145,3 +146,12 @@ class PyanNet(Model):
                 outputs = F.leaky_relu(linear(outputs))
 
         return self.activation(self.classifier(outputs))
+
+
+class BinaryPyanNet(PyanNet):
+    def build(self):
+        super().build()
+        self.binarize = Binarize(len(self.hparams.task_specifications.classes))
+
+    def forward(self, waveforms: torch.Tensor) -> torch.Tensor:
+        return self.binarize(super().forward(waveforms))
