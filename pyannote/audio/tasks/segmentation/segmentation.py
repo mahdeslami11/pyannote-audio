@@ -426,6 +426,9 @@ class Segmentation(SegmentationTaskMixin, Task):
             Batch index.
         """
 
+        # move metric to model device
+        self.val_fbeta.to(model.device)
+
         X, y = batch["X"], batch["y"]
         # X = (batch_size, num_channels, num_samples)
         # y = (batch_size, num_frames, num_classes)
