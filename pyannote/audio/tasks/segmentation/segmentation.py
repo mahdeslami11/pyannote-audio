@@ -455,6 +455,10 @@ class Segmentation(SegmentationTaskMixin, Task):
             return
 
         # visualize first 9 validation samples of first batch in Tensorboard
+        X = X.cpu().numpy()
+        y = y.cpu().numpy()
+        y_pred = y_pred.cpu().numpy()
+        permutated_y_pred = permutated_y_pred.cpu().numpy()
 
         # prepare 3 x 3 grid (or smaller if batch size is smaller)
         num_samples = min(self.batch_size, 9)
@@ -467,7 +471,6 @@ class Segmentation(SegmentationTaskMixin, Task):
         )
 
         # reshape target so that there is one line per class when plottingit
-        y = y.detach().cpu().float().numpy()
         y[y == 0] = np.NaN
         y *= np.arange(y.shape[2])
 
@@ -480,7 +483,7 @@ class Segmentation(SegmentationTaskMixin, Task):
 
             # plot waveform
             ax_wav = axes[row_idx * 4 + 0, col_idx]
-            sample_X = torch.mean(X[sample_idx], dim=0)
+            sample_X = np.mean(X[sample_idx], axis=0)
             ax_wav.plot(sample_X)
             ax_wav.set_xlim(0, len(sample_X))
             ax_wav.get_xaxis().set_visible(False)

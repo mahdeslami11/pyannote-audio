@@ -27,7 +27,6 @@ from typing import List, Optional, Text, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
 from pytorch_lightning.metrics.classification import FBeta
 
 from pyannote.audio.core.io import AudioFile
@@ -269,6 +268,9 @@ class SegmentationTaskMixin:
             return
 
         # visualize first 9 validation samples of first batch in Tensorboard
+        X = X.cpu().numpy()
+        y = y.cpu().numpy()
+        y_pred = y_pred.cpu().numpy()
 
         # prepare 3 x 3 grid (or smaller if batch size is smaller)
         num_samples = min(self.batch_size, 9)
@@ -281,7 +283,6 @@ class SegmentationTaskMixin:
         )
 
         # reshape target so that there is one line per class when plottingit
-        y = y.detach().cpu().float().numpy()
         y[y == 0] = np.NaN
         if len(y.shape) == 2:
             y = y[:, :, np.newaxis]
@@ -296,7 +297,7 @@ class SegmentationTaskMixin:
 
             # plot waveform
             ax_wav = axes[row_idx * 3 + 0, col_idx]
-            sample_X = torch.mean(X[sample_idx], dim=0)
+            sample_X = np.mean(X[sample_idx], axis=0)
             ax_wav.plot(sample_X)
             ax_wav.set_xlim(0, len(sample_X))
             ax_wav.get_xaxis().set_visible(False)
