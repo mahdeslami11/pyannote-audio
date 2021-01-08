@@ -269,7 +269,7 @@ class SegmentationTaskMixin:
 
         # visualize first 9 validation samples of first batch in Tensorboard
         X = X.cpu().numpy()
-        y = y.cpu().numpy()
+        y = y.float().cpu().numpy()
         y_pred = y_pred.cpu().numpy()
 
         # prepare 3 x 3 grid (or smaller if batch size is smaller)
