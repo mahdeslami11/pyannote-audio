@@ -7,10 +7,7 @@ This is alpha release of upcoming `pyannote.audio` 2.0 for which it has been dec
 Until a proper release is available on PyPI, install from the `develop` branch:
 
 ```bash
-git clone https://github.com/pyannote/pyannote-audio.git
-cd pyannote-audio
-git checkout develop
-pip install .
+pip install https://github.com/pyannote/pyannote-audio/archive/develop.zip
 ```
 
 ## pyannote.audio 101
