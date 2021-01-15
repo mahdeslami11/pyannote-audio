@@ -8,6 +8,7 @@ This is the development branch of upcoming `pyannote.audio` 2.0 for which it has
 - data augmentation with [torch-audiomentations](https://github.com/asteroid-team/torch-audiomentations)
 - [huggingface](https://huggingface.co) model hosting
 - [prodigy](https://prodi.gy) recipes for audio annotations
+- online [demo](https://share.streamlit.io/pyannote/pyannote-audio-demo/main/app.py) based on [streamlit](https://www.streamlit.io)
 
 ## Installation
 
