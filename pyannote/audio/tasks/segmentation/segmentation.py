@@ -23,7 +23,7 @@
 import math
 import random
 from collections import Counter
-from typing import Callable, Iterable, Literal
+from typing import Callable, Iterable
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -32,9 +32,10 @@ import torch.nn.functional as F
 from torch.nn import Parameter
 from torch.optim import Optimizer
 from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
+from typing_extensions import Literal
 
 from pyannote.audio.core.io import Audio
-from pyannote.audio.core.task import Problem, Scale, Specifications, Task
+from pyannote.audio.core.task import Problem, Resolution, Specifications, Task
 from pyannote.audio.tasks.segmentation.mixins import SegmentationTaskMixin
 from pyannote.audio.utils.permutation import permutate
 from pyannote.audio.utils.random import create_rng_for_worker
@@ -70,6 +71,7 @@ class Segmentation(SegmentationTaskMixin, Task):
         Number of training samples per batch. Defaults to 32.
     num_workers : int, optional
         Number of workers used for generating training samples.
+        Defaults to multiprocessing.cpu_count() // 2.
     pin_memory : bool, optional
         If True, data loaders will copy tensors into CUDA pinned
         memory before returning them. See pytorch documentation
@@ -97,7 +99,7 @@ class Segmentation(SegmentationTaskMixin, Task):
         snr_max: float = 10.0,
         domain: str = None,
         batch_size: int = 32,
-        num_workers: int = 1,
+        num_workers: int = None,
         pin_memory: bool = False,
         optimizer: Callable[[Iterable[Parameter]], Optimizer] = None,
         learning_rate: float = 1e-3,
@@ -178,28 +180,11 @@ class Segmentation(SegmentationTaskMixin, Task):
             # we can set task specifications
             self.specifications = Specifications(
                 problem=Problem.MULTI_LABEL_CLASSIFICATION,
-                scale=Scale.FRAME,
+                resolution=Resolution.FRAME,
                 duration=self.duration,
                 classes=[f"speaker#{i+1}" for i in range(self.num_speakers)],
                 permutation_invariant=True,
             )
-
-    def setup_loss_func(self):
-
-        example_input_array = self.model.example_input_array
-        _, _, num_samples = example_input_array.shape
-        self.num_samples = num_samples
-
-        batch_size, num_frames, num_speakers = self.model(example_input_array).shape
-        self.num_frames = num_frames
-        hamming_window = torch.hamming_window(num_frames, periodic=False).reshape(-1, 1)
-        self.model.register_buffer("hamming_window", hamming_window)
-
-        val_sample_weight = hamming_window.expand(
-            batch_size, num_frames, num_speakers
-        ).flatten()
-
-        self.model.register_buffer("val_sample_weight", val_sample_weight)
 
     def prepare_y(self, one_hot_y: np.ndarray):
         """Zero-pad segmentation targets
@@ -376,7 +361,6 @@ class Segmentation(SegmentationTaskMixin, Task):
         elif self.loss == "mse":
             seg_losses = F.mse_loss(permutated_y_pred, y.float(), reduction="none")
 
-        # seg_loss = torch.mean(seg_losses * model.hamming_window)
         seg_loss = torch.mean(seg_losses)
 
         return seg_loss

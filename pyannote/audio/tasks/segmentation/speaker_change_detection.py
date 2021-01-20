@@ -28,7 +28,7 @@ from torch.nn import Parameter
 from torch.optim import Optimizer
 from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
 
-from pyannote.audio.core.task import Problem, Scale, Specifications, Task
+from pyannote.audio.core.task import Problem, Resolution, Specifications, Task
 from pyannote.audio.tasks.segmentation.mixins import SegmentationTaskMixin
 from pyannote.database import Protocol
 
@@ -58,6 +58,7 @@ class SpeakerChangeDetection(SegmentationTaskMixin, Task):
         Number of training samples per batch. Defaults to 32.
     num_workers : int, optional
         Number of workers used for generating training samples.
+        Defaults to multiprocessing.cpu_count() // 2.
     pin_memory : bool, optional
         If True, data loaders will copy tensors into CUDA pinned
         memory before returning them. See pytorch documentation
@@ -80,7 +81,7 @@ class SpeakerChangeDetection(SegmentationTaskMixin, Task):
         duration: float = 2.0,
         collar: int = 1,
         batch_size: int = 32,
-        num_workers: int = 1,
+        num_workers: int = None,
         pin_memory: bool = False,
         optimizer: Callable[[Iterable[Parameter]], Optimizer] = None,
         learning_rate: float = 1e-3,
@@ -100,7 +101,7 @@ class SpeakerChangeDetection(SegmentationTaskMixin, Task):
 
         self.specifications = Specifications(
             problem=Problem.BINARY_CLASSIFICATION,
-            scale=Scale.FRAME,
+            resolution=Resolution.FRAME,
             duration=self.duration,
             classes=[
                 "change",

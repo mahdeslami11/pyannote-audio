@@ -1,16 +1,21 @@
-# Rewriting pyannote.audio from scratch
+# Neural speaker diarization with pyannote.audio
 
-This is alpha release of upcoming `pyannote.audio` 2.0 for which it has been decided to rewrite almost everything from scratch to benefit from `pytorch-lightning` framework.
+This is the development branch of upcoming `pyannote.audio` 2.0 for which it has been decided to rewrite almost everything from scratch.  Highlights of this upcoming release will be:
+
+- a much smaller and cleaner codebase
+- Python-first API (the *good old* pyannote-audio CLI will still be available, though)
+- multi-GPU and TPU training thanks to [pytorch-lightning](https://pytorchlightning.ai/)
+- data augmentation with [torch-audiomentations](https://github.com/asteroid-team/torch-audiomentations)
+- [huggingface](https://huggingface.co) model hosting
+- [prodigy](https://prodi.gy) recipes for audio annotations
+- online [demo](https://share.streamlit.io/pyannote/pyannote-audio-demo/main/app.py) based on [streamlit](https://www.streamlit.io)
 
 ## Installation
 
 Until a proper release is available on PyPI, install from the `develop` branch:
 
 ```bash
-git clone https://github.com/pyannote/pyannote-audio.git
-cd pyannote-audio
-git checkout develop
-pip install .
+pip install https://github.com/pyannote/pyannote-audio/archive/develop.zip
 ```
 
 ## pyannote.audio 101

@@ -30,7 +30,7 @@ from torch.optim import Optimizer
 from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
 
 from pyannote.audio.core.io import Audio
-from pyannote.audio.core.task import Problem, Scale, Specifications, Task
+from pyannote.audio.core.task import Problem, Resolution, Specifications, Task
 from pyannote.audio.tasks.segmentation.mixins import SegmentationTaskMixin
 from pyannote.audio.utils.random import create_rng_for_worker
 from pyannote.core import Segment
@@ -72,6 +72,7 @@ class OverlappedSpeechDetection(SegmentationTaskMixin, Task):
         Number of training samples per batch. Defaults to 32.
     num_workers : int, optional
         Number of workers used for generating training samples.
+        Defaults to multiprocessing.cpu_count() // 2.
     pin_memory : bool, optional
         If True, data loaders will copy tensors into CUDA pinned
         memory before returning them. See pytorch documentation
@@ -97,7 +98,7 @@ class OverlappedSpeechDetection(SegmentationTaskMixin, Task):
         snr_max: float = 10.0,
         domain: str = None,
         batch_size: int = 32,
-        num_workers: int = 1,
+        num_workers: int = None,
         pin_memory: bool = False,
         optimizer: Callable[[Iterable[Parameter]], Optimizer] = None,
         learning_rate: float = 1e-3,
@@ -117,7 +118,7 @@ class OverlappedSpeechDetection(SegmentationTaskMixin, Task):
 
         self.specifications = Specifications(
             problem=Problem.BINARY_CLASSIFICATION,
-            scale=Scale.FRAME,
+            resolution=Resolution.FRAME,
             duration=self.duration,
             classes=[
                 "overlap",
