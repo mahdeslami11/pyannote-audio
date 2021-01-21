@@ -1,3 +1,13 @@
+:warning: Checkout [`develop`](https://github.com/pyannote/pyannote-audio/tree/develop) branch to see what is coming in `pyannote.audio` 2.0:
+
+- a much smaller and cleaner codebase
+- Python-first API (the *good old* pyannote-audio CLI will still be available, though)
+- multi-GPU and TPU training thanks to [pytorch-lightning](https://pytorchlightning.ai/)
+- data augmentation with [torch-audiomentations](https://github.com/asteroid-team/torch-audiomentations)
+- [huggingface](https://huggingface.co) model hosting
+- [prodigy](https://prodi.gy) recipes for audio annotations
+- online [demo](https://share.streamlit.io/pyannote/pyannote-audio-demo/main/app.py) based on [streamlit](https://www.streamlit.io)
+
 # Neural speaker diarization with `pyannote-audio`
 
 <p align="center"> 
