@@ -3,7 +3,7 @@
 
 # The MIT License (MIT)
 
-# Copyright (c) 2019-2020 CNRS
+# Copyright (c) 2019-2021 CNRS
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -340,9 +340,7 @@ def main():
             else:
                 try:
                     warm_start = torch.hub.load(
-                        # TODO. change to 'pyannote/pyannote-audio'
-                        # after 2.0 release
-                        "pyannote/pyannote-audio:develop",
+                        "pyannote/pyannote-audio",
                         pretrained,
                     ).weights_pt_
                 except Exception as e:
