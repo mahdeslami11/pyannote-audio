@@ -21,6 +21,7 @@
 # SOFTWARE.
 
 import os
+from types import MethodType
 from typing import Optional
 
 import hydra
@@ -36,6 +37,7 @@ from pytorch_lightning.utilities.seed import seed_everything
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch_audiomentations.utils.config import from_dict as get_augmentation
 
+from pyannote.audio.core.callback import GraduallyUnfreeze
 from pyannote.database import FileFinder, get_protocol
 
 
@@ -57,10 +59,6 @@ def main(cfg: DictConfig) -> Optional[float]:
 
     # TODO: configure layer freezing
 
-    # TODO: when fine-tuning or transfer learning a model whose last layers
-    # needs to change -- fit those last layers for a bit before fitting the
-    # whole model
-
     # TODO: remove this OmegaConf.to_container hack once bug is solved:
     # https://github.com/omry/omegaconf/pull/443
     augmentation = (
@@ -69,27 +67,31 @@ def main(cfg: DictConfig) -> Optional[float]:
         else None
     )
 
-    # instantiate task
+    # instantiate task and validation metric
     task = instantiate(cfg.task, protocol, augmentation=augmentation)
-
-    model = instantiate(cfg.model)
-    model.task = task
-
-    # setup optimizer and scheduler
-    task.setup(stage="fit")
-    model.setup(stage="fit")
-
-    model.optimizer = instantiate(cfg.optimizer, model.parameters())
-
     monitor, direction = task.val_monitor
 
-    # TODO: allow configuring scheduler
-    if monitor is None:
-        model.scheduler = None
-    else:
-        model.scheduler = {
+    # instantiate model
+    pretrained = cfg.model["_target_"] == "pyannote.audio.cli.pretrained"
+    model = instantiate(cfg.model, task=task)
+
+    if not pretrained:
+        # add task-dependent layers so that later call to model.parameters()
+        # does return all layers (even task-dependent ones). this is already
+        # done for pretrained models (TODO: check that this is true)
+        task.setup(stage="fit")
+        model.setup(stage="fit")
+
+    def configure_optimizers(self):
+
+        optimizer = instantiate(cfg.optimizer, self.parameters())
+
+        if monitor is None:
+            return optimizer
+
+        lr_scheduler = {
             "scheduler": ReduceLROnPlateau(
-                model.optimizer,
+                optimizer,
                 mode=direction,
                 factor=0.5,
                 patience=20,
@@ -105,12 +107,19 @@ def main(cfg: DictConfig) -> Optional[float]:
             "monitor": monitor,
             "strict": True,
         }
+        return {"optimizer": optimizer, "lr_scheduler": lr_scheduler}
+
+    model.configure_optimizers = MethodType(configure_optimizers, model)
 
     callbacks = []
 
-    if model.scheduler is not None:
-        learning_rate_monitor = LearningRateMonitor(logging_interval="step")
-        callbacks.append(learning_rate_monitor)
+    if pretrained:
+        # for fine-tuning and/or transfer learning,
+        # we start by fitting task-dependent layers
+        callbacks.append(GraduallyUnfreeze())
+
+    learning_rate_monitor = LearningRateMonitor(logging_interval="step")
+    callbacks.append(learning_rate_monitor)
 
     checkpoint = ModelCheckpoint(
         monitor=monitor,
@@ -146,6 +155,9 @@ def main(cfg: DictConfig) -> Optional[float]:
     # TODO: defaults to one-GPU training (one GPU is available)
 
     trainer = instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
+
+    # TODO: make sure that (potentially computationnally expensive task.setup(fit) is not called twice)
+
     trainer.fit(model)
 
     # save paths to best models
