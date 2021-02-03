@@ -155,9 +155,6 @@ def main(cfg: DictConfig) -> Optional[float]:
     # TODO: defaults to one-GPU training (one GPU is available)
 
     trainer = instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
-
-    # TODO: make sure that (potentially computationnally expensive task.setup(fit) is not called twice)
-
     trainer.fit(model)
 
     # save paths to best models

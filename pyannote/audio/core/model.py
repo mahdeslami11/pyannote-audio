@@ -362,19 +362,27 @@ class Model(pl.LightningModule):
 
     def setup(self, stage=None):
 
+        # list of layers before adding task-dependent layers
         before = set((name, id(module)) for name, module in self.named_modules())
 
+        # add layers that depends on task specs (e.g. final classification layer)
         self.build()
 
+        # add (trainable) loss function (e.g. ArcFace has its own set of trainable weights)
         if stage == "fit":
+            # let task know about the model
             self.task.model = self
+            # setup custom loss function
             self.task.setup_loss_func()
+            # setup custom validation metrics
             self.task.setup_validation_metric()
             # this is to make sure introspection is performed here, once and for all
             _ = self.introspection
 
+        # list of layers after adding task-dependent layers
         after = set((name, id(module)) for name, module in self.named_modules())
 
+        # list of task-dependent layers
         self.task_dependent = list(name for name, _ in after - before)
 
     def on_save_checkpoint(self, checkpoint):
