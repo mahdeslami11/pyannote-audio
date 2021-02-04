@@ -57,6 +57,8 @@ def main(cfg: DictConfig) -> Optional[float]:
 
     protocol = get_protocol(cfg.protocol, preprocessors={"audio": FileFinder()})
 
+    patience: int = cfg["patience"]
+
     # TODO: configure layer freezing
 
     # TODO: remove this OmegaConf.to_container hack once bug is solved:
@@ -94,10 +96,10 @@ def main(cfg: DictConfig) -> Optional[float]:
                 optimizer,
                 mode=direction,
                 factor=0.5,
-                patience=20,
+                patience=4 * patience,
                 threshold=0.0001,
                 threshold_mode="rel",
-                cooldown=10,
+                cooldown=2 * patience,
                 min_lr=0,
                 eps=1e-08,
                 verbose=False,
@@ -116,7 +118,7 @@ def main(cfg: DictConfig) -> Optional[float]:
     if pretrained:
         # for fine-tuning and/or transfer learning,
         # we start by fitting task-dependent layers
-        callbacks.append(GraduallyUnfreeze())
+        callbacks.append(GraduallyUnfreeze(patience=patience))
 
     learning_rate_monitor = LearningRateMonitor(logging_interval="step")
     callbacks.append(learning_rate_monitor)
@@ -124,7 +126,7 @@ def main(cfg: DictConfig) -> Optional[float]:
     checkpoint = ModelCheckpoint(
         monitor=monitor,
         mode=direction,
-        save_top_k=None if monitor is None else 3,
+        save_top_k=None if monitor is None else 5,
         period=1,
         save_last=True,
         save_weights_only=False,
@@ -139,7 +141,7 @@ def main(cfg: DictConfig) -> Optional[float]:
             monitor=monitor,
             mode=direction,
             min_delta=0.0,
-            patience=100,  # TODO: make it an hyper-parameter
+            patience=12 * patience,
             strict=True,
             verbose=False,
         )
