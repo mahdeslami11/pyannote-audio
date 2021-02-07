@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2020 CNRS
+# Copyright (c) 2020-2021 CNRS
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -20,25 +20,23 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-
+import math
 import random
-from typing import Callable, Iterable, Literal
+from collections import Counter
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
-from pytorch_lightning.metrics.functional.classification import auroc
-from scipy.optimize import linear_sum_assignment
-from torch.nn import Parameter
-from torch.optim import Optimizer
 from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
+from typing_extensions import Literal
 
 from pyannote.audio.core.io import Audio
-from pyannote.audio.core.model import Model
-from pyannote.audio.core.task import Problem, Scale, Task, TaskSpecification
+from pyannote.audio.core.task import Problem, Resolution, Specifications, Task
 from pyannote.audio.tasks.segmentation.mixins import SegmentationTaskMixin
+from pyannote.audio.utils.permutation import permutate
 from pyannote.audio.utils.random import create_rng_for_worker
-from pyannote.core import Segment
+from pyannote.core import Segment, SlidingWindow
 from pyannote.database import Protocol
 
 
@@ -55,9 +53,6 @@ class Segmentation(SegmentationTaskMixin, Task):
         pyannote.database protocol
     duration : float, optional
         Chunks duration. Defaults to 2s.
-    num_speakers : int, optional
-        Maximum number of speakers per chunk. Defaults to 4. Note that one should account
-        for artificial chunks (see below) when setting this number.
     augmentation_probability : float, optional
         Probability of artificial overlapping chunks. A probability of 0.6 means that,
         on average, 40% of training chunks are "real" chunks, while 60% are artifical
@@ -73,18 +68,16 @@ class Segmentation(SegmentationTaskMixin, Task):
         Number of training samples per batch. Defaults to 32.
     num_workers : int, optional
         Number of workers used for generating training samples.
+        Defaults to multiprocessing.cpu_count() // 2.
     pin_memory : bool, optional
         If True, data loaders will copy tensors into CUDA pinned
         memory before returning them. See pytorch documentation
         for more details. Defaults to False.
-    optimizer : callable, optional
-        Callable that takes model parameters as input and returns
-        an Optimizer instance. Defaults to `torch.optim.Adam`.
-    learning_rate : float, optional
-        Learning rate. Defaults to 1e-3.
     augmentation : BaseWaveformTransform, optional
         torch_audiomentations waveform transform, used by dataloader
         during training.
+    vad_loss : {"bce", "mse"}, optional
+        Add voice activity detection loss.
     """
 
     ACRONYM = "seg"
@@ -93,18 +86,16 @@ class Segmentation(SegmentationTaskMixin, Task):
         self,
         protocol: Protocol,
         duration: float = 2.0,
-        num_speakers: int = 4,
         augmentation_probability: float = 0.5,
         snr_min: float = 0.0,
         snr_max: float = 10.0,
         domain: str = None,
         batch_size: int = 32,
-        num_workers: int = 1,
+        num_workers: int = None,
         pin_memory: bool = False,
-        optimizer: Callable[[Iterable[Parameter]], Optimizer] = None,
-        learning_rate: float = 1e-3,
         augmentation: BaseWaveformTransform = None,
         loss: Literal["bce", "mse"] = "bce",
+        vad_loss: Literal["bce", "mse"] = None,
     ):
 
         super().__init__(
@@ -113,12 +104,8 @@ class Segmentation(SegmentationTaskMixin, Task):
             batch_size=batch_size,
             num_workers=num_workers,
             pin_memory=pin_memory,
-            optimizer=optimizer,
-            learning_rate=learning_rate,
             augmentation=augmentation,
         )
-
-        self.num_speakers = num_speakers
 
         self.augmentation_probability = augmentation_probability
         self.snr_min = snr_min
@@ -128,14 +115,7 @@ class Segmentation(SegmentationTaskMixin, Task):
         if loss not in ["bce", "mse"]:
             raise ValueError("'loss' must be one of {'bce', 'mse'}.")
         self.loss = loss
-
-        self.specifications = TaskSpecification(
-            problem=Problem.MULTI_LABEL_CLASSIFICATION,
-            scale=Scale.FRAME,
-            duration=self.duration,
-            classes=[f"speaker#{i+1}" for i in range(self.num_speakers)],
-            permutation_invariant=True,
-        )
+        self.vad_loss = vad_loss
 
     def setup(self, stage=None):
 
@@ -143,26 +123,59 @@ class Segmentation(SegmentationTaskMixin, Task):
 
         if stage == "fit":
 
+            # TODO: handle this domain thing in SegmentationTaskMixin
+
             # build the list of domains
             if self.domain is not None:
-                for f in self.train:
+                for f in self._train:
                     f["domain"] = f[self.domain]
-                self.domains = list(set(f["domain"] for f in self.train))
+                self.domains = list(set(f["domain"] for f in self._train))
 
-    def setup_loss_func(self, model: Model):
+            # slide a window (with 1s step) over the whole training set
+            # and keep track of the number of speakers in each location
+            num_speakers = []
+            for file in self._train:
+                start = file["annotated"][0].start
+                end = file["annotated"][-1].end
+                window = SlidingWindow(
+                    start=start,
+                    end=end,
+                    duration=self.duration,
+                    step=1.0,
+                )
+                for chunk in window:
+                    num_speakers.append(len(file["annotation"].crop(chunk).labels()))
 
-        batch_size, num_frames, num_speakers = model(self.example_input_array).shape
-        hamming_window = torch.hamming_window(num_frames, periodic=False).reshape(-1, 1)
-        model.register_buffer("hamming_window", hamming_window)
+            # because there might a few outliers, estimate the upper bound for the
+            # number of speakers as the 99th percentile
 
-        val_sample_weight = hamming_window.expand(
-            batch_size, num_frames, num_speakers
-        ).flatten()
+            num_speakers, counts = zip(*list(Counter(num_speakers).items()))
+            num_speakers, counts = np.array(num_speakers), np.array(counts)
 
-        model.register_buffer("val_sample_weight", val_sample_weight)
+            sorting_indices = np.argsort(num_speakers)
+            num_speakers = num_speakers[sorting_indices]
+            counts = counts[sorting_indices]
+
+            self.num_speakers = num_speakers[
+                np.where(np.cumsum(counts) / np.sum(counts) > 0.99)[0][0]
+            ]
+
+            # TODO: add a few more speakers to make sure we don't skip
+            # too many artificial chunks (which might result in less
+            # overlap that we think we have)
+
+            # now that we know about the number of speakers upper bound
+            # we can set task specifications
+            self.specifications = Specifications(
+                problem=Problem.MULTI_LABEL_CLASSIFICATION,
+                resolution=Resolution.FRAME,
+                duration=self.duration,
+                classes=[f"speaker#{i+1}" for i in range(self.num_speakers)],
+                permutation_invariant=True,
+            )
 
     def prepare_y(self, one_hot_y: np.ndarray):
-        """Get segmentation targets
+        """Zero-pad segmentation targets
 
         Parameters
         ----------
@@ -173,25 +186,15 @@ class Segmentation(SegmentationTaskMixin, Task):
 
         Returns
         -------
-        y : (num_frames, ) np.ndarray
-            y[t] = 1 if there is two or more active speakers at tth frame, 0 otherwise.
+        padded_one_hot_y : (num_frames, self.num_speakers) np.ndarray
+            One-hot-encoding of current chunk speaker activity:
+                * one_hot_y[t, k] = 1 if kth speaker is active at tth frame
+                * one_hot_y[t, k] = 0 otherwise.
         """
 
         num_frames, num_speakers = one_hot_y.shape
 
-        # in case there are too many speakers, remove less talkative ones
-        if num_speakers > self.num_speakers:
-
-            # TODO: warn
-
-            most_talkative = np.argpartition(
-                np.sum(one_hot_y, axis=0), num_speakers - self.num_speakers
-            )[-self.num_speakers :]
-
-            one_hot_y = np.take(one_hot_y, most_talkative, axis=1)
-
-        # in case there are not enough speakers, add empty ones
-        elif num_speakers < self.num_speakers:
+        if num_speakers < self.num_speakers:
             one_hot_y = np.pad(
                 one_hot_y, ((0, 0), (0, self.num_speakers - num_speakers))
             )
@@ -200,7 +203,7 @@ class Segmentation(SegmentationTaskMixin, Task):
 
     def train__iter__helper(self, rng: random.Random, domain: str = None):
 
-        train = self.train
+        train = self._train
 
         if domain is not None:
             train = [f for f in train if f["domain"] == domain]
@@ -241,7 +244,7 @@ class Segmentation(SegmentationTaskMixin, Task):
         """
 
         # create worker-specific random number generator
-        rng = create_rng_for_worker(self.current_epoch)
+        rng = create_rng_for_worker(self.model.current_epoch)
 
         if self.domain is None:
             chunks = self.train__iter__helper(rng)
@@ -262,8 +265,14 @@ class Segmentation(SegmentationTaskMixin, Task):
             X, one_hot_y, labels = next(chunks)
 
             if rng.random() > self.augmentation_probability:
-                # yield it as it is
-                yield {"X": X, "y": self.prepare_y(one_hot_y)}
+                if one_hot_y.shape[1] > self.num_speakers:
+                    # skip chunks that happen to have too many speakers
+                    pass
+
+                else:
+                    # pad and yield good ones
+                    yield {"X": X, "y": self.prepare_y(one_hot_y)}
+
                 continue
 
             #  generate second random chunk
@@ -292,36 +301,80 @@ class Segmentation(SegmentationTaskMixin, Task):
             # handle corner case when the same label is active at the same time in both chunks
             combined_y = np.minimum(combined_y, 1, out=combined_y)
 
-            yield {"X": X, "y": self.prepare_y(combined_y)}
+            if combined_y.shape[1] > self.num_speakers:
+                # skip artificial chunks that happen to have too many speakers
+                pass
 
-    def permutate(self, y: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
-        """Find permutation that minimizes average pairwise mean squared error"""
+            else:
+                # pad and yield good ones
+                yield {"X": X, "y": self.prepare_y(combined_y)}
 
-        # TODO use Asteroid's PIT wrapper
+    def val__getitem__(self, idx):
+        f, chunk = self._validation[idx]
+        X, one_hot_y, _ = self.prepare_chunk(f, chunk, duration=self.duration)
 
-        batch_size, num_samples, num_speakers = y_pred.shape
+        # since number of speakers is estimated from the training set,
+        # we might encounter validation chunks that have more speakers.
+        # in that case, we arbirarily remove last speakers
+        if one_hot_y.shape[1] > self.num_speakers:
+            one_hot_y = one_hot_y[:, : self.num_speakers]
 
-        cost = np.zeros((num_speakers, num_speakers))
-        mapping = []
-        for b in range(batch_size):
-            for r in range(num_speakers):
-                for h in range(num_speakers):
-                    cost[r, h] = (
-                        F.mse_loss(y[b, :, r], y_pred[b, :, h], reduction="mean")
-                        .detach()
-                        .cpu()
-                    )
-            mapping.append(linear_sum_assignment(cost, maximize=False)[1])
+        y = self.prepare_y(one_hot_y)
 
-        return torch.stack([y_pred[b, :, mapping[b]] for b in range(batch_size)])
+        return {"X": X, "y": y}
 
-    def training_step(self, model: Model, batch, batch_idx: int):
+    def segmentation_loss(self, y: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
+        """Permutation-invariant segmentation loss
+
+        Parameters
+        ----------
+        y : (batch_size, num_frames, num_speakers) torch.Tensor
+            Speaker activity.
+        y_pred : torch.Tensor
+            Speaker activations
+
+        Returns
+        -------
+        seg_loss : torch.Tensor
+            Permutation-invariant segmentation loss
+        """
+
+        permutated_y_pred, _ = permutate(y, y_pred)
+
+        if self.loss == "bce":
+            seg_losses = F.binary_cross_entropy(
+                permutated_y_pred, y.float(), reduction="none"
+            )
+
+        elif self.loss == "mse":
+            seg_losses = F.mse_loss(permutated_y_pred, y.float(), reduction="none")
+
+        seg_loss = torch.mean(seg_losses)
+
+        return seg_loss
+
+    def voice_activity_detection_loss(
+        self, y: torch.Tensor, y_pred: torch.Tensor
+    ) -> torch.Tensor:
+
+        vad_y_pred, _ = torch.max(y_pred, dim=2, keepdim=False)
+        vad_y, _ = torch.max(y.float(), dim=2, keepdim=False)
+
+        if self.vad_loss == "bce":
+            vad_losses = F.binary_cross_entropy(vad_y_pred, vad_y, reduction="none")
+
+        elif self.vad_loss == "mse":
+            vad_losses = F.mse_loss(vad_y_pred, vad_y, reduction="none")
+
+        vad_loss = torch.mean(vad_losses)
+
+        return vad_loss
+
+    def training_step(self, batch, batch_idx: int):
         """Compute permutation-invariant binary cross-entropy
 
         Parameters
         ----------
-        model : Model
-            Model currently being trained.
         batch : (usually) dict of torch.Tensor
             Current batch.
         batch_idx: int
@@ -334,20 +387,38 @@ class Segmentation(SegmentationTaskMixin, Task):
         """
 
         X, y = batch["X"], batch["y"]
-        y_pred = self.permutate(y, model(X))
 
-        batch_size, num_frames, num_speakers = y_pred.shape
+        y_pred = self.model(X)
+        # loss = self.segmentation_loss(model, y, y_pred)
+        seg_loss = self.segmentation_loss(y, y_pred)
 
-        if self.loss == "bce":
-            losses = F.binary_cross_entropy(y_pred, y.float(), reduction="none")
-        elif self.loss == "mse":
-            losses = F.mse_loss(y_pred, y.float(), reduction="none")
+        self.model.log(
+            f"{self.ACRONYM}@train_seg_loss",
+            seg_loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=False,
+            logger=True,
+        )
 
-        # give less importance to start and end of chunks
-        # using the same (Hamming) window as inference.
-        loss = torch.mean(losses * model.hamming_window)
+        if self.vad_loss is None:
+            vad_loss = 0.0
 
-        model.log(
+        else:
+            vad_loss = self.voice_activity_detection_loss(y, y_pred)
+
+            self.model.log(
+                f"{self.ACRONYM}@train_vad_loss",
+                vad_loss,
+                on_step=True,
+                on_epoch=True,
+                prog_bar=False,
+                logger=True,
+            )
+
+        loss = seg_loss + vad_loss
+
+        self.model.log(
             f"{self.ACRONYM}@train_loss",
             loss,
             on_step=True,
@@ -357,41 +428,106 @@ class Segmentation(SegmentationTaskMixin, Task):
         )
         return {"loss": loss}
 
-    def validation_step(self, model: Model, batch, batch_idx: int):
-        """
+    def validation_step(self, batch, batch_idx: int):
+        """Compute validation F-score
 
         Parameters
         ----------
-        model : Model
-            Model currently being validated.
         batch : dict of torch.Tensor
             Current batch.
         batch_idx: int
             Batch index.
         """
 
+        # move metric to model device
+        self.val_fbeta.to(self.model.device)
+
         X, y = batch["X"], batch["y"]
-        y_pred = self.permutate(y, model(X))
+        # X = (batch_size, num_channels, num_samples)
+        # y = (batch_size, num_frames, num_classes)
 
-        try:
-            auc = auroc(
-                y_pred.flatten(),
-                y.flatten(),
-                # give less importance to start and end of chunks
-                # using the same (Hamming) window as inference.
-                sample_weight=model.val_sample_weight,
-                pos_label=1.0,
-            )
-        except ValueError:
-            # in case of all positive or all negative samples, auroc will raise a ValueError.
-            return
+        y_pred = self.model(X)
 
-        model.log(
-            f"{self.ACRONYM}@val_auroc",
-            auc,
+        permutated_y_pred, _ = permutate(y, y_pred)
+
+        # y_pred = (batch_size, num_frames, num_classes)
+
+        val_fbeta = self.val_fbeta(
+            permutated_y_pred[:, ::10].squeeze(), y[:, ::10].squeeze()
+        )
+        self.model.log(
+            f"{self.ACRONYM}@val_fbeta",
+            val_fbeta,
             on_step=False,
             on_epoch=True,
             prog_bar=True,
             logger=True,
-            sync_dist=True,
+        )
+
+        if batch_idx > 0:
+            return
+
+        # visualize first 9 validation samples of first batch in Tensorboard
+        X = X.cpu().numpy()
+        y = y.float().cpu().numpy()
+        y_pred = y_pred.cpu().numpy()
+        permutated_y_pred = permutated_y_pred.cpu().numpy()
+
+        # prepare 3 x 3 grid (or smaller if batch size is smaller)
+        num_samples = min(self.batch_size, 9)
+        nrows = math.ceil(math.sqrt(num_samples))
+        ncols = math.ceil(num_samples / nrows)
+        fig, axes = plt.subplots(
+            nrows=4 * nrows,
+            ncols=ncols,
+            figsize=(15, 10),
+        )
+
+        # reshape target so that there is one line per class when plottingit
+        y[y == 0] = np.NaN
+        y *= np.arange(y.shape[2])
+
+        # plot each sample
+        for sample_idx in range(num_samples):
+
+            # find where in the grid it should be plotted
+            row_idx = sample_idx // nrows
+            col_idx = sample_idx % ncols
+
+            # plot waveform
+            ax_wav = axes[row_idx * 4 + 0, col_idx]
+            sample_X = np.mean(X[sample_idx], axis=0)
+            ax_wav.plot(sample_X)
+            ax_wav.set_xlim(0, len(sample_X))
+            ax_wav.get_xaxis().set_visible(False)
+            ax_wav.get_yaxis().set_visible(False)
+
+            # plot target
+            ax_ref = axes[row_idx * 4 + 1, col_idx]
+            sample_y = y[sample_idx]
+            ax_ref.plot(sample_y)
+            ax_ref.set_xlim(0, len(sample_y))
+            ax_ref.set_ylim(-1, sample_y.shape[1])
+            ax_ref.get_xaxis().set_visible(False)
+            ax_ref.get_yaxis().set_visible(False)
+
+            # plot prediction
+            ax_hyp = axes[row_idx * 4 + 2, col_idx]
+            sample_y_pred = y_pred[sample_idx]
+            ax_hyp.plot(sample_y_pred)
+            ax_hyp.set_ylim(-0.1, 1.1)
+            ax_hyp.set_xlim(0, len(sample_y))
+            ax_hyp.get_xaxis().set_visible(False)
+
+            # plot permutated prediction
+            ax_map = axes[row_idx * 4 + 3, col_idx]
+            sample_y_pred_map = permutated_y_pred[sample_idx]
+            ax_map.plot(sample_y_pred_map)
+            ax_map.set_ylim(-0.1, 1.1)
+            ax_map.set_xlim(0, len(sample_y))
+
+        plt.tight_layout()
+
+        self.model.logger.experiment.add_figure(
+            f"{self.ACRONYM}@val_samples", fig, self.model.current_epoch
         )

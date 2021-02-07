@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2020 CNRS
+# Copyright (c) 2020-2021 CNRS
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -20,20 +20,22 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import math
 import warnings
-from functools import cached_property
+from collections import Counter, deque
 from pathlib import Path
-from typing import Dict, List, Optional, Text, Tuple, Union
+from typing import Any, Callable, Deque, Dict, List, Optional, Text, Union
 
 import numpy as np
 import torch
 from einops import rearrange
 from pytorch_lightning.utilities.memory import is_oom_error
-from scipy.optimize import linear_sum_assignment
 
 from pyannote.audio.core.io import AudioFile
-from pyannote.audio.core.model import Model, ModelIntrospection, load_from_checkpoint
-from pyannote.audio.core.task import Scale, TaskSpecification
+from pyannote.audio.core.model import Model
+from pyannote.audio.core.task import Resolution
+from pyannote.audio.utils.permutation import permutate
+from pyannote.audio.utils.progress import InferenceProgressHook
 from pyannote.core import Segment, SlidingWindow, SlidingWindowFeature
 
 TaskName = Union[Text, None]
@@ -62,6 +64,16 @@ class Inference:
     device : torch.device, optional
         Device used for inference. Defaults to `model.device`.
         In case `device` and `model.device` are different, model is sent to device.
+    progress_hook : {callable, True, str}, optional
+        When a callable is provided, it is called everytime a batch is processed
+        with two integer arguments:
+        - the number of chunks that have been processed so far
+        - the total number of chunks
+        Set to True (or a descriptive string) to display a tqdm progress bar.
+    use_auth_token : str, optional
+        When loading a private huggingface.co model, set `use_auth_token`
+        to True or to a string containing your hugginface.co authentication
+        token that can be obtained by running `huggingface-cli login`
     """
 
     def __init__(
@@ -72,23 +84,29 @@ class Inference:
         duration: float = None,
         step: float = None,
         batch_size: int = 32,
+        progress_hook: Union[bool, Text, Callable[[int, int], Any]] = False,
+        use_auth_token: Union[Text, None] = None,
     ):
 
         self.model = (
             model
             if isinstance(model, Model)
-            else load_from_checkpoint(Path(model), strict=False)
+            else Model.from_pretrained(
+                Path(model),
+                map_location=device,
+                strict=False,
+                use_auth_token=use_auth_token,
+            )
         )
 
         if window not in ["sliding", "whole"]:
             raise ValueError('`window` must be "sliding" or "whole".')
 
-        for task_name, task_specifications in self.task_specifications:
-            scale = task_specifications.scale
-            if scale == Scale.FRAME and window == "whole":
+        for task_name, specifications in self.model.specifications.items():
+            if specifications.resolution == Resolution.FRAME and window == "whole":
                 warnings.warn(
-                    'Using "whole" `window` inference with a frame-based model might lead to bad results '
-                    'and huge memory consumption: it is recommended to set `window` to "sliding".'
+                    'Using "whole" `window` inference with a frame-based model might lead to bad results '
+                    'and huge memory consumption: it is recommended to set `window` to "sliding".'
                 )
 
         self.window = window
@@ -101,8 +119,12 @@ class Inference:
         self.model.to(self.device)
 
         # chunk duration used during training. for multi-task,
-        #  we assume that the same duration was used for each task.
-        training_duration = self.task_specifications[0][1].duration
+        # we assume that the same duration was used for each task.
+        if self.model.is_multi_task:
+            _, specifications = next(iter(self.model.specifications.items()))
+        else:
+            specifications = self.model.specifications
+        training_duration = specifications.duration
 
         if duration is None:
             duration = training_duration
@@ -113,7 +135,7 @@ class Inference:
             )
         self.duration = duration
 
-        #  step between consecutive chunks
+        # step between consecutive chunks
         if step is None:
             step = 0.1 * self.duration
         if step > self.duration:
@@ -126,17 +148,15 @@ class Inference:
 
         self.batch_size = batch_size
 
-    @cached_property
-    def is_multi_task(self) -> bool:
-        return self.model.is_multi_task
-
-    @cached_property
-    def task_specifications(self) -> List[Tuple[TaskName, TaskSpecification]]:
-        return list(self.model.hparams.task_specifications.items())
-
-    @cached_property
-    def model_introspection(self) -> List[Tuple[TaskName, ModelIntrospection]]:
-        return list(self.model.hparams.model_introspection.items())
+        if callable(progress_hook):
+            pass
+        elif isinstance(progress_hook, Text):
+            progress_hook = InferenceProgressHook(desc=progress_hook)
+        elif progress_hook:
+            progress_hook = InferenceProgressHook()
+        else:
+            progress_hook = None
+        self.progress_hook = progress_hook
 
     def infer(self, chunks: torch.Tensor) -> Dict[TaskName, np.ndarray]:
         """Forward pass
@@ -153,7 +173,7 @@ class Inference:
 
         Notes
         -----
-        If model is mono-task, `task_name` is set to None.
+        If model is mono-task, `task_name` is set to None.
         """
 
         with torch.no_grad():
@@ -168,7 +188,7 @@ class Inference:
                 else:
                     raise exception
 
-        if self.is_multi_task:
+        if self.model.is_multi_task:
             return {
                 task_name: output.cpu().numpy() for task_name, output in outputs.items()
             }
@@ -190,8 +210,8 @@ class Inference:
         Returns
         -------
         output : SlidingWindowFeature
-            Model output. Shape is (num_chunks, dimension) for chunk-scaled tasks,
-            and (num_frames, dimension) for frame-scaled tasks.
+            Model output. Shape is (num_chunks, dimension) for chunk-level tasks,
+            and (num_frames, dimension) for frame-level tasks.
 
         Notes
         -----
@@ -216,8 +236,8 @@ class Inference:
 
             one_output = self.infer(waveform[None, :])
 
-            for task_name, task_specifications in self.task_specifications:
-                if task_specifications.scale == Scale.CHUNK:
+            for task_name, specifications in self.model.specifications.items():
+                if specifications.resolution == Resolution.CHUNK:
                     frames = SlidingWindow(
                         start=0.0, duration=self.duration, step=self.step
                     )
@@ -236,9 +256,10 @@ class Inference:
                         one_output[task_name][0], frames
                     )
 
-            if self.is_multi_task:
+            if self.model.is_multi_task:
                 return results
-            return results[None]
+            else:
+                return results.popitem()[1]
 
         # prepare (and count) sliding audio chunks
         step_size: int = round(self.step * sample_rate)
@@ -258,26 +279,33 @@ class Inference:
             has_last_chunk = False
 
         outputs: Dict[TaskName, Union[List[np.ndarray], np.ndarray]] = {
-            task_name: list() for task_name, _ in self.task_specifications
+            task_name: list() for task_name, _ in self.model.specifications.items()
         }
+
+        if self.progress_hook is not None:
+            self.progress_hook(0, num_chunks + has_last_chunk)
 
         # slide over audio chunks in batch
         for c in np.arange(0, num_chunks, self.batch_size):
+
             batch: torch.Tensor = chunks[c : c + self.batch_size]
 
             output = self.infer(batch)
             for task_name, task_output in output.items():
                 outputs[task_name].append(task_output)
 
+            if self.progress_hook is not None:
+                self.progress_hook(c + 1, num_chunks + has_last_chunk)
+
         outputs = {
             task_name: np.vstack(task_outputs)
             for task_name, task_outputs in outputs.items()
         }
 
-        for t, (task_name, task_specifications) in enumerate(self.task_specifications):
+        for task_name, specifications in self.model.specifications.items():
             # if model outputs just one vector per chunk, return the outputs as they are
-            #  (i.e. do not aggregate them)
-            if task_specifications.scale == Scale.CHUNK:
+            # (i.e. do not aggregate them)
+            if specifications.resolution == Resolution.CHUNK:
                 frames = SlidingWindow(
                     start=0.0, duration=self.duration, step=self.step
                 )
@@ -290,14 +318,18 @@ class Inference:
                     task_name: output[0]
                     for task_name, output in self.infer(last_chunk[None]).items()
                 }
+                if self.progress_hook is not None:
+                    self.progress_hook(
+                        num_chunks + has_last_chunk, num_chunks + has_last_chunk
+                    )
 
-            #  use model introspection to estimate the total number of frames
-            _, model_introspection = self.model_introspection[t]
-            num_frames, dimension = model_introspection(num_samples)
-            num_frames_per_chunk, _ = model_introspection(window_size)
-            num_frames_per_step, _ = model_introspection(step_size)
+            # use model introspection to estimate the total number of frames
+            introspection = self.model.introspection[task_name]
+            num_frames, dimension = introspection(num_samples)
+            num_frames_per_chunk, _ = introspection(window_size)
+            num_frames_per_step, _ = introspection(step_size)
             if has_last_chunk:
-                num_frames_last_step, _ = model_introspection(last_step_size)
+                num_frames_last_step, _ = introspection(last_step_size)
 
             # Hamming window used for overlap-add aggregation
             hamming = np.hamming(num_frames_per_chunk).reshape(-1, 1)
@@ -314,20 +346,22 @@ class Inference:
                 (num_frames, 1), dtype=np.float32
             )
 
-            # loop on the outputs of sliding chunks
-            if task_specifications.permutation_invariant:
-                previous_output = None
+            if specifications.permutation_invariant:
+                # previous outputs that overlap with current output by at least 50%
+                maxlen = max(1, math.floor(0.5 * self.duration / self.step))
+                previous_outputs: Deque[np.ndarray] = deque([], maxlen=maxlen)
 
+            # loop on the outputs of sliding chunks
             for c, output in enumerate(outputs[task_name]):
                 start_sample = c * step_size
-                start_frame, _ = model_introspection(start_sample)
+                start_frame, _ = introspection(start_sample)
 
-                if task_specifications.permutation_invariant:
+                if specifications.permutation_invariant:
                     if c > 0:
                         output = self.permutate(
-                            previous_output, output, num_frames_per_step
+                            np.stack(previous_outputs), output, num_frames_per_step
                         )
-                    previous_output = output
+                    previous_outputs.append(output)
 
                 aggregated_output[start_frame : start_frame + num_frames_per_chunk] += (
                     output * hamming
@@ -340,12 +374,12 @@ class Inference:
             # process last (right-aligned) chunk separately
             if has_last_chunk:
 
-                if (
-                    task_specifications.permutation_invariant
-                    and previous_output is not None
-                ):
+                if specifications.permutation_invariant and previous_outputs:
+                    # FIXME
                     last_output[task_name] = self.permutate(
-                        previous_output, last_output[task_name], num_frames_last_step
+                        previous_outputs[-1][np.newaxis],
+                        last_output[task_name],
+                        num_frames_last_step,
                     )
 
                 aggregated_output[-num_frames_per_chunk:] += (
@@ -353,7 +387,7 @@ class Inference:
                 )
                 overlapping_chunk_count[-num_frames_per_chunk:] += hamming
 
-            aggregated_output /= overlapping_chunk_count
+            aggregated_output /= np.maximum(overlapping_chunk_count, 1e-12)
 
             frames = SlidingWindow(
                 start=0,
@@ -363,46 +397,49 @@ class Inference:
 
             results[task_name] = SlidingWindowFeature(aggregated_output, frames)
 
-        if self.is_multi_task:
+        if self.model.is_multi_task:
             return results
-        return results[None]
+        else:
+            return results.popitem()[1]
 
     def permutate(
-        self, output: np.ndarray, next_output: np.ndarray, step_size: int
+        self, past_outputs: Deque[np.ndarray], output: np.ndarray, step_size: int
     ) -> np.ndarray:
-        """Find correlation-maximizing permutation between two consecutive outputs
+        """Find optimal permutation between past outputs and current output
 
         Parameters
         ----------
+        past_outputs : deque of(num_frames, num_classes) np.ndarray
+            Previous output
         output : (num_frames, num_classes) np.ndarray
-            Output
-        next_output : (num_frames, num_classes) np.ndarray
-            Next output
+            Current output
         step_size : int
-            Step between output and next_output. Should be smaller than num_frames.
+            Step between previous and current outputs.
+            Should be smaller than num_frames.
 
         Returns
         -------
         perm_output : (num_frames, num_classes) np.ndarray
-            Permutated next_output.
+            Permutated current output.
         """
 
         num_frames, num_classes = output.shape
-        hamming = np.hamming(num_frames)
-        weights = np.sqrt(hamming[step_size:] * hamming[: num_frames - step_size])
 
-        cost = np.zeros((num_classes, num_classes))
-        for o in range(num_classes):
-            for n in range(num_classes):
-                cost[o, n] = np.average(
-                    (output[step_size:, o] - next_output[: num_frames - step_size, n])
-                    ** 2,
-                    weights=weights,
-                )
+        permutations = []
+        for o, past_output in enumerate(reversed(past_outputs)):
+            permutation = permutate(
+                past_output[np.newaxis, (o + 1) * step_size :],
+                output[: num_frames - (o + 1) * step_size],
+            )[1][0]
+            permutations.append(permutation)
 
-        mapping = linear_sum_assignment(cost, maximize=False)[1]
+        # TODO: track regions where more than one permutation is selected
+        # as those regions should probably not be trusted too much
+        # TODO: be even smarter and re-initialize tracking at those regions
 
-        return next_output[:, mapping]
+        # choose most frequent permutation
+        ((permutation, _),) = Counter(permutations).most_common(1)
+        return output[:, permutation]
 
     def __call__(
         self, file: AudioFile
@@ -440,9 +477,10 @@ class Inference:
             task_name: task_output[0]
             for task_name, task_output in self.infer(waveform[None]).items()
         }
-        if self.is_multi_task:
+        if self.model.is_multi_task:
             return outputs
-        return outputs[None]
+        else:
+            return outputs.popitem()[1]
 
     def crop(
         self,
@@ -472,7 +510,7 @@ class Inference:
             errors that may result in a different number of audio samples for two
             chunks of the same duration.
 
-        # TODO: document "fixed" better in pyannote.audio.core.io.Audio
+        # TODO: document "fixed" better in pyannote.audio.core.io.Audio
 
         Returns
         -------
@@ -496,7 +534,7 @@ class Inference:
             waveform, sample_rate = self.model.audio.crop(file, chunk, fixed=fixed)
             output = self.slide(waveform, sample_rate)
 
-            if self.is_multi_task:
+            if self.model.is_multi_task:
                 shifted_output = dict()
                 for task_name, task_output in output.items():
                     frames = task_output.sliding_window
@@ -527,9 +565,11 @@ class Inference:
                 task_name: task_output[0]
                 for task_name, task_output in self.infer(waveform[None]).items()
             }
-            if self.is_multi_task:
+
+            if self.model.is_multi_task:
                 return outputs
-            return outputs[None]
+            else:
+                return outputs.popitem()[1]
 
         else:
             raise NotImplementedError(

@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2020-2021 CNRS
+# Copyright (c) 2021 CNRS
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -20,25 +20,25 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from .segmentation.voice_activity_detection import VoiceActivityDetection  # isort:skip
-from .segmentation.speaker_change_detection import SpeakerChangeDetection  # isort:skip
-from .segmentation.overlapped_speech_detection import (  # isort:skip
-    OverlappedSpeechDetection,
-)
 
-from .segmentation.speaker_tracking import SpeakerTracking  # isort:skip
+from typing import Text
 
-from .segmentation.segmentation import Segmentation  # isort:skip
+from tqdm import tqdm
 
-from .embedding.arcface import SupervisedRepresentationLearningWithArcFace  # isort:skip
 
-SpeakerEmbedding = SupervisedRepresentationLearningWithArcFace
+class InferenceProgressHook:
+    """Default inference progress bar"""
 
-__all__ = [
-    "Segmentation",
-    "VoiceActivityDetection",
-    "SpeakerChangeDetection",
-    "OverlappedSpeechDetection",
-    "SpeakerTracking",
-    "SpeakerEmbedding",
-]
+    def __init__(self, desc: Text = None):
+        self.desc = desc
+
+    def __call__(self, chunk_idx, num_chunks):
+
+        if chunk_idx == 0:
+            self.pbar = tqdm(desc=self.desc, total=num_chunks, unit="chunks")
+            self.chunk_idx = chunk_idx
+
+        self.pbar.update(chunk_idx - self.chunk_idx)
+        self.chunk_idx = chunk_idx
+        if self.chunk_idx == num_chunks:
+            self.pbar.close()
