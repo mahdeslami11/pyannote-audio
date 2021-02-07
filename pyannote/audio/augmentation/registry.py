@@ -20,27 +20,22 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from functools import singledispatch
 
-import torch
-import torch.nn as nn
-from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
-
-from pyannote.audio.core.model import Model
+from torch.nn import Module, ModuleDict
 
 
 def register_augmentation(
-    augmentation: nn.Module,
-    module: nn.Module,
+    augmentation: Module,
+    module: Module,
     when: str = "input",
 ):
     """Register augmentation
 
     Parameters
     ----------
-    augmentation : nn.Module
+    augmentation : Module
         Augmentation module.
-    module : nn.Module
+    module : Module
         Module whose input or output should be augmented.
     when : {'input', 'output'}
         Whether to apply augmentation on the input or the output.
@@ -49,7 +44,7 @@ def register_augmentation(
     Usage
     -----
 
-    class Net(nn.Module):
+    class Net(Module):
         def __init__(self):
             super().__init__()
             self.spectogram = Spectrogram()
@@ -61,7 +56,7 @@ def register_augmentation(
 
     net = Net()
 
-    class AddNoise(nn.Module):
+    class AddNoise(Module):
         def forward(self, waveforms):
             if not self.training:
                 return waveforms
@@ -72,7 +67,7 @@ def register_augmentation(
     # AddNoise will be automatically applied to `net` input
     register_augmentation(AddNoise(), net, when='input')
 
-    class SpecAugment(nn.Module):
+    class SpecAugment(Module):
         def forward(self, spectrograms):
             if not self.training:
                 return spectrograms
@@ -94,41 +89,39 @@ def register_augmentation(
 
     """
 
-    wrapped_augmentation = wrap_augmentation(augmentation, module, when=when)
-
     if not hasattr(module, "__augmentation"):
-        module.__augmentation = nn.ModuleDict()
+        module.__augmentation = ModuleDict()
         module.__augmentation_handle = dict()
 
     # unregister any augmentation that might already exist
     if when in module.__augmentation:
         unregister_augmentation(module, when=when)
 
-    module.__augmentation[when] = wrapped_augmentation
+    module.__augmentation[when] = augmentation
 
     if when == "input":
 
         def input_hook(augmented_module, input):
-            return wrapped_augmentation(*input)
+            return augmentation(*input)
 
         handle = module.register_forward_pre_hook(input_hook)
 
     elif when == "output":
 
         def output_hook(augmented_module, input, output):
-            return wrapped_augmentation(output)
+            return augmentation(output)
 
         handle = module.register_forward_hook(output_hook)
 
     module.__augmentation_handle[when] = handle
 
 
-def unregister_augmentation(module: nn.Module, when: str = "input"):
+def unregister_augmentation(module: Module, when: str = "input"):
     """Unregister augmentation
 
     Parameters
     ----------
-    module : nn.Module
+    module : Module
         Module whose augmentation should be removed.
     when : {'input', 'output'}
         Whether to remove augmentation of the input or the output.
@@ -143,51 +136,6 @@ def unregister_augmentation(module: nn.Module, when: str = "input"):
         raise ValueError(f"Module has no registered {when} augmentation.")
 
     del module.__augmentation[when]
-
     # unregister forward hook using previously stored handle
     handle = module.__augmentation_handle.pop(when)
     handle.remove()
-
-
-@singledispatch
-def wrap_augmentation(augmentation, model: Model, when: str = "input"):
-    return augmentation
-
-
-#  =============================================================================
-#  Support for torch-audiomentations waveform transforms
-#  =============================================================================
-
-
-class TorchAudiomentationsWaveformTransformWrapper(nn.Module):
-    def __init__(
-        self, augmentation: BaseWaveformTransform, model: Model, when: str = "input"
-    ):
-        super().__init__()
-
-        self.augmentation = augmentation
-
-        if not isinstance(model, Model):
-            raise TypeError(
-                f"torch-audiomentations waveform transforms can only be applied to `pyannote.audio.Model` instances: "
-                f"you tried with a {model.__class__.__name__} instance."
-            )
-        if when != "input":
-            raise ValueError(
-                f"torch-audiomentations waveform transforms can only be applied to the model input: "
-                f"you tried with the {when}."
-            )
-
-        self.sample_rate_ = model.audio.sample_rate
-
-    def forward(self, waveforms: torch.Tensor) -> torch.Tensor:
-        return self.augmentation(waveforms, self.sample_rate_)
-
-
-@wrap_augmentation.register
-def _(augmentation: BaseWaveformTransform, model: Model, when: str = "input"):
-    return TorchAudiomentationsWaveformTransformWrapper(augmentation, model, when=when)
-
-
-# TODO: add support for future torch-audiomentations Compose transforms
-# See https://github.com/asteroid-team/torch-audiomentations/issues/23

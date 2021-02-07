@@ -37,6 +37,7 @@ from torch.utils.data import DataLoader, Dataset, IterableDataset
 from torch.utils.data._utils.collate import default_collate
 from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
 
+from pyannote.audio.augmentation.registry import register_augmentation
 from pyannote.audio.utils.protocol import check_protocol
 from pyannote.database import Protocol
 
@@ -172,8 +173,11 @@ class Task(pl.LightningDataModule):
         num_workers: int = None,
         pin_memory: bool = False,
         augmentation: BaseWaveformTransform = None,
+        gpu_transforms: bool = True,
     ):
         super().__init__()
+        # gpu transforms
+        self.gpu_transforms = gpu_transforms and torch.cuda.is_available()
 
         # dataset
         self.protocol = check_protocol(protocol)
@@ -232,13 +236,16 @@ class Task(pl.LightningDataModule):
         If `specifications` attribute has not been set in `__init__`,
         `setup` is your last chance to set it.
         """
-        pass
 
     def setup_loss_func(self):
         pass
 
     def setup_validation_metric(self):
         pass
+
+    def _setup_augmentations(self):
+        if self.gpu_transforms and self.augmentation is not None:
+            register_augmentation(self.augmentation, self.model)
 
     @property
     def is_multi_task(self) -> bool:
@@ -257,7 +264,7 @@ class Task(pl.LightningDataModule):
 
     def collate_fn(self, batch):
         collated_batch = default_collate(batch)
-        if self.augmentation is not None:
+        if self.augmentation is not None and not self.gpu_transforms:
             collated_batch["X"] = self.augmentation(
                 collated_batch["X"], sample_rate=self.model.hparams.sample_rate
             )
@@ -313,7 +320,6 @@ class Task(pl.LightningDataModule):
         loss : {str: torch.tensor}
             {"loss": loss} with additional "loss_{task_name}" keys for multi-task models.
         """
-
         X, y = batch["X"], batch["y"]
         y_pred = self.model(X)
 

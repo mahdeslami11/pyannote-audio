@@ -378,6 +378,8 @@ class Model(pl.LightningModule):
             self.task.setup_validation_metric()
             # this is to make sure introspection is performed here, once and for all
             _ = self.introspection
+            # Put the augmentations on the gpu if we can by registering them on the model
+            self.task._setup_augmentations()
 
         # list of layers after adding task-dependent layers
         after = set((name, id(module)) for name, module in self.named_modules())
