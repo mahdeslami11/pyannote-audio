@@ -19,23 +19,21 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
-
-from torch.nn import Module, ModuleDict
+import torch.nn as nn
 
 
 def register_augmentation(
-    augmentation: Module,
-    module: Module,
+    augmentation: nn.Module,
+    module: nn.Module,
     when: str = "input",
 ):
     """Register augmentation
 
     Parameters
     ----------
-    augmentation : Module
+    augmentation : nn.Module
         Augmentation module.
-    module : Module
+    module : nn.Module
         Module whose input or output should be augmented.
     when : {'input', 'output'}
         Whether to apply augmentation on the input or the output.
@@ -44,7 +42,7 @@ def register_augmentation(
     Usage
     -----
 
-    class Net(Module):
+    class Net(nn.Module):
         def __init__(self):
             super().__init__()
             self.spectogram = Spectrogram()
@@ -56,7 +54,7 @@ def register_augmentation(
 
     net = Net()
 
-    class AddNoise(Module):
+    class AddNoise(nn.Module):
         def forward(self, waveforms):
             if not self.training:
                 return waveforms
@@ -67,7 +65,7 @@ def register_augmentation(
     # AddNoise will be automatically applied to `net` input
     register_augmentation(AddNoise(), net, when='input')
 
-    class SpecAugment(Module):
+    class SpecAugment(nn.Module):
         def forward(self, spectrograms):
             if not self.training:
                 return spectrograms
@@ -90,7 +88,7 @@ def register_augmentation(
     """
 
     if not hasattr(module, "__augmentation"):
-        module.__augmentation = ModuleDict()
+        module.__augmentation = nn.ModuleDict()
         module.__augmentation_handle = dict()
 
     # unregister any augmentation that might already exist
@@ -116,12 +114,12 @@ def register_augmentation(
     module.__augmentation_handle[when] = handle
 
 
-def unregister_augmentation(module: Module, when: str = "input"):
+def unregister_augmentation(module: nn.Module, when: str = "input"):
     """Unregister augmentation
 
     Parameters
     ----------
-    module : Module
+    module : nn.Module
         Module whose augmentation should be removed.
     when : {'input', 'output'}
         Whether to remove augmentation of the input or the output.
@@ -136,6 +134,7 @@ def unregister_augmentation(module: Module, when: str = "input"):
         raise ValueError(f"Module has no registered {when} augmentation.")
 
     del module.__augmentation[when]
+
     # unregister forward hook using previously stored handle
     handle = module.__augmentation_handle.pop(when)
     handle.remove()

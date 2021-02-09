@@ -35,6 +35,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from torch.utils.data._utils.collate import default_collate
+from torch_audiomentations import Compose
 from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
 
 from pyannote.audio.augmentation.registry import register_augmentation
@@ -243,7 +244,15 @@ class Task(pl.LightningDataModule):
     def setup_validation_metric(self):
         pass
 
+    def _set_augmentation_sample_rate(self, augmentation: BaseWaveformTransform):
+        augmentation.sample_rate = self.model.hparams.sample_rate
+        if isinstance(augmentation, Compose):
+            for m in augmentation.transforms:
+                if isinstance(m, BaseWaveformTransform):
+                    self._set_augmentation_sample_rate(m)
+
     def _setup_augmentations(self):
+        self._set_augmentation_sample_rate(self.augmentation)
         if self.gpu_transforms and self.augmentation is not None:
             register_augmentation(self.augmentation, self.model)
 
