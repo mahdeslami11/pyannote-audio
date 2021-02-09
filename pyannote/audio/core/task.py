@@ -245,6 +245,8 @@ class Task(pl.LightningDataModule):
         pass
 
     def _set_augmentation_sample_rate(self, augmentation: BaseWaveformTransform):
+        if augmentation is None:
+            return
         augmentation.sample_rate = self.model.hparams.sample_rate
         if isinstance(augmentation, Compose):
             for m in augmentation.transforms:
