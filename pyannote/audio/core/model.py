@@ -766,7 +766,7 @@ class Model(pl.LightningModule):
                 model_id = checkpoint
                 revision = None
             url = hf_hub_url(
-                model_id=model_id, filename=HF_PYTORCH_WEIGHTS_NAME, revision=revision
+                model_id, filename=HF_PYTORCH_WEIGHTS_NAME, revision=revision
             )
 
             path_for_pl = cached_download(
