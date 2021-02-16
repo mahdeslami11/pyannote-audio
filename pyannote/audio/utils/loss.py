@@ -46,7 +46,10 @@ def interpolate(target: torch.Tensor, weight: torch.Tensor = None):
     num_frames = target.shape[1]
     if weight is not None and weight.shape[1] != num_frames:
         weight = F.interpolate(
-            weight.transpose(1, 2), size=num_frames, mode="linear"
+            weight.transpose(1, 2),
+            size=num_frames,
+            mode="linear",
+            align_corners=False,
         ).transpose(1, 2)
     return weight
 
