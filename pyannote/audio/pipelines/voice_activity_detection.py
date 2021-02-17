@@ -31,11 +31,11 @@ import numpy as np
 from pytorch_lightning import Trainer
 from torch.optim import SGD
 
-from pyannote.audio import Inference, Model
+from pyannote.audio import Inference
 from pyannote.audio.core.callback import GraduallyUnfreeze
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.core.pipeline import Pipeline
-from pyannote.audio.pipelines.utils import PipelineModel, get_model
+from pyannote.audio.pipelines.utils import PipelineInference, get_inference
 from pyannote.audio.tasks import VoiceActivityDetection as VoiceActivityDetectionTask
 from pyannote.audio.utils.signal import Binarize
 from pyannote.core import Annotation
@@ -174,36 +174,39 @@ class AdaptiveVoiceActivityDetectionPipeline(Pipeline):
 
     See also
     --------
-    pyannote.audio.pipelines.utils.get_model
+    pyannote.audio.pipelines.utils.get_inference
 
     """
 
     def __init__(
         self,
-        segmentation: PipelineModel = "pyannote/Segmentation-PyanNet-DIHARD",
-        augmentation = None,
+        segmentation: PipelineInference = "pyannote/Segmentation-PyanNet-DIHARD",
+        augmentation=None,
         fscore: bool = False,
     ):
         super().__init__()
 
         # pretrained segmentation model
-        self.seg_model: Model = get_model(segmentation)
+        self.inference: Inference = get_inference(segmentation)
         self.augmentation = augmentation
 
         self.fscore = fscore
 
         self.num_epochs = Integer(0, 5)
+
+        # TODO: make it discrete
         self.learning_rate = LogUniform(1e-6, 1e-1)
-        # TODO: add batch_size hyper-parameter
-        
+
+        # TODO: make it an hyper-parameter
+        self.batch_size = 32
+
     def apply(self, file: AudioFile) -> Annotation:
 
         # create a copy of file
         file = dict(file)
 
         # get segmentation scores from pretrained segmentation model
-        seg_inference = Inference(self.seg_model)
-        file["seg"] = seg_inference(file)
+        file["seg"] = self.inference(file)
 
         # infer voice activity detection scores
         file["vad"] = np.max(file["seg"], axis=1, keepdims=True)
@@ -232,13 +235,19 @@ class AdaptiveVoiceActivityDetectionPipeline(Pipeline):
         # create a dummy train-only protocol where `file` is the only training file
         class DummyProtocol(SpeakerDiarizationProtocol):
             name = "DummyProtocol"
+
             def train_iter(self):
                 yield file
 
-        # TODO: add hard augmentation
-        vad_task = VoiceActivityDetectionTask(DummyProtocol(), weight="confidence", augmentation=self.augmentation)
+        vad_task = VoiceActivityDetectionTask(
+            DummyProtocol(),
+            duration=self.inference.duration,
+            weight="confidence",
+            batch_size=self.batch_size,
+            augmentation=self.augmentation,
+        )
 
-        vad_model = deepcopy(self.seg_model)
+        vad_model = deepcopy(self.inference.model)
         vad_model.task = vad_task
 
         def configure_optimizers(model):
@@ -256,8 +265,8 @@ class AdaptiveVoiceActivityDetectionPipeline(Pipeline):
             )
             trainer.fit(vad_model)
 
-        vad_inference = Inference(vad_model)
-        file["vad"] = vad_inference(file)
+        inference = Inference(vad_model, batch_size=self.inference.batch_size)
+        file["vad"] = inference(file)
 
         return vad_pipeline(file)
 
