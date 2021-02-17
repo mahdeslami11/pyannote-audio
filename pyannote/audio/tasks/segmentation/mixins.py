@@ -452,7 +452,7 @@ class SegmentationTaskMixin:
     def train__len__(self):
         # Number of training samples in one epoch
         duration = sum(file["_annotated_duration"] for file in self._train)
-        return math.ceil(duration / self.duration)
+        return max(self.batch_size, math.ceil(duration / self.duration))
 
     def val__getitem__(self, idx):
         f, chunk = self._validation[idx]
