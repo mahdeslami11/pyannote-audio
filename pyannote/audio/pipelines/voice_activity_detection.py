@@ -50,7 +50,7 @@ from pyannote.metrics.detection import (
     DetectionErrorRate,
     DetectionPrecisionRecallFMeasure,
 )
-from pyannote.pipeline.parameter import Integer, LogUniform, Uniform
+from pyannote.pipeline.parameter import Categorical, Integer, LogUniform, Uniform
 
 
 class OracleVoiceActivityDetection(Pipeline):
@@ -197,9 +197,11 @@ class AdaptiveVoiceActivityDetection(Pipeline):
     Hyper-parameters
     ----------------
     num_epochs : int
-        Number of fine-tuning epochs (where one epoch = going through the file once)
+        Number of epochs (where one epoch = going through the file once).
+    batch_size : int
+        Batch size.
     learning_rate : float
-        Learning rate for fine-tuning
+        Learning rate.
 
     See also
     --------
@@ -220,13 +222,9 @@ class AdaptiveVoiceActivityDetection(Pipeline):
 
         self.fscore = fscore
 
-        self.num_epochs = Integer(0, 5)
-
-        # TODO: make it discrete
-        self.learning_rate = LogUniform(1e-6, 1e-1)
-
-        # TODO: make it an hyper-parameter
-        self.batch_size = 32
+        self.num_epochs = Integer(0, 10)
+        self.batch_size = Categorical([1, 2, 4, 8, 16, 32])
+        self.learning_rate = LogUniform(1e-6, 1)
 
     def apply(self, file: AudioFile) -> Annotation:
 
