@@ -185,7 +185,10 @@ def get_model(model: PipelineModel) -> Model:
     return model
 
 
-def get_inference(inference: Union[Inference, Model, Text, Mapping]) -> Inference:
+PipelineInference = Union[Inference, Model, Text, Mapping]
+
+
+def get_inference(inference: PipelineInference) -> Inference:
     """Load inference
 
     Parameter
