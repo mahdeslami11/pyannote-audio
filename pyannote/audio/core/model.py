@@ -364,9 +364,14 @@ class Model(pl.LightningModule):
 
         # list of layers before adding task-dependent layers
         before = set((name, id(module)) for name, module in self.named_modules())
-
+        
         # add layers that depends on task specs (e.g. final classification layer)
         self.build()
+
+        # move layers that were added by build() to same device as the rest of the model
+        for name, module in self.named_modules():
+            if (name, id(module)) not in before:
+                module.to(self.device)
 
         # add (trainable) loss function (e.g. ArcFace has its own set of trainable weights)
         if stage == "fit":
@@ -387,8 +392,8 @@ class Model(pl.LightningModule):
 
     def on_save_checkpoint(self, checkpoint):
 
-        #  put everything pyannote.audio-specific under pyannote.audio
-        #  to avoid any future conflicts with pytorch-lightning updates
+        # put everything pyannote.audio-specific under pyannote.audio
+        # to avoid any future conflicts with pytorch-lightning updates
         checkpoint["pyannote.audio"] = {
             "versions": {
                 "torch": torch.__version__,
