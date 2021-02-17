@@ -22,24 +22,36 @@
 
 """Voice activity detection pipelines"""
 
+import tempfile
+from copy import deepcopy
+from types import MethodType
 from typing import Text, Union
 
-from pyannote.audio import Inference
+import numpy as np
+from pytorch_lightning import Trainer
+from torch.optim import SGD
+
+from pyannote.audio import Inference, Model
+from pyannote.audio.core.callback import GraduallyUnfreeze
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.core.pipeline import Pipeline
+from pyannote.audio.pipelines.utils import PipelineModel, get_model
+from pyannote.audio.tasks import VoiceActivityDetection as VoiceActivityDetectionTask
 from pyannote.audio.utils.signal import Binarize
 from pyannote.core import Annotation
+from pyannote.database.protocol import SpeakerDiarizationProtocol
 from pyannote.metrics.detection import (
     DetectionErrorRate,
     DetectionPrecisionRecallFMeasure,
 )
-from pyannote.pipeline.parameter import Uniform
+from pyannote.pipeline.parameter import Integer, LogUniform, Uniform
 
 
 class OracleVoiceActivityDetection(Pipeline):
     """Oracle voice activity detection pipeline"""
 
-    def apply(self, file: AudioFile) -> Annotation:
+    @staticmethod
+    def apply(file: AudioFile) -> Annotation:
         """Return groundtruth voice activity detection
 
         Parameter
@@ -126,6 +138,127 @@ class VoiceActivityDetection(Pipeline):
         speech = self._binarize(speech_probability)
         speech.uri = file.get("uri", None)
         return speech.to_annotation(generator="string", modality="speech")
+
+    def get_metric(self) -> Union[DetectionErrorRate, DetectionPrecisionRecallFMeasure]:
+        """Return new instance of detection metric"""
+
+        if self.fscore:
+            return DetectionPrecisionRecallFMeasure(collar=0.0, skip_overlap=False)
+
+        return DetectionErrorRate(collar=0.0, skip_overlap=False)
+
+    def get_direction(self):
+        if self.fscore:
+            return "maximize"
+        return "minimize"
+
+
+class AdaptiveVoiceActivityDetectionPipeline(Pipeline):
+    """
+
+    Parameters
+    ----------
+    segmentation : Model, str, or dict, optional
+        Pretrained segmentation model.
+        Defaults to "pyannote/Segmentation-PyanNet-DIHARD".
+    fscore : bool, optional
+        Optimize (precision/recall) fscore. Defaults to optimizing detection
+        error rate.
+
+    Hyper-parameters
+    ----------------
+    num_epochs : int
+        Number of epochs for self-supervised transfer learning.
+    learning_rate : float
+        Learning rate for self-supervised transfer learning.
+
+    See also
+    --------
+    pyannote.audio.pipelines.utils.get_model
+
+    """
+
+    def __init__(
+        self,
+        segmentation: PipelineModel = "pyannote/Segmentation-PyanNet-DIHARD",
+        fscore: bool = False,
+    ):
+        super().__init__()
+
+        # pretrained segmentation model
+        self.seg_model: Model = get_model(segmentation)
+
+        self.fscore = fscore
+
+        self.num_epochs = Integer(0, 5)
+        self.learning_rate = LogUniform(1e-6, 1e-1)
+
+    def apply(self, file: AudioFile) -> Annotation:
+
+        # create a copy of file
+        file = dict(file)
+
+        # get segmentation scores from pretrained segmentation model
+        seg_inference = Inference(self.seg_model)
+        file["seg"] = seg_inference(file)
+
+        # infer voice activity detection scores
+        file["vad"] = np.max(file["seg"], axis=1, keepdims=True)
+
+        # apply voice activity detection pipeline with default parameters
+        vad_pipeline = VoiceActivityDetection("vad").instantiate(
+            {
+                "onset": 0.5,
+                "offset": 0.5,
+                "min_duration_on": 0.0,
+                "min_duration_off": 0.0,
+            }
+        )
+        file["annotation"] = vad_pipeline(file)
+
+        # do not fine tune the model if num_epochs is zero
+        if self.num_epochs == 0:
+            return file["annotation"]
+
+        # infer model confidence from segmentation scores
+        # TODO: scale confidence differently (e.g. via an additional binarisation threshold hyper-parameter)
+        file["confidence"] = np.min(
+            np.abs((file["seg"] - 0.5) / 0.5), axis=1, keepdims=True
+        )
+
+        # create a dummy train-only protocol where `file` is the only training file
+        def train_iter(self):
+            yield file
+
+        dummy_protocol = type(
+            "DummyProtocol", SpeakerDiarizationProtocol, {"train_iter": train_iter}
+        )
+
+        # TODO: add hard augmentation
+        vad_task = VoiceActivityDetectionTask(dummy_protocol, weight="confidence")
+
+        vad_model = deepcopy(self.seg_model)
+        vad_model.task = vad_task
+
+        def configure_optimizers(self):
+            return SGD(self.parameters(), lr=self.learning_rate)
+
+        vad_model.configure_optimizers = MethodType(configure_optimizers, vad_model)
+
+        with tempfile.TemporaryDirectory() as default_root_dir:
+            trainer = Trainer(
+                max_epochs=self.num_epochs,
+                gpus=1,
+                callbacks=[GraduallyUnfreeze(patience=self.num_epochs + 1)],
+                checkpoint_callback=False,
+                default_root_dir=default_root_dir,
+            )
+            trainer.fit(vad_model)
+
+        vad_inference = Inference(vad_model)
+        file["vad"] = vad_inference(file)
+
+        return vad_pipeline(file)
 
     def get_metric(self) -> Union[DetectionErrorRate, DetectionPrecisionRecallFMeasure]:
         """Return new instance of detection metric"""
