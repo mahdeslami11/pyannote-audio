@@ -88,11 +88,11 @@ class SegmentationTaskMixin:
                         pass
 
                     else:
-                        raise NotImplementedError(
-                            f"Protocol {self.protocol.name} defines a {key} entry of type {type(value)} "
+                        msg = (
+                            f"Protocol '{self.protocol.name}' defines a '{key}' entry of type {type(value)} "
                             f"which we do not know how to handle."
                         )
-
+                        warnings.warn(msg)
                     file[key] = value
 
                 self._train.append(file)
