@@ -66,7 +66,7 @@ trainer.fit(model)
 Predictions are obtained by wrapping the model into the `Inference` engine.
 
 ```python
-from pyannote.audio.core.inference import Inference
+from pyannote.audio import Inference
 inference = Inference(model)
 predictions = inference('audio.wav')
 ```
@@ -83,8 +83,8 @@ Fine-tuning is as easy as setting the `task` attribute, freezing early layers an
 *Here, we fine-tune on AMI dataset a voice activity detection model pretrained on DIHARD dataset.*
 
 ```python
-from pyannote.audio.core.model import load_from_checkpoint
-model = load_from_checkpoint('hbredin/VoiceActivityDetection-PyanNet-DIHARD')
+from pyannote.audio import Model
+model = Model.from_pretrained('hbredin/VoiceActivityDetection-PyanNet-DIHARD')
 model.task = VoiceActivityDetection(ami)
 model.freeze_up_to('sincnet')
 trainer.fit(model)
@@ -100,6 +100,18 @@ model.task = osd
 trainer.fit(model)
 ```
 
+Default optimizer (`Adam` with default parameters) is automatically set up for you.  Customizing optimizer (and scheduler) requires overriding [`model.configure_optimizers`](https://pytorch-lightning.readthedocs.io/en/stable/api/pytorch_lightning.core.lightning.html#pytorch_lightning.core.lightning.LightningModule.configure_optimizers) method:
+
+```python
+from types import MethodType
+from torch.optim import SGD
+from torch.optim.lr_scheduler import ExponentialLR
+def configure_optimizers(self):
+    return {"optimizer": SGD(self.parameters()),
+            "lr_scheduler": ExponentialLR(optimizer, 0.9)}
+model.configure_optimizers = MethodType(configure_optimizers, model)
+trainer.fit(model)
+```
 
 ## Contributing
 

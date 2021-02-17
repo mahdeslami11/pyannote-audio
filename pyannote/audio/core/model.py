@@ -31,6 +31,7 @@ from urllib.parse import urlparse
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+import torch.optim
 from huggingface_hub import cached_download, hf_hub_url
 from pytorch_lightning.utilities.cloud_io import load as pl_load
 from semver import VersionInfo
@@ -361,19 +362,38 @@ class Model(pl.LightningModule):
 
     def setup(self, stage=None):
 
+        # list of layers before adding task-dependent layers
+        before = set((name, id(module)) for name, module in self.named_modules())
+        
+        # add layers that depends on task specs (e.g. final classification layer)
         self.build()
 
+        # move layers that were added by build() to same device as the rest of the model
+        for name, module in self.named_modules():
+            if (name, id(module)) not in before:
+                module.to(self.device)
+
+        # add (trainable) loss function (e.g. ArcFace has its own set of trainable weights)
         if stage == "fit":
+            # let task know about the model
             self.task.model = self
+            # setup custom loss function
             self.task.setup_loss_func()
+            # setup custom validation metrics
             self.task.setup_validation_metric()
             # this is to make sure introspection is performed here, once and for all
             _ = self.introspection
 
+        # list of layers after adding task-dependent layers
+        after = set((name, id(module)) for name, module in self.named_modules())
+
+        # list of task-dependent layers
+        self.task_dependent = list(name for name, _ in after - before)
+
     def on_save_checkpoint(self, checkpoint):
 
-        #  put everything pyannote.audio-specific under pyannote.audio
-        #  to avoid any future conflicts with pytorch-lightning updates
+        # put everything pyannote.audio-specific under pyannote.audio
+        # to avoid any future conflicts with pytorch-lightning updates
         checkpoint["pyannote.audio"] = {
             "versions": {
                 "torch": torch.__version__,
@@ -422,7 +442,7 @@ class Model(pl.LightningModule):
 
         self.specifications = checkpoint["pyannote.audio"]["specifications"]
 
-        self.build()
+        self.setup()
 
         self.introspection = checkpoint["pyannote.audio"]["introspection"]
 
@@ -494,9 +514,8 @@ class Model(pl.LightningModule):
     def validation_epoch_end(self, outputs):
         return self.task.validation_epoch_end(outputs)
 
-    # optimizer is delegated to the task for the same reason as above
     def configure_optimizers(self):
-        return self.task.configure_optimizers()
+        return torch.optim.Adam(self.parameters(), lr=1e-3)
 
     def _helper_up_to(
         self, module_name: Text, requires_grad: bool = False
@@ -521,6 +540,7 @@ class Model(pl.LightningModule):
 
             for parameter in module.parameters(recurse=True):
                 parameter.requires_grad = requires_grad
+            module.train(mode=requires_grad)
 
             updated_modules.append(name)
 
@@ -604,6 +624,7 @@ class Model(pl.LightningModule):
 
             for parameter in module.parameters(recurse=True):
                 parameter.requires_grad = requires_grad
+            module.train(requires_grad)
 
             # keep track of updated modules
             updated_modules.append(name)
@@ -615,7 +636,9 @@ class Model(pl.LightningModule):
         return updated_modules
 
     def freeze_by_name(
-        self, modules: Union[Text, List[Text]], recurse: bool = True
+        self,
+        modules: Union[Text, List[Text]],
+        recurse: bool = True,
     ) -> List[Text]:
         """Freeze modules
 
@@ -644,7 +667,9 @@ class Model(pl.LightningModule):
         )
 
     def unfreeze_by_name(
-        self, modules: Union[List[Text], Text], recurse: bool = True
+        self,
+        modules: Union[List[Text], Text],
+        recurse: bool = True,
     ) -> List[Text]:
         """Unfreeze modules
 
@@ -652,6 +677,9 @@ class Model(pl.LightningModule):
         ----------
         modules : list of str, str
             Name(s) of modules to unfreeze
+        recurse : bool, optional
+            If True (default), unfreezes parameters of these modules and all submodules.
+            Otherwise, only unfreezes parameters that are direct members of these modules.
 
         Returns
         -------
@@ -665,99 +693,154 @@ class Model(pl.LightningModule):
 
         return self._helper_by_name(modules, recurse=recurse, requires_grad=True)
 
-
-def load_from_checkpoint(
-    checkpoint_path: Union[Path, Text],
-    map_location=None,
-    hparams_file: Union[Path, Text] = None,
-    strict: bool = True,
-    use_auth_token: Union[Text, None] = None,
-    **kwargs,
-) -> Model:
-    """Load model from checkpoint
-
-    Parameters
-    ----------
-    checkpoint_path : Path or str
-        Path to checkpoint, or a remote URL, or a model identifier from
-        the huggingface.co model hub.
-    map_location: optional
-        If your checkpoint saved a GPU model and you now load on CPUs
-        or a different number of GPUs, use this to map to the new setup.
-        The behaviour is the same as in torch.load().
-    hparams_file : Path or str, optional
-        Path to a .yaml file with hierarchical structure as in this example:
-            drop_prob: 0.2
-            dataloader:
-                batch_size: 32
-        You most likely won’t need this since Lightning will always save the
-        hyperparameters to the checkpoint. However, if your checkpoint weights
-        do not have the hyperparameters saved, use this method to pass in a .yaml
-        file with the hparams you would like to use. These will be converted
-        into a dict and passed into your Model for use.
-    strict : bool, optional
-        Whether to strictly enforce that the keys in checkpoint_path match
-        the keys returned by this module’s state dict. Defaults to True.
-    use_auth_token : str, optional
-        When loading a private huggingface.co model, set `use_auth_token`
-        to True or to a string containing your hugginface.co authentication
-        token that can be obtained by running `huggingface-cli login`
-    kwargs: optional
-        Any extra keyword args needed to init the model.
-        Can also be used to override saved hyperparameter values.
-
-    Returns
-    -------
-    model : Model
-        Model
-    """
-
-    # pytorch-lightning expects str, not Path.
-    checkpoint_path = str(checkpoint_path)
-    if hparams_file is not None:
-        hparams_file = str(hparams_file)
-
-    # resolve the checkpoint_path to
-    # something that pl will handle
-    if os.path.isfile(checkpoint_path):
-        path_for_pl = checkpoint_path
-    elif urlparse(checkpoint_path).scheme in ("http", "https"):
-        path_for_pl = checkpoint_path
-    else:
-        # Finally, let's try to find it on Hugging Face model hub
-        # e.g. julien-c/voice-activity-detection is a valid model id
-        # and  julien-c/voice-activity-detection@main supports specifying a commit/branch/tag.
-        if "@" in checkpoint_path:
-            model_id = checkpoint_path.split("@")[0]
-            revision = checkpoint_path.split("@")[1]
-        else:
-            model_id = checkpoint_path
-            revision = None
-        url = hf_hub_url(
-            model_id=model_id, filename=HF_PYTORCH_WEIGHTS_NAME, revision=revision
-        )
-
-        path_for_pl = cached_download(
-            url=url,
-            library_name="pyannote",
-            library_version=__version__,
-            cache_dir=CACHE_DIR,
-            use_auth_token=use_auth_token,
-        )
-
-    # obtain model class from the checkpoint
-    checkpoint = pl_load(path_for_pl, map_location=map_location)
-
-    module_name: str = checkpoint["pyannote.audio"]["architecture"]["module"]
-    module = import_module(module_name)
-
-    class_name: str = checkpoint["pyannote.audio"]["architecture"]["class"]
-    Klass: Model = getattr(module, class_name)
-
-    return Klass.load_from_checkpoint(
-        path_for_pl,
-        map_location=map_location,
-        hparams_file=hparams_file,
-        strict=strict,
+    @classmethod
+    def from_pretrained(
+        cls,
+        checkpoint: Union[Path, Text],
+        map_location=None,
+        hparams_file: Union[Path, Text] = None,
+        strict: bool = True,
+        task: Task = None,
+        use_auth_token: Union[Text, None] = None,
         **kwargs,
-    )
+    ) -> "Model":
+        """Load pretrained model
+
+        Parameters
+        ----------
+        checkpoint : Path or str
+            Path to checkpoint, or a remote URL, or a model identifier from
+            the huggingface.co model hub.
+        map_location: optional
+            Same role as in torch.load().
+            Defaults to `lambda storage, loc: storage`.
+        hparams_file : Path or str, optional
+            Path to a .yaml file with hierarchical structure as in this example:
+                drop_prob: 0.2
+                dataloader:
+                    batch_size: 32
+            You most likely won’t need this since Lightning will always save the
+            hyperparameters to the checkpoint. However, if your checkpoint weights
+            do not have the hyperparameters saved, use this method to pass in a .yaml
+            file with the hparams you would like to use. These will be converted
+            into a dict and passed into your Model for use.
+        strict : bool, optional
+            Whether to strictly enforce that the keys in checkpoint match
+            the keys returned by this module’s state dict. Defaults to True.
+        task : Task, optional
+            Setup model for fine tuning (or transfer learning) on this task.
+        use_auth_token : str, optional
+            When loading a private huggingface.co model, set `use_auth_token`
+            to True or to a string containing your hugginface.co authentication
+            token that can be obtained by running `huggingface-cli login`
+        kwargs: optional
+            Any extra keyword args needed to init the model.
+            Can also be used to override saved hyperparameter values.
+
+        Returns
+        -------
+        model : Model
+            Model
+
+        See also
+        --------
+        torch.load
+        """
+
+        # pytorch-lightning expects str, not Path.
+        checkpoint = str(checkpoint)
+        if hparams_file is not None:
+            hparams_file = str(hparams_file)
+
+        # resolve the checkpoint to
+        # something that pl will handle
+        if os.path.isfile(checkpoint):
+            path_for_pl = checkpoint
+        elif urlparse(checkpoint).scheme in ("http", "https"):
+            path_for_pl = checkpoint
+        else:
+            # Finally, let's try to find it on Hugging Face model hub
+            # e.g. julien-c/voice-activity-detection is a valid model id
+            # and  julien-c/voice-activity-detection@main supports specifying a commit/branch/tag.
+            if "@" in checkpoint:
+                model_id = checkpoint.split("@")[0]
+                revision = checkpoint.split("@")[1]
+            else:
+                model_id = checkpoint
+                revision = None
+            url = hf_hub_url(
+                model_id, filename=HF_PYTORCH_WEIGHTS_NAME, revision=revision
+            )
+
+            path_for_pl = cached_download(
+                url=url,
+                library_name="pyannote",
+                library_version=__version__,
+                cache_dir=CACHE_DIR,
+                use_auth_token=use_auth_token,
+            )
+
+        if map_location is None:
+
+            def default_map_location(storage, loc):
+                return storage
+
+            map_location = default_map_location
+
+        # obtain model class from the checkpoint
+        loaded_checkpoint = pl_load(path_for_pl, map_location=map_location)
+        module_name: str = loaded_checkpoint["pyannote.audio"]["architecture"]["module"]
+        module = import_module(module_name)
+        class_name: str = loaded_checkpoint["pyannote.audio"]["architecture"]["class"]
+        Klass = getattr(module, class_name)
+
+        try:
+            model = Klass.load_from_checkpoint(
+                path_for_pl,
+                map_location=map_location,
+                hparams_file=hparams_file,
+                strict=strict if task is None else False,
+                **kwargs,
+            )
+        except RuntimeError as e:
+            if "loss_func" in str(e):
+                msg = (
+                    "Model has been trained with a task-dependent loss function. "
+                    "Either use the 'task' argument to force setting up the loss function "
+                    "or set 'strict' to False to load the model without its loss function "
+                    "and prevent this warning from appearing. "
+                )
+                warnings.warn(msg)
+                model = Klass.load_from_checkpoint(
+                    path_for_pl,
+                    map_location=map_location,
+                    hparams_file=hparams_file,
+                    strict=False,
+                    **kwargs,
+                )
+                return model
+
+            raise e
+
+        if task is not None:
+            model.task = task
+            task.setup(stage="fit")
+            model.setup(stage="fit")
+
+            try:
+                missing_keys, unexpected_keys = model.load_state_dict(
+                    loaded_checkpoint["state_dict"], strict=strict
+                )
+            except RuntimeError as e:
+                if "size mismatch" in str(e):
+                    msg = (
+                        "Model has been trained for a different task. For fine tuning or transfer learning, "
+                        "it is recommended to train task-dependent layers for a few epochs "
+                        f"before training the whole model: {model.task_dependent}."
+                    )
+                    warnings.warn(msg)
+                    return model
+
+                raise e
+
+        return model

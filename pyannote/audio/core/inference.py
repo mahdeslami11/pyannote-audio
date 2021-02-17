@@ -32,7 +32,7 @@ from einops import rearrange
 from pytorch_lightning.utilities.memory import is_oom_error
 
 from pyannote.audio.core.io import AudioFile
-from pyannote.audio.core.model import Model, load_from_checkpoint
+from pyannote.audio.core.model import Model
 from pyannote.audio.core.task import Resolution
 from pyannote.audio.utils.permutation import permutate
 from pyannote.audio.utils.progress import InferenceProgressHook
@@ -53,6 +53,8 @@ class Inference:
     window : {"sliding", "whole"}, optional
         Use a "sliding" window and aggregate the corresponding outputs (default)
         or just one (potentially long) window covering the "whole" file or chunk.
+    skip_aggregation : bool, optional
+        Do not aggregate outputs when using "sliding" window. Defaults to False.
     duration : float, optional
         Chunk duration, in seconds. Defaults to duration used for training the model.
         Has no effect when `window` is "whole".
@@ -70,23 +72,36 @@ class Inference:
         - the number of chunks that have been processed so far
         - the total number of chunks
         Set to True (or a descriptive string) to display a tqdm progress bar.
+    use_auth_token : str, optional
+        When loading a private huggingface.co model, set `use_auth_token`
+        to True or to a string containing your hugginface.co authentication
+        token that can be obtained by running `huggingface-cli login`
     """
+
+    # TODO: add option to automatically find maximum batch size
 
     def __init__(
         self,
         model: Union[Model, Text, Path],
         window: Text = "sliding",
+        skip_aggregation: bool = False,
         device: torch.device = None,
         duration: float = None,
         step: float = None,
         batch_size: int = 32,
         progress_hook: Union[bool, Text, Callable[[int, int], Any]] = False,
+        use_auth_token: Union[Text, None] = None,
     ):
 
         self.model = (
             model
             if isinstance(model, Model)
-            else load_from_checkpoint(Path(model), map_location=device, strict=False)
+            else Model.from_pretrained(
+                Path(model),
+                map_location=device,
+                strict=False,
+                use_auth_token=use_auth_token,
+            )
         )
 
         if window not in ["sliding", "whole"]:
@@ -100,6 +115,7 @@ class Inference:
                 )
 
         self.window = window
+        self.skip_aggregation = skip_aggregation
 
         if device is None:
             device = self.model.device
@@ -293,9 +309,9 @@ class Inference:
         }
 
         for task_name, specifications in self.model.specifications.items():
-            # if model outputs just one vector per chunk, return the outputs as they are
-            # (i.e. do not aggregate them)
-            if specifications.resolution == Resolution.CHUNK:
+            # skip aggregation when requested
+            # or when model outputs just one vector per chunk
+            if self.skip_aggregation or specifications.resolution == Resolution.CHUNK:
                 frames = SlidingWindow(
                     start=0.0, duration=self.duration, step=self.step
                 )
@@ -377,7 +393,7 @@ class Inference:
                 )
                 overlapping_chunk_count[-num_frames_per_chunk:] += hamming
 
-            aggregated_output /= overlapping_chunk_count
+            aggregated_output /= np.maximum(overlapping_chunk_count, 1e-12)
 
             frames = SlidingWindow(
                 start=0,

@@ -20,15 +20,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-try:
-    from .version import __version__, git_version  # noqa: F401
-except ImportError:
-    pass
+
+from typing import Text
+
+from pyannote.audio import Model
+from pyannote.audio.core.task import Task
 
 
-from .core.inference import Inference
-from .core.io import Audio
-from .core.model import Model
-from .core.pipeline import Pipeline
-
-__all__ = ["Audio", "Model", "Inference", "Pipeline"]
+def pretrained(checkpoint: Text, task: Task = None):
+    return Model.from_pretrained(
+        checkpoint, task=task, map_location=lambda storage, loc: storage
+    )

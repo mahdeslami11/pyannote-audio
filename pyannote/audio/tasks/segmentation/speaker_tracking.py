@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2020 CNRS
+# Copyright (c) 2020-2021 CNRS
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -20,10 +20,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import Callable, Iterable, List, Text
+from typing import List, Text
 
-from torch.nn import Parameter
-from torch.optim import Optimizer
+import numpy as np
 from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
 
 from pyannote.audio.core.task import Problem, Resolution, Specifications, Task
@@ -47,6 +46,12 @@ class SpeakerTracking(SegmentationTaskMixin, Task):
         pyannote.database protocol
     duration : float, optional
         Chunks duration. Defaults to 2s.
+    balance: str, optional
+        When provided, training samples are sampled uniformly with respect to that key.
+        For instance, setting `balance` to "uri" will make sure that each file will be
+        equally represented in the training samples.
+    weight: str, optional
+        When provided, use this key to as frame-wise weight in loss function.
     batch_size : int, optional
         Number of training samples per batch. Defaults to 32.
     num_workers : int, optional
@@ -56,11 +61,6 @@ class SpeakerTracking(SegmentationTaskMixin, Task):
         If True, data loaders will copy tensors into CUDA pinned
         memory before returning them. See pytorch documentation
         for more details. Defaults to False.
-    optimizer : callable, optional
-        Callable that takes model parameters as input and returns
-        an Optimizer instance. Defaults to `torch.optim.Adam`.
-    learning_rate : float, optional
-        Learning rate. Defaults to 1e-3.
     augmentation : BaseWaveformTransform, optional
         torch_audiomentations waveform transform, used by dataloader
         during training.
@@ -72,11 +72,11 @@ class SpeakerTracking(SegmentationTaskMixin, Task):
         self,
         protocol: Protocol,
         duration: float = 2.0,
+        balance: Text = None,
+        weight: Text = None,
         batch_size: int = 32,
         num_workers: int = None,
         pin_memory: bool = False,
-        optimizer: Callable[[Iterable[Parameter]], Optimizer] = None,
-        learning_rate: float = 1e-3,
         augmentation: BaseWaveformTransform = None,
     ):
 
@@ -86,10 +86,11 @@ class SpeakerTracking(SegmentationTaskMixin, Task):
             batch_size=batch_size,
             num_workers=num_workers,
             pin_memory=pin_memory,
-            optimizer=optimizer,
-            learning_rate=learning_rate,
             augmentation=augmentation,
         )
+
+        self.balance = balance
+        self.weight = weight
 
         # for speaker tracking, task specification depends
         # on the data: we do not know in advance which
@@ -102,21 +103,13 @@ class SpeakerTracking(SegmentationTaskMixin, Task):
 
         if stage == "fit":
 
-            # build the list of speakers to be tracked.
-            speakers = set()
-            for f in self._train:
-                speakers.update(f["annotation"].labels())
-
-            # now that we now who the speakers are, we can
-            # define the task specifications.
-
-            # note that, since multiple speakers can be active
-            # at once, the problem is multi-label classification.
             self.specifications = Specifications(
+                # one class per speaker
+                classes=sorted(self._train_metadata["annotation"]),
+                # multiple speakers can be active at once
                 problem=Problem.MULTI_LABEL_CLASSIFICATION,
                 resolution=Resolution.FRAME,
                 duration=self.duration,
-                classes=sorted(speakers),
             )
 
     @property
@@ -126,3 +119,7 @@ class SpeakerTracking(SegmentationTaskMixin, Task):
         Used by `prepare_chunk` so that y[:, k] corresponds to activity of kth speaker
         """
         return self.specifications.classes
+
+    def prepare_y(self, y: np.ndarray) -> np.ndarray:
+        """Get speaker tracking targets"""
+        return y
