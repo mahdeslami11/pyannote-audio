@@ -97,11 +97,11 @@ class VoiceActivityDetection(Pipeline):
         self.scores = scores
         self.fscore = fscore
 
-        #  hyper-parameters used for hysteresis thresholding
+        # hyper-parameters used for hysteresis thresholding
         self.onset = Uniform(0.0, 1.0)
         self.offset = Uniform(0.0, 1.0)
 
-        #  hyper-parameters used for post-processing
+        # hyper-parameters used for post-processing
         # i.e. removing short speech/non-speech regions
         self.min_duration_on = Uniform(0.0, 2.0)
         self.min_duration_off = Uniform(0.0, 2.0)
@@ -181,18 +181,21 @@ class AdaptiveVoiceActivityDetectionPipeline(Pipeline):
     def __init__(
         self,
         segmentation: PipelineModel = "pyannote/Segmentation-PyanNet-DIHARD",
+        augmentation = None,
         fscore: bool = False,
     ):
         super().__init__()
 
         # pretrained segmentation model
         self.seg_model: Model = get_model(segmentation)
+        self.augmentation = augmentation
 
         self.fscore = fscore
 
         self.num_epochs = Integer(0, 5)
         self.learning_rate = LogUniform(1e-6, 1e-1)
-
+        # TODO: add batch_size hyper-parameter
+        
     def apply(self, file: AudioFile) -> Annotation:
 
         # create a copy of file
@@ -227,21 +230,19 @@ class AdaptiveVoiceActivityDetectionPipeline(Pipeline):
         )
 
         # create a dummy train-only protocol where `file` is the only training file
-        def train_iter(self):
-            yield file
-
-        dummy_protocol = type(
-            "DummyProtocol", SpeakerDiarizationProtocol, {"train_iter": train_iter}
-        )
+        class DummyProtocol(SpeakerDiarizationProtocol):
+            name = "DummyProtocol"
+            def train_iter(self):
+                yield file
 
         # TODO: add hard augmentation
-        vad_task = VoiceActivityDetectionTask(dummy_protocol, weight="confidence")
+        vad_task = VoiceActivityDetectionTask(DummyProtocol(), weight="confidence", augmentation=self.augmentation)
 
         vad_model = deepcopy(self.seg_model)
         vad_model.task = vad_task
 
-        def configure_optimizers(self):
-            return SGD(self.parameters(), lr=self.learning_rate)
+        def configure_optimizers(model):
+            return SGD(model.parameters(), lr=self.learning_rate)
 
         vad_model.configure_optimizers = MethodType(configure_optimizers, vad_model)
 
