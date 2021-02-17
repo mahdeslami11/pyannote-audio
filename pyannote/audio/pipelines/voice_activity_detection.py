@@ -265,7 +265,12 @@ class AdaptiveVoiceActivityDetectionPipeline(Pipeline):
             )
             trainer.fit(vad_model)
 
-        inference = Inference(vad_model, batch_size=self.inference.batch_size)
+        inference = Inference(
+            vad_model,
+            device=self.inference.device,
+            batch_size=self.inference.batch_size,
+            progress_hook=self.inference.progress_hook,
+        )
         file["vad"] = inference(file)
 
         return vad_pipeline(file)
