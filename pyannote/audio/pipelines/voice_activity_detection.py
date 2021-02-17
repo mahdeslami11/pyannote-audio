@@ -186,7 +186,7 @@ class AdaptiveVoiceActivityDetection(Pipeline):
     ----------
     segmentation : Model, str, or dict, optional
         Pretrained segmentation model.
-        Defaults to "pyannote/Segmentation-PyanNet-DIHARD".
+        Defaults to "hbredin/VoiceActivityDetection-PyanNet-DIHARD".
     augmentation : BaseWaveformTransform, or dict, optional
         torch_audiomentations waveform transform, used during fine-tuning.
         Defaults to no augmentation.
@@ -208,7 +208,7 @@ class AdaptiveVoiceActivityDetection(Pipeline):
 
     def __init__(
         self,
-        segmentation: PipelineInference = "pyannote/Segmentation-PyanNet-DIHARD",
+        segmentation: PipelineInference = "hbredin/VoiceActivityDetection-PyanNet-DIHARD",
         augmentation: PipelineAugmentation = None,
         fscore: bool = False,
     ):
