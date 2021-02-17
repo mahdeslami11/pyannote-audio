@@ -30,12 +30,18 @@ from typing import Text, Union
 import numpy as np
 from pytorch_lightning import Trainer
 from torch.optim import SGD
+from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
 
 from pyannote.audio import Inference
 from pyannote.audio.core.callback import GraduallyUnfreeze
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.core.pipeline import Pipeline
-from pyannote.audio.pipelines.utils import PipelineInference, get_inference
+from pyannote.audio.pipelines.utils import (
+    PipelineAugmentation,
+    PipelineInference,
+    get_augmentation,
+    get_inference,
+)
 from pyannote.audio.tasks import VoiceActivityDetection as VoiceActivityDetectionTask
 from pyannote.audio.utils.signal import Binarize
 from pyannote.core import Annotation
@@ -154,41 +160,63 @@ class VoiceActivityDetection(Pipeline):
 
 
 class AdaptiveVoiceActivityDetectionPipeline(Pipeline):
-    """
+    """Adaptive voice activity detection pipeline
+
+    Let M be a pretrained voice activity detection model.
+
+    For each file f, this pipeline starts by applying the model to obtain a first set of
+    speech/non-speech labels.
+
+    Those (automatic, possibly erroneous) labels are then used to fine-tune M on the very
+    same file f into a M_f model, in a self-supervised manner.
+
+    Finally, the fine-tuned model M_f is applied to file f to obtain the final (and
+    hopefully better) speech/non-speech labels.
+
+    During fine-tuning, frames where the pretrained model M is very confident are weighted
+    more than those with lower confidence: the intuition is that the model will use these
+    high confidence regions to adapt to recording conditions (e.g. background noise) and
+    hence will eventually be better on the parts of f where it was initially not quite
+    confident.
+
+    Conversely, to avoid overfitting too much to those high confidence regions, we use
+    data augmentation and freeze all but the final few layers of the pretrained model M.
 
     Parameters
     ----------
     segmentation : Model, str, or dict, optional
         Pretrained segmentation model.
         Defaults to "pyannote/Segmentation-PyanNet-DIHARD".
+    augmentation : BaseWaveformTransform, or dict, optional
+        torch_audiomentations waveform transform, used during fine-tuning.
+        Defaults to no augmentation.
     fscore : bool, optional
-        Optimize (precision/recall) fscore. Defaults to optimizing detection
-        error rate.
+        Optimize (precision/recall) fscore.
+        Defaults to optimizing detection error rate.
 
     Hyper-parameters
     ----------------
     num_epochs : int
-        Number of epochs for self-supervised transfer learning.
+        Number of fine-tuning epochs (where one epoch = going through the file once)
     learning_rate : float
-        Learning rate for self-supervised transfer learning.
+        Learning rate for fine-tuning
 
     See also
     --------
     pyannote.audio.pipelines.utils.get_inference
-
     """
 
     def __init__(
         self,
         segmentation: PipelineInference = "pyannote/Segmentation-PyanNet-DIHARD",
-        augmentation=None,
+        augmentation: PipelineAugmentation = None,
         fscore: bool = False,
     ):
         super().__init__()
 
         # pretrained segmentation model
         self.inference: Inference = get_inference(segmentation)
-        self.augmentation = augmentation
+        self.augmentation: BaseWaveformTransform = get_augmentation(augmentation)
 
         self.fscore = fscore
 
