@@ -159,7 +159,7 @@ class VoiceActivityDetection(Pipeline):
         return "minimize"
 
 
-class AdaptiveVoiceActivityDetectionPipeline(Pipeline):
+class AdaptiveVoiceActivityDetection(Pipeline):
     """Adaptive voice activity detection pipeline
 
     Let M be a pretrained voice activity detection model.
