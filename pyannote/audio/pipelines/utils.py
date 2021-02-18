@@ -25,6 +25,8 @@ from typing import Mapping, Text, Union
 
 import numpy as np
 import torch
+from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
+from torch_audiomentations.utils.config import from_dict as augmentation_from_dict
 
 from pyannote.audio import Inference, Model
 from pyannote.audio.core.io import AudioFile
@@ -185,7 +187,10 @@ def get_model(model: PipelineModel) -> Model:
     return model
 
 
-def get_inference(inference: Union[Inference, Model, Text, Mapping]) -> Inference:
+PipelineInference = Union[Inference, Model, Text, Mapping]
+
+
+def get_inference(inference: PipelineInference) -> Inference:
     """Load inference
 
     Parameter
@@ -227,6 +232,39 @@ def get_inference(inference: Union[Inference, Model, Text, Mapping]) -> Inferenc
     raise TypeError(
         f"Unsupported type ({type(inference)}) for loading inference: "
         f"expected `Model`, `str` or `dict`."
+    )
+
+
+PipelineAugmentation = Union[BaseWaveformTransform, Mapping]
+
+
+def get_augmentation(augmentation: PipelineAugmentation) -> BaseWaveformTransform:
+    """Load augmentation
+
+    Parameter
+    ---------
+    augmentation : BaseWaveformTransform, or dict
+        When `BaseWaveformTransform`, returns `augmentation` as is.
+        When `dict`, loads with `torch_audiomentations`'s `from_config` utility function.
+
+    Returns
+    -------
+    augmentation : BaseWaveformTransform
+        Augmentation.
+    """
+
+    if augmentation is None:
+        return None
+
+    if isinstance(augmentation, BaseWaveformTransform):
+        return augmentation
+
+    if isinstance(augmentation, Mapping):
+        return augmentation_from_dict(augmentation)
+
+    raise TypeError(
+        f"Unsupported type ({type(augmentation)}) for loading augmentation: "
+        f"expected `BaseWaveformTransform`, or `dict`."
     )
 
 
