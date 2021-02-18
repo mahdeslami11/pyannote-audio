@@ -210,7 +210,7 @@ class Segmentation(SegmentationTaskMixin, Task):
             y = y[:, : self.num_speakers]
             labels = labels[: self.num_speakers]
 
-        sample["y"] = self.prepare_y(sample["y"])
+        sample["y"] = self.prepare_y(y)
         return sample
 
     def segmentation_loss(
