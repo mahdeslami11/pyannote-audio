@@ -28,6 +28,7 @@ from types import MethodType
 from typing import Text
 
 from pytorch_lightning import Trainer
+from pytorch_lightning.core.memory import ModelSummary
 from torch.optim import SGD
 from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
 
@@ -67,7 +68,8 @@ class Resegmentation(Pipeline):
     Hyper-parameters
     ----------------
     num_epochs : int
-        Number of epochs (where one epoch = going through the file once).
+        Number of epochs (where one epoch = going through the file once) between
+        each gradual unfreezing step.
     batch_size : int
         Batch size.
     learning_rate : float
@@ -126,6 +128,12 @@ class Resegmentation(Pipeline):
             augmentation=self.augmentation,
         )
 
+        callback = GraduallyUnfreeze(patience=self.num_epochs)
+        max_epochs = (
+            len(ModelSummary(self.segmentation.model, mode="top").named_modules)
+            * self.num_epochs
+        )
+
         model = deepcopy(self.segmentation.model)
         model.task = spk
 
@@ -136,9 +144,9 @@ class Resegmentation(Pipeline):
 
         with tempfile.TemporaryDirectory() as default_root_dir:
             trainer = Trainer(
-                max_epochs=self.num_epochs,
-                gpus=1,
-                callbacks=[GraduallyUnfreeze(patience=self.num_epochs + 1)],
+                max_epochs=max_epochs,
+                gpus=1 if self.segmentation.device.type == "cuda" else 0,
+                callbacks=[callback],
                 checkpoint_callback=False,
                 default_root_dir=default_root_dir,
             )
@@ -146,9 +154,9 @@ class Resegmentation(Pipeline):
 
         inference = Inference(
             model,
-            device=self.inference.device,
-            batch_size=self.inference.batch_size,
-            progress_hook=self.inference.progress_hook,
+            device=self.segmentation.device,
+            batch_size=self.segmentation.batch_size,
+            progress_hook=self.segmentation.progress_hook,
         )
 
         speakers_probability = inference(file)
