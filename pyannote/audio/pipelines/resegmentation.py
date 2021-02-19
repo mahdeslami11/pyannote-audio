@@ -66,10 +66,10 @@ class Resegmentation(Pipeline):
 
     During transfer-learning, it is possible to weight some frames more than others: the
     intuition is that the model will use high confidence regions to learn speaker models
-    and hence will eventually be able to correctly assign parts of where the confidence
+    and hence will eventually be able to correctly assign parts where the confidence
     was initially low.
 
-    Conversely, to avoid overfitting too much to thos high confidence regions, we use
+    Conversely, to avoid overfitting too much to those high confidence regions, we use
     data augmentation and gradually unfreeze layers of the pretrained model M.
 
     Parameters
