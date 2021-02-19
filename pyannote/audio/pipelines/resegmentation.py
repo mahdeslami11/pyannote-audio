@@ -164,6 +164,10 @@ class Resegmentation(Pipeline):
 
         model.configure_optimizers = MethodType(configure_optimizers, model)
 
+        # TODO: add option to pass a directory to `apply` and have the trainer
+        # use this directory and save logs in there. that would be useful for
+        # debugging purposes. for now, a new temporary directory is created
+        # on-the-fly and automatically destroyed after training.
         with tempfile.TemporaryDirectory() as default_root_dir:
             trainer = Trainer(
                 max_epochs=max_epochs,
