@@ -52,9 +52,29 @@ from pyannote.pipeline.parameter import Categorical, Integer, LogUniform
 class Resegmentation(Pipeline):
     """Self-supervised resegmentation (aka AdaptiveSpeakerTracking)
 
+    Let M be a pretrained segmentation model.
+
+    For each file f, this pipeline uses an initial speaker diarization result as a first
+    step of speaker tracking labels.
+
+    Those (automatic and therefore imprecise) labels are then used to do transfer learning
+    from a pretrained segmentation model M into a speaker tracking model M_f, in a
+    self-supervised manner.
+
+    Finally, the fine-tuned model M_f is applied to file f to obtain the final (and
+    hopefully better) speaker tracking labels.
+
+    During transfer-learning, it is possible to weight some frames more than others: the
+    intuition is that the model will use high confidence regions to learn speaker models
+    and hence will eventually be able to correctly assign parts of where the confidence
+    was initially low.
+
+    Conversely, to avoid overfitting too much to thos high confidence regions, we use
+    data augmentation and gradually unfreeze layers of the pretrained model M.
+
     Parameters
     ----------
-    segmentation : Model, str, or dict, optional
+    segmentation : Inference, Model, str, or dict, optional
         Pretrained segmentation model.
         Defaults to "pyannote/Segmentation-PyanNet-DIHARD".
     augmentation : BaseWaveformTransform, or dict, optional
