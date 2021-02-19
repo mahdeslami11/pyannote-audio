@@ -131,6 +131,8 @@ class Resegmentation(Pipeline):
             return file[self.diarization]
 
         # create a dummy train-only protocol where `file` is the only training file
+        file["annotation"] = file[self.diarization]
+
         class DummyProtocol(SpeakerDiarizationProtocol):
             name = "DummyProtocol"
 
