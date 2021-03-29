@@ -188,7 +188,9 @@ class Resegmentation(Pipeline):
 
         file["@resegmentation/activations"] = speaker_activations
 
-        return self._binarize(speaker_activations)
+        diarization = self._binarize(speaker_activations)
+        diarization.uri = file["uri"]
+        return diarization
 
     def get_metric(self) -> GreedyDiarizationErrorRate:
         return GreedyDiarizationErrorRate(collar=0.0, skip_overlap=False)
