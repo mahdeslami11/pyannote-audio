@@ -22,7 +22,7 @@
 
 """Overlapped speech detection pipelines"""
 
-from typing import Optional
+from typing import Optional, Text
 
 import numpy as np
 
@@ -31,7 +31,7 @@ from pyannote.audio.core.io import AudioFile
 from pyannote.audio.core.pipeline import Pipeline
 from pyannote.audio.pipelines.utils import PipelineModel, get_devices, get_model
 from pyannote.audio.utils.signal import Binarize
-from pyannote.core import Annotation, SlidingWindowFeature, Timeline
+from pyannote.core import Annotation, Segment, SlidingWindowFeature, Timeline
 from pyannote.database import get_annotated
 from pyannote.metrics.detection import DetectionPrecisionRecallFMeasure
 from pyannote.pipeline.parameter import Uniform
@@ -265,3 +265,47 @@ class OverlappedSpeechDetection(Pipeline):
 
     def get_direction(self):
         return "maximize"
+
+
+class OverlapAssignmentNearestHeuristic(Pipeline):
+    """Assign overlapped speech regions to neighboring speakers
+
+    Parameters
+    ----------
+    overlap : str, optional
+        File key to use as input overlapped speech. Defaults to "overlap".
+    diarization : str, optional
+        File key to use as input diarization. Defaults to "diarization".
+
+    """
+
+    def __init__(
+        self,
+        overlap: Text = "overlap",
+        diarization: Text = "diarization",
+    ):
+        super().__init__()
+
+        self.overlap = overlap
+        self.diarization = diarization
+
+    def apply(self, file: AudioFile) -> Annotation:
+
+        diarization = file[self.diarization]
+        diarization_with_overlap = diarization.copy()
+
+        for (segment, track), (overlap, _) in diarization.co_iter(file[self.overlap]):
+
+            label = diarization[segment, track]
+
+            for dt in [0.0, 0.5, 1.0, 2.0, 4.0, 8.0, 10.0]:
+                extended_overlap = Segment(overlap.start - dt, overlap.end + dt)
+                neighbors = set(diarization.crop(extended_overlap).labels())
+                neighbors -= set([label])
+                if neighbors:
+                    break
+
+            if neighbors:
+                diarization_with_overlap[segment & overlap, "overlap"] = neighbors.pop()
+
+        return diarization_with_overlap
