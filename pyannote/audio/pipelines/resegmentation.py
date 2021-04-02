@@ -138,6 +138,7 @@ class Resegmentation(Pipeline):
 
         # output of segmentation model on each chunk
         segmentations: SlidingWindowFeature = self.seg_inference_(file)
+        dimension = segmentations.data.shape[2]
 
         # number of frames in the whole file
         num_frames_in_file = self.seg_frames_.samples(
@@ -147,8 +148,14 @@ class Resegmentation(Pipeline):
         # turn input diarization into binary (0 or 1) activations
         labels = file[self.diarization].labels()
         num_clusters = len(labels)
+        if num_clusters < dimension:
+            labels.extend(
+                [f"@resegmentation/{i+1}" for i in range(dimension - num_clusters)]
+            )
+            num_clusters = dimension
+
         y_original = np.zeros(
-            (num_frames_in_file, len(labels)), dtype=segmentations.data.dtype
+            (num_frames_in_file, num_clusters), dtype=segmentations.data.dtype
         )
         for k, label in enumerate(labels):
             segments = file[self.diarization].label_timeline(label)
