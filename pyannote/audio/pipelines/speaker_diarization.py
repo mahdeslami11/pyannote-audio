@@ -1,6 +1,6 @@
 # The MIT License (MIT)
 #
-# Copyright (c) 2017-2020 CNRS
+# Copyright (c) 2017-2021 CNRS
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -20,22 +20,24 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import Mapping, Optional, Text, Union
 
-from pyannote.audio import Inference
+import numpy as np
+import torch
+import torch.nn.functional as F
+from scipy.cluster.hierarchy import fcluster
+from scipy.spatial.distance import cdist
+from scipy.special import softmax
+
+from pyannote.audio import Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
-from pyannote.audio.core.pipeline import Pipeline
-from pyannote.core import Annotation
-from pyannote.database import get_annotated
-from pyannote.metrics.diarization import (
-    DiarizationPurityCoverageFMeasure,
-    GreedyDiarizationErrorRate,
-)
+from pyannote.audio.pipelines.utils import PipelineModel, get_devices, get_model
+from pyannote.audio.utils.signal import Binarize
+from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
+from pyannote.core.utils.hierarchy import pool
+from pyannote.metrics.diarization import GreedyDiarizationErrorRate
 from pyannote.pipeline.parameter import Uniform
 
-from .segmentation import Segmentation
-from .speech_turn_assignment import SpeechTurnClosestAssignment
-from .speech_turn_clustering import SpeechTurnClustering
+# import networkx as nx
 
 
 class SpeakerDiarization(Pipeline):
@@ -51,69 +53,93 @@ class SpeakerDiarization(Pipeline):
         `Inference` instance used to extract speaker embeddings. When `str`,
         assumes that file already contains a corresponding key with precomputed
         embeddings. Defaults to "emb".
-    metric : {'euclidean', 'cosine', 'angular'}, optional
-        Metric used for comparing embeddings. Defaults to 'cosine'.
-    purity : float, optional
-        Optimize coverage for target purity.
-        Defaults to optimizing diarization error rate.
-    coverage : float, optional
-        Optimize purity for target coverage.
-        Defaults to optimizing diarization error rate.
-    fscore : bool, optional
-        Optimize for purity/coverage fscore.
-        Defaults to optimizing for diarization error rate.
-
-    # TODO: investigate the use of non-weighted fscore/purity/coverage
 
     Hyper-parameters
     ----------------
-    cluster_min_duration : float
-        Do not cluster speech turns shorter than `cluster_min_duration`.
-        Assign them to the closest cluster (of long speech turns) instead.
+    clean_speech_threshold : float
+    clustering_threshold : float
     """
 
     def __init__(
         self,
-        segmentation: Union[Inference, Text] = "seg",
-        embeddings: Union[Inference, Text] = "emb",
-        metric: Optional[str] = "cosine",
-        purity: Optional[float] = None,
-        coverage: Optional[float] = None,
-        fscore: bool = False,
+        segmentation: PipelineModel = "pyannote/segmentation",
+        embedding: PipelineModel = "hbredin/SpeakerEmbedding-XVectorMFCC-VoxCeleb",
     ):
 
         super().__init__()
 
-        # temporary hack -- need to bring back old Wrapper/Wrappable logic
-        if isinstance(segmentation, Mapping):
-            segmentation = Inference(**segmentation)
-        if isinstance(embeddings, Mapping):
-            embeddings = Inference(**embeddings)
+        self.segmentation = segmentation
+        self.embedding = embedding
 
-        self.segmentation = Segmentation(scores=segmentation)
+        segmentation_model: Model = get_model(segmentation)
+        self.emb_model_: Model = get_model(embedding)
 
-        self.embeddings = embeddings
-        self.metric = metric
+        # send models to GPU (when GPUs are available and model is not already on GPU)
+        cpu_models = [
+            model
+            for model in (segmentation_model, self.emb_model_)
+            if model.device.type == "cpu"
+        ]
+        for cpu_model, gpu_device in zip(
+            cpu_models, get_devices(needs=len(cpu_models))
+        ):
+            cpu_model.to(gpu_device)
 
-        self.clustering = SpeechTurnClustering(
-            embeddings=self.embeddings, metric=self.metric
+        self.audio_ = self.emb_model_.audio
+
+        # output frames as SlidingWindow instances
+        self.seg_frames_: SlidingWindow = segmentation_model.introspection.frames
+
+        # prepare segmentation model for inference
+        self.seg_inference_ = Inference(
+            segmentation_model,
+            step=segmentation_model.specifications.duration * 0.1,
+            skip_aggregation=True,
         )
 
-        self.assignment = SpeechTurnClosestAssignment(
-            embeddings=self.embeddings, metric=self.metric
+        #  hyper-parameters
+        self.clean_speech_threshold = Uniform(0, 1)
+        self.clustering_threshold = Uniform(0, 2.0)
+
+        self.onset = Uniform(0.0, 1.0)
+        self.offset = Uniform(0.0, 1.0)
+        self.min_duration_on = Uniform(0.0, 1.0)
+        self.min_duration_off = Uniform(0.0, 1.0)
+
+    @staticmethod
+    def pooling_func(
+        u: int,
+        v: int,
+        C: np.ndarray = None,
+        **kwargs,
+    ) -> np.ndarray:
+        """Compute average of newly merged cluster
+
+        Parameters
+        ----------
+        u : int
+            Cluster index.
+        v : int
+            Cluster index.
+        C : (2 x n_observations - 1, dimension) np.ndarray
+            Cluster embedding.
+
+        Returns
+        -------
+        Cuv : (dimension, ) np.ndarray
+            Embedding of newly formed cluster.
+        """
+        return C[u] + C[v]
+
+    def initialize(self):
+        """Initialize pipeline with current set of parameters"""
+
+        self._binarize = Binarize(
+            onset=self.onset,
+            offset=self.offset,
+            min_duration_on=self.min_duration_on,
+            min_duration_off=self.min_duration_off,
         )
-
-        # hyper-parameter
-        self.cluster_min_duration = Uniform(0, 10)
-
-        if sum((purity is not None, coverage is not None, fscore)):
-            raise ValueError(
-                "One must choose between optimizing for f-score, target purity, or target coverage."
-            )
-
-        self.purity = purity
-        self.coverage = coverage
-        self.fscore = fscore
 
     def apply(self, file: AudioFile) -> Annotation:
         """Apply speaker diarization
@@ -129,166 +155,163 @@ class SpeakerDiarization(Pipeline):
             Speaker diarization
         """
 
-        # segmentation where speech turns are already clustered locally (with letters A/B/C/...)
-        segmentation = self.segmentation(file).rename_labels(generator="string")
+        # graph = nx.Graph()
 
-        # corner case where there is just one cluster already
-        if len(segmentation.labels()) < 2:
-            return segmentation
+        SEGMENTATION_POWER = 3
+        SEGMENTATION_SCALE = 10
 
-        # split segmentation into two parts:
-        # - clean (i.e. non-overlapping) and long-enough clusters
-        # - the rest of it
+        emb_device = self.emb_model_.device
 
-        clean = segmentation.copy()
-        rest = segmentation.empty()
+        # output of segmentation model on each chunk
+        segmentations: SlidingWindowFeature = self.seg_inference_(file)
+        # SHAPE (num_chunks, num_frames, num_speakers)
 
-        for (segment, track), (other_segment, other_track) in segmentation.co_iter(
-            segmentation
-        ):
-            if segment == other_segment and track == other_track:
-                continue
+        (
+            num_chunks,
+            num_frames_per_chunk,
+            num_speakers_per_chunk,
+        ) = segmentations.data.shape
 
-            rest[segment, track] = segmentation[segment, track]
-            try:
-                del clean[segment, track]
-            except KeyError:
-                pass
+        is_active = np.max(segmentations.data, axis=1) > self.onset
+        # is_active[c, k] indicates whether kth speaker in cth chunk is active
+        # SHAPE (num_chunks, num_speakers_per_chunk)
 
-            rest[other_segment, other_track] = segmentation[other_segment, other_track]
-            try:
-                del clean[other_segment, other_track]
-            except KeyError:
-                pass
+        data = segmentations.data ** SEGMENTATION_POWER
+        clean_speech = (
+            data * softmax(SEGMENTATION_SCALE * data, axis=2) ** SEGMENTATION_POWER
+        )
+        # clean_speech[c, f, k] should be close to 1 when model is confident that
+        # kth speaker in cth chunk is active at fth frame and not overlapping with
+        # other speakers, and should be close to 0 in any other situation.
+        # SHAPE (num_chunks, num_frames, num_speakers_per_chunk)
 
-        # TODO: consider removing all short segments instead of short clusters
+        average_clean_speech = np.mean(clean_speech, axis=1)
+        # average_clean_speech[c, k] contains the ratio of clean (i.e. confident and
+        # non-overlapping) speech over chunk duration for kth speaker in cth chunk.
+        # SHAPE (num_chunks, num_speakers_per_chunk)
 
-        long_enough_local_clusters = [
-            local_cluster
-            for local_cluster, duration in clean.chart()
-            if duration > self.cluster_min_duration
-        ]
-        # corner case where there is no clean, long enough local clusters
-        if not long_enough_local_clusters:
-            return segmentation
+        has_enough_clean_speech = average_clean_speech > self.clean_speech_threshold
+        # has_enough_clean_speech[c, k] indicates whether kth speaker in cth chunk
+        # has enough clean speech to be used in embedding-based clustering
+        # SHAPE (num_chunks, num_speakers_per_chunk)
 
-        clean_long_enough = clean.subset(long_enough_local_clusters)
+        embeddings = np.empty(
+            (
+                num_chunks,
+                num_speakers_per_chunk,
+                self.emb_model_.introspection.dimension,
+            )
+        )
+        # SHAPE (num_chunks, num_speakers_per_chunk, embedding_dimension)
 
-        rest.update(clean.subset(long_enough_local_clusters, invert=True), copy=False)
+        hamming = np.hamming(num_frames_per_chunk)
 
-        # at this point, we have split "segmentation" into two parts:
-        # - "clean_long_enough" uses A/B/C labels
-        # - "rest" uses A/B/C labels as well
+        for c, (chunk, segmentation) in enumerate(segmentations):
 
-        # we apply clustering on "clean_long_enough" and use A/B/C labels
-        clustered_clean_long_enough = self.clustering(
-            file, clean_long_enough
-        ).rename_labels(generator="string")
+            # compute embeddings
+            with torch.no_grad():
 
-        # this will contain the final result using a combination of
-        # - A/B/C labels coming from above "clean_long_enough" clusters)
-        # - 1/2/3 labels coming from un-assigned "rest" segments
-        global_hypothesis = clustered_clean_long_enough.copy()
-
-        rest_copy = rest.copy()
-        for local_cluster in rest_copy.labels():
-            try:
-                # for each local cluster remaining in "rest", we find which global cluster it has been assigned to
-                segment, track = next(
-                    clean_long_enough.subset([local_cluster]).itertracks()
+                # read audio chunk
+                waveforms = (
+                    self.audio_.crop(file, chunk)[0]
+                    .unsqueeze(0)
+                    .repeat(num_speakers_per_chunk, 1, 1)
+                    .to(emb_device)
                 )
-                global_cluster = clustered_clean_long_enough[segment, track]
+                # SHAPE (num_speakers_per_chunk, 1, num_samples)
 
-                # we move its left-aside segments back into the corresponding global cluster
-                # we also remove those segments from "rest" to remember they are now dealt with.
-                for segment, track in rest_copy.subset([local_cluster]).itertracks():
-                    global_hypothesis[segment, track] = global_cluster
-                    del rest[segment, track]
+                # give more weights to regions where speaker is "clean"
+                weights = torch.from_numpy(clean_speech[c].T).to(emb_device)
+                # SHAPE (num_speakers_per_chunk, num_frames)
 
-            except StopIteration:
-                # this happens if the original local cluster was not present at all in clean_long_enough
-                # it will be passed over to the upcoming "assignment" step (see below).
-                continue
+                # extract embedding and make its norm proportional to the amount of "clean" speech
+                emb = F.normalize(
+                    self.emb_model_(waveforms, weights=weights), p=2.0, dim=1, eps=1e-12
+                ).cpu()
+                emb *= average_clean_speech[c].reshape(-1, 1)
+                # SHAPE (num_speakers_per_chunk, embedding_dimension)
 
-        if len(rest) > 0:
-            rest.rename_labels(generator="int", copy=False)
-            assigned_rest = self.assignment(file, rest, global_hypothesis)
+            embeddings[c] = emb
 
-            # assigned_rest uses a combination of
-            # - A/B/C labels for speech turns assigned to global_hypothesis clusters
-            # - 1/2/3 labels for those that could not be assigned because they were too dissimlar
+        # TODO: better handle corner case with not enough clean embeddings
+        if np.sum(has_enough_clean_speech) < 2:
+            return Annotation(uri=file["uri"])
 
-            global_hypothesis.update(assigned_rest, copy=False)
+        # hierarchical agglomerative clustering with "pool" linkage
+        Z = pool(
+            embeddings[has_enough_clean_speech],
+            metric="cosine",
+            pooling_func=self.pooling_func,
+            # cannot_link=cannot_link
+        )
+        clean_clusters = (
+            fcluster(Z, self.clustering_threshold, criterion="distance") - 1
+        )
 
-        return global_hypothesis
+        # one representative embedding per cluster (computed as the same of )
+        num_clusters = len(np.unique(clean_clusters))
+        cluster_embeddings = np.vstack(
+            [
+                np.sum(
+                    embeddings[has_enough_clean_speech][clean_clusters == cluster],
+                    axis=0,
+                )
+                for cluster in range(num_clusters)
+            ]
+        )
 
-    def loss(self, file: AudioFile, hypothesis: Annotation) -> float:
-        """Compute coverage at target purity (or vice versa)
+        noisy_clusters = np.argmin(
+            cdist(
+                cluster_embeddings,
+                embeddings[is_active & ~has_enough_clean_speech],
+                metric="cosine",
+            ),
+            axis=0,
+        )
 
-        Parameters
-        ----------
-        file : `dict`
-            File as provided by a pyannote.database protocol.
-        hypothesis : `pyannote.core.Annotation`
-            Speech turns.
+        # number of frames in the whole file
+        num_frames_in_file = self.seg_frames_.samples(
+            self.audio_.get_duration(file), mode="center"
+        )
 
-        Returns
-        -------
-        coverage (or purity) : float
-            When optimizing for target purity:
-                If purity < target_purity, returns (purity - target_purity).
-                If purity > target_purity, returns coverage.
-            When optimizing for target coverage:
-                If coverage < target_coverage, returns (coverage - target_coverage).
-                If coverage > target_coverage, returns purity.
-        """
+        aggregated = np.zeros((num_frames_in_file, num_clusters))
+        overlapped = np.zeros((num_frames_in_file, num_clusters))
 
-        fmeasure = DiarizationPurityCoverageFMeasure()
+        chunks = segmentations.sliding_window
 
-        reference: Annotation = file["annotation"]
-        _ = fmeasure(reference, hypothesis, uem=get_annotated(file))
-        purity, coverage, _ = fmeasure.compute_metrics()
+        for cluster, c, k in zip(clean_clusters, *np.where(has_enough_clean_speech)):
 
-        if self.purity is not None:
-            if purity > self.purity:
-                return purity - self.purity
-            else:
-                return coverage
-
-        elif self.coverage is not None:
-            if coverage > self.coverage:
-                return coverage - self.coverage
-            else:
-                return purity
-
-    def get_metric(
-        self,
-    ) -> Union[GreedyDiarizationErrorRate, DiarizationPurityCoverageFMeasure]:
-        """Return new instance of diarization metric"""
-
-        if (self.purity is not None) or (self.coverage is not None):
-            raise NotImplementedError(
-                "pyannote.pipeline will use `loss` method fallback."
+            start_frame = self.seg_frames_.closest_frame(chunks[c].start)
+            aggregated[start_frame : start_frame + num_frames_per_chunk, cluster] += (
+                segmentations.data[c, :, k] * hamming
             )
 
-        if self.fscore:
-            return DiarizationPurityCoverageFMeasure(collar=0.0, skip_overlap=False)
+            # remember how many chunks were added on this particular speaker
+            overlapped[
+                start_frame : start_frame + num_frames_per_chunk, cluster
+            ] += hamming
 
-        # defaults to optimizing diarization error rate
+        for cluster, c, k in zip(
+            noisy_clusters, *np.where(is_active & ~has_enough_clean_speech)
+        ):
+
+            start_frame = self.seg_frames_.closest_frame(chunks[c].start)
+            aggregated[start_frame : start_frame + num_frames_per_chunk, cluster] += (
+                segmentations.data[c, :, k] * hamming
+            )
+
+            # remember how many chunks were added on this particular speaker
+            overlapped[
+                start_frame : start_frame + num_frames_per_chunk, cluster
+            ] += hamming
+
+        speaker_activations = SlidingWindowFeature(
+            aggregated / (overlapped + 1e-12), self.seg_frames_
+        )
+
+        diarization = self._binarize(speaker_activations)
+        diarization.uri = file["uri"]
+        return diarization
+
+    def get_metric(self) -> GreedyDiarizationErrorRate:
         return GreedyDiarizationErrorRate(collar=0.0, skip_overlap=False)
-
-    def get_direction(self):
-        """Optimization direction"""
-
-        if self.purity is not None:
-            # we maximize coverage at target purity
-            return "maximize"
-        elif self.coverage is not None:
-            # we maximize purity at target coverage
-            return "maximize"
-        elif self.fscore:
-            # we maximize purity/coverage f-score
-            return "maximize"
-        else:
-            # we minimize diarization error rate
-            return "minimize"
