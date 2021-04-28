@@ -28,6 +28,7 @@ import numpy as np
 from pyannote.audio import Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.pipelines.utils import PipelineModel, get_devices, get_model
+from pyannote.audio.utils.activations import warm_up
 from pyannote.audio.utils.permutation import permutate
 from pyannote.audio.utils.signal import Binarize
 from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
@@ -151,35 +152,20 @@ class Segmentation(Pipeline):
             Segmentation
         """
 
-        # TODO: read it from model?
-        # TODO: hardcode it as f(step) to make sure we have enough data for aggregation
-        WARMUP_RATIO = 0.1
+        frames: SlidingWindow = self.segmentation_inference_.model.introspection.frames
 
         raw_activations: SlidingWindowFeature = self.segmentation_inference_(file)
+        num_chunks = raw_activations.data.shape[0]
+        duration = raw_activations.sliding_window.duration
 
-        num_chunks, raw_num_frames_per_chunk, num_speakers = raw_activations.data.shape
-        duration: float = self.segmentation_inference_.duration
-        step: float = self.segmentation_inference_.step
-        file_frames: SlidingWindow = (
-            self.segmentation_inference_.model.introspection.frames
-        )
+        step = raw_activations.sliding_window.step
 
-        # remove warm-up regions from raw activation
-        warmup_num_frames: int = round(WARMUP_RATIO * raw_num_frames_per_chunk)
-        warmup_duration: float = WARMUP_RATIO * duration
-        data: np.ndarray = raw_activations.data[
-            :, warmup_num_frames : raw_num_frames_per_chunk - warmup_num_frames
-        ]
-        num_frames_per_chunk: int = raw_num_frames_per_chunk - 2 * warmup_num_frames
-        num_frames_per_step: int = file_frames.duration_to_samples(step)
+        WARMUP_RATIO = 0.1
+        # TODO: read it from model?
+        # TODO: hardcode it as f(step) to make sure we have enough data for aggregation
 
-        raw_chunks: SlidingWindow = raw_activations.sliding_window
-        chunks = SlidingWindow(
-            start=raw_chunks.start + warmup_duration,
-            duration=raw_chunks.duration - 2 * warmup_duration,
-            step=raw_chunks.step,
-        )
-        activations = SlidingWindowFeature(data, chunks)
+        warm_activations = warm_up(raw_activations, warm_up=WARMUP_RATIO * duration)
+        step_activations = warm_up(raw_activations, warm_up=0.5 * (duration - step))
 
         # build (chunk, speaker) consistency graph
         #   - (c, s) node indicates that sth speaker of cth chunk is active
@@ -187,10 +173,10 @@ class Segmentation(Pipeline):
         #     is mapped to s'th speaker of (c+1)th chunk
 
         consistency_graph = nx.Graph()
-        for c, (chunk, activation) in enumerate(activations):
+        for c, (chunk, activation) in enumerate(warm_activations):
 
             chunk_frames = SlidingWindow(
-                start=chunk.start, step=file_frames.step, duration=file_frames.duration
+                start=chunk.start, step=frames.step, duration=frames.duration
             )
             activation = SlidingWindowFeature(activation, chunk_frames)
 
@@ -217,7 +203,7 @@ class Segmentation(Pipeline):
                 if active:
                     consistency_graph.add_node((c, s))
 
-                # if speaker is active in both chunks and its activations
+                # if speaker is active in both chunks and its warm_activations
                 # are consistent enough, add edge to the graph
                 consistent = (
                     np.mean(np.abs(previous_data[:, previous_s] - data[:, s]))
@@ -231,12 +217,13 @@ class Segmentation(Pipeline):
 
         # aggregate speaker activation scores based on consistency graph
         # connected components
-        num_frames_in_file = file_frames.duration_to_samples(chunk.end)
+        num_frames_in_file = frames.duration_to_samples(chunk.end)  # FIXME
         connected_components = list(nx.connected_components(consistency_graph))
         aggregated = np.zeros((num_frames_in_file, len(connected_components)))
         overlapped = np.zeros((num_frames_in_file, len(connected_components)))
 
-        start_frame_in_chunk = num_frames_per_chunk
+        num_chunks, num_frames_per_chunk, _ = step_activations.data.shape
+        step_chunks = step_activations.sliding_window
 
         for k, component in enumerate(connected_components):
 
@@ -244,45 +231,27 @@ class Segmentation(Pipeline):
 
                 # corner case for very first chunk
                 if c == 0:
-                    end_frame = file_frames.closest_frame(0.5 * duration + 0.5 * step)
-                    end_frame_in_chunk = end_frame
-                    aggregated[:end_frame, k] += raw_activations.data[
-                        0, :end_frame_in_chunk, s
-                    ]
-                    overlapped[:end_frame, k] += 1
+                    data = step_activations.leftmost["data"]
+                    start_frame, end_frame = 0, len(data)
 
                 # corner case for very last chunk
                 elif c + 1 == num_chunks:
-                    start_frame = file_frames.closest_frame(
-                        chunks[c].middle - 0.5 * step
+                    data = step_activations.rightmost["data"]
+                    start_frame = frames.closest_frame(
+                        step_activations.rightmost["start"]
                     )
-                    end_frame = file_frames.closest_frame(chunks[c].end)
-                    aggregated[start_frame:end_frame, k] += raw_activations.data[
-                        c, raw_num_frames_per_chunk - (end_frame - start_frame) :, s
-                    ]
-                    overlapped[start_frame:end_frame, k] += 1
+                    end_frame = start_frame + len(data)
 
                 else:
+                    data = step_activations.data[c]
+                    start_frame = frames.closest_frame(step_chunks[c].start)
+                    end_frame = start_frame + num_frames_per_chunk
 
-                    start_frame = file_frames.closest_frame(
-                        chunks[c].middle - 0.5 * step
-                    )
-                    start_frame_in_chunk = file_frames.closest_frame(
-                        0.5 * (duration - 2 * warmup_duration) - 0.5 * step
-                    )
-
-                    aggregated[
-                        start_frame : start_frame + num_frames_per_step, k
-                    ] += activations.data[
-                        c,
-                        start_frame_in_chunk : start_frame_in_chunk
-                        + num_frames_per_step,
-                        s,
-                    ]
-                    overlapped[start_frame : start_frame + num_frames_per_step, k] += 1
+                aggregated[start_frame:end_frame, k] += data[:, s]
+                overlapped[start_frame:end_frame, k] += 1
 
         aggregated_activations = SlidingWindowFeature(
-            aggregated / (overlapped + 1e-12), file_frames
+            aggregated / (overlapped + 1e-12), frames
         )
         file["@segmentation/activations"] = aggregated_activations
 
