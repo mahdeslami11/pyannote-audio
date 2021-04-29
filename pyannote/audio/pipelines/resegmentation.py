@@ -189,8 +189,8 @@ class Resegmentation(Pipeline):
                 start_frame = frames.closest_frame(step_chunks[c].start)
                 end_frame = start_frame + num_frames_per_chunk
 
-            aggregated[start_frame:start_frame:end_frame] += data[permutation]
-            overlapped[start_frame:start_frame:end_frame] += 1.0
+            aggregated[start_frame : start_frame + end_frame] += data[:, permutation]
+            overlapped[start_frame : start_frame + end_frame] += 1.0
 
         speaker_activations = SlidingWindowFeature(
             aggregated / (overlapped + 1e-12), frames, labels=labels
