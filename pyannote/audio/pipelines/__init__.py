@@ -23,7 +23,9 @@
 from .overlapped_speech_detection import OverlappedSpeechDetection
 from .resegmentation import Resegmentation
 from .segmentation import Segmentation
-from .speaker_diarization import SpeakerDiarization
+from .speaker_diarization import (
+    SegmentationBasedSpeakerDiarization as SpeakerDiarization,
+)
 from .voice_activity_detection import VoiceActivityDetection
 
 __all__ = [
