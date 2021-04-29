@@ -97,6 +97,8 @@ class Segmentation(Pipeline):
             (device,) = get_devices(needs=1)
             model.to(device)
 
+        self.audio_ = model.audio
+
         inference_kwargs["duration"] = model.specifications.duration
         inference_kwargs["step"] = model.specifications.duration * 0.1
         inference_kwargs["skip_aggregation"] = True
@@ -157,7 +159,6 @@ class Segmentation(Pipeline):
         raw_activations: SlidingWindowFeature = self.segmentation_inference_(file)
         num_chunks = raw_activations.data.shape[0]
         duration = raw_activations.sliding_window.duration
-
         step = raw_activations.sliding_window.step
 
         WARMUP_RATIO = 0.1
@@ -217,10 +218,13 @@ class Segmentation(Pipeline):
 
         # aggregate speaker activation scores based on consistency graph
         # connected components
-        num_frames_in_file = frames.duration_to_samples(chunk.end)  # FIXME
         connected_components = list(nx.connected_components(consistency_graph))
-        aggregated = np.zeros((num_frames_in_file, len(connected_components)))
-        overlapped = np.zeros((num_frames_in_file, len(connected_components)))
+        num_connected_components = len(connected_components)
+        num_frames_in_file = frames.samples(
+            self.audio_.get_duration(file), mode="center"
+        )
+        aggregated = np.zeros((num_frames_in_file, num_connected_components))
+        overlapped = np.zeros((num_frames_in_file, num_connected_components))
 
         num_chunks, num_frames_per_chunk, _ = step_activations.data.shape
         step_chunks = step_activations.sliding_window
