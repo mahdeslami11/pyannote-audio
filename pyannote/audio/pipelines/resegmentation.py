@@ -67,6 +67,8 @@ class Resegmentation(Pipeline):
         Remove speaker turn shorter than that many seconds.
     min_duration_off : float
         Fill same-speaker gaps shorter than that many seconds.
+    warmup_ratio : float
+        Warm-up ratio
     """
 
     def __init__(
@@ -99,7 +101,7 @@ class Resegmentation(Pipeline):
         inference_kwargs["skip_aggregation"] = True
         self.segmentation_inference_ = Inference(model, **inference_kwargs)
 
-        #  hyper-parameters used for hysteresis thresholding
+        # hyper-parameters used for hysteresis thresholding
         self.onset = Uniform(0.0, 1.0)
         self.offset = Uniform(0.0, 1.0)
 
@@ -108,6 +110,8 @@ class Resegmentation(Pipeline):
         self.min_duration_on = Uniform(0.0, 1.0)
         self.min_duration_off = Uniform(0.0, 1.0)
 
+        self.warmup_ratio = Uniform(0.0, 0.4)
+        
     def initialize(self):
         """Initialize pipeline with current set of parameters"""
 
@@ -138,7 +142,7 @@ class Resegmentation(Pipeline):
         duration = raw_activations.sliding_window.duration
         step = raw_activations.sliding_window.step
 
-        step_activations = warm_up(raw_activations, warm_up=0.5 * (duration - step))
+        step_activations = warm_up(raw_activations, warm_up=self.warmup_ratio * duration)
         step_chunks = step_activations.sliding_window
         num_chunks, num_frames_per_chunk, _ = step_activations.data.shape
 
@@ -161,8 +165,9 @@ class Resegmentation(Pipeline):
         diarization = SlidingWindowFeature(y_original, frames)
         file["@resegmentation/diarization"] = diarization
 
-        aggregated = np.zeros((num_frames_in_file, num_clusters))
-        overlapped = np.zeros((num_frames_in_file, num_clusters))
+        # FIXME: deal with this +100 hack
+        aggregated = np.zeros((num_frames_in_file + 100, num_clusters))
+        overlapped = np.zeros((num_frames_in_file + 100, num_clusters))
 
         for c, (chunk, segmentation) in enumerate(raw_activations):
 
@@ -189,11 +194,15 @@ class Resegmentation(Pipeline):
                 start_frame = frames.closest_frame(step_chunks[c].start)
                 end_frame = start_frame + num_frames_per_chunk
 
-            aggregated[start_frame : start_frame + end_frame] += data[:, permutation]
-            overlapped[start_frame : start_frame + end_frame] += 1.0
+            data = data[:, active]
+            for i, j in enumerate(permutation):
+                if j is None:
+                    continue
+                aggregated[start_frame : end_frame, i] += data[:, j]
+            overlapped[start_frame : end_frame] += 1.0
 
         speaker_activations = SlidingWindowFeature(
-            aggregated / (overlapped + 1e-12), frames, labels=labels
+            aggregated / overlapped, frames, labels=labels
         )
 
         file["@resegmentation/activations"] = speaker_activations
