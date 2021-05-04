@@ -22,14 +22,74 @@
 
 
 from numbers import Number
-from typing import Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 
 from pyannote.core import SlidingWindow, SlidingWindowFeature
 
 
-def warm_up(
+def split_activations(
+    activations: SlidingWindowFeature,
+    frames: Optional[SlidingWindow] = None,
+) -> List[SlidingWindowFeature]:
+    """Split global raw activation scores into list of local ones
+
+    Parameters
+    ----------
+    activations : SlidingWindowFeature
+        (num_chunks, num_frames, num_classes) activations
+    frames : SlidingWindow, optional
+        Base frames. Estimated when not available.
+
+    Returns
+    -------
+    local_activations : list of SlidingWindowFeature
+        List of local activations
+    """
+
+    if frames is None:
+        _, num_frames, _ = activations.data.shape
+        first_chunk = activations.sliding_window[0]
+        duration = first_chunk.duration / num_frames
+        frames = SlidingWindow(
+            start=first_chunk.start, duration=duration, step=duration
+        )
+
+    local_activations = [
+        SlidingWindowFeature(
+            activation,
+            SlidingWindow(
+                start=chunk.start, duration=frames.duration, step=frames.step
+            ),
+        )
+        for chunk, activation in activations
+    ]
+
+    if hasattr(activations, "leftmost"):
+        local_activations[0] = SlidingWindowFeature(
+            activations.leftmost["data"],
+            SlidingWindow(
+                start=activations.leftmost["start"],
+                duration=frames.duration,
+                step=frames.step,
+            ),
+        )
+
+    if hasattr(activations, "rightmost"):
+        local_activations[-1] = SlidingWindowFeature(
+            activations.rightmost["data"],
+            SlidingWindow(
+                start=activations.rightmost["start"],
+                duration=frames.duration,
+                step=frames.step,
+            ),
+        )
+
+    return local_activations
+
+
+def warmup_activations(
     activations: SlidingWindowFeature,
     warm_up: Tuple[float, float] = None,
 ) -> SlidingWindowFeature:

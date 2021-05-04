@@ -30,7 +30,7 @@ from pyannote.audio import Inference
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.core.pipeline import Pipeline
 from pyannote.audio.pipelines.utils import PipelineModel, get_devices, get_model
-from pyannote.audio.utils.activations import warm_up
+from pyannote.audio.utils.activations import warmup_activations
 from pyannote.audio.utils.permutation import permutate
 from pyannote.audio.utils.signal import Binarize
 from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
@@ -111,7 +111,7 @@ class Resegmentation(Pipeline):
         self.min_duration_off = Uniform(0.0, 1.0)
 
         self.warmup_ratio = Uniform(0.0, 0.4)
-        
+
     def initialize(self):
         """Initialize pipeline with current set of parameters"""
 
@@ -140,11 +140,12 @@ class Resegmentation(Pipeline):
 
         raw_activations: SlidingWindowFeature = self.segmentation_inference_(file)
         duration = raw_activations.sliding_window.duration
-        step = raw_activations.sliding_window.step
 
-        step_activations = warm_up(raw_activations, warm_up=self.warmup_ratio * duration)
-        step_chunks = step_activations.sliding_window
-        num_chunks, num_frames_per_chunk, _ = step_activations.data.shape
+        warm_activations = warmup_activations(
+            raw_activations, warm_up=self.warmup_ratio * duration
+        )
+        warm_chunks = warm_activations.sliding_window
+        num_chunks, num_frames_per_chunk, _ = warm_activations.data.shape
 
         # number of frames in the whole file
         num_frames_in_file = frames.samples(
@@ -172,10 +173,10 @@ class Resegmentation(Pipeline):
         for c, (chunk, segmentation) in enumerate(raw_activations):
 
             # only consider active speakers in `segmentation`
-            active = np.max(segmentation, axis=0) > self.onset
-            if np.sum(active) == 0:
+            active_in_segmentation = np.max(segmentation, axis=0) > self.onset
+            if np.sum(active_in_segmentation) == 0:
                 continue
-            segmentation = segmentation[:, active]
+            segmentation = segmentation[:, active_in_segmentation]
 
             local_diarization = diarization.crop(chunk)[
                 np.newaxis, : self.num_frames_in_chunk_
@@ -183,23 +184,23 @@ class Resegmentation(Pipeline):
             _, (permutation,) = permutate(local_diarization, segmentation)
 
             if c == 0:
-                data = step_activations.leftmost["data"]
+                data = warm_activations.leftmost["data"]
                 start_frame, end_frame = 0, len(data)
             elif c + 1 == num_chunks:
-                data = step_activations.rightmost["data"]
-                start_frame = frames.closest_frame(step_activations.rightmost["start"])
+                data = warm_activations.rightmost["data"]
+                start_frame = frames.closest_frame(warm_activations.rightmost["start"])
                 end_frame = start_frame + len(data)
             else:
-                data = step_activations[c]
-                start_frame = frames.closest_frame(step_chunks[c].start)
+                data = warm_activations[c]
+                start_frame = frames.closest_frame(warm_chunks[c].start)
                 end_frame = start_frame + num_frames_per_chunk
 
-            data = data[:, active]
+            data = data[:, active_in_segmentation]
             for i, j in enumerate(permutation):
                 if j is None:
                     continue
-                aggregated[start_frame : end_frame, i] += data[:, j]
-            overlapped[start_frame : end_frame] += 1.0
+                aggregated[start_frame:end_frame, i] += data[:, j]
+            overlapped[start_frame:end_frame] += 1.0
 
         speaker_activations = SlidingWindowFeature(
             aggregated / overlapped, frames, labels=labels
