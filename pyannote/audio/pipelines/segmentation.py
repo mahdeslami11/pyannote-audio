@@ -260,8 +260,11 @@ class Segmentation(Pipeline):
                 aggregated[start_frame:end_frame, k] += speaker_activations
                 overlapped[start_frame:end_frame, k] += 1.0
 
+        # filter skipped components
+        active = np.sum(aggregated, axis=0) > 0
+
         aggregated_activations = SlidingWindowFeature(
-            aggregated / (overlapped + 1e-12), frames
+            aggregated[:, active] / (overlapped[:, active] + 1e-12), frames
         )
 
         file["@segmentation/activations"] = aggregated_activations
