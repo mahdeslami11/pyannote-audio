@@ -1,8 +1,30 @@
+# MIT License
+#
+# Copyright (c) 2021 CNRS
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+
 import numpy as np
 import torch
 import torch.nn.functional as F
 from scipy.cluster.hierarchy import fcluster
-from scipy.spatial.distance import cdist
 from scipy.special import softmax
 
 from pyannote.audio import Model, Pipeline
@@ -68,11 +90,7 @@ class SegmentationBasedSpeakerDiarization(Pipeline):
             segmentation=segmentation_model, return_activation=True
         )
 
-        #  hyper-parameters
-        self.clean_speech_threshold = Uniform(0, 1)
         self.clustering_threshold = Uniform(0, 2.0)
-
-        # borrowed from self.segmentation_pipeline
         self.onset = Uniform(0.0, 1.0)
         self.offset = Uniform(0.0, 1.0)
         self.min_duration_on = Uniform(0.0, 1.0)
@@ -113,6 +131,66 @@ class SegmentationBasedSpeakerDiarization(Pipeline):
             min_duration_off=self.min_duration_off,
         )
 
+    def get_weights(self, activations: SlidingWindowFeature) -> SlidingWindowFeature:
+        # TODO: make those hyper-parameters?
+        power: int = 3
+        scale: float = 10.0
+        pow_activations = pow(activations, power)
+        return pow_activations * pow(softmax(scale * pow_activations), power)
+
+    def get_embeddings(
+        self, file: AudioFile, weights: SlidingWindowFeature
+    ) -> np.ndarray:
+        """
+
+        Parameters
+        ----------
+        file : AudioFile
+            Audio file
+        weights : SlidingWindowFeature
+            (num_frames, num_clusters) activations
+
+        Returns
+        -------
+        embeddings : np.ndarray
+            (num_clusters, num_dimension) embeddings.
+        """
+
+        num_clusters = weights.data.shape[1]
+        model = self.emb_model_
+        device = model.device
+
+        embeddings = []
+
+        for k in range(num_clusters):
+
+            # find region where cluster is active
+            first_frame, last_frame = np.where(weights.data[:, k] > 0)[0][[0, -1]]
+            chunk = Segment(
+                weights.sliding_window[first_frame].middle,
+                weights.sliding_window[last_frame].middle,
+            )
+
+            # extract corresponding audio
+            waveforms = self.audio_.crop(file, chunk)[0].unsqueeze(0).to(device)
+            # (1, 1, num_samples) tensor
+
+            # extract corresponding weight
+            cluster_weight = weights.crop(chunk)[:, k].reshape(1, -1)
+            cluster_weight = torch.from_numpy(cluster_weight).float().to(device)
+            # (1, num_frames) tensor
+
+            # compute embedding
+            with torch.no_grad():
+                embedding = model(waveforms, weights=cluster_weight)
+                embedding = F.normalize(embedding) * cluster_weight.sum()
+                # (1, num_dimensions) tensor
+
+            embeddings.append(embedding.cpu().numpy())
+
+        return np.vstack(embeddings)
+        # (num_clusters, num_dimensions) ndarray
+
     def apply(self, file: AudioFile) -> Annotation:
         """Apply speaker diarization
 
@@ -131,119 +209,37 @@ class SegmentationBasedSpeakerDiarization(Pipeline):
         frames = activations.sliding_window
         num_frames_in_file, num_subclusters = activations.data.shape
 
-        SEGMENTATION_POWER = 3
-        SEGMENTATION_SCALE = 10
-        data = activations.data ** SEGMENTATION_POWER
-        data = data * softmax(SEGMENTATION_SCALE * data, axis=1) ** SEGMENTATION_POWER
-        clean_speech = SlidingWindowFeature(data, frames)
-        # clean_speech[f, k] is close to 1 when model is confident that kth sub-cluster
-        # is active at fth frame and not overlapping with other speakers, and close to 0
-        # in any other situation.
-        # SHAPE (num_frames, num_subclusters)
+        if num_subclusters < 2:
+            diarization = self._binarize(activations)
+            diarization.uri = file["uri"]
+            return diarization
 
-        file["@diarization/clean_speech"] = clean_speech
+        weights: SlidingWindowFeature = self.get_weights(activations)
+        file["@diarization/weights"] = weights
 
-        total_clean_speech = np.sum(clean_speech.data, axis=0) * frames.step
-        # total_clean_speech[k] is the total duration of clean speech for kth sub-cluster
-        # SHAPE (num_subclusters)
-        has_enough_clean_speech = total_clean_speech > self.clean_speech_threshold
-        # has_enough_clean_speech[k] indicates whether kth sub-cluster has enough clean
-        # speech to be used in embedding-based clustering
-
-        emb_device = self.emb_model_.device
-        dimension = self.emb_model_.introspection.dimension
-        embeddings = np.empty((num_subclusters, dimension))
-        # SHAPE (num_subclusters, embedding_dimension)
-
-        for k in range(num_subclusters):
-
-            # first and last frame/time where sub-cluster is active
-            start_frame, end_frame = np.where(activations.data[:, k] > 0)[0][[0, -1]]
-            start_time, end_time = frames[start_frame].middle, frames[end_frame].middle
-
-            chunk = Segment(start_time, end_time)
-            waveforms = self.audio_.crop(file, chunk)[0].unsqueeze(0).to(emb_device)
-            # SHAPE (1, 1, num_samples)
-
-            weights = (
-                torch.from_numpy(
-                    clean_speech.crop(chunk)[:, k].reshape(1, -1),
-                )
-                .float()
-                .to(emb_device)
-            )
-            # SHAPE (1, num_frames)
-
-            with torch.no_grad():
-                emb = (
-                    F.normalize(
-                        self.emb_model_(waveforms, weights=weights),
-                        p=2.0,
-                        dim=1,
-                        eps=1e-12,
-                    )
-                    * weights.sum()
-                ).squeeze()
-
-                embeddings[k] = emb.cpu().numpy() * total_clean_speech[k]
-
+        embeddings: np.ndarray = self.get_embeddings(file, weights)
         file["@diarization/embeddings"] = embeddings
-        file["@diarization/total_clean_speech"] = total_clean_speech
-
-        # TODO: better handle corner case with not enough clean embeddings
-        if np.sum(has_enough_clean_speech) < 2:
-            return Annotation(uri=file["uri"])
 
         # hierarchical agglomerative clustering with "pool" linkage
-        embeddings_for_clustering = embeddings[has_enough_clean_speech]
         Z = pool(
-            embeddings_for_clustering,
+            embeddings,
             metric="cosine",
             pooling_func=self.pooling_func,
-            # cannot_link=cannot_link
         )
-
         file["@diarization/dendrogram"] = Z
 
-        clean_clusters = (
-            fcluster(Z, self.clustering_threshold, criterion="distance") - 1
-        )
-
-        # one representative embedding per clean cluster
-        num_clusters = len(np.unique(clean_clusters))
-        clean_cluster_embeddings = np.vstack(
-            [
-                np.sum(
-                    embeddings[has_enough_clean_speech][clean_clusters == cluster],
-                    axis=0,
-                )
-                for cluster in range(num_clusters)
-            ]
-        )
-        noisy_clusters = np.argmin(
-            cdist(
-                clean_cluster_embeddings,
-                embeddings[~has_enough_clean_speech],
-                metric="cosine",
-            ),
-            axis=0,
-        )
+        clusters = fcluster(Z, self.clustering_threshold, criterion="distance") - 1
+        num_clusters = len(clusters)
 
         aggregated = np.zeros((num_frames_in_file, num_clusters))
-
-        for cluster, k in zip(clean_clusters, *np.where(has_enough_clean_speech)):
-            aggregated[:, cluster] = np.maximum(
-                aggregated[:, cluster], activations.data[:, k]
-            )
-
-        for cluster, k in zip(noisy_clusters, *np.where(~has_enough_clean_speech)):
+        for k, cluster in enumerate(clusters):
             aggregated[:, cluster] = np.maximum(
                 aggregated[:, cluster], activations.data[:, k]
             )
 
         clustered_activations = SlidingWindowFeature(aggregated, frames)
-
         file["@diarization/activations"] = clustered_activations
+
         diarization = self._binarize(clustered_activations)
         diarization.uri = file["uri"]
         return diarization
