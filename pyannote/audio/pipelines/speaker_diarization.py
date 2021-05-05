@@ -159,6 +159,7 @@ class SegmentationBasedSpeakerDiarization(Pipeline):
         num_clusters = weights.data.shape[1]
         model = self.emb_model_
         device = model.device
+        duration = self.audio_.get_duration(file)
 
         embeddings = []
 
@@ -167,8 +168,8 @@ class SegmentationBasedSpeakerDiarization(Pipeline):
             # find region where cluster is active
             first_frame, last_frame = np.where(weights.data[:, k] > 0)[0][[0, -1]]
             chunk = Segment(
-                weights.sliding_window[first_frame].middle,
-                weights.sliding_window[last_frame].middle,
+                max(0, weights.sliding_window[first_frame].middle),
+                min(duration, weights.sliding_window[last_frame].middle),
             )
 
             # extract corresponding audio
