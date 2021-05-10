@@ -136,7 +136,7 @@ class SegmentationBasedSpeakerDiarization(Pipeline):
         power: int = 3
         scale: float = 10.0
         pow_activations = pow(activations, power)
-        return pow_activations * pow(softmax(scale * pow_activations), power)
+        return pow_activations * pow(softmax(scale * pow_activations, axis=1), power)
 
     def get_embeddings(
         self, file: AudioFile, weights: SlidingWindowFeature
