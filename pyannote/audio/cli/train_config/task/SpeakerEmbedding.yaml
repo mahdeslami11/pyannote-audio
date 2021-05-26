@@ -1,4 +1,3 @@
-# @package _group_
 _target_: pyannote.audio.tasks.SupervisedRepresentationLearningWithArcFace
 min_duration: 2.0
 duration: 5.0
