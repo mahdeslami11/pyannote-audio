@@ -23,7 +23,8 @@
 """Segmentation pipelines"""
 
 import math
-from itertools import combinations
+from itertools import combinations, product
+from typing import List, Tuple
 
 import networkx as nx
 import numpy as np
@@ -35,7 +36,13 @@ from pyannote.audio.utils.activations import split_activations, warmup_activatio
 from pyannote.audio.utils.permutation import permutate
 from pyannote.audio.utils.signal import Binarize
 from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
+from pyannote.core.utils.generators import pairwise
 from pyannote.pipeline.parameter import Uniform
+
+ChunkIndex = int
+SpeakerIndex = int
+LocalSpeaker = Tuple[ChunkIndex, SpeakerIndex]
+Clique = List[LocalSpeaker]
 
 
 class Segmentation(Pipeline):
@@ -160,6 +167,7 @@ class Segmentation(Pipeline):
             for past_chunk in range(
                 max(0, current_chunk - num_overlapping_chunks), current_chunk
             ):
+
                 past_activation = activations[past_chunk]
                 intersection = past_activation.extent & current_activation.extent
 
@@ -204,72 +212,128 @@ class Segmentation(Pipeline):
                             (past_chunk, past_speaker), (current_chunk, current_speaker)
                         )
 
-        # bipartite clique graph
-        bipartite = nx.algorithms.clique.make_clique_bipartite(consistency_graph)
-        is_speaker = nx.get_node_attributes(bipartite, "bipartite")
+        # FIXME -- why do we need this +100 ?
+        num_frames_in_file = (
+            frames.samples(self.audio_.get_duration(file), mode="center") + 100
+        )
 
         aggregated = []
         overlapped = []
 
-        for b, bipartite_component in enumerate(nx.connected_components(bipartite)):
+        outliers_aggregated = []
+        outliers_overlapped = []
 
-            sub_bipartite = bipartite.subgraph(bipartite_component).copy()
+        for c, component in enumerate(nx.connected_components(consistency_graph)):
 
-            # a clique is incomplete if it lacks at least one of {num_overlapping_chunks} overlapping chunks
-            # remove incomplete cliques as they cannot be trusted
-            incomplete_cliques = list(
-                filter(
-                    lambda clique: (not is_speaker[clique])
-                    and (len(sub_bipartite[clique]) < num_overlapping_chunks + 1),
-                    sub_bipartite.nodes(),
+            bipartite = nx.algorithms.clique.make_clique_bipartite(
+                consistency_graph.subgraph(component).copy()
+            )
+            is_speaker = nx.get_node_attributes(bipartite, "bipartite")
+
+            complete_cliques: List[Clique] = sorted(
+                map(
+                    lambda clique: sorted(bipartite[clique]),
+                    filter(
+                        lambda clique: (not is_speaker[clique])
+                        and (len(bipartite[clique]) == num_overlapping_chunks + 1),
+                        bipartite.nodes(),
+                    ),
                 )
             )
-            sub_bipartite.remove_nodes_from(incomplete_cliques)
-            # TODO: corner case for cliques at the beginning of file
 
-            # an orphan is (chunk, speaker) node that is not part of any complete clique.
-            # remove orphans as they cannot be trusted
-            orphans = [node for node, degree in sub_bipartite.degree() if degree == 0]
-            sub_bipartite.remove_nodes_from(orphans)
+            strong_consistency_graph = nx.Graph()
+            for clique1, clique2 in pairwise(complete_cliques):
 
-            complete_cliques = list(
-                filter(
-                    lambda clique: (not is_speaker[clique])
-                    and (len(sub_bipartite[clique]) == num_overlapping_chunks + 1),
-                    sub_bipartite.nodes(),
+                for n, m in combinations(clique1, 2):
+                    strong_consistency_graph.add_edge(n, m)
+
+                if len(set(clique1) & set(clique2)) == num_overlapping_chunks:
+                    for n, m in product(clique1, clique2):
+                        strong_consistency_graph.add_edge(n, m)
+
+            strong_components = sorted(
+                sorted(strong_component)
+                for strong_component in nx.connected_components(
+                    strong_consistency_graph
                 )
             )
-            # TODO: corner case for cliques at the beginning of file
+            num_strong_components = len(strong_components)
 
-            sub_bipartite_copy = sub_bipartite.copy()
-            for clique1, clique2 in combinations(complete_cliques, 2):
-                chunk_speaker_in_both_cliques = list(
-                    nx.common_neighbors(sub_bipartite_copy, clique1, clique2)
-                )
-                if len(chunk_speaker_in_both_cliques) == num_overlapping_chunks:
-                    sub_bipartite.add_edge(clique1, clique2)
+            # outliers are chunks that are not part of any complete cliques
+            # they should be handled with care...
+            outliers = component - set(strong_consistency_graph.nodes())
 
-            # (chunk, speaker) components
-            components = [
-                [n for n in component if is_speaker[n]]
-                for component in nx.connected_components(sub_bipartite)
-            ]
-            num_components = len(components)
-            if num_components == 0:
-                continue
+            # ignore outliers that are connected to more than one strong component
+            for outlier in list(outliers):
+                if (
+                    sum(
+                        1
+                        if len(set(consistency_graph[outlier]) & set(strong_component))
+                        > 0
+                        else 0
+                        for strong_component in strong_components
+                    )
+                    > 1
+                ):
+                    outliers.remove(outlier)
+                    print(f"connected to more than one strong component: {outlier}")
 
-            num_frames_in_file = frames.samples(
-                self.audio_.get_duration(file), mode="center"
-            )
-            # FIXME -- why do we need this +100 ?
-            sub_aggregated = np.zeros((num_frames_in_file + 100, num_components))
-            sub_overlapped = np.zeros((num_frames_in_file + 100, num_components))
+            # ignore outliers that are connected to zero strong component
+            for outlier in list(outliers):
+                if (
+                    sum(
+                        1
+                        if len(set(consistency_graph[outlier]) & set(strong_component))
+                        > 0
+                        else 0
+                        for strong_component in strong_components
+                    )
+                    == 0
+                ):
+                    outliers.remove(outlier)
+                    print(f"connected to zero strong component: {outlier}")
 
-            for k, component in enumerate(components):
+            print(outliers)
 
-                # aggregate chunks if they belong to the same component
-                # remove outermost chunks of each component as their
-                for i, (chunk, speaker) in enumerate(sorted(component)):
+            num_outliers = len(outliers)
+
+            if num_strong_components:
+                sub_aggregated = np.zeros((num_frames_in_file, num_strong_components))
+                sub_overlapped = np.zeros((num_frames_in_file, num_strong_components))
+
+                for k, strong_component in enumerate(strong_components):
+
+                    # aggregate chunks if they belong to the same strong component
+                    for chunk, speaker in strong_component:
+                        chunk_activations = activations[chunk]
+                        speaker_activations: np.ndarray = chunk_activations.data[
+                            :, speaker
+                        ]
+                        start_frame = frames.closest_frame(
+                            chunk_activations.extent.start
+                        )
+                        end_frame = start_frame + len(speaker_activations)
+                        sub_aggregated[start_frame:end_frame, k] += speaker_activations
+                        sub_overlapped[start_frame:end_frame, k] += 1.0
+
+                most_central = np.argmax(sub_overlapped, axis=1)
+                for k in range(num_strong_components):
+                    sub_aggregated[most_central != k, k] = 0.0
+                    sub_overlapped[most_central != k, k] = 0.0
+
+                aggregated.append(sub_aggregated)
+                overlapped.append(sub_overlapped)
+
+            if num_outliers:
+
+                # if outlier is connected to more than one strong component, ignore it.
+                # if outlier is connected to exactly one strong component, only keep the part
+                # that is not covered
+
+                sub_aggregated = np.zeros((num_frames_in_file, num_outliers))
+                sub_overlapped = np.zeros((num_frames_in_file, num_outliers))
+
+                for k, (chunk, speaker) in enumerate(outliers):
                     chunk_activations = activations[chunk]
                     speaker_activations: np.ndarray = chunk_activations.data[:, speaker]
                     start_frame = frames.closest_frame(chunk_activations.extent.start)
@@ -277,28 +341,21 @@ class Segmentation(Pipeline):
                     sub_aggregated[start_frame:end_frame, k] += speaker_activations
                     sub_overlapped[start_frame:end_frame, k] += 1.0
 
-            most_central = np.argmax(sub_overlapped, axis=1)
-            for k in range(num_components):
-                sub_aggregated[most_central != k, k] = 0.0
-                sub_overlapped[most_central != k, k] = 0.0
+                outliers_aggregated.append(sub_aggregated)
+                outliers_overlapped.append(sub_overlapped)
 
-            # filter skipped components
-            active = np.sum(sub_aggregated, axis=0) > 0
-            sub_aggregated = sub_aggregated[:, active]
-            sub_overlapped = sub_overlapped[:, active]
+        aggregated_activations = SlidingWindowFeature(
+            np.hstack(aggregated) / np.hstack(overlapped), frames
+        )
 
-            aggregated.append(sub_aggregated)
-            overlapped.append(sub_overlapped)
-
-        aggregated = np.hstack(aggregated)
-        overlapped = np.hstack(overlapped)
-
-        aggregated_activations = SlidingWindowFeature(aggregated / overlapped, frames)
+        outliers_aggregated_activations = SlidingWindowFeature(
+            np.hstack(outliers_aggregated) / np.hstack(outliers_overlapped), frames
+        )
 
         file["@segmentation/activations"] = aggregated_activations
 
         if self.return_activation:
-            return aggregated_activations
+            return aggregated_activations, outliers_aggregated_activations
 
         segmentation = self._binarize(aggregated_activations)
         segmentation.uri = file["uri"]
