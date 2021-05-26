@@ -174,7 +174,7 @@ class Segmentation(Pipeline):
                 current_data = current_activation.crop(intersection)
                 past_data = past_activation.crop(intersection)
                 _, (permutation,), (cost,) = permutate(
-                    past_data[np.newaxis], current_data, returns_cost=True
+                    past_data[np.newaxis], current_data, return_cost=True
                 )
 
                 permutation_cost = np.sum(
