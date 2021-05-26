@@ -52,6 +52,8 @@ class SegmentationBasedSpeakerDiarization(Pipeline):
         `Inference` instance used to extract speaker embeddings. When `str`,
         assumes that file already contains a corresponding key with precomputed
         embeddings. Defaults to "emb".
+    cannot_link : bool, optional
+        Prevent merging same-chunk speakers. Defaults to True.
 
     Hyper-parameters
     ----------------
@@ -63,12 +65,14 @@ class SegmentationBasedSpeakerDiarization(Pipeline):
         self,
         segmentation: PipelineModel = "pyannote/segmentation",
         embedding: PipelineModel = "hbredin/SpeakerEmbedding-XVectorMFCC-VoxCeleb",
+        cannot_link: bool = True,
     ):
 
         super().__init__()
 
         self.segmentation = segmentation
         self.embedding = embedding
+        self.cannot_link = cannot_link
 
         self.seg_model_: Model = get_model(segmentation)
         self.emb_model_: Model = get_model(embedding)
@@ -218,7 +222,7 @@ class SegmentationBasedSpeakerDiarization(Pipeline):
             embeddings,
             metric="cosine",
             pooling_func=self.pooling_func,
-            cannot_link=cannot_link,
+            cannot_link=cannot_link if self.cannot_link else None,
         )
         file["@diarization/dendrogram"] = dendrogram
 
