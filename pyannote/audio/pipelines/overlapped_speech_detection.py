@@ -170,6 +170,8 @@ class OverlappedSpeechDetection(Pipeline):
 
         segmentation = self.segmentation_inference_(file)
 
+        # FIXME: when using a segmentation model, it probably is better do 2nd_max() before aggregation
+
         if segmentation.data.shape[1] == 1:
             file["@overlapped_speech_detection/activation"] = segmentation
             activation = segmentation
