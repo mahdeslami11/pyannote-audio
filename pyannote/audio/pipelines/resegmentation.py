@@ -183,6 +183,11 @@ class Resegmentation(Pipeline):
             ]
             _, (permutation,) = permutate(local_diarization, segmentation)
 
+            # TODO: only consider active speakers in `diarization`.
+            # if the number of active speakers in `diarization` is smaller
+            # than the number of active speakers in `segmentation`, use
+            # speaker embedding to assign others.
+
             if c == 0:
                 data = warm_activations.leftmost["data"]
                 start_frame, end_frame = 0, len(data)
