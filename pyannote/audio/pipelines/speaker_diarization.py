@@ -20,6 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from itertools import combinations
 
 import numpy as np
 import torch
@@ -27,15 +28,15 @@ import torch.nn.functional as F
 from scipy.cluster.hierarchy import fcluster
 from scipy.special import softmax
 
-from pyannote.audio import Model, Pipeline
+from pyannote.audio import Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
-from pyannote.audio.pipelines.segmentation import Segmentation
 from pyannote.audio.pipelines.utils import PipelineModel, get_devices, get_model
+from pyannote.audio.utils.activations import warmup_activations
 from pyannote.audio.utils.signal import Binarize
-from pyannote.core import Annotation, Segment, SlidingWindowFeature
+from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
 from pyannote.core.utils.hierarchy import pool
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
-from pyannote.pipeline.parameter import Uniform
+from pyannote.pipeline.parameter import LogUniform, Uniform
 
 
 class SegmentationBasedSpeakerDiarization(Pipeline):
@@ -69,14 +70,14 @@ class SegmentationBasedSpeakerDiarization(Pipeline):
         self.segmentation = segmentation
         self.embedding = embedding
 
-        segmentation_model: Model = get_model(segmentation)
+        self.seg_model_: Model = get_model(segmentation)
         self.emb_model_: Model = get_model(embedding)
         self.emb_model_.eval()
 
         # send models to GPU (when GPUs are available and model is not already on GPU)
         cpu_models = [
             model
-            for model in (segmentation_model, self.emb_model_)
+            for model in (self.seg_model_, self.emb_model_)
             if model.device.type == "cpu"
         ]
         for cpu_model, gpu_device in zip(
@@ -86,15 +87,11 @@ class SegmentationBasedSpeakerDiarization(Pipeline):
 
         self.audio_ = self.emb_model_.audio
 
-        self.segmentation_pipeline = Segmentation(
-            segmentation=segmentation_model, return_activation=True
-        )
-
-        self.clustering_threshold = Uniform(0, 2.0)
-        self.onset = Uniform(0.0, 1.0)
-        self.offset = Uniform(0.0, 1.0)
-        self.min_duration_on = Uniform(0.0, 1.0)
-        self.min_duration_off = Uniform(0.0, 1.0)
+        self.warmup_ratio = Uniform(0.0, 0.2)
+        self.duration_threshold = Uniform(0.0, 1.0)
+        self.duration_scale = LogUniform(1e-2, 1e2)
+        # sigmoid(scale * (d - threshold))
+        self.distance_threshold = Uniform(0.0, 2.0)
 
     @staticmethod
     def pooling_func(
@@ -119,16 +116,23 @@ class SegmentationBasedSpeakerDiarization(Pipeline):
         Cuv : (dimension, ) np.ndarray
             Embedding of newly formed cluster.
         """
+
         return C[u] + C[v]
 
     def initialize(self):
         """Initialize pipeline with current set of parameters"""
 
+        duration = self.seg_model_.specifications.duration
+        step = duration - 2 * self.warmup_ratio * duration
+        self._segmentation_inference = Inference(
+            self.seg_model_, duration=duration, step=step, skip_aggregation=True
+        )
+
         self._binarize = Binarize(
-            onset=self.onset,
-            offset=self.offset,
-            min_duration_on=self.min_duration_on,
-            min_duration_off=self.min_duration_off,
+            onset=0.5,
+            offset=0.5,
+            min_duration_on=0.1,
+            min_duration_off=0.2,
         )
 
     def get_weights(self, activations: SlidingWindowFeature) -> SlidingWindowFeature:
@@ -137,60 +141,6 @@ class SegmentationBasedSpeakerDiarization(Pipeline):
         scale: float = 10.0
         pow_activations = pow(activations, power)
         return pow_activations * pow(softmax(scale * pow_activations, axis=1), power)
-
-    def get_embeddings(
-        self, file: AudioFile, weights: SlidingWindowFeature
-    ) -> np.ndarray:
-        """
-
-        Parameters
-        ----------
-        file : AudioFile
-            Audio file
-        weights : SlidingWindowFeature
-            (num_frames, num_clusters) activations
-
-        Returns
-        -------
-        embeddings : np.ndarray
-            (num_clusters, num_dimension) embeddings.
-        """
-
-        num_clusters = weights.data.shape[1]
-        model = self.emb_model_
-        device = model.device
-        duration = self.audio_.get_duration(file)
-
-        embeddings = []
-
-        for k in range(num_clusters):
-
-            # find region where cluster is active
-            first_frame, last_frame = np.where(weights.data[:, k] > 0)[0][[0, -1]]
-            chunk = Segment(
-                max(0, weights.sliding_window[first_frame].middle),
-                min(duration, weights.sliding_window[last_frame].middle),
-            )
-
-            # extract corresponding audio
-            waveforms = self.audio_.crop(file, chunk)[0].unsqueeze(0).to(device)
-            # (1, 1, num_samples) tensor
-
-            # extract corresponding weight
-            cluster_weight = weights.crop(chunk)[:, k].reshape(1, -1)
-            cluster_weight = torch.from_numpy(cluster_weight).float().to(device)
-            # (1, num_frames) tensor
-
-            # compute embedding
-            with torch.no_grad():
-                embedding = model(waveforms, weights=cluster_weight)
-                embedding = F.normalize(embedding) * cluster_weight.sum()
-                # (1, num_dimensions) tensor
-
-            embeddings.append(embedding.cpu().numpy())
-
-        return np.vstack(embeddings)
-        # (num_clusters, num_dimensions) ndarray
 
     def apply(self, file: AudioFile) -> Annotation:
         """Apply speaker diarization
@@ -206,42 +156,99 @@ class SegmentationBasedSpeakerDiarization(Pipeline):
             Speaker diarization
         """
 
-        activations = self.segmentation_pipeline(file)
-        frames = activations.sliding_window
-        num_frames_in_file, num_subclusters = activations.data.shape
+        frames: SlidingWindow = self._segmentation_inference.model.introspection.frames
+        segmentations: SlidingWindowFeature = self._segmentation_inference(file)
 
-        if num_subclusters < 2:
-            diarization = self._binarize(activations)
-            diarization.uri = file["uri"]
-            return diarization
+        duration = self.seg_model_.specifications.duration
+        segmentations = warmup_activations(
+            segmentations, warm_up=self.warmup_ratio * duration
+        )
 
-        weights: SlidingWindowFeature = self.get_weights(activations)
-        file["@diarization/weights"] = weights
+        num_chunks, num_frames, num_speakers = segmentations.data.shape
 
-        embeddings: np.ndarray = self.get_embeddings(file, weights)
-        file["@diarization/embeddings"] = embeddings
+        embeddings = []
+        cannot_link = []
+        device = self.emb_model_.device
+        for c, (chunk, segmentation) in enumerate(segmentations):
+
+            waveforms: torch.Tensor = (
+                self.audio_.crop(file, chunk)[0]
+                .unsqueeze(0)
+                .expand(num_speakers, -1, -1)
+                .to(device)
+            )
+            # num_speakers, num_channels == 1, num_samples
+
+            embedding_weights: torch.Tensor = (
+                torch.from_numpy(self.get_weights(segmentation)).float().T.to(device)
+            )
+            # (num_speakers, num_frames)
+
+            clustering_weights: torch.Tensor = F.sigmoid(
+                self.duration_scale
+                * (
+                    torch.mean(embedding_weights, dim=1, keepdim=True)
+                    - self.duration_threshold
+                )
+            )
+            # num_speakers, 1
+
+            with torch.no_grad():
+                chunk_embeddings = clustering_weights * F.normalize(
+                    self.emb_model_(waveforms, weights=embedding_weights)
+                )
+                # num_speakers, dimension
+
+            embeddings.append(chunk_embeddings.cpu().numpy())
+
+            for i, j in combinations(
+                range(num_speakers * c, num_speakers * (c + 1)), 2
+            ):
+                cannot_link.append((i, j))
+
+        embeddings = np.vstack(embeddings)
+
+        # FIXME -- why do we need this +100 ?
+        num_frames_in_file = (
+            frames.samples(self.audio_.get_duration(file), mode="center") + 100
+        )
 
         # hierarchical agglomerative clustering with "pool" linkage
-        Z = pool(
+        dendrogram = pool(
             embeddings,
             metric="cosine",
             pooling_func=self.pooling_func,
+            cannot_link=cannot_link,
         )
-        file["@diarization/dendrogram"] = Z
+        file["@diarization/dendrogram"] = dendrogram
 
-        clusters = fcluster(Z, self.clustering_threshold, criterion="distance") - 1
-        num_clusters = len(clusters)
+        clusters = (
+            fcluster(dendrogram, self.distance_threshold, criterion="distance") - 1
+        )
+        num_clusters = np.max(clusters) + 1
 
         aggregated = np.zeros((num_frames_in_file, num_clusters))
+
         for k, cluster in enumerate(clusters):
-            aggregated[:, cluster] = np.maximum(
-                aggregated[:, cluster], activations.data[:, k]
+
+            chunk_idx = k // num_speakers
+            chunk = segmentations.sliding_window[chunk_idx]
+
+            speaker_idx = k % num_speakers
+            activation = segmentations[chunk_idx][:, speaker_idx]
+
+            start_frame = frames.closest_frame(chunk.start)
+            end_frame = start_frame + len(activation)
+
+            aggregated[start_frame:end_frame, cluster] = np.maximum(
+                activation, aggregated[start_frame:end_frame, cluster]
             )
 
-        clustered_activations = SlidingWindowFeature(aggregated, frames)
-        file["@diarization/activations"] = clustered_activations
+        activations = SlidingWindowFeature(aggregated, frames)
 
-        diarization = self._binarize(clustered_activations)
+        file["@diarization/activations"] = activations
+
+        diarization = self._binarize(activations)
         diarization.uri = file["uri"]
         return diarization
 
