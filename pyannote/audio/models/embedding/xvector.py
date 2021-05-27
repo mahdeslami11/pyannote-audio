@@ -79,10 +79,7 @@ class XVectorMFCC(Model):
 
         self.stats_pool = StatsPool()
 
-        self.embedding = nn.Sequential(
-            nn.Linear(in_channel * 2, self.hparams.dimension),
-            nn.BatchNorm1d(self.hparams.dimension),
-        )
+        self.embedding = nn.Linear(in_channel * 2, self.hparams.dimension)
 
     def forward(
         self, waveforms: torch.Tensor, weights: torch.Tensor = None
@@ -150,10 +147,7 @@ class XVector(Model):
 
         self.stats_pool = StatsPool()
 
-        self.embedding = nn.Sequential(
-            nn.Linear(in_channel * 2, self.hparams.dimension),
-            nn.BatchNorm1d(self.hparams.dimension),
-        )
+        self.embedding = nn.Linear(in_channel * 2, self.hparams.dimension)
 
     def forward(
         self, waveforms: torch.Tensor, weights: torch.Tensor = None
