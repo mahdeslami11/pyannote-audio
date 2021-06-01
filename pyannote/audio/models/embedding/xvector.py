@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2020 CNRS
+# Copyright (c) 2021 CNRS
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -101,7 +101,7 @@ class XVectorMFCC(Model):
         return self.embedding(outputs)
 
 
-class XVector(Model):
+class XVectorSincNet(Model):
 
     SINCNET_DEFAULTS = {"stride": 10}
 
