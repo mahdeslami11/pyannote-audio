@@ -103,7 +103,7 @@ class Introspection:
         example_input_array = model.example_input_array
         batch_size, num_channels, num_samples = example_input_array.shape
         example_input_array = torch.randn(
-            (1, num_channels, num_samples),
+            (batch_size, num_channels, num_samples),
             dtype=example_input_array.dtype,
             layout=example_input_array.layout,
             device=example_input_array.device,
@@ -126,7 +126,7 @@ class Introspection:
                 if specifications.resolution == Resolution.FRAME:
                     _, min_num_frames, dimension = frames.shape
                 elif specifications.resolution == Resolution.CHUNK:
-                    min_num_frames, dimension = frames.shape
+                    _, dimension = frames.shape
                 else:
                     # should never happen
                     pass
@@ -158,7 +158,7 @@ class Introspection:
         while True:
             num_samples = 2 * min_num_samples
             example_input_array = torch.randn(
-                (1, num_channels, num_samples),
+                (batch_size, num_channels, num_samples),
                 dtype=example_input_array.dtype,
                 layout=example_input_array.layout,
                 device=example_input_array.device,
@@ -177,7 +177,7 @@ class Introspection:
         while True:
             num_samples = (lower + upper) // 2
             example_input_array = torch.randn(
-                (1, num_channels, num_samples),
+                (batch_size, num_channels, num_samples),
                 dtype=example_input_array.dtype,
                 layout=example_input_array.layout,
                 device=example_input_array.device,
