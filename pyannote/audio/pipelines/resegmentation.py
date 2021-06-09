@@ -88,11 +88,6 @@ class Resegmentation(Pipeline):
 
         self.audio_ = model.audio
 
-        # number of speakers in output of segmentation model
-        self.num_frames_in_chunk_, self.seg_num_speakers_ = model.introspection(
-            round(model.specifications.duration * model.hparams.sample_rate)
-        )
-
         # output frames as SlidingWindow instances
         self.seg_frames_ = model.introspection.frames
 
@@ -100,6 +95,16 @@ class Resegmentation(Pipeline):
         inference_kwargs["window"] = "sliding"
         inference_kwargs["skip_aggregation"] = True
         self.seg_inference_ = Inference(model, **inference_kwargs)
+
+        # number of frames/speakers in output of segmentation model
+        self.num_frames_in_chunk_, self.seg_num_speakers_ = model.introspection(
+            round(self.seg_inference_.duration * model.hparams.sample_rate)
+        )
+
+        # number of frames in each step
+        self.num_frames_in_step_, _ = model.introspection(
+            round(self.seg_inference_.step * model.hparams.sample_rate)
+        )
 
         #  hyper-parameters used for hysteresis thresholding
         self.onset = Uniform(0.0, 1.0)
@@ -161,6 +166,14 @@ class Resegmentation(Pipeline):
         aggregated = np.zeros((num_frames_in_file, num_clusters))
         overlapped = np.zeros((num_frames_in_file, num_clusters))
 
+        aggregation_mask = 1e-12 * np.ones((self.num_frames_in_chunk_, num_clusters))
+        middle_start_frame = (
+            self.num_frames_in_chunk_ // 2 - self.num_frames_in_step_ // 2
+        )
+        aggregation_mask[
+            middle_start_frame : middle_start_frame + self.num_frames_in_step_
+        ] = 1.0
+
         for chunk, segmentation in segmentations:
 
             # only consider active speakers in `segmentation`
@@ -175,10 +188,12 @@ class Resegmentation(Pipeline):
             (permutated_segmentation,), _ = permutate(local_diarization, segmentation)
 
             start_frame = round(chunk.start / self.seg_frames_.duration)
-            aggregated[
+            aggregated[start_frame : start_frame + self.num_frames_in_chunk_] += (
+                permutated_segmentation * aggregation_mask
+            )
+            overlapped[
                 start_frame : start_frame + self.num_frames_in_chunk_
-            ] += permutated_segmentation
-            overlapped[start_frame : start_frame + self.num_frames_in_chunk_] += 1.0
+            ] += aggregation_mask
 
         speaker_activations = SlidingWindowFeature(
             aggregated / np.maximum(overlapped, 1e-12), self.seg_frames_, labels=labels
