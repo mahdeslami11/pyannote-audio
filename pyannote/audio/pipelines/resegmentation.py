@@ -102,10 +102,10 @@ class Resegmentation(Pipeline):
         )
 
         # number of frames in each step
-        self.num_frames_in_step_, _ = (
+        self.num_frames_in_step_ = (
             model.introspection(
                 round(self.seg_inference_.step * model.hparams.sample_rate)
-            )
+            )[0]
             + 1
         )
 
