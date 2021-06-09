@@ -102,8 +102,11 @@ class Resegmentation(Pipeline):
         )
 
         # number of frames in each step
-        self.num_frames_in_step_, _ = model.introspection(
-            round(self.seg_inference_.step * model.hparams.sample_rate)
+        self.num_frames_in_step_, _ = (
+            model.introspection(
+                round(self.seg_inference_.step * model.hparams.sample_rate)
+            )
+            + 1
         )
 
         #  hyper-parameters used for hysteresis thresholding
