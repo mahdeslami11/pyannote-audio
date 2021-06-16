@@ -148,8 +148,8 @@ class Resegmentation(Pipeline):
         num_chunks, num_frames_per_chunk, _ = warm_activations.data.shape
 
         # number of frames in the whole file
-        num_frames_in_file = frames.samples(
-            self.audio_.get_duration(file), mode="center"
+        num_frames_in_file = self.seg_frames_.closest_frame(
+            segmentations.sliding_window[len(segmentations) - 1].end
         )
 
         # turn input diarization into binary (0 or 1) activations
@@ -208,7 +208,7 @@ class Resegmentation(Pipeline):
             overlapped[start_frame:end_frame] += 1.0
 
         speaker_activations = SlidingWindowFeature(
-            aggregated / overlapped, frames, labels=labels
+            aggregated / np.maximum(overlapped, 1e-12), self.seg_frames_, labels=labels
         )
 
         file["@resegmentation/activations"] = speaker_activations
