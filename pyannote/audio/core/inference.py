@@ -22,7 +22,7 @@
 
 import warnings
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Text, Union
+from typing import Any, Callable, List, Optional, Text, Tuple, Union
 
 import numpy as np
 import torch
@@ -289,48 +289,18 @@ class Inference:
 
         if self.pre_aggregation_hook is not None:
             outputs = self.pre_aggregation_hook(outputs)
-            _, _, dimension = outputs.shape
 
-        # Hamming window used for overlap-add aggregation
-        window = np.hamming(num_frames_per_chunk).reshape(-1, 1)
-
-        # anything before warm_up_left (and after num_frames_per_chunk - warm_up_right)
-        # will not be used in the final aggregation
-
-        # warm-up windows used for overlap-add aggregation
-        warm_up = np.ones((num_frames_per_chunk, 1))
-        # anything before warm_up_left will not contribute to aggregation
-        warm_up_left = round(self.warm_up[0] / self.duration * num_frames_per_chunk)
-        warm_up[:warm_up_left] = 1e-12
-        # anything after num_frames_per_chunk - warm_up_right either
-        warm_up_right = round(self.warm_up[1] / self.duration * num_frames_per_chunk)
-        warm_up[num_frames_per_chunk - warm_up_right :] = 1e-12
-
-        # aggregated_output[i] will be used to store the sum of all predictions
-        # for frame #i
-        num_frames = frames.closest_frame(self.duration + num_chunks * self.step) + 1
-        aggregated_output: np.ndarray = np.zeros(
-            (num_frames, dimension), dtype=np.float32
+        aggregated_output, overlapping_chunk_count = self.aggregate(
+            SlidingWindowFeature(
+                outputs,
+                SlidingWindow(start=0.0, duration=self.duration, step=self.step),
+            ),
+            frames,
+            warm_up=self.warm_up,
         )
-
-        # overlapping_chunk_count[i] will be used to store the number of chunks
-        # that contributed to frame #i
-        overlapping_chunk_count: np.ndarray = np.zeros(
-            (num_frames, 1), dtype=np.float32
-        )
-
-        # loop on the outputs of sliding chunks
-        for c, output in enumerate(outputs):
-            start_frame = frames.closest_frame(c * self.step)
-            aggregated_output[start_frame : start_frame + num_frames_per_chunk] += (
-                output * window * warm_up
-            )
-
-            overlapping_chunk_count[
-                start_frame : start_frame + num_frames_per_chunk
-            ] += (window * warm_up)
 
         if has_last_chunk:
+            num_frames = aggregated_output.shape[0]
             aggregated_output = aggregated_output[: num_frames - pad, :]
             overlapping_chunk_count = overlapping_chunk_count[: num_frames - pad, :]
 
@@ -433,3 +403,78 @@ class Inference:
             raise NotImplementedError(
                 f"Unsupported window type '{self.window}': should be 'sliding' or 'whole'."
             )
+
+    @staticmethod
+    def aggregate(
+        scores: SlidingWindowFeature,
+        frames: SlidingWindow,
+        warm_up: Tuple[float, float] = (0.0, 0.0),
+    ):
+        """Aggregation
+
+        Parameters
+        ----------
+        scores : SlidingWindowFeature
+            Raw (unaggregated) scores. Shape is (num_chunks, num_frames_per_chunk, num_classes)
+        frames : SlidingWindow
+            Frames.
+        warm_up : (float, float) tuple
+            Left/right warm up duration (in seconds).
+
+        Returns
+        -------
+        aggregated_scores : (num_frames, num_classes) np.ndarray
+        overlapping_chunk_count : (num_frames, 1) np.ndarray
+        """
+
+        num_chunks, num_frames_per_chunk, num_classes = scores.data.shape
+
+        # Hamming window used for overlap-add aggregation
+        hamming_window = np.hamming(num_frames_per_chunk).reshape(-1, 1)
+
+        # anything before warm_up_left (and after num_frames_per_chunk - warm_up_right)
+        # will not be used in the final aggregation
+
+        # warm-up windows used for overlap-add aggregation
+        warm_up_window = np.ones((num_frames_per_chunk, 1))
+        # anything before warm_up_left will not contribute to aggregation
+        warm_up_left = round(
+            warm_up[0] / scores.sliding_window.duration * num_frames_per_chunk
+        )
+        warm_up_window[:warm_up_left] = 1e-12
+        # anything after num_frames_per_chunk - warm_up_right either
+        warm_up_right = round(
+            warm_up[1] / scores.sliding_window.duration * num_frames_per_chunk
+        )
+        warm_up_window[num_frames_per_chunk - warm_up_right :] = 1e-12
+
+        # aggregated_output[i] will be used to store the sum of all predictions
+        # for frame #i
+        num_frames = (
+            frames.closest_frame(
+                scores.sliding_window.duration + num_chunks * scores.sliding_window.step
+            )
+            + 1
+        )
+        aggregated_output: np.ndarray = np.zeros(
+            (num_frames, num_classes), dtype=np.float32
+        )
+
+        # overlapping_chunk_count[i] will be used to store the number of chunks
+        # that contributed to frame #i
+        overlapping_chunk_count: np.ndarray = np.zeros(
+            (num_frames, 1), dtype=np.float32
+        )
+
+        # loop on the scores of sliding chunks
+        for chunk, output in scores:
+            start_frame = frames.closest_frame(chunk.start)
+            aggregated_output[start_frame : start_frame + num_frames_per_chunk] += (
+                output * hamming_window * warm_up_window
+            )
+
+            overlapping_chunk_count[
+                start_frame : start_frame + num_frames_per_chunk
+            ] += (hamming_window * warm_up_window)
+
+        return aggregated_output, overlapping_chunk_count
