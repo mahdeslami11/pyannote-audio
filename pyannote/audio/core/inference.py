@@ -477,4 +477,4 @@ class Inference:
                 start_frame : start_frame + num_frames_per_chunk
             ] += (hamming_window * warm_up_window)
 
-        return aggregated_output, overlapping_chunk_count
+        return SlidingWindowFeature(aggregated_output / overlapping_chunk_count, frames)
