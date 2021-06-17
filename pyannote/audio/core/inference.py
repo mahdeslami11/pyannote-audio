@@ -409,7 +409,8 @@ class Inference:
         scores: SlidingWindowFeature,
         frames: SlidingWindow,
         warm_up: Tuple[float, float] = (0.0, 0.0),
-    ):
+        epsilon: float = 1e-12,
+    ) -> SlidingWindowFeature:
         """Aggregation
 
         Parameters
@@ -423,8 +424,8 @@ class Inference:
 
         Returns
         -------
-        aggregated_scores : (num_frames, num_classes) np.ndarray
-        overlapping_chunk_count : (num_frames, 1) np.ndarray
+        aggregated_scores : SlidingWindowFeature
+            Aggregated scores. Shape is (num_frames, num_classes)
         """
 
         num_chunks, num_frames_per_chunk, num_classes = scores.data.shape
@@ -441,12 +442,12 @@ class Inference:
         warm_up_left = round(
             warm_up[0] / scores.sliding_window.duration * num_frames_per_chunk
         )
-        warm_up_window[:warm_up_left] = 1e-12
+        warm_up_window[:warm_up_left] = epsilon
         # anything after num_frames_per_chunk - warm_up_right either
         warm_up_right = round(
             warm_up[1] / scores.sliding_window.duration * num_frames_per_chunk
         )
-        warm_up_window[num_frames_per_chunk - warm_up_right :] = 1e-12
+        warm_up_window[num_frames_per_chunk - warm_up_right :] = epsilon
 
         # aggregated_output[i] will be used to store the sum of all predictions
         # for frame #i
@@ -477,4 +478,6 @@ class Inference:
                 start_frame : start_frame + num_frames_per_chunk
             ] += (hamming_window * warm_up_window)
 
-        return SlidingWindowFeature(aggregated_output / overlapping_chunk_count, frames)
+        return SlidingWindowFeature(
+            aggregated_output / np.maximum(overlapping_chunk_count, epsilon), frames
+        )
