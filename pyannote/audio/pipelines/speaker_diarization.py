@@ -1,4 +1,4 @@
-# MIT License
+# The MIT License (MIT)
 #
 # Copyright (c) 2021 CNRS
 #
@@ -9,8 +9,8 @@
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
 #
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
 #
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -20,26 +20,25 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from itertools import combinations
+"""Speaker diarization pipelines"""
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from scipy.cluster.hierarchy import fcluster
+from scipy.spatial.distance import cdist
 from scipy.special import softmax
 
 from pyannote.audio import Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.pipelines.utils import PipelineModel, get_devices, get_model
-from pyannote.audio.utils.activations import warmup_activations
 from pyannote.audio.utils.signal import Binarize
-from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
+from pyannote.core import Annotation, Segment, SlidingWindow, SlidingWindowFeature
 from pyannote.core.utils.hierarchy import pool
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
-from pyannote.pipeline.parameter import LogUniform, Uniform
+from pyannote.pipeline.parameter import Uniform
 
 
-class SegmentationBasedSpeakerDiarization(Pipeline):
+class SpeakerDiarization(Pipeline):
     """Speaker diarization pipeline
 
     Parameters
@@ -52,27 +51,21 @@ class SegmentationBasedSpeakerDiarization(Pipeline):
         `Inference` instance used to extract speaker embeddings. When `str`,
         assumes that file already contains a corresponding key with precomputed
         embeddings. Defaults to "emb".
-    cannot_link : bool, optional
-        Prevent merging same-chunk speakers. Defaults to True.
 
     Hyper-parameters
     ----------------
-    clean_speech_threshold : float
-    clustering_threshold : float
     """
 
     def __init__(
         self,
         segmentation: PipelineModel = "pyannote/segmentation",
-        embedding: PipelineModel = "hbredin/SpeakerEmbedding-XVectorMFCC-VoxCeleb",
-        cannot_link: bool = True,
+        embedding: PipelineModel = "pyannote/embedding",
     ):
 
         super().__init__()
 
         self.segmentation = segmentation
         self.embedding = embedding
-        self.cannot_link = cannot_link
 
         self.seg_model_: Model = get_model(segmentation)
         self.emb_model_: Model = get_model(embedding)
@@ -89,13 +82,14 @@ class SegmentationBasedSpeakerDiarization(Pipeline):
         ):
             cpu_model.to(gpu_device)
 
-        self.audio_ = self.emb_model_.audio
+        self._segmentation_inference = Inference(self.seg_model_, skip_aggregation=True)
 
-        self.warmup_ratio = Uniform(0.0, 0.2)
-        self.duration_threshold = Uniform(0.0, 1.0)
-        self.duration_scale = LogUniform(1e-2, 1e2)
-        # sigmoid(scale * (d - threshold))
-        self.distance_threshold = Uniform(0.0, 2.0)
+        # hyper-parameters
+        self.active_threshold = Uniform(0.05, 0.95)
+        self.alone_threshold = Uniform(0.05, 0.95)
+        self.cluster_threshold = Uniform(0.0, 2.0)
+        self.min_duration_on = 0.0
+        self.min_duration_off = 0.0
 
     @staticmethod
     def pooling_func(
@@ -126,25 +120,82 @@ class SegmentationBasedSpeakerDiarization(Pipeline):
     def initialize(self):
         """Initialize pipeline with current set of parameters"""
 
-        duration = self.seg_model_.specifications.duration
-        step = duration - 2 * self.warmup_ratio * duration
-        self._segmentation_inference = Inference(
-            self.seg_model_, duration=duration, step=step, skip_aggregation=True
-        )
-
         self._binarize = Binarize(
             onset=0.5,
             offset=0.5,
-            min_duration_on=0.1,
-            min_duration_off=0.2,
+            min_duration_on=self.min_duration_on,
+            min_duration_off=self.min_duration_off,
         )
 
-    def get_weights(self, activations: SlidingWindowFeature) -> SlidingWindowFeature:
-        # TODO: make those hyper-parameters?
+    @staticmethod
+    def get_pooling_weights(segmentation: np.ndarray) -> np.ndarray:
+        """Overlap-aware weights
+
+        Parameters
+        ----------
+        segmentation: np.ndarray
+            (num_frames, num_speakers) segmentation scores
+
+        Returns
+        -------
+        weights: np.ndarray
+            (num_frames, num_speakers) overlap-aware weights
+        """
+
         power: int = 3
         scale: float = 10.0
-        pow_activations = pow(activations, power)
-        return pow_activations * pow(softmax(scale * pow_activations, axis=1), power)
+        pow_segmentation = pow(segmentation, power)
+        return pow_segmentation * pow(softmax(scale * pow_segmentation, axis=1), power)
+
+    @staticmethod
+    def get_embedding(
+        file: AudioFile,
+        chunk: Segment,
+        model: Model,
+        pooling_weights: np.ndarray = None,
+    ):
+        """Extract embedding from a chunk
+
+        Parameters
+        ----------
+        file : AudioFile
+        chunk : Segment
+        model : Model
+            Pretrained embedding model.
+        pooling_weights : np.ndarray, optional
+            (num_frames, num_speakers) pooling weights
+
+        Returns
+        -------
+        embeddings : np.ndarray
+            (1, dimension) if pooling_weights is None, else (num_speakers, dimension)
+        """
+
+        if pooling_weights is None:
+            num_speakers = 1
+
+        else:
+            _, num_speakers = pooling_weights.shape
+            pooling_weights = (
+                torch.from_numpy(pooling_weights).float().T.to(model.device)
+            )
+            # (num_speakers, num_frames)
+
+        waveforms = (
+            model.audio.crop(file, chunk)[0]
+            .unsqueeze(0)
+            .expand(num_speakers, -1, -1)
+            .to(model.device)
+        )
+        # (num_speakers, num_channels == 1, num_samples)
+
+        with torch.no_grad():
+            if pooling_weights is None:
+                embeddings = model(waveforms)
+            else:
+                embeddings = model(waveforms, weights=pooling_weights)
+
+        return embeddings.cpu().numpy()
 
     def apply(self, file: AudioFile) -> Annotation:
         """Apply speaker diarization
@@ -162,98 +213,120 @@ class SegmentationBasedSpeakerDiarization(Pipeline):
 
         frames: SlidingWindow = self._segmentation_inference.model.introspection.frames
         segmentations: SlidingWindowFeature = self._segmentation_inference(file)
-
-        duration = self.seg_model_.specifications.duration
-        segmentations = warmup_activations(
-            segmentations, warm_up=self.warmup_ratio * duration
-        )
-
         num_chunks, num_frames, num_speakers = segmentations.data.shape
 
         embeddings = []
-        cannot_link = []
-        device = self.emb_model_.device
+        active = []
+        alone = []
+
         for c, (chunk, segmentation) in enumerate(segmentations):
 
-            waveforms: torch.Tensor = (
-                self.audio_.crop(file, chunk)[0]
-                .unsqueeze(0)
-                .expand(num_speakers, -1, -1)
-                .to(device)
-            )
-            # num_speakers, num_channels == 1, num_samples
+            pooling_weights = self.get_pooling_weights(segmentation)
+            # (num_frames, num_speakers)
 
-            embedding_weights: torch.Tensor = (
-                torch.from_numpy(self.get_weights(segmentation)).float().T.to(device)
-            )
-            # (num_speakers, num_frames)
-
-            clustering_weights: torch.Tensor = F.sigmoid(
-                self.duration_scale
-                * (
-                    torch.mean(embedding_weights, dim=1, keepdim=True)
-                    - self.duration_threshold
-                )
-            )
-            # num_speakers, 1
-
-            with torch.no_grad():
-                chunk_embeddings = clustering_weights * F.normalize(
-                    self.emb_model_(waveforms, weights=embedding_weights)
+            try:
+                chunk_embeddings = self.get_embedding(
+                    file, chunk, self.emb_model_, pooling_weights=pooling_weights
                 )
                 # num_speakers, dimension
+            except ValueError:
+                # happens with last chunk that is too long for audio...
+                continue
 
-            embeddings.append(chunk_embeddings.cpu().numpy())
+            # remember if speaker is active
+            active.append(np.any(segmentation > self.active_threshold, axis=0))
 
-            for i, j in combinations(
-                range(num_speakers * c, num_speakers * (c + 1)), 2
-            ):
-                cannot_link.append((i, j))
+            # remember if speaker is active without overlap
+            alone.append(np.mean(pooling_weights, axis=0) > self.alone_threshold)
 
+            old_norm = np.linalg.norm(chunk_embeddings, axis=1, keepdims=True)
+            # (num_speakers, 1)
+
+            new_norm = np.mean(segmentation, axis=0, keepdims=True).T
+            # (num_speakers, 1)
+
+            embeddings.append(chunk_embeddings * (new_norm / old_norm))
+
+        active = np.hstack(active)
+        alone = np.hstack(alone)
         embeddings = np.vstack(embeddings)
 
-        # FIXME -- why do we need this +100 ?
-        num_frames_in_file = (
-            frames.samples(self.audio_.get_duration(file), mode="center") + 100
-        )
+        # clusters[chunk_id x num_speakers + speaker_id] = ...
+        # -1 if speaker is inactive
+        # k if speaker is active and is assigned to cluster k
+        clusters = -np.ones(len(embeddings), dtype=np.int)
 
         # hierarchical agglomerative clustering with "pool" linkage
-        dendrogram = pool(
-            embeddings,
-            metric="cosine",
-            pooling_func=self.pooling_func,
-            cannot_link=cannot_link if self.cannot_link else None,
-        )
-        file["@diarization/dendrogram"] = dendrogram
 
-        clusters = (
-            fcluster(dendrogram, self.distance_threshold, criterion="distance") - 1
-        )
-        num_clusters = np.max(clusters) + 1
+        if np.sum(alone * active) < 2:
+            clusters[active] = 0
+            num_clusters = 1
+        else:
+            Z = pool(
+                embeddings[alone * active],
+                metric="cosine",
+                pooling_func=self.pooling_func,
+            )
+            file["@diarization/clustering"] = Z
 
-        aggregated = np.zeros((num_frames_in_file, num_clusters))
+            clusters[alone * active] = (
+                fcluster(Z, self.cluster_threshold, criterion="distance") - 1
+            )
+            num_clusters = np.max(clusters) + 1
 
-        for k, cluster in enumerate(clusters):
+            centroids = np.vstack(
+                [
+                    np.sum(
+                        embeddings[active * alone][clusters[active * alone] == k],
+                        axis=0,
+                    )
+                    for k in range(num_clusters)
+                ]
+            )
+            file["@diarization/centroids"] = centroids
 
-            chunk_idx = k // num_speakers
-            chunk = segmentations.sliding_window[chunk_idx]
-
-            speaker_idx = k % num_speakers
-            activation = segmentations[chunk_idx][:, speaker_idx]
-
-            start_frame = frames.closest_frame(chunk.start)
-            end_frame = start_frame + len(activation)
-
-            aggregated[start_frame:end_frame, cluster] = np.maximum(
-                activation, aggregated[start_frame:end_frame, cluster]
+            # assign remaining chunks to closest centroid
+            clusters[active * ~alone] = np.argmin(
+                cdist(centroids, embeddings[active * ~alone], metric="cosine"), axis=0
             )
 
-        activations = SlidingWindowFeature(aggregated, frames)
+        clusters = clusters.reshape(-1, num_speakers)
 
-        file["@diarization/activations"] = activations
+        clustered_segmentations = np.zeros((num_chunks, num_frames, num_clusters))
+        for c, (cluster, (chunk, segmentation)) in enumerate(
+            zip(clusters, segmentations)
+        ):
+            for k in range(num_speakers):
+                if cluster[k] == -1:
+                    pass
+                clustered_segmentations[c, :, cluster[k]] = segmentation[:, k]
 
-        diarization = self._binarize(activations)
+        speaker_activations = Inference.aggregate(
+            SlidingWindowFeature(clustered_segmentations, segmentations.sliding_window),
+            frames,
+        )
+        file["@diarization/activations"] = speaker_activations
+
+        active_speaker_count = Inference.aggregate(
+            np.sum(segmentations > self.active_threshold, axis=-1, keepdims=True),
+            frames,
+        )
+        active_speaker_count.data = np.round(active_speaker_count)
+        file["@diarization/speaker_count"] = active_speaker_count
+
+        sorted_speakers = np.argsort(-speaker_activations, axis=-1)
+        binarized = np.zeros_like(speaker_activations.data)
+        for t, ((_, count), speakers) in enumerate(
+            zip(active_speaker_count, sorted_speakers)
+        ):
+            # TODO: find a way to stop clustering early enough to avoid num_clusters < count
+            count = min(num_clusters, int(count.item()))
+            for i in range(count):
+                binarized[t, speakers[i]] = 1.0
+
+        diarization = self._binarize(SlidingWindowFeature(binarized, frames))
         diarization.uri = file["uri"]
+
         return diarization
 
     def get_metric(self) -> GreedyDiarizationErrorRate:
