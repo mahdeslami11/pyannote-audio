@@ -30,10 +30,9 @@ from pyannote.audio import Inference
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.core.pipeline import Pipeline
 from pyannote.audio.pipelines.utils import PipelineModel, get_devices, get_model
-from pyannote.audio.utils.activations import warmup_activations
 from pyannote.audio.utils.permutation import permutate
 from pyannote.audio.utils.signal import Binarize
-from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
+from pyannote.core import Annotation, SlidingWindowFeature
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
 from pyannote.pipeline.parameter import Uniform
 
@@ -67,8 +66,6 @@ class Resegmentation(Pipeline):
         Remove speaker turn shorter than that many seconds.
     min_duration_off : float
         Fill same-speaker gaps shorter than that many seconds.
-    warmup_ratio : float
-        Warm-up ratio
     """
 
     def __init__(
@@ -96,12 +93,15 @@ class Resegmentation(Pipeline):
             round(model.specifications.duration * model.hparams.sample_rate)
         )
 
+        # output frames as SlidingWindow instances
+        self.seg_frames_ = model.introspection.frames
+
         # prepare segmentation model for inference
         inference_kwargs["window"] = "sliding"
         inference_kwargs["skip_aggregation"] = True
-        self.segmentation_inference_ = Inference(model, **inference_kwargs)
+        self.seg_inference_ = Inference(model, **inference_kwargs)
 
-        # hyper-parameters used for hysteresis thresholding
+        #  hyper-parameters used for hysteresis thresholding
         self.onset = Uniform(0.0, 1.0)
         self.offset = Uniform(0.0, 1.0)
 
@@ -109,8 +109,6 @@ class Resegmentation(Pipeline):
         # or filling short gaps between speech turns of one speaker
         self.min_duration_on = Uniform(0.0, 1.0)
         self.min_duration_off = Uniform(0.0, 1.0)
-
-        self.warmup_ratio = Uniform(0.0, 0.4)
 
     def initialize(self):
         """Initialize pipeline with current set of parameters"""
@@ -136,16 +134,8 @@ class Resegmentation(Pipeline):
             Speaker diarization
         """
 
-        frames: SlidingWindow = self.segmentation_inference_.model.introspection.frames
-
-        raw_activations: SlidingWindowFeature = self.segmentation_inference_(file)
-        duration = raw_activations.sliding_window.duration
-
-        warm_activations = warmup_activations(
-            raw_activations, warm_up=self.warmup_ratio * duration
-        )
-        warm_chunks = warm_activations.sliding_window
-        num_chunks, num_frames_per_chunk, _ = warm_activations.data.shape
+        # output of segmentation model on each chunk
+        segmentations: SlidingWindowFeature = self.seg_inference_(file)
 
         # number of frames in the whole file
         num_frames_in_file = self.seg_frames_.closest_frame(
@@ -156,56 +146,39 @@ class Resegmentation(Pipeline):
         labels = file[self.diarization].labels()
         num_clusters = len(labels)
         y_original = np.zeros(
-            (num_frames_in_file, len(labels)), dtype=raw_activations.data.dtype
+            (num_frames_in_file, len(labels)), dtype=segmentations.data.dtype
         )
         for k, label in enumerate(labels):
             segments = file[self.diarization].label_timeline(label)
-            for start, stop in frames.crop(segments, mode="center", return_ranges=True):
+            for start, stop in self.seg_frames_.crop(
+                segments, mode="center", return_ranges=True
+            ):
                 y_original[start:stop, k] += 1
         y_original = np.minimum(y_original, 1, out=y_original)
-        diarization = SlidingWindowFeature(y_original, frames)
+        diarization = SlidingWindowFeature(y_original, self.seg_frames_)
         file["@resegmentation/diarization"] = diarization
 
-        # FIXME: deal with this +100 hack
-        aggregated = np.zeros((num_frames_in_file + 100, num_clusters))
-        overlapped = np.zeros((num_frames_in_file + 100, num_clusters))
+        aggregated = np.zeros((num_frames_in_file, num_clusters))
+        overlapped = np.zeros((num_frames_in_file, num_clusters))
 
-        for c, (chunk, segmentation) in enumerate(raw_activations):
+        for chunk, segmentation in segmentations:
 
             # only consider active speakers in `segmentation`
-            active_in_segmentation = np.max(segmentation, axis=0) > self.onset
-            if np.sum(active_in_segmentation) == 0:
+            active = np.max(segmentation, axis=0) > self.onset
+            if np.sum(active) == 0:
                 continue
-            segmentation = segmentation[:, active_in_segmentation]
+            segmentation = segmentation[:, active]
 
             local_diarization = diarization.crop(chunk)[
                 np.newaxis, : self.num_frames_in_chunk_
             ]
-            _, (permutation,) = permutate(local_diarization, segmentation)
+            (permutated_segmentation,), _ = permutate(local_diarization, segmentation)
 
-            # TODO: only consider active speakers in `diarization`.
-            # if the number of active speakers in `diarization` is smaller
-            # than the number of active speakers in `segmentation`, use
-            # speaker embedding to assign others.
-
-            if c == 0:
-                data = warm_activations.leftmost["data"]
-                start_frame, end_frame = 0, len(data)
-            elif c + 1 == num_chunks:
-                data = warm_activations.rightmost["data"]
-                start_frame = frames.closest_frame(warm_activations.rightmost["start"])
-                end_frame = start_frame + len(data)
-            else:
-                data = warm_activations[c]
-                start_frame = frames.closest_frame(warm_chunks[c].start)
-                end_frame = start_frame + num_frames_per_chunk
-
-            data = data[:, active_in_segmentation]
-            for i, j in enumerate(permutation):
-                if j is None:
-                    continue
-                aggregated[start_frame:end_frame, i] += data[:, j]
-            overlapped[start_frame:end_frame] += 1.0
+            start_frame = round(chunk.start / self.seg_frames_.duration)
+            aggregated[
+                start_frame : start_frame + self.num_frames_in_chunk_
+            ] += permutated_segmentation
+            overlapped[start_frame : start_frame + self.num_frames_in_chunk_] += 1.0
 
         speaker_activations = SlidingWindowFeature(
             aggregated / np.maximum(overlapped, 1e-12), self.seg_frames_, labels=labels
