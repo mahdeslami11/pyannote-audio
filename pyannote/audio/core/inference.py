@@ -290,7 +290,7 @@ class Inference:
         if self.pre_aggregation_hook is not None:
             outputs = self.pre_aggregation_hook(outputs)
 
-        aggregated_output, overlapping_chunk_count = self.aggregate(
+        aggregated = self.aggregate(
             SlidingWindowFeature(
                 outputs,
                 SlidingWindow(start=0.0, duration=self.duration, step=self.step),
@@ -300,13 +300,10 @@ class Inference:
         )
 
         if has_last_chunk:
-            num_frames = aggregated_output.shape[0]
-            aggregated_output = aggregated_output[: num_frames - pad, :]
-            overlapping_chunk_count = overlapping_chunk_count[: num_frames - pad, :]
+            num_frames = aggregated.data.shape[0]
+            aggregated.data = aggregated.data[: num_frames - pad, :]
 
-        return SlidingWindowFeature(
-            aggregated_output / np.maximum(overlapping_chunk_count, 1e-12), frames
-        )
+        return aggregated
 
     def __call__(self, file: AudioFile) -> Union[SlidingWindowFeature, np.ndarray]:
         """Run inference on a whole file
