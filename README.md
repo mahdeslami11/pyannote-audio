@@ -32,7 +32,7 @@ pip install https://github.com/pyannote/pyannote-audio/archive/develop.zip
 *For now, this is the closest you can get to an actual documentation.*
 
 Experimental protocol is reproducible thanks to [`pyannote.database`](https://github.com/pyannote/pyannote-database).
-*Here, we use the [AMI](https://github.com/BUTSpeechFIT/AMI-diarization-setup) "only_words" speaker diarization protocol.*
+*Here, we use the [AMI](https://github.com/pyannote/AMI-diarization-setup) "only_words" speaker diarization protocol.*
 
 ```python
 from pyannote.database import get_protocol
