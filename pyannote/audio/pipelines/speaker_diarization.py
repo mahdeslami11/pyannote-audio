@@ -23,6 +23,7 @@
 """Speaker diarization pipelines"""
 
 import numpy as np
+import sklearn.cluster
 import torch
 from scipy.cluster.hierarchy import fcluster
 from scipy.spatial.distance import cdist
@@ -35,61 +36,33 @@ from pyannote.audio.utils.signal import Binarize
 from pyannote.core import Annotation, Segment, SlidingWindow, SlidingWindowFeature
 from pyannote.core.utils.hierarchy import pool
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
-from pyannote.pipeline.parameter import Uniform
+from pyannote.pipeline import Pipeline as BasePipeline
+from pyannote.pipeline.parameter import Categorical, Uniform
 
 
-class SpeakerDiarization(Pipeline):
-    """Speaker diarization pipeline
-
-    Parameters
-    ----------
-    segmentation : Inference or str, optional
-        `Inference` instance used to extract raw segmentation scores.
-        When `str`, assumes that file already contains a corresponding key with
-        precomputed scores. Defaults to "seg".
-    embeddings : Inference or str, optional
-        `Inference` instance used to extract speaker embeddings. When `str`,
-        assumes that file already contains a corresponding key with precomputed
-        embeddings. Defaults to "emb".
-
-    Hyper-parameters
-    ----------------
-    """
-
-    def __init__(
-        self,
-        segmentation: PipelineModel = "pyannote/segmentation",
-        embedding: PipelineModel = "pyannote/embedding",
-    ):
-
+class DBSCAN(BasePipeline):
+    def __init__(self, metric="cosine"):
         super().__init__()
+        self.metric = metric
+        self.eps = Uniform(0.0, 2.0)
+        self.min_samples = Categorical([5, 10, 20, 40])
 
-        self.segmentation = segmentation
-        self.embedding = embedding
+    def initialize(self):
+        self._dbscan = sklearn.cluster.DBSCAN(
+            eps=self.eps,
+            min_samples=self.min_samples,
+            metric=self.metric,
+        )
 
-        self.seg_model_: Model = get_model(segmentation)
-        self.emb_model_: Model = get_model(embedding)
-        self.emb_model_.eval()
+    def __call__(self, embeddings: np.ndarray) -> np.ndarray:
+        return self._dbscan.fit_predict(embeddings)
 
-        # send models to GPU (when GPUs are available and model is not already on GPU)
-        cpu_models = [
-            model
-            for model in (self.seg_model_, self.emb_model_)
-            if model.device.type == "cpu"
-        ]
-        for cpu_model, gpu_device in zip(
-            cpu_models, get_devices(needs=len(cpu_models))
-        ):
-            cpu_model.to(gpu_device)
 
-        self._segmentation_inference = Inference(self.seg_model_, skip_aggregation=True)
-
-        # hyper-parameters
-        self.active_threshold = Uniform(0.05, 0.95)
-        self.alone_threshold = Uniform(0.05, 0.95)
-        self.cluster_threshold = Uniform(0.0, 2.0)
-        self.min_duration_on = 0.0
-        self.min_duration_off = 0.0
+class Pool(BasePipeline):
+    def __init__(self, metric="cosine"):
+        super().__init__()
+        self.metric = metric
+        self.threshold = Uniform(0.0, 2.0)
 
     @staticmethod
     def pooling_func(
@@ -116,6 +89,75 @@ class SpeakerDiarization(Pipeline):
         """
 
         return C[u] + C[v]
+
+    def __call__(self, embeddings: np.ndarray) -> np.ndarray:
+        Z = pool(
+            embeddings,
+            metric=self.metric,
+            pooling_func=self.pooling_func,
+        )
+        return fcluster(Z, self.threshold, criterion="distance") - 1
+
+
+class SpeakerDiarization(Pipeline):
+    """Speaker diarization pipeline
+
+    Parameters
+    ----------
+    segmentation : Inference or str, optional
+        `Inference` instance used to extract raw segmentation scores.
+        When `str`, assumes that file already contains a corresponding key with
+        precomputed scores. Defaults to "seg".
+    embeddings : Inference or str, optional
+        `Inference` instance used to extract speaker embeddings. When `str`,
+        assumes that file already contains a corresponding key with precomputed
+        embeddings. Defaults to "emb".
+
+    Hyper-parameters
+    ----------------
+    """
+
+    def __init__(
+        self,
+        segmentation: PipelineModel = "pyannote/segmentation",
+        embedding: PipelineModel = "pyannote/embedding",
+        clustering: str = "pool",
+    ):
+
+        super().__init__()
+
+        self.segmentation = segmentation
+        self.embedding = embedding
+
+        self.seg_model_: Model = get_model(segmentation)
+        self.emb_model_: Model = get_model(embedding)
+        self.emb_model_.eval()
+
+        # send models to GPU (when GPUs are available and model is not already on GPU)
+        cpu_models = [
+            model
+            for model in (self.seg_model_, self.emb_model_)
+            if model.device.type == "cpu"
+        ]
+        for cpu_model, gpu_device in zip(
+            cpu_models, get_devices(needs=len(cpu_models))
+        ):
+            cpu_model.to(gpu_device)
+
+        self._segmentation_inference = Inference(self.seg_model_, skip_aggregation=True)
+
+        if clustering == "pool":
+            self.clustering = Pool(metric="cosine")
+        elif clustering == "dbscan":
+            self.clustering = DBSCAN(metric="cosine")
+        else:
+            raise ValueError(f"Unknown clustering algorithm ({clustering})")
+
+        # hyper-parameters
+        self.active_threshold = Uniform(0.05, 0.95)
+        self.alone_threshold = Uniform(0.05, 0.95)
+        self.min_duration_on = 0.0
+        self.min_duration_off = 0.0
 
     def initialize(self):
         """Initialize pipeline with current set of parameters"""
@@ -262,16 +304,9 @@ class SpeakerDiarization(Pipeline):
             clusters[active] = 0
             num_clusters = 1
         else:
-            Z = pool(
-                embeddings[alone * active],
-                metric="cosine",
-                pooling_func=self.pooling_func,
-            )
-            file["@diarization/clustering"] = Z
 
-            clusters[alone * active] = (
-                fcluster(Z, self.cluster_threshold, criterion="distance") - 1
-            )
+            clusters[alone * active] = self.clustering(embeddings[alone * active])
+
             num_clusters = np.max(clusters) + 1
 
             centroids = np.vstack(
@@ -286,8 +321,11 @@ class SpeakerDiarization(Pipeline):
             file["@diarization/centroids"] = centroids
 
             # assign remaining chunks to closest centroid
-            clusters[active * ~alone] = np.argmin(
-                cdist(centroids, embeddings[active * ~alone], metric="cosine"), axis=0
+            clusters[active * (clusters == -1)] = np.argmin(
+                cdist(
+                    centroids, embeddings[active * (clusters == -1)], metric="cosine"
+                ),
+                axis=0,
             )
 
         clusters = clusters.reshape(-1, num_speakers)
