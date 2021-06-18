@@ -37,7 +37,7 @@ from pyannote.core import Annotation, Segment, SlidingWindow, SlidingWindowFeatu
 from pyannote.core.utils.hierarchy import pool
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
 from pyannote.pipeline import Pipeline as BasePipeline
-from pyannote.pipeline.parameter import Categorical, Uniform
+from pyannote.pipeline.parameter import Integer, Uniform
 
 
 class DBSCAN(BasePipeline):
@@ -45,7 +45,7 @@ class DBSCAN(BasePipeline):
         super().__init__()
         self.metric = metric
         self.eps = Uniform(0.0, 2.0)
-        self.min_samples = Categorical([5, 10, 20, 40])
+        self.min_samples = Integer(5, 20)
 
     def initialize(self):
         self._dbscan = sklearn.cluster.DBSCAN(
@@ -309,24 +309,30 @@ class SpeakerDiarization(Pipeline):
 
             num_clusters = np.max(clusters) + 1
 
-            centroids = np.vstack(
-                [
-                    np.sum(
-                        embeddings[active * alone][clusters[active * alone] == k],
-                        axis=0,
-                    )
-                    for k in range(num_clusters)
-                ]
-            )
-            file["@diarization/centroids"] = centroids
+            if num_clusters == 0:
+                clusters[active] = 0
+                num_clusters = 1
+            else:
+                centroids = np.vstack(
+                    [
+                        np.sum(
+                            embeddings[active * alone][clusters[active * alone] == k],
+                            axis=0,
+                        )
+                        for k in range(num_clusters)
+                    ]
+                )
+                file["@diarization/centroids"] = centroids
 
-            # assign remaining chunks to closest centroid
-            clusters[active * (clusters == -1)] = np.argmin(
-                cdist(
-                    centroids, embeddings[active * (clusters == -1)], metric="cosine"
-                ),
-                axis=0,
-            )
+                # assign remaining chunks to closest centroid
+                clusters[active * (clusters == -1)] = np.argmin(
+                    cdist(
+                        centroids,
+                        embeddings[active * (clusters == -1)],
+                        metric="cosine",
+                    ),
+                    axis=0,
+                )
 
         clusters = clusters.reshape(-1, num_speakers)
 
