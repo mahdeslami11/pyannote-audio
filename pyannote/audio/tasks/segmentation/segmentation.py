@@ -337,7 +337,7 @@ class Segmentation(SegmentationTaskMixin, Task):
         self.model.log(
             f"{self.ACRONYM}@train_seg_loss",
             seg_loss,
-            on_step=True,
+            on_step=False,
             on_epoch=True,
             prog_bar=False,
             logger=True,
@@ -354,7 +354,7 @@ class Segmentation(SegmentationTaskMixin, Task):
             self.model.log(
                 f"{self.ACRONYM}@train_vad_loss",
                 vad_loss,
-                on_step=True,
+                on_step=False,
                 on_epoch=True,
                 prog_bar=False,
                 logger=True,
@@ -365,7 +365,7 @@ class Segmentation(SegmentationTaskMixin, Task):
         self.model.log(
             f"{self.ACRONYM}@train_loss",
             loss,
-            on_step=True,
+            on_step=False,
             on_epoch=True,
             prog_bar=True,
             logger=True,
@@ -414,8 +414,12 @@ class Segmentation(SegmentationTaskMixin, Task):
             logger=True,
         )
 
-        # log first batch visualization every 10 epochs.
-        if self.model.current_epoch % 10 > 0 or batch_idx > 0:
+        # log first batch visualization every 2^n epochs.
+        if (
+            self.model.current_epoch == 0
+            or math.log2(self.model.current_epoch) % 1 > 0
+            or batch_idx > 0
+        ):
             return
 
         # visualize first 9 validation samples of first batch in Tensorboard
