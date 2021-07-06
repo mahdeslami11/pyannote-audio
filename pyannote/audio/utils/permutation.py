@@ -63,6 +63,10 @@ def mse_cost_func(Y, y):
     return torch.mean(F.mse_loss(Y, y, reduction="none"), axis=0)
 
 
+def mad_cost_func(Y, y):
+    return torch.max(torch.abs(Y - y), axis=0)[0]
+
+
 @permutate.register
 def permutate_torch(
     y1: torch.Tensor,
