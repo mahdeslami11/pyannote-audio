@@ -29,15 +29,22 @@ def permutate(y1, y2, cost_func: Optional[Callable] = None, returns_cost: bool =
         (batch_size, num_samples, num_classes_1)
     permutations : list of tuple
         List of permutations so that permutation[i] == j indicates that jth speaker of y2
-        should be mapped to ith speaker of y1.
+        should be mapped to ith speaker of y1. permutation[i] is None if ith speaker is not
+        mapped to any speaker in y2.
     cost : np.ndarray or torch.Tensor, optional
         (batch_size, num_classes_1, num_classes_2)
     """
     raise TypeError()
 
 
+# Mean Squared Error (MSE)
 def mse_cost_func(Y, y):
     return torch.mean(F.mse_loss(Y, y, reduction="none"), axis=0)
+
+
+# Maximum Absolute Difference (MAD)
+def mad_cost_func(Y, y):
+    return torch.max(torch.abs(Y - y), axis=0)[0]
 
 
 @permutate.register
