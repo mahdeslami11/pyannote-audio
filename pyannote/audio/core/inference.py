@@ -474,9 +474,9 @@ class Inference:
         available = 1.0 - np.any(np.isnan(scores.data), axis=1)
         # (num_chunks, num_classes)
 
-        scores = SlidingWindowFeatures(
-            np.nan_to_num(scores.data, copy=True, nan=0.0),
-            scores.sliding_window)
+        scores = SlidingWindowFeature(
+            np.nan_to_num(scores.data, copy=True, nan=0.0), scores.sliding_window
+        )
 
         # loop on the scores of sliding chunks
         for (chunk, output), increment in zip(scores, available):
@@ -486,7 +486,7 @@ class Inference:
             # increment is (num_classes, )
 
             start_frame = frames.closest_frame(chunk.start)
-            
+
             aggregated_output[start_frame : start_frame + num_frames_per_chunk] += (
                 output * increment * window * warm_up_window
             )
