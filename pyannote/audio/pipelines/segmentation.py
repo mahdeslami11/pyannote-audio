@@ -24,6 +24,7 @@
 
 
 import numpy as np
+import torch
 
 from pyannote.audio import Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
@@ -75,14 +76,9 @@ class Segmentation(Pipeline):
         self.activity_threshold = Uniform(0.05, 0.95)
         self.consistency_threshold = Uniform(0.0, 1.0)
 
-    def cost_func(self, Y: np.ndarray, y: np.ndarray) -> float:
-        return np.mean(
-            np.mean(
-                (Y > self.activity_threshold) != (y > self.activity_threshold), axis=-1
-            ),
-            axis=-1,
-        )
-
+    def cost_func(self, Y, y):
+        return torch.mean(1. * ((Y > self.activity_threshold) != (y > self.activity_threshold)), dim=0)
+    
     def apply(self, file: AudioFile) -> Annotation:
 
         frames: SlidingWindow = self._segmentation_inference.model.introspection.frames
@@ -104,7 +100,7 @@ class Segmentation(Pipeline):
         # compute consistency between each pair of adjacent chunks
         # group and aggregate consistent adjacent chunks
         # permutate speakers in order to maximize consistency
-        clusters = np.zeros((num_chunks,))
+        clusters = np.zeros((num_chunks,), dtype=np.int32)
         current_cluster = 0
         for c in range(num_chunks):
 
@@ -145,7 +141,7 @@ class Segmentation(Pipeline):
 
         num_clusters = current_cluster + 1
 
-        activations = np.zeros((num_chunks, num_frames, num_speakers * num_clusters))
+        activations = np.nan * np.zeros((num_chunks, num_frames, num_speakers * num_clusters))
         for c, (k, (_, permutated_segmentation)) in enumerate(
             zip(clusters, segmentations)
         ):
