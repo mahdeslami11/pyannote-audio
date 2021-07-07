@@ -471,23 +471,24 @@ class Inference:
             (num_frames, 1), dtype=np.float32
         )
 
-        unavailable = np.any(np.any(np.isnan(scores.data), axis=-1), axis=-1)
-        # (num_chunks, )
+        available = 1.0 - np.any(np.isnan(scores.data), axis=1)
+        # (num_chunks, num_classes)
 
         # loop on the scores of sliding chunks
-        for (chunk, output), skip in zip(scores, unavailable):
+        for (chunk, output), increment in zip(scores, available):
 
-            if skip:
-                continue
+            # chunk is pyannote.core.Segment
+            # output is (num_frames_per_chunk, num_classes) np.ndarray
+            # increment is (num_classes, )
 
             start_frame = frames.closest_frame(chunk.start)
             aggregated_output[start_frame : start_frame + num_frames_per_chunk] += (
-                output * window * warm_up_window
+                output * increment * window * warm_up_window
             )
 
             overlapping_chunk_count[
                 start_frame : start_frame + num_frames_per_chunk
-            ] += (window * warm_up_window)
+            ] += (window * warm_up_window * increment)
 
         return SlidingWindowFeature(
             aggregated_output / np.maximum(overlapping_chunk_count, epsilon), frames
