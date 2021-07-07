@@ -297,6 +297,7 @@ class Inference:
             ),
             frames,
             warm_up=self.warm_up,
+            hamming=True,
         )
 
         if has_last_chunk:
@@ -406,6 +407,7 @@ class Inference:
         scores: SlidingWindowFeature,
         frames: SlidingWindow,
         warm_up: Tuple[float, float] = (0.0, 0.0),
+        hamming: bool = False,
         epsilon: float = 1e-12,
     ) -> SlidingWindowFeature:
         """Aggregation
@@ -413,11 +415,13 @@ class Inference:
         Parameters
         ----------
         scores : SlidingWindowFeature
-            Raw (unaggregated) scores. Shape is (num_chunks, num_frames_per_chunk, num_classes)
+            Raw (unaggregated) scores. Shape is (num_chunks, num_frames_per_chunk, num_classes).
         frames : SlidingWindow
             Frames.
         warm_up : (float, float) tuple
             Left/right warm up duration (in seconds).
+        hamming : bool, optional
+            Whether to use Hamming window for overlap-add aggregation. Defaults to False.
 
         Returns
         -------
@@ -428,7 +432,10 @@ class Inference:
         num_chunks, num_frames_per_chunk, num_classes = scores.data.shape
 
         # Hamming window used for overlap-add aggregation
-        hamming_window = np.hamming(num_frames_per_chunk).reshape(-1, 1)
+        if hamming:
+            window = np.hamming(num_frames_per_chunk).reshape(-1, 1)
+        else:
+            window = np.ones((num_frames_per_chunk, 1))
 
         # anything before warm_up_left (and after num_frames_per_chunk - warm_up_right)
         # will not be used in the final aggregation
@@ -464,16 +471,23 @@ class Inference:
             (num_frames, 1), dtype=np.float32
         )
 
+        unavailable = np.any(np.any(np.isnan(scores.data), axis=-1), axis=-1)
+        # (num_chunks, )
+
         # loop on the scores of sliding chunks
-        for chunk, output in scores:
+        for (chunk, output), skip in zip(scores, unavailable):
+
+            if skip:
+                continue
+
             start_frame = frames.closest_frame(chunk.start)
             aggregated_output[start_frame : start_frame + num_frames_per_chunk] += (
-                output * hamming_window * warm_up_window
+                output * window * warm_up_window
             )
 
             overlapping_chunk_count[
                 start_frame : start_frame + num_frames_per_chunk
-            ] += (hamming_window * warm_up_window)
+            ] += (window * warm_up_window)
 
         return SlidingWindowFeature(
             aggregated_output / np.maximum(overlapping_chunk_count, epsilon), frames
