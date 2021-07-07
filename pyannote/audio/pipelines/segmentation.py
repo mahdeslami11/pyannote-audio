@@ -24,13 +24,11 @@
 
 
 import numpy as np
-from scipy.cluster.hierarchy import fcluster, linkage
-from scipy.spatial.distance import squareform
 
 from pyannote.audio import Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.pipelines.utils import PipelineModel, get_devices, get_model
-from pyannote.audio.utils.permutation import mad_cost_func, mse_cost_func, permutate
+from pyannote.audio.utils.permutation import permutate
 from pyannote.audio.utils.signal import Binarize
 from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature, Timeline
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
@@ -42,20 +40,18 @@ class Segmentation(Pipeline):
 
     Parameters
     ----------
-    segmentation :
-    consistency_metric : {"mse", "mad"}
-
+    segmentation : Model, str, or dict, optional
+        Pretrained segmentation model. Defaults to "pyannote/segmentation".
+        See pyannote.audio.pipelines.utils.get_model for supported format.
     """
 
     def __init__(
         self,
         segmentation: PipelineModel = "pyannote/segmentation",
-        consistency_metric: str = "mse",
     ):
         super().__init__()
 
         self.segmentation = segmentation
-        self.consistency_metric = consistency_metric
 
         model: Model = get_model(segmentation)
         if model.device.type == "cpu":
@@ -77,15 +73,15 @@ class Segmentation(Pipeline):
         # hyper-parameters
 
         self.activity_threshold = Uniform(0.05, 0.95)
+        self.consistency_threshold = Uniform(0.0, 1.0)
 
-        if consistency_metric == "mse":
-            self._cost_func = mse_cost_func
-            self.consistency_threshold = Uniform(0.0, 1.0)
-        elif consistency_metric == "mad":
-            self._cost_func = mad_cost_func
-            self.consistency_threshold = Uniform(0.0, 1.0)
-        else:
-            raise ValueError('"consistency_metric" must be one of {"mse", "mad"}.')
+    def cost_func(self, Y: np.ndarray, y: np.ndarray) -> float:
+        return np.mean(
+            np.mean(
+                (Y > self.activity_threshold) != (y > self.activity_threshold), axis=-1
+            ),
+            axis=-1,
+        )
 
     def apply(self, file: AudioFile) -> Annotation:
 
@@ -106,8 +102,10 @@ class Segmentation(Pipeline):
         # TODO: maybe np.floor is better? <== optimize that as well
 
         # compute consistency between each pair of adjacent chunks
-        # and permutate speakers in order to maximize consistency
-        consistency = np.ones((num_chunks, num_chunks))
+        # group and aggregate consistent adjacent chunks
+        # permutate speakers in order to maximize consistency
+        clusters = np.zeros((num_chunks,))
+        current_cluster = 0
         for c in range(num_chunks):
 
             chunk = chunks[c]
@@ -127,31 +125,32 @@ class Segmentation(Pipeline):
                     2 * frame_shift : num_frames - frame_shift,
                 ],
                 segmentation[frame_shift : num_frames - 2 * frame_shift],
-                cost_func=self._cost_func,
+                cost_func=self.cost_func,
                 return_cost=True,
             )
 
             for prev_i, i in enumerate(permutation):
                 segmentations.data[c, :, prev_i] = segmentation[:, i]
 
-            consistency[c - 1, c] = max(
-                cost[prev_i, i] for prev_i, i in enumerate(permutation)
+            consistency = np.mean(
+                [cost[prev_i, i] for prev_i, i in enumerate(permutation)]
             )
+
+            if consistency > self.consistency_threshold:
+                current_cluster += 1
+
+            clusters[c] = current_cluster
 
             previous_frame_index = frame_index
 
-        # group and aggregate consistent adjacent chunks
-        consistency = squareform(consistency, checks=False)
-        Z = linkage(consistency, method="single", metric="precomputed")
-        clusters = fcluster(Z, self.consistency_threshold, criterion="distance")
-        num_clusters = np.max(clusters)
+        num_clusters = current_cluster + 1
 
         activations = np.zeros((num_chunks, num_frames, num_speakers * num_clusters))
         for c, (k, (_, permutated_segmentation)) in enumerate(
             zip(clusters, segmentations)
         ):
             activations[
-                c, :, num_speakers * (k - 1) : num_speakers * k
+                c, :, num_speakers * k : num_speakers * (k + 1)
             ] = permutated_segmentation
 
         activations = SlidingWindowFeature(activations, chunks)
