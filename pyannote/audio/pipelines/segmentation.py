@@ -30,7 +30,7 @@ from pyannote.audio import Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.pipelines.utils import PipelineModel, get_devices, get_model
 from pyannote.audio.utils.permutation import permutate
-from pyannote.audio.utils.signal import Binarize
+from pyannote.audio.utils.signal import Binarize, binarize
 from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature, Timeline
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
 from pyannote.pipeline.parameter import Uniform
@@ -73,12 +73,13 @@ class Segmentation(Pipeline):
 
         # hyper-parameters
 
-        self.activity_threshold = Uniform(0.05, 0.95)
+        self.onset = Uniform(0.05, 0.95)
+        self.offset = Uniform(0.05, 0.95)
         self.consistency_threshold = Uniform(0.0, 1.0)
 
     def cost_func(self, Y, y):
-        return torch.mean(1. * ((Y > self.activity_threshold) != (y > self.activity_threshold)), dim=0)
-    
+        return torch.mean(1.0 * (Y != y), dim=0)
+
     def apply(self, file: AudioFile) -> Annotation:
 
         frames: SlidingWindow = self._segmentation_inference.model.introspection.frames
@@ -87,15 +88,27 @@ class Segmentation(Pipeline):
         num_chunks, num_frames, num_speakers = segmentations.data.shape
 
         # instantaneous speaker count
+        binary_segmentations = SlidingWindowFeature(
+            np.stack(
+                [
+                    binarize(
+                        segmentation,
+                        offset=min(self.offset, self.onset),
+                        onset=self.onset,
+                    )
+                    for _, segmentation in segmentations
+                ]
+            ),
+            chunks,
+        )
+
         speaker_count = Inference.aggregate(
-            np.sum(segmentations > self.activity_threshold, axis=-1, keepdims=True),
+            np.sum(binary_segmentations, axis=-1, keepdims=True),
             frames,
             warm_up=self._warm_up,
         )
         speaker_count.data = np.round(speaker_count)
         file["@segmentation/speaker_count"] = speaker_count
-        # TODO: apply binarize on each chunk separatly to benefit from onset/offset
-        # TODO: maybe np.floor is better? <== optimize that as well
 
         # compute consistency between each pair of adjacent chunks
         # group and aggregate consistent adjacent chunks
@@ -111,20 +124,20 @@ class Segmentation(Pipeline):
                 previous_frame_index = frame_index
                 continue
 
-            segmentation = segmentations[c].copy()
             frame_shift = frame_index - previous_frame_index
 
             _, (permutation,), (cost,) = permutate(
-                segmentations[
+                binary_segmentations[
                     np.newaxis,
                     c - 1,
                     2 * frame_shift : num_frames - frame_shift,
                 ],
-                segmentation[frame_shift : num_frames - 2 * frame_shift],
+                binary_segmentations[c, frame_shift : num_frames - 2 * frame_shift],
                 cost_func=self.cost_func,
                 return_cost=True,
             )
 
+            segmentation = segmentations[c].copy()
             for prev_i, i in enumerate(permutation):
                 segmentations.data[c, :, prev_i] = segmentation[:, i]
 
@@ -141,25 +154,33 @@ class Segmentation(Pipeline):
 
         num_clusters = current_cluster + 1
 
-        activations = np.nan * np.zeros((num_chunks, num_frames, num_speakers * num_clusters))
+        chunk_activations = np.nan * np.zeros(
+            (num_chunks, num_frames, num_speakers * num_clusters)
+        )
         for c, (k, (_, permutated_segmentation)) in enumerate(
             zip(clusters, segmentations)
         ):
-            activations[
+            chunk_activations[
                 c, :, num_speakers * k : num_speakers * (k + 1)
             ] = permutated_segmentation
 
-        activations = SlidingWindowFeature(activations, chunks)
-        activations = Inference.aggregate(activations, frames, warm_up=self._warm_up)
-        file["@segmentation/activations"] = activations
+        chunk_activations = SlidingWindowFeature(chunk_activations, chunks)
+        aggregated_activations = Inference.aggregate(
+            chunk_activations, frames, warm_up=self._warm_up
+        )
+        file["@segmentation/activations"] = aggregated_activations
 
         # use speaker count to only keep as many speakers as needed
-        sorted_speakers = np.argsort(-activations, axis=-1)
-        binary_activations = np.zeros_like(activations.data)
-        for t, ((_, count), speakers) in enumerate(zip(speaker_count, sorted_speakers)):
+        speakers_sorted_by_decreasing_activation = np.argsort(
+            -aggregated_activations, axis=-1
+        )
+        binary_activations = np.zeros_like(aggregated_activations.data, dtype=np.uint8)
+        for t, ((_, count), speakers) in enumerate(
+            zip(speaker_count, speakers_sorted_by_decreasing_activation)
+        ):
             count = int(count.item())
             for i in range(count):
-                binary_activations[t, speakers[i]] = 1.0
+                binary_activations[t, speakers[i]] = 1
 
         # turn binary activations into hard Annotation
         final_segmentation = self._binarize(
