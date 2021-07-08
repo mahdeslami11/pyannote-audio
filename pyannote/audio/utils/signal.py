@@ -38,6 +38,53 @@ from pyannote.core import Annotation, Segment, SlidingWindowFeature, Timeline
 from pyannote.core.utils.generators import pairwise
 
 
+def binarize(
+    activations: np.ndarray,
+    offset: float = 0.5,
+    onset: float = 0.5,
+    initial: bool = False,
+) -> np.ndarray:
+    """Hysteresis thresholding
+
+    Implementation shamelessly inspired from
+    https://stackoverflow.com/questions/23289976/how-to-find-zero-crossings-with-hysteresis
+
+    Parameters
+    ----------
+    activations : (num_frames, num_classes) np.ndarray
+    offset : float, optional
+        Offset threshold. Should be smaller than `onset`. Defaults to 0.5.
+    onset : float, optional
+        Onset threshold. Should be greater than `offset`. Defaults to 0.5.
+    initial : bool, optional
+
+    Returns
+    -------
+    binarized : (num_frames, num_classes) np.ndarray
+    """
+
+    if len(activations.shape) != 2:
+        raise ValueError("activations must have shape (num_frames, num_classes)")
+
+    if offset > onset:
+        raise ValueError(
+            f"offset ({offset:g}) should be smaller than onset ({onset:g})"
+        )
+
+    on = activations >= onset
+    on_or_off = (activations <= offset) | on
+    on_or_off_frames, on_or_off_classes = np.nonzero(on_or_off)
+    counts = np.cumsum(on_or_off, axis=0)
+    binarized = []
+    for k, (activation, count, active) in enumerate(zip(activations.T, counts.T, on.T)):
+        frames = on_or_off_frames[on_or_off_classes == k]
+        if not frames.size:
+            binarized.append(np.zeros_like(activation, dtype=np.bool_) | initial)
+        else:
+            binarized.append(np.where(count, active[frames[count - 1]], initial))
+    return np.stack(binarized).T
+
+
 class Binarize:
     """Binarize detection scores using hysteresis thresholding
 
@@ -98,6 +145,8 @@ class Binarize:
         active : Annotation
             Binarized scores.
         """
+
+        # TODO: update this piece of code to rely on binarize function defined above
 
         num_frames, num_classes = scores.data.shape
         frames = scores.sliding_window
