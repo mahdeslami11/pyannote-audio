@@ -27,7 +27,7 @@ from typing import List, Optional, Text, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
-from pytorch_lightning.metrics.classification import FBeta
+from torchmetrics import FBeta
 from typing_extensions import Literal
 
 from pyannote.audio.core.io import Audio, AudioFile
@@ -132,14 +132,9 @@ class SegmentationTaskMixin:
         Use macro-average of F-score with a 0.5 threshold
         """
 
-        self.val_fbeta = FBeta(
-            len(self.specifications.classes),
-            beta=1.0,
-            threshold=0.5,
-            multilabel=(
-                self.specifications.problem == Problem.MULTI_LABEL_CLASSIFICATION
-            ),
-            average="macro",
+        num_classes = len(self.specifications.classes)
+        return FBeta(
+            num_classes, beta=1.0, threshold=0.5, average="macro", compute_on_step=False
         )
 
     def prepare_y(self, one_hot_y: np.ndarray) -> np.ndarray:
@@ -457,8 +452,11 @@ class SegmentationTaskMixin:
     def val__len__(self):
         return len(self._validation)
 
+    def validation_postprocess(self, y, y_pred):
+        return y_pred
+
     def validation_step(self, batch, batch_idx: int):
-        """Compute area under ROC curve
+        """Compute validation F-score
 
         Parameters
         ----------
@@ -468,27 +466,63 @@ class SegmentationTaskMixin:
             Batch index.
         """
 
-        # move metric to model device
-        self.val_fbeta.to(self.model.device)
-
         X, y = batch["X"], batch["y"]
         # X = (batch_size, num_channels, num_samples)
-        # y = (batch_size, num_frames, num_classes)
+        # y = (batch_size, num_frames, num_classes) or (batch_size, num_frames)
 
         y_pred = self.model(X)
         _, num_frames, _ = y_pred.shape
         # y_pred = (batch_size, num_frames, num_classes)
 
+        # postprocess
+        y_pred = self.validation_postprocess(y, y_pred)
+
+        # - remove warm-up frames
+        # - downsample remaining frames
         warm_up_left = round(self.warm_up[0] / self.duration * num_frames)
         warm_up_right = round(self.warm_up[1] / self.duration * num_frames)
+        preds = y_pred[:, warm_up_left : num_frames - warm_up_right : 10]
+        target = y[:, warm_up_left : num_frames - warm_up_right : 10]
 
-        val_fbeta = self.val_fbeta(
-            y_pred[:, warm_up_left : num_frames - warm_up_right : 10].squeeze(),
-            y[:, warm_up_left : num_frames - warm_up_right : 10].squeeze(),
-        )
+        # torchmetrics tries to be smart about the type of machine learning problem
+        # pyannote.audio is more explicit so we have to reshape target and preds for
+        # torchmetrics to be happy... more details can be found here:
+        # https://torchmetrics.readthedocs.io/en/latest/references/modules.html#input-types
+
+        if self.specifications.problem == Problem.BINARY_CLASSIFICATION:
+            # target: shape (batch_size, num_frames), type binary
+            # preds:  shape (batch_size, num_frames, 1), type float
+
+            # torchmetrics expects:
+            # target: shape (N,), type binary
+            # preds:  shape (N,), type float
+
+            self.model.validation_metric(preds.reshape(-1), target.reshape(-1))
+
+        elif self.specifications.problem == Problem.MULTI_LABEL_CLASSIFICATION:
+            # target: shape (batch_size, num_frames, num_classes), type binary
+            # preds:  shape (batch_size, num_frames, num_classes), type float
+
+            # torchmetrics expects
+            # target: shape (N, ...), type binary
+            # preds:  shape (N, ...), type float
+
+            self.model.validation_metric(preds.reshape(-1), target.reshape(-1))
+
+        elif self.specifications.problem == Problem.MONO_LABEL_CLASSIFICATION:
+            # target: shape (batch_size, num_frames, num_classes), type binary
+            # preds:  shape (batch_size, num_frames, num_classes), type float
+
+            # torchmetrics expects:
+            # target: shape (N, ), type int
+            # preds:  shape (N, num_classes), type float
+
+            # TODO: implement when pyannote.audio gets its first mono-label segmentation task
+            raise NotImplementedError()
+
         self.model.log(
             f"{self.ACRONYM}@val_fbeta",
-            val_fbeta,
+            self.model.validation_metric,
             on_step=False,
             on_epoch=True,
             prog_bar=True,
