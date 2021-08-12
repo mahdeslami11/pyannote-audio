@@ -109,7 +109,7 @@ class SupervisedRepresentationLearningWithArcFace(
 
         _, embedding_size = self.model(self.model.example_input_array).shape
 
-        self.model.loss_func = pytorch_metric_learning.losses.ArcFaceLoss(
+        return pytorch_metric_learning.losses.ArcFaceLoss(
             len(self.specifications.classes),
             embedding_size,
             margin=self.margin,

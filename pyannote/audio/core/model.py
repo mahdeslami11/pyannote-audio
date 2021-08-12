@@ -359,8 +359,12 @@ class Model(pl.LightningModule):
         if stage == "fit":
             # let task know about the model
             self.task.model = self
+
             # setup custom loss function
-            self.task.setup_loss_func()
+            loss_func = self.task.setup_loss_func()
+            if loss_func is not None:
+                self.loss_func = loss_func
+
             # setup custom validation metrics
             validation_metric = self.task.setup_validation_metric()
             if validation_metric is not None:
