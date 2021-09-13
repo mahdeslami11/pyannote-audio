@@ -30,6 +30,7 @@ def CyclicLR(
     min_lr: float = 1e-8,
     max_lr: float = 1e-3,
     step_size_up: int = 50000,
+    mode: str = "triangular",
     **kwargs,
 ):
     """Wrapper around CyclicLR learning rate scheduler
@@ -45,6 +46,8 @@ def CyclicLR(
     step_size_up : int, optional
         Number of training iterations in the increasing half of a cycle.
         Defaults to 50000.
+    mode : {"triangular", "triangular2"}, optional
+        Defaults to "triangular".
     """
 
     return {
@@ -53,7 +56,7 @@ def CyclicLR(
             base_lr=min_lr,
             max_lr=max_lr,
             step_size_up=step_size_up,
-            mode="triangular2",
+            mode=mode,
             cycle_momentum=False,
         ),
         "interval": "step",
