@@ -20,11 +20,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import math
 from collections import Counter
-from typing import Text, Tuple, Union
+from typing import Optional, Text, Tuple, Union
 
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
@@ -39,11 +37,7 @@ from pyannote.database import Protocol
 
 
 class Segmentation(SegmentationTaskMixin, Task):
-    """Segmentation
-
-    Note that data augmentation is used to increase the proportion of "overlap".
-    This is achieved by generating chunks made out of the (weighted) sum of two
-    random chunks.
+    """Speaker segmentation
 
     Parameters
     ----------
@@ -51,6 +45,9 @@ class Segmentation(SegmentationTaskMixin, Task):
         pyannote.database protocol
     duration : float, optional
         Chunks duration. Defaults to 2s.
+    max_num_speakers : int, optional
+        Force maximum number of speakers per chunk (must be at least 2).
+        Defaults to estimating it from the training set.
     warm_up : float or (float, float), optional
         Use that many seconds on the left- and rightmost parts of each chunk
         to warm up the model. While the model does process those left- and right-most
@@ -85,6 +82,12 @@ class Segmentation(SegmentationTaskMixin, Task):
         during training.
     vad_loss : {"bce", "mse"}, optional
         Add voice activity detection loss.
+
+    Reference
+    ----------
+    Hervé Bredin and Antoine Laurent
+    "End-To-End Speaker Segmentation for Overlap-Aware Resegmentation."
+    Proc. Interspeech 2021
     """
 
     ACRONYM = "seg"
@@ -95,6 +98,7 @@ class Segmentation(SegmentationTaskMixin, Task):
         self,
         protocol: Protocol,
         duration: float = 2.0,
+        max_num_speakers: int = None,
         warm_up: Union[float, Tuple[float, float]] = 0.0,
         overlap: dict = OVERLAP_DEFAULTS,
         balance: Text = None,
@@ -117,6 +121,7 @@ class Segmentation(SegmentationTaskMixin, Task):
             augmentation=augmentation,
         )
 
+        self.max_num_speakers = max_num_speakers
         self.overlap = overlap
         self.balance = balance
         self.weight = weight
@@ -126,11 +131,11 @@ class Segmentation(SegmentationTaskMixin, Task):
         self.loss = loss
         self.vad_loss = vad_loss
 
-    def setup(self, stage=None):
+    def setup(self, stage: Optional[str] = None):
 
         super().setup(stage=stage)
 
-        if stage == "fit":
+        if self.max_num_speakers is None:
 
             # slide a window (with 1s step) over the whole training set
             # and keep track of the number of speakers in each location
@@ -157,24 +162,21 @@ class Segmentation(SegmentationTaskMixin, Task):
             num_speakers = num_speakers[sorting_indices]
             counts = counts[sorting_indices]
 
-            self.num_speakers = num_speakers[
-                np.where(np.cumsum(counts) / np.sum(counts) > 0.99)[0][0]
-            ]
-
-            # TODO: add a few more speakers to make sure we don't skip
-            # too many artificial chunks (which might result in less
-            # overlap that we think we have)
-
-            # now that we know about the number of speakers upper bound
-            # we can set task specifications
-            self.specifications = Specifications(
-                problem=Problem.MULTI_LABEL_CLASSIFICATION,
-                resolution=Resolution.FRAME,
-                duration=self.duration,
-                warm_up=self.warm_up,
-                classes=[f"speaker#{i+1}" for i in range(self.num_speakers)],
-                permutation_invariant=True,
+            self.max_num_speakers = max(
+                2,
+                num_speakers[np.where(np.cumsum(counts) / np.sum(counts) > 0.99)[0][0]],
             )
+
+        # now that we know about the number of speakers upper bound
+        # we can set task specifications
+        self.specifications = Specifications(
+            problem=Problem.MULTI_LABEL_CLASSIFICATION,
+            resolution=Resolution.FRAME,
+            duration=self.duration,
+            warm_up=self.warm_up,
+            classes=[f"speaker#{i+1}" for i in range(self.max_num_speakers)],
+            permutation_invariant=True,
+        )
 
     def prepare_y(self, one_hot_y: np.ndarray):
         """Zero-pad segmentation targets
@@ -188,7 +190,7 @@ class Segmentation(SegmentationTaskMixin, Task):
 
         Returns
         -------
-        padded_one_hot_y : (num_frames, self.num_speakers) np.ndarray
+        padded_one_hot_y : (num_frames, self.max_num_speakers) np.ndarray
             One-hot-encoding of current chunk speaker activity:
                 * one_hot_y[t, k] = 1 if kth speaker is active at tth frame
                 * one_hot_y[t, k] = 0 otherwise.
@@ -196,12 +198,12 @@ class Segmentation(SegmentationTaskMixin, Task):
 
         num_frames, num_speakers = one_hot_y.shape
 
-        if num_speakers > self.num_speakers:
+        if num_speakers > self.max_num_speakers:
             raise ValueError()
 
-        if num_speakers < self.num_speakers:
+        if num_speakers < self.max_num_speakers:
             one_hot_y = np.pad(
-                one_hot_y, ((0, 0), (0, self.num_speakers - num_speakers))
+                one_hot_y, ((0, 0), (0, self.max_num_speakers - num_speakers))
             )
 
         return one_hot_y
@@ -215,9 +217,9 @@ class Segmentation(SegmentationTaskMixin, Task):
         # since number of speakers is estimated from the training set,
         # we might encounter validation chunks that have more speakers.
         # in that case, we arbitrarily remove last speakers
-        if y.shape[1] > self.num_speakers:
-            y = y[:, : self.num_speakers]
-            labels = labels[: self.num_speakers]
+        if y.shape[1] > self.max_num_speakers:
+            y = y[:, : self.max_num_speakers]
+            labels = labels[: self.max_num_speakers]
 
         sample["y"] = self.prepare_y(y)
         return sample
@@ -372,127 +374,6 @@ class Segmentation(SegmentationTaskMixin, Task):
         )
         return {"loss": loss}
 
-    def validation_step(self, batch, batch_idx: int):
-        """Compute validation F-score
-
-        Parameters
-        ----------
-        batch : dict of torch.Tensor
-            Current batch.
-        batch_idx: int
-            Batch index.
-        """
-
-        # move metric to model device
-        self.val_fbeta.to(self.model.device)
-
-        X, y = batch["X"], batch["y"]
-        # X = (batch_size, num_channels, num_samples)
-        # y = (batch_size, num_frames, num_classes)
-
-        y_pred = self.model(X)
-        _, num_frames, _ = y_pred.shape
-        # y_pred = (batch_size, num_frames, num_classes)
-
+    def validation_postprocess(self, y, y_pred):
         permutated_y_pred, _ = permutate(y, y_pred)
-
-        warm_up_left = round(self.warm_up[0] / self.duration * num_frames)
-        warm_up_right = round(self.warm_up[1] / self.duration * num_frames)
-
-        val_fbeta = self.val_fbeta(
-            permutated_y_pred[
-                :, warm_up_left : num_frames - warm_up_right : 10
-            ].squeeze(),
-            y[:, warm_up_left : num_frames - warm_up_right : 10].squeeze(),
-        )
-        self.model.log(
-            f"{self.ACRONYM}@val_fbeta",
-            val_fbeta,
-            on_step=False,
-            on_epoch=True,
-            prog_bar=True,
-            logger=True,
-        )
-
-        # log first batch visualization every 2^n epochs.
-        if (
-            self.model.current_epoch == 0
-            or math.log2(self.model.current_epoch) % 1 > 0
-            or batch_idx > 0
-        ):
-            return
-
-        # visualize first 9 validation samples of first batch in Tensorboard
-        X = X.cpu().numpy()
-        y = y.float().cpu().numpy()
-        y_pred = y_pred.cpu().numpy()
-        permutated_y_pred = permutated_y_pred.cpu().numpy()
-
-        # prepare 3 x 3 grid (or smaller if batch size is smaller)
-        num_samples = min(self.batch_size, 9)
-        nrows = math.ceil(math.sqrt(num_samples))
-        ncols = math.ceil(num_samples / nrows)
-        fig, axes = plt.subplots(
-            nrows=4 * nrows,
-            ncols=ncols,
-            figsize=(15, 10),
-        )
-
-        # reshape target so that there is one line per class when plottingit
-        y[y == 0] = np.NaN
-        y *= np.arange(y.shape[2])
-
-        # plot each sample
-        for sample_idx in range(num_samples):
-
-            # find where in the grid it should be plotted
-            row_idx = sample_idx // nrows
-            col_idx = sample_idx % ncols
-
-            # plot waveform
-            ax_wav = axes[row_idx * 4 + 0, col_idx]
-            sample_X = np.mean(X[sample_idx], axis=0)
-            ax_wav.plot(sample_X)
-            ax_wav.set_xlim(0, len(sample_X))
-            ax_wav.get_xaxis().set_visible(False)
-            ax_wav.get_yaxis().set_visible(False)
-
-            # plot target
-            ax_ref = axes[row_idx * 4 + 1, col_idx]
-            sample_y = y[sample_idx]
-            ax_ref.plot(sample_y)
-            ax_ref.set_xlim(0, len(sample_y))
-            ax_ref.set_ylim(-1, sample_y.shape[1])
-            ax_ref.get_xaxis().set_visible(False)
-            ax_ref.get_yaxis().set_visible(False)
-
-            # plot prediction
-            ax_hyp = axes[row_idx * 4 + 2, col_idx]
-            sample_y_pred = y_pred[sample_idx]
-            ax_hyp.axvspan(0, warm_up_left, color="k", alpha=0.5, lw=0)
-            ax_hyp.axvspan(
-                num_frames - warm_up_right, num_frames, color="k", alpha=0.5, lw=0
-            )
-            ax_hyp.plot(sample_y_pred)
-            ax_hyp.set_ylim(-0.1, 1.1)
-            ax_hyp.set_xlim(0, len(sample_y))
-            ax_hyp.get_xaxis().set_visible(False)
-
-            # plot permutated prediction
-            ax_map = axes[row_idx * 4 + 3, col_idx]
-            sample_y_pred_map = permutated_y_pred[sample_idx]
-            ax_map.axvspan(0, warm_up_left, color="k", alpha=0.5, lw=0)
-            ax_map.axvspan(
-                num_frames - warm_up_right, num_frames, color="k", alpha=0.5, lw=0
-            )
-            ax_map.plot(sample_y_pred_map)
-            ax_map.set_ylim(-0.1, 1.1)
-            ax_map.set_xlim(0, len(sample_y))
-
-        plt.tight_layout()
-
-        self.model.logger.experiment.add_figure(
-            f"{self.ACRONYM}@val_samples", fig, self.model.current_epoch
-        )
-
-        plt.close(fig)
+        return permutated_y_pred

@@ -27,7 +27,7 @@ from typing import List, Optional, Text, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
-from pytorch_lightning.metrics.classification import FBeta
+from torchmetrics import AUROC
 from typing_extensions import Literal
 
 from pyannote.audio.core.io import Audio, AudioFile
@@ -39,108 +39,102 @@ from pyannote.core import Annotation, Segment, SlidingWindow, SlidingWindowFeatu
 class SegmentationTaskMixin:
     """Methods common to most segmentation tasks"""
 
-    def setup(self, stage=None):
+    def setup(self, stage: Optional[str] = None):
 
-        if stage == "fit":
+        # ==================================================================
+        # PREPARE TRAINING DATA
+        # ==================================================================
 
-            # ==================================================================
-            # PREPARE TRAINING DATA
-            # ==================================================================
+        self._train = []
+        self._train_metadata = dict()
 
-            self._train = []
-            self._train_metadata = dict()
+        for f in self.protocol.train():
 
-            for f in self.protocol.train():
+            file = dict()
 
-                file = dict()
+            for key, value in f.items():
 
-                for key, value in f.items():
+                # keep track of unique labels in self._train_metadata["annotation"]
+                if key == "annotation":
+                    for label in value.labels():
+                        self._train_metadata.setdefault("annotation", set()).add(label)
 
-                    # keep track of unique labels in self._train_metadata["annotation"]
-                    if key == "annotation":
-                        for label in value.labels():
-                            self._train_metadata.setdefault("annotation", set()).add(
-                                label
-                            )
+                # pass "audio" entry as it is
+                elif key == "audio":
+                    pass
 
-                    # pass "audio" entry as it is
-                    elif key == "audio":
-                        pass
+                # remove segments shorter than chunks from "annotated" entry
+                elif key == "annotated":
+                    value = [
+                        segment for segment in value if segment.duration > self.duration
+                    ]
+                    file["_annotated_duration"] = sum(
+                        segment.duration for segment in value
+                    )
 
-                    # remove segments shorter than chunks from "annotated" entry
-                    elif key == "annotated":
-                        value = [
-                            segment
-                            for segment in value
-                            if segment.duration > self.duration
-                        ]
-                        file["_annotated_duration"] = sum(
-                            segment.duration for segment in value
-                        )
+                # keey track of unique text-like entries (incl. "uri" and "database")
+                # and pass them as they are
+                elif isinstance(value, Text):
+                    self._train_metadata.setdefault(key, set()).add(value)
 
-                    # keey track of unique text-like entries (incl. "uri" and "database")
-                    # and pass them as they are
-                    elif isinstance(value, Text):
-                        self._train_metadata.setdefault(key, set()).add(value)
+                # pass score-like entries as they are
+                elif isinstance(value, SlidingWindowFeature):
+                    pass
 
-                    # pass score-like entries as they are
-                    elif isinstance(value, SlidingWindowFeature):
-                        pass
+                else:
+                    msg = (
+                        f"Protocol '{self.protocol.name}' defines a '{key}' entry of type {type(value)} "
+                        f"which we do not know how to handle."
+                    )
+                    warnings.warn(msg)
+                file[key] = value
 
-                    else:
-                        msg = (
-                            f"Protocol '{self.protocol.name}' defines a '{key}' entry of type {type(value)} "
-                            f"which we do not know how to handle."
-                        )
-                        warnings.warn(msg)
-                    file[key] = value
+            self._train.append(file)
 
-                self._train.append(file)
+        self._train_metadata = {
+            key: sorted(values) for key, values in self._train_metadata.items()
+        }
 
-            self._train_metadata = {
-                key: sorted(values) for key, values in self._train_metadata.items()
-            }
+        # ==================================================================
+        # PREPARE VALIDATION DATA
+        # ==================================================================
 
-            # ==================================================================
-            # PREPARE VALIDATION DATA
-            # ==================================================================
+        if not self.has_validation:
+            return
 
-            if not self.has_validation:
-                return
+        self._validation = []
 
-            self._validation = []
+        for f in self.protocol.development():
 
-            for f in self.protocol.development():
+            for segment in f["annotated"]:
 
-                for segment in f["annotated"]:
+                if segment.duration < self.duration:
+                    continue
 
-                    if segment.duration < self.duration:
-                        continue
+                num_chunks = round(segment.duration // self.duration)
 
-                    num_chunks = round(segment.duration // self.duration)
+                for c in range(num_chunks):
+                    start_time = segment.start + c * self.duration
+                    chunk = Segment(start_time, start_time + self.duration)
+                    self._validation.append((f, chunk))
 
-                    for c in range(num_chunks):
-                        start_time = segment.start + c * self.duration
-                        chunk = Segment(start_time, start_time + self.duration)
-                        self._validation.append((f, chunk))
-
-            random.shuffle(self._validation)
+        random.shuffle(self._validation)
 
     def setup_validation_metric(self):
         """Setup default validation metric
 
-        Use macro-average of F-score with a 0.5 threshold
+        Use macro-average of area under the ROC curve
         """
 
-        self.val_fbeta = FBeta(
-            len(self.specifications.classes),
-            beta=1.0,
-            threshold=0.5,
-            multilabel=(
-                self.specifications.problem == Problem.MULTI_LABEL_CLASSIFICATION
-            ),
-            average="macro",
-        )
+        if self.specifications.problem in [
+            Problem.BINARY_CLASSIFICATION,
+            Problem.MULTI_LABEL_CLASSIFICATION,
+        ]:
+            num_classes = 1
+        else:
+            num_classes = len(self.specifications.classes)
+
+        return AUROC(num_classes, pos_label=1, average="macro", compute_on_step=False)
 
     def prepare_y(self, one_hot_y: np.ndarray) -> np.ndarray:
         raise NotImplementedError(
@@ -457,8 +451,11 @@ class SegmentationTaskMixin:
     def val__len__(self):
         return len(self._validation)
 
+    def validation_postprocess(self, y, y_pred):
+        return y_pred
+
     def validation_step(self, batch, batch_idx: int):
-        """Compute area under ROC curve
+        """Compute validation area under the ROC curve
 
         Parameters
         ----------
@@ -468,27 +465,63 @@ class SegmentationTaskMixin:
             Batch index.
         """
 
-        # move metric to model device
-        self.val_fbeta.to(self.model.device)
-
         X, y = batch["X"], batch["y"]
         # X = (batch_size, num_channels, num_samples)
-        # y = (batch_size, num_frames, num_classes)
+        # y = (batch_size, num_frames, num_classes) or (batch_size, num_frames)
 
         y_pred = self.model(X)
         _, num_frames, _ = y_pred.shape
         # y_pred = (batch_size, num_frames, num_classes)
 
+        # postprocess
+        y_pred = self.validation_postprocess(y, y_pred)
+
+        # - remove warm-up frames
+        # - downsample remaining frames
         warm_up_left = round(self.warm_up[0] / self.duration * num_frames)
         warm_up_right = round(self.warm_up[1] / self.duration * num_frames)
+        preds = y_pred[:, warm_up_left : num_frames - warm_up_right : 10]
+        target = y[:, warm_up_left : num_frames - warm_up_right : 10]
 
-        val_fbeta = self.val_fbeta(
-            y_pred[:, warm_up_left : num_frames - warm_up_right : 10].squeeze(),
-            y[:, warm_up_left : num_frames - warm_up_right : 10].squeeze(),
-        )
+        # torchmetrics tries to be smart about the type of machine learning problem
+        # pyannote.audio is more explicit so we have to reshape target and preds for
+        # torchmetrics to be happy... more details can be found here:
+        # https://torchmetrics.readthedocs.io/en/latest/references/modules.html#input-types
+
+        if self.specifications.problem == Problem.BINARY_CLASSIFICATION:
+            # target: shape (batch_size, num_frames), type binary
+            # preds:  shape (batch_size, num_frames, 1), type float
+
+            # torchmetrics expects:
+            # target: shape (N,), type binary
+            # preds:  shape (N,), type float
+
+            self.model.validation_metric(preds.reshape(-1), target.reshape(-1))
+
+        elif self.specifications.problem == Problem.MULTI_LABEL_CLASSIFICATION:
+            # target: shape (batch_size, num_frames, num_classes), type binary
+            # preds:  shape (batch_size, num_frames, num_classes), type float
+
+            # torchmetrics expects
+            # target: shape (N, ), type binary
+            # preds:  shape (N, ), type float
+
+            self.model.validation_metric(preds.reshape(-1), target.reshape(-1))
+
+        elif self.specifications.problem == Problem.MONO_LABEL_CLASSIFICATION:
+            # target: shape (batch_size, num_frames, num_classes), type binary
+            # preds:  shape (batch_size, num_frames, num_classes), type float
+
+            # torchmetrics expects:
+            # target: shape (N, ), type int
+            # preds:  shape (N, num_classes), type float
+
+            # TODO: implement when pyannote.audio gets its first mono-label segmentation task
+            raise NotImplementedError()
+
         self.model.log(
-            f"{self.ACRONYM}@val_fbeta",
-            val_fbeta,
+            f"{self.ACRONYM}@val_auroc",
+            self.model.validation_metric,
             on_step=False,
             on_epoch=True,
             prog_bar=True,
@@ -569,4 +602,4 @@ class SegmentationTaskMixin:
     @property
     def val_monitor(self):
         """Maximize validation area under ROC curve"""
-        return f"{self.ACRONYM}@val_fbeta", "max"
+        return f"{self.ACRONYM}@val_auroc", "max"

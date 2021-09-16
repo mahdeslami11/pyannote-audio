@@ -34,10 +34,9 @@ from pytorch_lightning.callbacks import (
 )
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.utilities.seed import seed_everything
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch_audiomentations.utils.config import from_dict as get_augmentation
 
-from pyannote.audio.core.callback import GraduallyUnfreeze
+# from pyannote.audio.core.callback import GraduallyUnfreeze
 from pyannote.database import FileFinder, get_protocol
 
 
@@ -56,8 +55,6 @@ def main(cfg: DictConfig) -> Optional[float]:
     seed_everything(seed=seed)
 
     protocol = get_protocol(cfg.protocol, preprocessors={"audio": FileFinder()})
-
-    patience: int = cfg["patience"]
 
     # TODO: configure layer freezing
 
@@ -81,53 +78,34 @@ def main(cfg: DictConfig) -> Optional[float]:
         # add task-dependent layers so that later call to model.parameters()
         # does return all layers (even task-dependent ones). this is already
         # done for pretrained models (TODO: check that this is true)
-        task.setup(stage="fit")
         model.setup(stage="fit")
 
     def configure_optimizers(self):
 
         optimizer = instantiate(cfg.optimizer, self.parameters())
-
-        if monitor is None:
-            return optimizer
-
-        lr_scheduler = {
-            "scheduler": ReduceLROnPlateau(
-                optimizer,
-                mode=direction,
-                factor=0.5,
-                patience=4 * patience,
-                threshold=0.0001,
-                threshold_mode="rel",
-                cooldown=2 * patience,
-                min_lr=0,
-                eps=1e-08,
-                verbose=False,
-            ),
-            "interval": "epoch",
-            "reduce_on_plateau": True,
-            "monitor": monitor,
-            "strict": True,
-        }
+        lr_scheduler = instantiate(
+            cfg.lr_scheduler, optimizer, monitor=monitor, direction=direction
+        )
         return {"optimizer": optimizer, "lr_scheduler": lr_scheduler}
 
     model.configure_optimizers = MethodType(configure_optimizers, model)
 
     callbacks = []
 
-    if pretrained:
-        # for fine-tuning and/or transfer learning, we start by fitting
-        # task-dependent layers and gradully unfreeze more layers
-        callbacks.append(GraduallyUnfreeze(epochs_per_stage=patience))
+    # # TODO: replace by finetune_scheduler config
+    # if pretrained:
+    #     # for fine-tuning and/or transfer learning, we start by fitting
+    #     # task-dependent layers and gradully unfreeze more layers
+    #     callbacks.append(GraduallyUnfreeze(epochs_per_stage=1))
 
-    learning_rate_monitor = LearningRateMonitor(logging_interval="step")
+    learning_rate_monitor = LearningRateMonitor()
     callbacks.append(learning_rate_monitor)
 
     checkpoint = ModelCheckpoint(
         monitor=monitor,
         mode=direction,
         save_top_k=None if monitor is None else 5,
-        period=1,
+        every_n_epochs=1,
         save_last=True,
         save_weights_only=False,
         dirpath=".",
@@ -141,7 +119,7 @@ def main(cfg: DictConfig) -> Optional[float]:
             monitor=monitor,
             mode=direction,
             min_delta=0.0,
-            patience=12 * patience,
+            patience=100,
             strict=True,
             verbose=False,
         )

@@ -37,6 +37,7 @@ from huggingface_hub import cached_download, hf_hub_url
 from pytorch_lightning.core.memory import ModelSummary
 from pytorch_lightning.utilities.cloud_io import load as pl_load
 from semver import VersionInfo
+from torch.utils.data import DataLoader
 
 from pyannote.audio import __version__
 from pyannote.audio.core.io import Audio
@@ -275,18 +276,15 @@ class Model(pl.LightningModule):
         )
 
     @property
-    def datamodule(self):
-        return self.task
-
-    @property
     def example_input_array(self) -> torch.Tensor:
         batch_size = 3 if self.task is None else self.task.batch_size
+        duration = 2.0 if self.task is None else self.task.duration
 
         return torch.randn(
             (
                 batch_size,
                 self.hparams.num_channels,
-                int(self.hparams.sample_rate * self.specifications.duration),
+                int(self.hparams.sample_rate * duration),
             ),
             device=self.device,
         )
@@ -347,6 +345,9 @@ class Model(pl.LightningModule):
 
     def setup(self, stage=None):
 
+        if stage == "fit":
+            self.task.setup()
+
         # list of layers before adding task-dependent layers
         before = set((name, id(module)) for name, module in self.named_modules())
 
@@ -365,7 +366,11 @@ class Model(pl.LightningModule):
             # setup custom loss function
             self.task.setup_loss_func()
             # setup custom validation metrics
-            self.task.setup_validation_metric()
+            validation_metric = self.task.setup_validation_metric()
+            if validation_metric is not None:
+                self.validation_metric = validation_metric
+                self.validation_metric.to(self.device)
+
             # this is to make sure introspection is performed here, once and for all
             _ = self.introspection
 
@@ -477,10 +482,20 @@ class Model(pl.LightningModule):
         """
         return self.helper_default_activation(self.specifications)
 
+    # training data logic is delegated to the task because the
+    # model does not really need to know how it is being used.
+    def train_dataloader(self) -> DataLoader:
+        return self.task.train_dataloader()
+
     # training step logic is delegated to the task because the
     # model does not really need to know how it is being used.
     def training_step(self, batch, batch_idx):
         return self.task.training_step(batch, batch_idx)
+
+    # validation data logic is delegated to the task because the
+    # model does not really need to know how it is being used.
+    def val_dataloader(self) -> DataLoader:
+        return self.task.val_dataloader()
 
     # validation logic is delegated to the task because the
     # model does not really need to know how it is being used.
@@ -822,7 +837,6 @@ class Model(pl.LightningModule):
 
         if task is not None:
             model.task = task
-            task.setup(stage="fit")
             model.setup(stage="fit")
 
             try:
