@@ -29,7 +29,8 @@ def permutate(y1, y2, cost_func: Optional[Callable] = None, return_cost: bool = 
         (batch_size, num_samples, num_classes_1)
     permutations : list of tuple
         List of permutations so that permutation[i] == j indicates that jth speaker of y2
-        should be mapped to ith speaker of y1. permutation[i] is None if
+        should be mapped to ith speaker of y1.  permutation[i] == None when none of y2 speakers
+        is mapped to ith speaker of y1.
     cost : np.ndarray or torch.Tensor, optional
         (batch_size, num_classes_1, num_classes_2)
     """
