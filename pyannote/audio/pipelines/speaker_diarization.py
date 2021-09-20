@@ -29,6 +29,7 @@ from scipy.special import softmax
 from spectralcluster import (
     ICASSP2018_REFINEMENT_SEQUENCE,
     AutoTune,
+    LaplacianType,
     RefinementOptions,
     SpectralClusterer,
     ThresholdType,
@@ -96,6 +97,14 @@ class SpeakerDiarization(Pipeline):
         self.min_duration_on = Uniform(0.0, 1.0)
         self.min_duration_off = Uniform(0.0, 1.0)
 
+        self.laplacian_type = Categorical(
+            [
+                "Affinity",
+                "Unnormalized",
+                "RandomWalk",
+                "GraphCut",
+            ]
+        )
         self.use_auto_tune = Categorical([True, False])
         self.use_refinement = Categorical([True, False])
         self.use_constraints = Categorical([True, False])
@@ -324,7 +333,7 @@ class SpeakerDiarization(Pipeline):
                 min_clusters=min_clusters,
                 max_clusters=max_clusters,
                 autotune=self._autotune,
-                laplacian_type=None,
+                laplacian_type=LaplacianType[self.laplacian_type],
                 refinement_options=self._refinement_options,
                 constraint_options=self._constraint_options,
                 custom_dist="cosine",
