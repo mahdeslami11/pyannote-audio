@@ -42,6 +42,7 @@ from pyannote.audio.utils.signal import Binarize
 from pyannote.core import Annotation, Segment, SlidingWindow, SlidingWindowFeature
 from pyannote.core.utils.distance import pdist
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
+from pyannote.pipeline.parameter import Categorical, Uniform
 
 
 class SpeakerDiarization(Pipeline):
@@ -91,24 +92,18 @@ class SpeakerDiarization(Pipeline):
         self._segmentation_inference = Inference(self.seg_model_, skip_aggregation=True)
 
         # hyper-parameters
-        self.active_threshold = 0.5
-        self.use_overlap_aware_embedding = False
-        self.use_auto_tune = True
-        self.use_refinement = True
-        self.use_constraints = True
-        # self.use_auto_tune = Categorical([True, False])
-        # self.use_refinement = Categorical([True, False])
-        # self.use_constraints = Categorical([True, False])
+        self.onset = Uniform(0.05, 0.95)
+        self.min_duration_on = Uniform(0.0, 1.0)
+        self.min_duration_off = Uniform(0.0, 1.0)
+
+        self.use_auto_tune = Categorical([True, False])
+        self.use_refinement = Categorical([True, False])
+        self.use_constraints = Categorical([True, False])
+
+        self.use_overlap_aware_embedding = Categorical([True, False])
 
     def initialize(self):
         """Initialize pipeline with current set of parameters"""
-
-        self._binarize = Binarize(
-            onset=0.5,
-            offset=0.5,
-            min_duration_on=0.0,
-            min_duration_off=0.0,
-        )
 
         if self.use_auto_tune:
             self._autotune = AutoTune(
@@ -140,6 +135,13 @@ class SpeakerDiarization(Pipeline):
             )
         else:
             self._constraint_options = None
+
+        self._binarize = Binarize(
+            onset=0.5,
+            offset=0.5,
+            min_duration_on=self.min_duration_on,
+            min_duration_off=self.min_duration_off,
+        )
 
     @staticmethod
     def get_pooling_weights(segmentation: np.ndarray) -> np.ndarray:
@@ -247,9 +249,12 @@ class SpeakerDiarization(Pipeline):
 
             for c, (chunk, segmentation) in enumerate(segmentations):
 
-                # TODO. add support for overlap-aware weights
-                pooling_weights: np.ndarray = segmentation
-                # (num_frames, num_speakers)
+                if self.use_overlap_aware_embedding:
+                    pooling_weights: np.ndarray = self.get_pooling_weights(segmentation)
+                    # (num_frames, num_speakers)
+                else:
+                    pooling_weights: np.ndarray = segmentation
+                    # (num_frames, num_speakers)
 
                 try:
                     chunk_embeddings: np.ndarray = self.get_embedding(
@@ -291,7 +296,7 @@ class SpeakerDiarization(Pipeline):
         # frame resolution (e.g. duration = step = 17ms)
 
         # active.data[c, k] indicates whether kth speaker is active in cth chunk
-        active: np.ndarray = np.any(segmentations > self.active_threshold, axis=1).data
+        active: np.ndarray = np.any(segmentations > self.onset, axis=1).data
         # (num_chunks, num_speakers)
         num_active = np.sum(active)
 
@@ -359,7 +364,7 @@ class SpeakerDiarization(Pipeline):
         file["@diarization/activations"] = speaker_activations
 
         active_speaker_count = Inference.aggregate(
-            np.sum(segmentations > self.active_threshold, axis=-1, keepdims=True),
+            np.sum(segmentations > self.onset, axis=-1, keepdims=True),
             frames,
         )
         active_speaker_count.data = np.round(active_speaker_count)
