@@ -23,80 +23,25 @@
 """Speaker diarization pipelines"""
 
 import numpy as np
-import sklearn.cluster
 import torch
-from scipy.cluster.hierarchy import fcluster
-from scipy.spatial.distance import cdist
+from scipy.spatial.distance import squareform
 from scipy.special import softmax
+from spectralcluster import (
+    ICASSP2018_REFINEMENT_SEQUENCE,
+    AutoTune,
+    RefinementOptions,
+    SpectralClusterer,
+    ThresholdType,
+    constraint,
+)
 
 from pyannote.audio import Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.pipelines.utils import PipelineModel, get_devices, get_model
 from pyannote.audio.utils.signal import Binarize
 from pyannote.core import Annotation, Segment, SlidingWindow, SlidingWindowFeature
-from pyannote.core.utils.hierarchy import pool
+from pyannote.core.utils.distance import pdist
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
-from pyannote.pipeline import Pipeline as BasePipeline
-from pyannote.pipeline.parameter import Integer, Uniform
-
-
-class DBSCAN(BasePipeline):
-    def __init__(self, metric="cosine"):
-        super().__init__()
-        self.metric = metric
-        self.eps = Uniform(0.0, 2.0)
-        self.min_samples = Integer(5, 20)
-
-    def initialize(self):
-        self._dbscan = sklearn.cluster.DBSCAN(
-            eps=self.eps,
-            min_samples=self.min_samples,
-            metric=self.metric,
-        )
-
-    def __call__(self, embeddings: np.ndarray) -> np.ndarray:
-        return self._dbscan.fit_predict(embeddings)
-
-
-class Pool(BasePipeline):
-    def __init__(self, metric="cosine"):
-        super().__init__()
-        self.metric = metric
-        self.threshold = Uniform(0.0, 2.0)
-
-    @staticmethod
-    def pooling_func(
-        u: int,
-        v: int,
-        C: np.ndarray = None,
-        **kwargs,
-    ) -> np.ndarray:
-        """Compute average of newly merged cluster
-
-        Parameters
-        ----------
-        u : int
-            Cluster index.
-        v : int
-            Cluster index.
-        C : (2 x n_observations - 1, dimension) np.ndarray
-            Cluster embedding.
-
-        Returns
-        -------
-        Cuv : (dimension, ) np.ndarray
-            Embedding of newly formed cluster.
-        """
-
-        return C[u] + C[v]
-
-    def __call__(self, embeddings: np.ndarray) -> np.ndarray:
-        Z = pool(
-            embeddings,
-            metric=self.metric,
-            pooling_func=self.pooling_func,
-        )
-        return fcluster(Z, self.threshold, criterion="distance") - 1
 
 
 class SpeakerDiarization(Pipeline):
@@ -121,7 +66,6 @@ class SpeakerDiarization(Pipeline):
         self,
         segmentation: PipelineModel = "pyannote/segmentation",
         embedding: PipelineModel = "pyannote/embedding",
-        clustering: str = "pool",
     ):
 
         super().__init__()
@@ -146,18 +90,15 @@ class SpeakerDiarization(Pipeline):
 
         self._segmentation_inference = Inference(self.seg_model_, skip_aggregation=True)
 
-        if clustering == "pool":
-            self.clustering = Pool(metric="cosine")
-        elif clustering == "dbscan":
-            self.clustering = DBSCAN(metric="cosine")
-        else:
-            raise ValueError(f"Unknown clustering algorithm ({clustering})")
-
         # hyper-parameters
-        self.active_threshold = Uniform(0.05, 0.95)
-        self.alone_threshold = Uniform(0.05, 0.95)
-        self.min_duration_on = 0.0
-        self.min_duration_off = 0.0
+        self.active_threshold = 0.5
+        self.use_overlap_aware_embedding = False
+        self.use_auto_tune = True
+        self.use_refinement = True
+        self.use_constraints = True
+        # self.use_auto_tune = Categorical([True, False])
+        # self.use_refinement = Categorical([True, False])
+        # self.use_constraints = Categorical([True, False])
 
     def initialize(self):
         """Initialize pipeline with current set of parameters"""
@@ -165,9 +106,40 @@ class SpeakerDiarization(Pipeline):
         self._binarize = Binarize(
             onset=0.5,
             offset=0.5,
-            min_duration_on=self.min_duration_on,
-            min_duration_off=self.min_duration_off,
+            min_duration_on=0.0,
+            min_duration_off=0.0,
         )
+
+        if self.use_auto_tune:
+            self._autotune = AutoTune(
+                p_percentile_min=0.60,
+                p_percentile_max=0.95,
+                init_search_step=0.01,
+                search_level=3,
+            )
+        else:
+            self._autotune = None
+
+        if self.use_refinement:
+            self._refinement_options = RefinementOptions(
+                gaussian_blur_sigma=1,
+                p_percentile=0.95,
+                thresholding_soft_multiplier=0.01,
+                thresholding_type=ThresholdType.RowMax,
+                refinement_sequence=ICASSP2018_REFINEMENT_SEQUENCE,
+            )
+        else:
+            self._refinement_options = None
+
+        if self.use_constraints:
+            ConstraintName = constraint.ConstraintName
+            self._constraint_options = constraint.ConstraintOptions(
+                constraint_name=ConstraintName.ConstraintPropagation,
+                apply_before_refinement=True,
+                constraint_propagation_alpha=0.6,
+            )
+        else:
+            self._constraint_options = None
 
     @staticmethod
     def get_pooling_weights(segmentation: np.ndarray) -> np.ndarray:
@@ -195,7 +167,7 @@ class SpeakerDiarization(Pipeline):
         chunk: Segment,
         model: Model,
         pooling_weights: np.ndarray = None,
-    ):
+    ) -> np.ndarray:
         """Extract embedding from a chunk
 
         Parameters
@@ -239,13 +211,18 @@ class SpeakerDiarization(Pipeline):
 
         return embeddings.cpu().numpy()
 
-    def apply(self, file: AudioFile) -> Annotation:
+    CACHED_SEGMENTATION = "@speaker_diarization/segmentation"
+    CACHED_EMBEDDING = "@speaker_diarization/embedding"
+
+    def apply(self, file: AudioFile, expected_num_speakers: int = None) -> Annotation:
         """Apply speaker diarization
 
         Parameters
         ----------
         file : AudioFile
             Processed file.
+        expected_num_speakers : int, optional
+            Expected number of speakers. Defaults to estimate it automatically.
 
         Returns
         -------
@@ -253,86 +230,116 @@ class SpeakerDiarization(Pipeline):
             Speaker diarization
         """
 
-        frames: SlidingWindow = self._segmentation_inference.model.introspection.frames
-        segmentations: SlidingWindowFeature = self._segmentation_inference(file)
+        # apply segmentation model (only if needed)
+        # output shape is (num_chunks, num_frames, num_speakers)
+        if (not self.training) or (
+            self.training and self.CACHED_SEGMENTATION not in file
+        ):
+            file[self.CACHED_SEGMENTATION] = self._segmentation_inference(file)
+        segmentations: SlidingWindowFeature = file[self.CACHED_SEGMENTATION]
         num_chunks, num_frames, num_speakers = segmentations.data.shape
 
-        embeddings = []
-        active = []
-        alone = []
+        # extract embeddings (only if needed)
+        # output shape is (num_valid_chunks x num_speakers, embedding_dimension)
+        if (not self.training) or (self.training and self.CACHED_EMBEDDING not in file):
 
-        for c, (chunk, segmentation) in enumerate(segmentations):
+            embeddings = []
 
-            pooling_weights = self.get_pooling_weights(segmentation)
-            # (num_frames, num_speakers)
+            for c, (chunk, segmentation) in enumerate(segmentations):
 
-            try:
-                chunk_embeddings = self.get_embedding(
-                    file, chunk, self.emb_model_, pooling_weights=pooling_weights
-                )
-                # num_speakers, dimension
-            except ValueError:
-                # happens with last chunk that is too long for audio...
-                continue
+                # TODO. add support for overlap-aware weights
+                pooling_weights: np.ndarray = segmentation
+                # (num_frames, num_speakers)
 
-            # remember if speaker is active
-            active.append(np.any(segmentation > self.active_threshold, axis=0))
+                try:
+                    chunk_embeddings: np.ndarray = self.get_embedding(
+                        file, chunk, self.emb_model_, pooling_weights=pooling_weights
+                    )
+                    # (num_speakers, dimension)
 
-            # remember if speaker is active without overlap
-            alone.append(np.mean(pooling_weights, axis=0) > self.alone_threshold)
+                except ValueError:
+                    if c + 1 == num_chunks:
+                        # it might happen that one cannot extract embeddings from
+                        # the very last chunk because of audio duration.
+                        continue
+                    else:
+                        # however, if we fail in the middle of the file, something
+                        # bad has happened and we should not go any further...
+                        raise ValueError()
 
-            old_norm = np.linalg.norm(chunk_embeddings, axis=1, keepdims=True)
-            # (num_speakers, 1)
+                embeddings.append(chunk_embeddings)
 
-            new_norm = np.mean(segmentation, axis=0, keepdims=True).T
-            # (num_speakers, 1)
+            embeddings = np.vstack(embeddings)
+            # (num_valid_chunks x num_speakers, dimension)
 
-            embeddings.append(chunk_embeddings * (new_norm / old_norm))
+            # unit-normalize embeddings
+            old_norm = np.linalg.norm(embeddings, axis=1, keepdims=True)
+            new_norm = np.ones((len(embeddings), 1))
+            embeddings = embeddings * (new_norm / old_norm)
 
-        active = np.hstack(active)
-        alone = np.hstack(alone)
-        embeddings = np.vstack(embeddings)
+            # TODO. add support for duration-weighted normalization
+            # new_norm = f(np.mean(segmentations, axis=1, keepdims=True))
+
+            file[self.CACHED_EMBEDDING] = embeddings
+
+        embeddings = file[self.CACHED_EMBEDDING]
+        # update number of chunks (only those with embeddings)
+        num_chunks = int(embeddings.shape[0] / num_speakers)
+        segmentations.data = segmentations.data[:num_chunks]
+
+        frames: SlidingWindow = self._segmentation_inference.model.introspection.frames
+        # frame resolution (e.g. duration = step = 17ms)
+
+        # active.data[c, k] indicates whether kth speaker is active in cth chunk
+        active: np.ndarray = np.any(segmentations > self.active_threshold, axis=1).data
+        # (num_chunks, num_speakers)
+        num_active = np.sum(active)
 
         # clusters[chunk_id x num_speakers + speaker_id] = ...
         # -1 if speaker is inactive
         # k if speaker is active and is assigned to cluster k
         clusters = -np.ones(len(embeddings), dtype=np.int)
 
-        # hierarchical agglomerative clustering with "pool" linkage
-
-        if np.sum(alone * active) < 2:
-            clusters[active] = 0
+        if num_active < 2:
+            clusters[active.reshape(-1)] = 0
             num_clusters = 1
-        else:
 
-            clusters[alone * active] = self.clustering(embeddings[alone * active])
+        else:
+            active_embeddings = embeddings[active.reshape(-1)]
+
+            if expected_num_speakers is None:
+                max_active_in_same_chunk = np.max(np.sum(active, axis=1))
+                min_clusters = max(1, max_active_in_same_chunk)
+                max_clusters = 20
+            else:
+                min_clusters = expected_num_speakers
+                max_clusters = expected_num_speakers
+
+            clusterer = SpectralClusterer(
+                min_clusters=min_clusters,
+                max_clusters=max_clusters,
+                autotune=self._autotune,
+                laplacian_type=None,
+                refinement_options=self._refinement_options,
+                constraint_options=self._constraint_options,
+                custom_dist="cosine",
+            )
+
+            if self.use_constraints:
+
+                chunk_idx = np.broadcast_to(
+                    np.arange(num_chunks), (num_speakers, num_chunks)
+                ).T.reshape(-1)[active.reshape(-1)]
+
+                cannot_link = squareform(-1.0 * pdist(chunk_idx, metric="equal"))
+                clusters[active.reshape(-1)] = clusterer.predict(
+                    active_embeddings, cannot_link
+                )
+
+            else:
+                clusters[active.reshape(-1)] = clusterer.predict(active_embeddings)
 
             num_clusters = np.max(clusters) + 1
-
-            if num_clusters == 0:
-                clusters[active] = 0
-                num_clusters = 1
-            else:
-                centroids = np.vstack(
-                    [
-                        np.sum(
-                            embeddings[active * alone][clusters[active * alone] == k],
-                            axis=0,
-                        )
-                        for k in range(num_clusters)
-                    ]
-                )
-                file["@diarization/centroids"] = centroids
-
-                # assign remaining chunks to closest centroid
-                clusters[active * (clusters == -1)] = np.argmin(
-                    cdist(
-                        centroids,
-                        embeddings[active * (clusters == -1)],
-                        metric="cosine",
-                    ),
-                    axis=0,
-                )
 
         clusters = clusters.reshape(-1, num_speakers)
 

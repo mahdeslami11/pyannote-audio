@@ -11,6 +11,7 @@ pytorch_lightning >=1.4.1,<1.5
 pytorch_metric_learning >=0.9.98
 semver >=2.10.2,<3.0
 soundfile >=0.10.2,<0.11
+spectralcluster >= 0.2.2,<0.3
 torch >=1.8.1,<1.9
 torch-audiomentations >=0.6.0
 torchaudio >=0.8.1,<0.9
