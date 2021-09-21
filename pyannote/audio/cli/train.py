@@ -81,7 +81,7 @@ def main(cfg: DictConfig) -> Optional[float]:
         model.setup(stage="fit")
 
     # number of batches in one epoch
-    num_batches_per_epoch = model.task.train__len__()
+    num_batches_per_epoch = model.task.train__len__() // model.task.batch_size
 
     def configure_optimizers(self):
 
