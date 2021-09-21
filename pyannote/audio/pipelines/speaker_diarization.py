@@ -60,21 +60,35 @@ class SpeakerDiarization(Pipeline):
         `Inference` instance used to extract speaker embeddings. When `str`,
         assumes that file already contains a corresponding key with precomputed
         embeddings. Defaults to "emb".
+    optimize_with_expected_num_speakers : bool, optional
+        Set to True to automatically pass the expected number of speakers when optimizing
+        the pipeline (pipeline(file, expected_num_speakers=...)).
 
     Hyper-parameters
     ----------------
+
+
+
+    Usage
+    -----
+    >>> pipeline = SpeakerDiarization()
+    >>> diarization = pipeline("/path/to/audio.wav")
+    >>> diarization = pipeline("/path/to/audio.wav", expected_num_speakers=2)
+
     """
 
     def __init__(
         self,
         segmentation: PipelineModel = "pyannote/segmentation",
         embedding: PipelineModel = "pyannote/embedding",
+        optimize_with_expected_num_speakers: bool = False,
     ):
 
         super().__init__()
 
         self.segmentation = segmentation
         self.embedding = embedding
+        self.optimize_with_expected_num_speakers = optimize_with_expected_num_speakers
 
         self.seg_model_: Model = get_model(segmentation)
         self.emb_model_: Model = get_model(embedding)
@@ -127,6 +141,7 @@ class SpeakerDiarization(Pipeline):
 
         if self.use_refinement:
             self._refinement_options = RefinementOptions(
+                p_percentile=0.95,
                 thresholding_soft_multiplier=0.01,
                 thresholding_type=ThresholdType.Percentile,
                 thresholding_with_binarization=True,
@@ -246,6 +261,11 @@ class SpeakerDiarization(Pipeline):
             Speaker diarization
         """
 
+        # when optimizing with expected number of speakers, use reference annotation
+        # to obtain the expected number of speakers
+        if self.training and self.optimize_with_expected_num_speakers:
+            expected_num_speakers = len(file["annotation"].labels())
+
         # apply segmentation model (only if needed)
         # output shape is (num_chunks, num_frames, num_speakers)
         if (not self.training) or (
@@ -346,6 +366,9 @@ class SpeakerDiarization(Pipeline):
             )
 
             if self.use_constraints:
+
+                # TODO: add (soft) must-link constraints based on segmentation consistence
+                # TODO: add (soft) cannot-link constraints based on amount of overlap
 
                 chunk_idx = np.broadcast_to(
                     np.arange(num_chunks), (num_speakers, num_chunks)
