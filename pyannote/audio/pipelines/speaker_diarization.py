@@ -27,11 +27,12 @@ import torch
 from scipy.spatial.distance import squareform
 from scipy.special import softmax
 from spectralcluster import (
-    ICASSP2018_REFINEMENT_SEQUENCE,
     AutoTune,
     LaplacianType,
+    RefinementName,
     RefinementOptions,
     SpectralClusterer,
+    SymmetrizeType,
     ThresholdType,
     constraint,
 )
@@ -116,21 +117,25 @@ class SpeakerDiarization(Pipeline):
 
         if self.use_auto_tune:
             self._autotune = AutoTune(
-                p_percentile_min=0.60,
+                p_percentile_min=0.40,
                 p_percentile_max=0.95,
-                init_search_step=0.01,
-                search_level=3,
+                init_search_step=0.05,
+                search_level=1,
             )
         else:
             self._autotune = None
 
         if self.use_refinement:
             self._refinement_options = RefinementOptions(
-                gaussian_blur_sigma=1,
-                p_percentile=0.95,
                 thresholding_soft_multiplier=0.01,
-                thresholding_type=ThresholdType.RowMax,
-                refinement_sequence=ICASSP2018_REFINEMENT_SEQUENCE,
+                thresholding_type=ThresholdType.Percentile,
+                thresholding_with_binarization=True,
+                thresholding_preserve_diagonal=True,
+                symmetrize_type=SymmetrizeType.Average,
+                refinement_sequence=[
+                    RefinementName.RowWiseThreshold,
+                    RefinementName.Symmetrize,
+                ],
             )
         else:
             self._refinement_options = None
@@ -140,7 +145,7 @@ class SpeakerDiarization(Pipeline):
             self._constraint_options = constraint.ConstraintOptions(
                 constraint_name=ConstraintName.ConstraintPropagation,
                 apply_before_refinement=True,
-                constraint_propagation_alpha=0.6,
+                constraint_propagation_alpha=0.4,
             )
         else:
             self._constraint_options = None
@@ -334,6 +339,7 @@ class SpeakerDiarization(Pipeline):
                 max_clusters=max_clusters,
                 autotune=self._autotune,
                 laplacian_type=LaplacianType[self.laplacian_type],
+                row_wise_renorm=True,
                 refinement_options=self._refinement_options,
                 constraint_options=self._constraint_options,
                 custom_dist="cosine",
