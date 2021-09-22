@@ -21,6 +21,7 @@
 # SOFTWARE.
 
 
+from .resnet import ResNet
 from .xvector import XVectorMFCC, XVectorSincNet
 
-__all__ = ["XVectorSincNet", "XVectorMFCC"]
+__all__ = ["XVectorSincNet", "XVectorMFCC", "ResNet"]
