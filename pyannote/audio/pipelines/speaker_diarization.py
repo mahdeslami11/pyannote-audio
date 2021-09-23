@@ -347,8 +347,7 @@ class SpeakerDiarization(Pipeline):
             active_embeddings = embeddings[active.reshape(-1)]
 
             if expected_num_speakers is None:
-                max_active_in_same_chunk = np.max(np.sum(active, axis=1))
-                min_clusters = max(1, max_active_in_same_chunk)
+                min_clusters = 1
                 max_clusters = 20
             else:
                 min_clusters = expected_num_speakers
