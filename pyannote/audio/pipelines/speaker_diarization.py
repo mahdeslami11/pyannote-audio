@@ -445,7 +445,7 @@ class SpeakerDiarization(Pipeline):
 
             for k in range(num_speakers):
                 if cluster[k] < 0:  # TODO: handle case where cluster[k] == -1
-                    pass
+                    continue
                 clustered_segmentations[c, :, cluster[k]] = segmentation[:, k]
 
         frames: SlidingWindow = self._segmentation_inference.model.introspection.frames
