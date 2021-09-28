@@ -203,7 +203,7 @@ class SpeakerDiarization(Pipeline):
         self.constraint_cannot_link = Uniform(0.0, 1.0)
 
         self.affinity_propagation_damping = Uniform(0.5, 1.0)
-        # self.affinity_propagation_preference = Uniform(-20.0, 0.0)
+        self.affinity_propagation_preference = Uniform(-1.0, 1.0)
 
         self.use_overlap_aware_embedding = False
 
@@ -222,7 +222,7 @@ class SpeakerDiarization(Pipeline):
             max_iter=200,
             convergence_iter=15,
             copy=True,
-            preference=None,  # TODO
+            preference=self.affinity_propagation_preference,
             affinity="precomputed",
             verbose=False,
             random_state=1337,  # for reproducibility
