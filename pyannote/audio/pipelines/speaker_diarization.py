@@ -22,20 +22,12 @@
 
 """Speaker diarization pipelines"""
 
+import einops
 import numpy as np
 import torch
 from scipy.spatial.distance import squareform
 from scipy.special import softmax
-from spectralcluster import (
-    AutoTune,
-    LaplacianType,
-    RefinementName,
-    RefinementOptions,
-    SpectralClusterer,
-    SymmetrizeType,
-    ThresholdType,
-    constraint,
-)
+from sklearn.cluster import AffinityPropagation
 
 from pyannote.audio import Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
@@ -44,7 +36,103 @@ from pyannote.audio.utils.signal import Binarize
 from pyannote.core import Annotation, Segment, SlidingWindow, SlidingWindowFeature
 from pyannote.core.utils.distance import pdist
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
-from pyannote.pipeline.parameter import Categorical, Uniform
+from pyannote.pipeline.parameter import Uniform
+
+
+def compute_constraints(
+    segmentations: SlidingWindowFeature,
+    cannot_link: float = 1.0,
+    must_link: float = 1.0,
+) -> np.ndarray:
+    """
+
+    Parameters
+    ----------
+    cannot_link : float, optional
+
+    must_link : float, optional
+
+
+    """
+
+    num_chunks, _, num_speakers = segmentations.data.shape
+
+    # 1. intra-chunk "cannot link" constraints
+    chunk_idx = np.broadcast_to(np.arange(num_chunks), (num_speakers, num_chunks))
+    constraint = squareform(
+        -cannot_link
+        * pdist(einops.rearrange(chunk_idx, "s c -> (c s)"), metric="equal")
+    )
+    # (num_chunks x num_speakers, num_chunks x num_speakers)
+
+    # 2. inter-chunk "must link" constraints
+    # TODO
+
+    return constraint
+
+
+def apply_constraints(
+    affinity: np.ndarray, constraint: np.ndarray, alpha: float = 0.5
+) -> np.ndarray:
+    """Update affinity matrix by constraint propagation
+
+    Stolen from
+    https://github.com/wq2012/SpectralCluster/blob/34d155654dbbfcda61b808a4f61afa666476b3d2/spectralcluster/constraint.py
+
+    Parameters
+    ----------
+    affinity : np.ndarray
+        (N, N) affinity matrix with values in [0, 1].
+        * affinity[i, j] = 1 indicates that i and j are very similar
+        * affinity[i, j] = 0 indicates that i and j are very dissimilar
+    constraint : np.ndarray
+        (N, N) constraint matrix with values in [-1, 1].
+        * constraint[i, j] > 0 indicates a must-link constraint
+        * constraint[i, j] < 0 indicates a cannot-link constraint
+        * constraint[i, j] = 0 indicates absence of constraint
+    alpha : float, optional
+        Weights of constraints in final (constrained) affinity matrix.
+        Should be between 0 and 1, where alpha = 0.0 is equivalent to
+        not applying any constraint. Defaults to 0.5.
+
+    Returns
+    -------
+    constrained_affinity : np.ndarray
+        Constrained affinity matrix.
+    propagated_constraint : np.ndarray
+        Propagated constraint matrix.
+
+    Reference
+    ---------
+    Lu, Zhiwu, and IP, Horace HS.
+    "Constrained spectral clustering via exhaustive and efficient constraint propagation."
+    ECCV 2010
+    """
+
+    degree = np.diag(np.sum(affinity, axis=1))
+    degree_norm = np.diag(1 / (np.sqrt(np.diag(degree)) + 1e-10))
+
+    # Compute affinity_norm as D^(-1/2)AD^(-1/2)
+    affinity_norm = degree_norm.dot(affinity).dot(degree_norm)
+
+    # The closed form of the final converged constraint matrix is:
+    # (1-alpha)^2 * (I-alpha*affinity_norm)^(-1) * constraint *
+    # (I-alpha*affinity_norm)^(-1). We save (I-alpha*affinity_norm)^(-1) as a
+    # `temp_value` for readibility
+    temp_value = np.linalg.inv(np.eye(affinity.shape[0]) - (1 - alpha) * affinity_norm)
+    propagated_constraint = alpha ** 2 * temp_value.dot(constraint).dot(temp_value)
+
+    # `is_positive` is a mask matrix where values of the propagated_constraint
+    # are positive. The affinity matrix is adjusted by the final constraint
+    # matrix using equation (4) in reference paper
+    is_positive = propagated_constraint > 0
+    affinity1 = 1 - (1 - propagated_constraint * is_positive) * (
+        1 - affinity * is_positive
+    )
+    affinity2 = (1 + propagated_constraint * np.invert(is_positive)) * (
+        affinity * np.invert(is_positive)
+    )
+    return affinity1 + affinity2, propagated_constraint
 
 
 class SpeakerDiarization(Pipeline):
@@ -66,8 +154,6 @@ class SpeakerDiarization(Pipeline):
 
     Hyper-parameters
     ----------------
-
-
 
     Usage
     -----
@@ -112,58 +198,17 @@ class SpeakerDiarization(Pipeline):
         self.min_duration_on = Uniform(0.0, 1.0)
         self.min_duration_off = Uniform(0.0, 1.0)
 
-        self.laplacian_type = Categorical(
-            [
-                "Affinity",
-                "Unnormalized",
-                "RandomWalk",
-                "GraphCut",
-            ]
-        )
-        self.use_auto_tune = Categorical([True, False])
-        self.use_refinement = Categorical([True, False])
-        self.use_constraints = Categorical([True, False])
+        self.constraint_propagate = Uniform(0.0, 1.0)
+        self.constraint_must_link = Uniform(0.0, 1.0)
+        self.constraint_cannot_link = Uniform(0.0, 1.0)
 
-        self.use_overlap_aware_embedding = Categorical([True, False])
+        self.affinity_propagation_damping = Uniform(0.5, 1.0)
+        # self.affinity_propagation_preference = Uniform(-20.0, 0.0)
+
+        self.use_overlap_aware_embedding = False
 
     def initialize(self):
         """Initialize pipeline with current set of parameters"""
-
-        if self.use_auto_tune:
-            self._autotune = AutoTune(
-                p_percentile_min=0.40,
-                p_percentile_max=0.95,
-                init_search_step=0.05,
-                search_level=1,
-            )
-        else:
-            self._autotune = None
-
-        if self.use_refinement:
-            self._refinement_options = RefinementOptions(
-                p_percentile=0.95,
-                thresholding_soft_multiplier=0.01,
-                thresholding_type=ThresholdType.Percentile,
-                thresholding_with_binarization=True,
-                thresholding_preserve_diagonal=True,
-                symmetrize_type=SymmetrizeType.Average,
-                refinement_sequence=[
-                    RefinementName.RowWiseThreshold,
-                    RefinementName.Symmetrize,
-                ],
-            )
-        else:
-            self._refinement_options = None
-
-        if self.use_constraints:
-            ConstraintName = constraint.ConstraintName
-            self._constraint_options = constraint.ConstraintOptions(
-                constraint_name=ConstraintName.ConstraintPropagation,
-                apply_before_refinement=True,
-                constraint_propagation_alpha=0.4,
-            )
-        else:
-            self._constraint_options = None
 
         self._binarize = Binarize(
             onset=0.5,
@@ -171,6 +216,25 @@ class SpeakerDiarization(Pipeline):
             min_duration_on=self.min_duration_on,
             min_duration_off=self.min_duration_off,
         )
+
+        self._affinity_propagation = AffinityPropagation(
+            damping=self.affinity_propagation_damping,
+            max_iter=200,
+            convergence_iter=15,
+            copy=True,
+            preference=None,  # TODO
+            affinity="precomputed",
+            verbose=False,
+            random_state=1337,  # for reproducibility
+        )
+
+        # TODO: set sample preference based on speaker duration
+        # Excerpt from sklearn documentation:
+        # When all training samples have equal similarities and equal preferences,
+        # the assignment of cluster centers and labels depends on the preference.
+        # If the preference is smaller than the similarities, fit will result in a
+        # single cluster center and label 0 for every sample. Otherwise, every training
+        # sample becomes its own cluster center and is assigned a unique label.
 
     @staticmethod
     def get_pooling_weights(segmentation: np.ndarray) -> np.ndarray:
@@ -266,6 +330,9 @@ class SpeakerDiarization(Pipeline):
         if self.training and self.optimize_with_expected_num_speakers:
             expected_num_speakers = len(file["annotation"].labels())
 
+        if expected_num_speakers is not None:
+            raise NotImplementedError("")
+
         # apply segmentation model (only if needed)
         # output shape is (num_chunks, num_frames, num_speakers)
         if (not self.training) or (
@@ -312,13 +379,9 @@ class SpeakerDiarization(Pipeline):
             # (num_valid_chunks x num_speakers, dimension)
 
             # unit-normalize embeddings
-            old_norm = np.linalg.norm(embeddings, axis=1, keepdims=True)
-            new_norm = np.ones((len(embeddings), 1))
-            embeddings = embeddings * (new_norm / old_norm)
+            embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True)
 
-            # TODO. add support for duration-weighted normalization
-            # new_norm = f(np.mean(segmentations, axis=1, keepdims=True))
-
+            # cache embeddings
             file[self.CACHED_EMBEDDING] = embeddings
 
         embeddings = file[self.CACHED_EMBEDDING]
@@ -326,73 +389,67 @@ class SpeakerDiarization(Pipeline):
         num_chunks = int(embeddings.shape[0] / num_speakers)
         segmentations.data = segmentations.data[:num_chunks]
 
-        frames: SlidingWindow = self._segmentation_inference.model.introspection.frames
-        # frame resolution (e.g. duration = step = 17ms)
-
-        # active.data[c, k] indicates whether kth speaker is active in cth chunk
-        active: np.ndarray = np.any(segmentations > self.onset, axis=1).data
-        # (num_chunks, num_speakers)
-        num_active = np.sum(active)
-
         # clusters[chunk_id x num_speakers + speaker_id] = ...
         # -1 if speaker is inactive
         # k if speaker is active and is assigned to cluster k
         clusters = -np.ones(len(embeddings), dtype=np.int)
 
+        # active.data[c, k] indicates whether kth speaker is active in cth chunk
+        active: np.ndarray = np.any(segmentations > self.onset, axis=1).data
+
+        # (num_chunks, num_speakers)
+
+        num_active = np.sum(active)
+
+        # compute (soft) {must/cannot}-link constraints based on local segmentation
+        constraint = compute_constraints(
+            segmentations,
+            cannot_link=self.constraint_cannot_link,
+            must_link=self.constraint_must_link,
+        )
+        # (num_valid_chunks x num_speakers, num_valid_chunks x num_speakers)
+
+        active = einops.rearrange(active, "c s -> (c s)")
+
+        constraint = constraint[active][:, active]
+        # (num_active_speakers, num_active_speakers)
+
+        affinity = squareform(1 - 0.5 * pdist(embeddings[active], metric="cosine"))
+        # (num_active_speakers, num_active_speakers)
+
+        affinity, constraint = apply_constraints(
+            affinity, constraint, alpha=self.constraint_propagate
+        )
+
+        # clusters[chunk_id x num_speakers + speaker_id] = ...
+        # * k=-2                if speaker is inactive
+        # * k=-1                if speaker is active but not assigned to any cluster
+        # * k in {0, ... K - 1} if speaker is active and is assigned to cluster k
+        clusters = -2 * np.ones(num_chunks * num_speakers, dtype=np.int)
+
         if num_active < 2:
-            clusters[active.reshape(-1)] = 0
+            clusters[active] = 0
             num_clusters = 1
-
         else:
-            active_embeddings = embeddings[active.reshape(-1)]
-
-            if expected_num_speakers is None:
-                min_clusters = 1
-                max_clusters = 20
-            else:
-                min_clusters = expected_num_speakers
-                max_clusters = expected_num_speakers
-
-            clusterer = SpectralClusterer(
-                min_clusters=min_clusters,
-                max_clusters=max_clusters,
-                autotune=self._autotune,
-                laplacian_type=LaplacianType[self.laplacian_type],
-                row_wise_renorm=True,
-                refinement_options=self._refinement_options,
-                constraint_options=self._constraint_options,
-                custom_dist="cosine",
-            )
-
-            if self.use_constraints:
-
-                # TODO: add (soft) must-link constraints based on segmentation consistence
-                # TODO: add (soft) cannot-link constraints based on amount of overlap
-
-                chunk_idx = np.broadcast_to(
-                    np.arange(num_chunks), (num_speakers, num_chunks)
-                ).T.reshape(-1)[active.reshape(-1)]
-
-                cannot_link = squareform(-1.0 * pdist(chunk_idx, metric="equal"))
-                clusters[active.reshape(-1)] = clusterer.predict(
-                    active_embeddings, cannot_link
-                )
-
-            else:
-                clusters[active.reshape(-1)] = clusterer.predict(active_embeddings)
-
+            clusters[active] = self._affinity_propagation.fit_predict(affinity)
             num_clusters = np.max(clusters) + 1
 
-        clusters = clusters.reshape(-1, num_speakers)
+        clusters = einops.rearrange(
+            clusters, "(c s) -> c s", c=num_chunks, s=num_speakers
+        )
 
         clustered_segmentations = np.zeros((num_chunks, num_frames, num_clusters))
         for c, (cluster, (chunk, segmentation)) in enumerate(
             zip(clusters, segmentations)
         ):
+
             for k in range(num_speakers):
-                if cluster[k] == -1:
+                if cluster[k] < 0:  # TODO: handle case where cluster[k] == -1
                     pass
                 clustered_segmentations[c, :, cluster[k]] = segmentation[:, k]
+
+        frames: SlidingWindow = self._segmentation_inference.model.introspection.frames
+        # frame resolution (e.g. duration = step = 17ms)
 
         speaker_activations = Inference.aggregate(
             SlidingWindowFeature(clustered_segmentations, segmentations.sliding_window),
