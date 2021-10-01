@@ -188,7 +188,11 @@ class SpeakerDiarization(Pipeline):
         power: int = 3
         scale: float = 10.0
         pow_segmentation = pow(segmentation, power)
-        return pow_segmentation * pow(softmax(scale * pow_segmentation, axis=1), power)
+        weights = pow_segmentation * pow(
+            softmax(scale * pow_segmentation, axis=1), power
+        )
+        weights[weights < 1e-8] = 1e-8
+        return weights
 
     @staticmethod
     def get_embedding(
