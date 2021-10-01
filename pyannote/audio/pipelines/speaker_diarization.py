@@ -563,6 +563,10 @@ class SpeakerDiarization(Pipeline):
             clusters, "(c s) -> c s", c=num_chunks, s=num_speakers
         )
 
+        # __DEBUG_______________________________________________________________________
+        if debug:
+            file["diarization/clusters"] = np.copy(clusters)
+
         clustered_segmentations = np.zeros((num_chunks, num_frames, num_clusters))
         for c, (cluster, (chunk, segmentation)) in enumerate(
             zip(clusters, segmentations)
