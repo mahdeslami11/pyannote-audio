@@ -29,7 +29,8 @@ import numpy as np
 import torch
 from scipy.spatial.distance import squareform
 from scipy.special import softmax
-from sklearn.cluster import AffinityPropagation
+from sklearn.cluster import DBSCAN as SKLearnDBSCAN
+from sklearn.cluster import AffinityPropagation as SKLearnAffinityPropagation
 
 from pyannote.audio import Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
@@ -39,7 +40,50 @@ from pyannote.audio.utils.signal import Binarize
 from pyannote.core import Annotation, Segment, SlidingWindow, SlidingWindowFeature
 from pyannote.core.utils.distance import pdist
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
-from pyannote.pipeline.parameter import Categorical, Uniform
+from pyannote.pipeline import Pipeline as BasePipeline
+from pyannote.pipeline.parameter import Categorical, Integer, Uniform
+
+
+class AffinityPropagation(BasePipeline):
+    def __init__(self):
+        super().__init__()
+        self.damping = Uniform(0.5, 1.0)
+        self.preference = Uniform(-20.0, 0.0)  # check what this interval should be
+
+    def initialize(self):
+        self._affinity_propagation = SKLearnAffinityPropagation(
+            damping=self.damping,
+            max_iter=200,
+            convergence_iter=15,
+            copy=True,
+            preference=self.preference,
+            affinity="precomputed",
+            verbose=False,
+            random_state=1337,  # for reproducibility
+        )
+
+    def __call__(self, affinity: np.ndarray) -> np.ndarray:
+        return self._affinity_propagation.fit_predict(affinity)
+
+
+class DBSCAN(BasePipeline):
+    def __init__(self):
+        super().__init__()
+        self.eps = Uniform(0.0, 1.0)
+        self.min_samples = Integer(2, 20)
+
+    def initialize(self):
+        self._dbscan = SKLearnDBSCAN(
+            eps=self.eps,
+            min_samples=self.min_samples,
+            metric="precomputed",
+            algorithm="auto",
+            leaf_size=30,
+            n_jobs=None,
+        )
+
+    def __call__(self, affinity: np.ndarray) -> np.ndarray:
+        return self._dbscan.fit_predict(1.0 - affinity)
 
 
 class SpeakerDiarization(Pipeline):
@@ -105,22 +149,16 @@ class SpeakerDiarization(Pipeline):
         self.min_duration_on = Uniform(0.0, 1.0)
         self.min_duration_off = Uniform(0.0, 1.0)
 
-        #
+        self.use_overlap_aware_embedding = Categorical([True, False])
         self.affinity_threshold_percentile = Uniform(0.0, 1.0)
 
         # Weights of constraints in final (constrained) affinity matrix.
         # Between 0 and 1, where alpha = 0.0 means no constraint.
         self.constraint_propagate = Uniform(0.0, 1.0)
-
         self.constraint_must_link = Uniform(0.0, 1.0)
         self.constraint_cannot_link = Uniform(0.0, 1.0)
 
-        self.affinity_propagation_damping = Uniform(0.5, 1.0)
-        self.affinity_propagation_preference = Uniform(
-            -20.0, 1.0
-        )  # check what the interval should be
-
-        self.use_overlap_aware_embedding = Categorical([True, False])
+        self.clustering = AffinityPropagation()
 
     def initialize(self):
         """Initialize pipeline with current set of parameters"""
@@ -131,25 +169,6 @@ class SpeakerDiarization(Pipeline):
             min_duration_on=self.min_duration_on,
             min_duration_off=self.min_duration_off,
         )
-
-        self._affinity_propagation = AffinityPropagation(
-            damping=self.affinity_propagation_damping,
-            max_iter=200,
-            convergence_iter=15,
-            copy=True,
-            preference=self.affinity_propagation_preference,
-            affinity="precomputed",
-            verbose=False,
-            random_state=1337,  # for reproducibility
-        )
-
-        # TODO: set sample preference based on speaker duration
-        # Excerpt from sklearn documentation:
-        # When all training samples have equal similarities and equal preferences,
-        # the assignment of cluster centers and labels depends on the preference.
-        # If the preference is smaller than the similarities, fit will result in a
-        # single cluster center and label 0 for every sample. Otherwise, every training
-        # sample becomes its own cluster center and is assigned a unique label.
 
     @staticmethod
     def get_pooling_weights(segmentation: np.ndarray) -> np.ndarray:
@@ -531,7 +550,7 @@ class SpeakerDiarization(Pipeline):
             clusters[active] = 0
             num_clusters = 1
         else:
-            labels = self._affinity_propagation.fit_predict(affinity)
+            labels = self.clustering(affinity)
 
             clusters[active] = labels
             num_clusters = np.max(clusters) + 1
