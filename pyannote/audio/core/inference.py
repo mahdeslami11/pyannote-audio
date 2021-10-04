@@ -427,6 +427,9 @@ class Inference:
 
         num_chunks, num_frames_per_chunk, num_classes = scores.data.shape
 
+        masks = 1 - np.isnan(scores)
+        scores.data = np.nan_to_num(scores.data, copy=True, nan=0.0)
+
         # Hamming window used for overlap-add aggregation
         hamming_window = np.hamming(num_frames_per_chunk).reshape(-1, 1)
 
@@ -461,19 +464,23 @@ class Inference:
         # overlapping_chunk_count[i] will be used to store the number of chunks
         # that contributed to frame #i
         overlapping_chunk_count: np.ndarray = np.zeros(
-            (num_frames, 1), dtype=np.float32
+            (num_frames, num_classes), dtype=np.float32
         )
 
         # loop on the scores of sliding chunks
-        for chunk, output in scores:
+        for (chunk, score), (_, mask) in zip(scores, masks):
+            # chunk ~ Segment
+            # score ~ (num_frames_per_chunk, num_classes)-shaped np.ndarray
+            # mask ~ (num_frames_per_chunk, num_classes)-shaped np.ndarray
+
             start_frame = frames.closest_frame(chunk.start)
             aggregated_output[start_frame : start_frame + num_frames_per_chunk] += (
-                output * hamming_window * warm_up_window
+                score * mask * hamming_window * warm_up_window
             )
 
             overlapping_chunk_count[
                 start_frame : start_frame + num_frames_per_chunk
-            ] += (hamming_window * warm_up_window)
+            ] += (mask * hamming_window * warm_up_window)
 
         return SlidingWindowFeature(
             aggregated_output / np.maximum(overlapping_chunk_count, epsilon), frames
