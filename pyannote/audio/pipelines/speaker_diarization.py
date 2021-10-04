@@ -607,6 +607,12 @@ class SpeakerDiarization(Pipeline):
             clusters[active] = self.clustering(affinity)
             num_clusters = np.max(clusters) + 1
 
+            # corner case where affinity propagation fails to converge
+            # and returns only -1 labels
+            if num_clusters == 0:
+                clusters[active] = 0
+                num_clusters = 1
+
         # __ DEBUG [CLUSTERING] ________________________________________________________
         if debug:
             file["@diarization/clusters/raw"] = np.copy(
