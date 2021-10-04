@@ -85,7 +85,7 @@ class DBSCAN(BasePipeline):
         )
 
     def __call__(self, affinity: np.ndarray) -> np.ndarray:
-        return self._dbscan.fit_predict(1.0 - affinity)
+        return self._dbscan.fit_predict(np.clip(1.0 - affinity, 0.0, 1.0))
 
 
 class OPTICS(BasePipeline):
@@ -111,7 +111,7 @@ class OPTICS(BasePipeline):
         )
 
     def __call__(self, affinity: np.ndarray) -> np.ndarray:
-        return self._optics.fit_predict(1.0 - affinity)
+        return self._optics.fit_predict(np.clip(1.0 - affinity, 0.0, 1.0))
 
 
 class AgglomerativeClustering(BasePipeline):
