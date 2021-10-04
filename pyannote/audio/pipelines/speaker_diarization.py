@@ -122,6 +122,7 @@ class AgglomerativeClustering(BasePipeline):
 
     def initialize(self):
         self._agglomerative_clustering = SKLearnAgglomerativeClustering(
+            n_clusters=None,
             affinity="precomputed",
             linkage=self.linkage,
             distance_threshold=self.distance_threshold,
