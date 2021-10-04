@@ -49,7 +49,7 @@ class AffinityPropagation(BasePipeline):
     def __init__(self):
         super().__init__()
         self.damping = Uniform(0.5, 1.0)
-        self.preference = Uniform(-20.0, 0.0)  # check what this interval should be
+        self.preference = Uniform(-50.0, 0.0)  # check what this interval should be
 
     def initialize(self):
         self._affinity_propagation = SKLearnAffinityPropagation(
