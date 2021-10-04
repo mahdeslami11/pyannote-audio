@@ -32,6 +32,7 @@ from scipy.special import softmax
 from sklearn.cluster import DBSCAN as SKLearnDBSCAN
 from sklearn.cluster import OPTICS as SKLearnOPTICS
 from sklearn.cluster import AffinityPropagation as SKLearnAffinityPropagation
+from sklearn.cluster import AgglomerativeClustering as SKLearnAgglomerativeClustering
 
 from pyannote.audio import Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
@@ -113,6 +114,23 @@ class OPTICS(BasePipeline):
         return self._optics.fit_predict(1.0 - affinity)
 
 
+class AgglomerativeClustering(BasePipeline):
+    def __init__(self):
+        super().__init__()
+        self.linkage = Categorical(["complete", "average", "single"])
+        self.distance_threshold = Uniform(0.0, 1.0)
+
+    def initialize(self):
+        self._agglomerative_clustering = SKLearnAgglomerativeClustering(
+            affinity="precomputed",
+            linkage=self.linkage,
+            distance_threshold=self.distance_threshold,
+        )
+
+    def __call__(self, affinity: np.ndarray) -> np.ndarray:
+        return self._agglomerative_clustering.fit_predict(1.0 - affinity)
+
+
 class SpeakerDiarization(Pipeline):
     """Speaker diarization pipeline
 
@@ -129,7 +147,7 @@ class SpeakerDiarization(Pipeline):
     optimize_with_expected_num_speakers : bool, optional
         Set to True to automatically pass the expected number of speakers when optimizing
         the pipeline (pipeline(file, expected_num_speakers=...)).
-    clustering : {"AffinityPropagation", "DBSCAN", "OPTICS"}, optional
+    clustering : {"AffinityPropagation", "DBSCAN", "OPTICS", "AgglomerativeClustering"}, optional
         Defaults to "AffinityPropagation".
 
 
@@ -195,9 +213,11 @@ class SpeakerDiarization(Pipeline):
             self.clustering = DBSCAN()
         elif clustering == "OPTICS":
             self.clustering = OPTICS()
+        elif clustering == "AgglomerativeClustering":
+            self.clustering = AgglomerativeClustering()
         else:
             raise ValueError(
-                "'clustering' must be one of {AffinityPropagation, DBSCAN, OPTICS}"
+                "'clustering' must be one of {AffinityPropagation, DBSCAN, OPTICS, AgglomerativeClustering}"
             )
 
     def initialize(self):
