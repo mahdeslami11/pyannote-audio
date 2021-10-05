@@ -72,7 +72,7 @@ class DBSCAN(BasePipeline):
     def __init__(self):
         super().__init__()
         self.eps = Uniform(0.0, 1.0)
-        self.min_samples = Integer(2, 20)
+        self.min_samples = Integer(2, 100)
 
     def initialize(self):
         self._dbscan = SKLearnDBSCAN(
@@ -91,7 +91,7 @@ class DBSCAN(BasePipeline):
 class OPTICS(BasePipeline):
     def __init__(self):
         super().__init__()
-        self.min_samples = Integer(2, 20)
+        self.min_samples = Integer(2, 100)
         self.max_eps = Uniform(0.0, 1.0)
         self.xi = Uniform(0.0, 1.0)
 
