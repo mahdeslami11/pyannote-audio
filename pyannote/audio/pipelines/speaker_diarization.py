@@ -145,12 +145,8 @@ class SpeakerDiarization(Pipeline):
         `Inference` instance used to extract speaker embeddings. When `str`,
         assumes that file already contains a corresponding key with precomputed
         embeddings. Defaults to "emb".
-    optimize_with_expected_num_speakers : bool, optional
-        Set to True to automatically pass the expected number of speakers when optimizing
-        the pipeline (pipeline(file, expected_num_speakers=...)).
     clustering : {"AffinityPropagation", "DBSCAN", "OPTICS", "AgglomerativeClustering"}, optional
         Defaults to "AffinityPropagation".
-
 
     Hyper-parameters
     ----------------
@@ -168,14 +164,12 @@ class SpeakerDiarization(Pipeline):
         segmentation: PipelineModel = "pyannote/segmentation",
         embedding: PipelineModel = "pyannote/embedding",
         clustering: Text = "AffinityPropagation",
-        optimize_with_expected_num_speakers: bool = False,
     ):
 
         super().__init__()
 
         self.segmentation = segmentation
         self.embedding = embedding
-        self.optimize_with_expected_num_speakers = optimize_with_expected_num_speakers
 
         self.seg_model_: Model = get_model(segmentation)
         self.emb_model_: Model = get_model(embedding)
@@ -439,33 +433,21 @@ class SpeakerDiarization(Pipeline):
     CACHED_SEGMENTATION = "@diarization/segmentation/raw"
     CACHED_EMBEDDING = "@diarization/embedding/raw"
 
-    def apply(
-        self, file: AudioFile, expected_num_speakers: int = None, debug: bool = False
-    ) -> Annotation:
+    def apply(self, file: AudioFile, debug: bool = False) -> Annotation:
         """Apply speaker diarization
 
         Parameters
         ----------
         file : AudioFile
             Processed file.
-        expected_num_speakers : int, optional
-            Expected number of speakers. Defaults to estimate it automatically.
+        debug : bool, optional
+            Set to True to add debugging keys into `file`.
 
         Returns
         -------
         diarization : Annotation
             Speaker diarization
         """
-
-        # when optimizing with expected number of speakers, use reference annotation
-        # to obtain the expected number of speakers
-        if self.training and self.optimize_with_expected_num_speakers:
-            expected_num_speakers = len(file["annotation"].labels())
-
-        if expected_num_speakers is not None:
-            raise NotImplementedError(
-                "Speaker diarization with expected number of speakers is not supported yet"
-            )
 
         # __ LOCAL SPEAKER SEGMENTATION ________________________________________________
         # apply segmentation model (only if needed)
