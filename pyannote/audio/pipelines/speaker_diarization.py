@@ -306,10 +306,13 @@ class SpeakerDiarization(Pipeline):
 
         Parameters
         ----------
-        cannot_link : float, optional
+        segmentations : SlidingWindowFeature
+            (num_chunks, num_frames, num_speakers)-shaped segmentation.
 
-        must_link : float, optional
-
+        Returns
+        -------
+        constraints : np.ndarray
+            (num_chunks x num_speakers, num_chunks x num_speakers)-shaped constraint matrix
 
         """
 
@@ -514,6 +517,10 @@ class SpeakerDiarization(Pipeline):
         # active.data[c, k] indicates whether kth speaker is active in cth chunk
         active: np.ndarray = np.any(segmentations > self.onset, axis=1).data
         # (num_chunks, num_speakers)
+
+        # __ DEBUG [ACTIVE] ____________________________________________________________
+        if debug:
+            file["@diarization/segmentation/active"] = np.copy(active)
 
         # TODO: use "pure_long_enough" instead of "active"...
         # TODO: ... and then assign "active and not pure_long_enough" in a postprocessing step
