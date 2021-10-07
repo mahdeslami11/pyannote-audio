@@ -196,11 +196,9 @@ class SpeakerDiarization(Pipeline):
         self.use_overlap_aware_embedding = Categorical([True, False])
         self.affinity_threshold_percentile = Uniform(0.0, 1.0)
 
-        # Weights of constraints in final (constrained) affinity matrix.
+        # weights of constraints in final (constrained) affinity matrix.
         # Between 0 and 1, where alpha = 0.0 means no constraint.
         self.constraint_propagate = Uniform(0.0, 1.0)
-        self.constraint_must_link = Uniform(0.0, 1.0)
-        self.constraint_cannot_link = Uniform(0.0, 1.0)
 
         if clustering == "AffinityPropagation":
             self.clustering = AffinityPropagation()
@@ -318,11 +316,13 @@ class SpeakerDiarization(Pipeline):
 
         num_chunks, num_frames, num_speakers = segmentations.data.shape
 
-        # 1. intra-chunk "cannot link" constraints
+        # 1. intra-chunk "cannot link" constraints (upper triangle only)
         chunk_idx = np.broadcast_to(np.arange(num_chunks), (num_speakers, num_chunks))
-        constraint = squareform(
-            -self.constraint_cannot_link
-            * pdist(einops.rearrange(chunk_idx, "s c -> (c s)"), metric="equal")
+        constraint = np.triu(
+            squareform(
+                -1.0
+                * pdist(einops.rearrange(chunk_idx, "s c -> (c s)"), metric="equal")
+            )
         )
         # (num_chunks x num_speakers, num_chunks x num_speakers)
 
@@ -336,8 +336,8 @@ class SpeakerDiarization(Pipeline):
         num_overlapping_chunks = round(chunks.duration // chunks.step - 1.0)
 
         # loop on pairs of overlapping chunks
-        np.fill_diagonal(constraint, 1.0)
-        for C, (chunk, segmentation) in enumerate(segmentations):
+        # np.fill_diagonal(constraint, 1.0)
+        for C, (_, segmentation) in enumerate(segmentations):
             for c in range(max(0, C - num_overlapping_chunks), C):
 
                 # extract common temporal support
@@ -358,15 +358,27 @@ class SpeakerDiarization(Pipeline):
                 for this, past in enumerate(permutation):
                     if this_active[this] and past_active[past]:
                         constraint[
-                            C * num_speakers + this, c * num_speakers + past
-                        ] = self.constraint_must_link
+                            c * num_speakers + past,
+                            C * num_speakers + this,
+                        ] = 1.0
                         # TODO: investigate weighting this by (num_frames - shift) / num_frames
                         # TODO: i.e. by the duration of the common temporal support
 
-                        # make constraint matrix symmetric
-                        constraint[
-                            c * num_speakers + past, C * num_speakers + this
-                        ] = constraint[C * num_speakers + this, c * num_speakers + past]
+        # propagate cannot link constraints by "transitivity": if c_ij = -1 and c_jk = 1 then c_ik = -1
+        # (only when this new constraint is not conflicting with existing constraint, i.e. when c_ik = 1)
+
+        # loop on (i, j) pairs such that c_ij is either 1 or -1
+        for i, j in zip(*np.where(constraint != 0)):
+
+            # find all k for which c_ij = - c_jk and mark c_ik as cannot-link
+            # unless it has been marked as must-link (c_ik = 1) before
+            constraint[
+                i, (constraint[i] != 1.0) & (constraint[j] + constraint[i, j] == 0.0)
+            ] = -1.0
+
+        # make constraint matrix symmetric
+        constraint = squareform(squareform(constraint, checks=False))
+        np.fill_diagonal(constraint, 1.0)
 
         return constraint
 
