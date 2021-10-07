@@ -65,7 +65,7 @@ def get_model(model: PipelineModel) -> Model:
         pass
 
     elif isinstance(model, Text):
-        model = Model.from_pretrained(model)
+        model = Model.from_pretrained(model, strict=False)
 
     elif isinstance(model, Mapping):
         model = Model.from_pretrained(**model)
