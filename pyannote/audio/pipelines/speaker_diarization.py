@@ -38,7 +38,7 @@ from pyannote.audio.utils.signal import Binarize
 from pyannote.core import Annotation, Segment, SlidingWindow, SlidingWindowFeature
 from pyannote.core.utils.distance import pdist
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
-from pyannote.pipeline.parameter import Categorical, Uniform
+from pyannote.pipeline.parameter import Categorical, Frozen, Uniform
 
 from .clustering import Clustering
 
@@ -106,11 +106,14 @@ class SpeakerDiarization(Pipeline):
 
         self._segmentation_inference = Inference(self.seg_model_, skip_aggregation=True)
 
+        self.warm_up = Uniform(0.0, 0.2)
+
         # hyper-parameters
         self.onset = Uniform(0.05, 0.95)
         self.min_duration_on = Uniform(0.0, 1.0)
         self.min_duration_off = Uniform(0.0, 1.0)
 
+        # affinity
         self.use_overlap_aware_embedding = Categorical([True, False])
         self.affinity_threshold_percentile = Uniform(0.0, 1.0)
 
@@ -127,6 +130,23 @@ class SpeakerDiarization(Pipeline):
             min_duration_on=self.min_duration_on,
             min_duration_off=self.min_duration_off,
         )
+
+    def trim_warmup(self, segmentations: SlidingWindowFeature) -> SlidingWindowFeature:
+
+        _, num_frames, _ = segmentations.data.shape
+        new_data = segmentations.data[
+            :,
+            round(num_frames * self.warm_up) : round(num_frames * (1.0 - self.warm_up)),
+        ]
+
+        chunks = segmentations.sliding_window
+        new_chunks = SlidingWindow(
+            start=chunks.start + self.warm_up * chunks.duration,
+            step=chunks.step,
+            duration=(1.0 - 2 * self.warm_up) * chunks.duration,
+        )
+
+        return SlidingWindowFeature(new_data, new_chunks)
 
     @staticmethod
     def get_pooling_weights(segmentation: np.ndarray) -> np.ndarray:
@@ -377,12 +397,19 @@ class SpeakerDiarization(Pipeline):
         ):
             file[self.CACHED_SEGMENTATION] = self._segmentation_inference(file)
         segmentations: SlidingWindowFeature = file[self.CACHED_SEGMENTATION]
+
+        # trim warm-up regions
+        segmentations = self.trim_warmup(segmentations)
         num_chunks, num_frames, num_speakers = segmentations.data.shape
 
         # __ LOCAL SPEAKER EMBEDDING ___________________________________________________
         # extract embeddings (only if needed)
         # output shape is (num_valid_chunks x num_speakers, embedding_dimension)
-        if (not self.training) or (self.training and self.CACHED_EMBEDDING not in file):
+        if (
+            (not self.training)
+            or (not isinstance(self.warm_up, Frozen))
+            or (self.training and self.CACHED_EMBEDDING not in file)
+        ):
 
             embeddings = []
 
