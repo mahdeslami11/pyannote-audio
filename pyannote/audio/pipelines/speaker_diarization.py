@@ -29,10 +29,6 @@ import numpy as np
 import torch
 from scipy.spatial.distance import cdist, squareform
 from scipy.special import softmax
-from sklearn.cluster import DBSCAN as SKLearnDBSCAN
-from sklearn.cluster import OPTICS as SKLearnOPTICS
-from sklearn.cluster import AffinityPropagation as SKLearnAffinityPropagation
-from sklearn.cluster import AgglomerativeClustering as SKLearnAgglomerativeClustering
 
 from pyannote.audio import Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
@@ -42,94 +38,9 @@ from pyannote.audio.utils.signal import Binarize
 from pyannote.core import Annotation, Segment, SlidingWindow, SlidingWindowFeature
 from pyannote.core.utils.distance import pdist
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
-from pyannote.pipeline import Pipeline as BasePipeline
-from pyannote.pipeline.parameter import Categorical, Integer, Uniform
+from pyannote.pipeline.parameter import Categorical, Uniform
 
-
-class AffinityPropagation(BasePipeline):
-    def __init__(self):
-        super().__init__()
-        self.damping = Uniform(0.5, 1.0)
-        self.preference = Uniform(-50.0, 0.0)  # check what this interval should be
-
-    def initialize(self):
-        self._affinity_propagation = SKLearnAffinityPropagation(
-            damping=self.damping,
-            max_iter=200,
-            convergence_iter=15,
-            copy=True,
-            preference=self.preference,
-            affinity="precomputed",
-            verbose=False,
-            random_state=1337,  # for reproducibility
-        )
-
-    def __call__(self, affinity: np.ndarray) -> np.ndarray:
-        return self._affinity_propagation.fit_predict(affinity)
-
-
-class DBSCAN(BasePipeline):
-    def __init__(self):
-        super().__init__()
-        self.eps = Uniform(0.0, 1.0)
-        self.min_samples = Integer(2, 100)
-
-    def initialize(self):
-        self._dbscan = SKLearnDBSCAN(
-            eps=self.eps,
-            min_samples=self.min_samples,
-            metric="precomputed",
-            algorithm="auto",
-            leaf_size=30,
-            n_jobs=None,
-        )
-
-    def __call__(self, affinity: np.ndarray) -> np.ndarray:
-        return self._dbscan.fit_predict(np.clip(1.0 - affinity, 0.0, 1.0))
-
-
-class OPTICS(BasePipeline):
-    def __init__(self):
-        super().__init__()
-        self.min_samples = Integer(2, 100)
-        self.max_eps = Uniform(0.0, 1.0)
-        self.xi = Uniform(0.0, 1.0)
-
-    def initialize(self):
-        self._optics = SKLearnOPTICS(
-            min_samples=self.min_samples,
-            max_eps=self.max_eps,
-            metric="precomputed",
-            cluster_method="xi",
-            xi=self.xi,
-            predecessor_correction=True,
-            min_cluster_size=None,
-            algorithm="auto",
-            leaf_size=30,
-            memory=None,
-            n_jobs=None,
-        )
-
-    def __call__(self, affinity: np.ndarray) -> np.ndarray:
-        return self._optics.fit_predict(np.clip(1.0 - affinity, 0.0, 1.0))
-
-
-class AgglomerativeClustering(BasePipeline):
-    def __init__(self):
-        super().__init__()
-        self.linkage = Categorical(["complete", "average", "single"])
-        self.distance_threshold = Uniform(0.0, 1.0)
-
-    def initialize(self):
-        self._agglomerative_clustering = SKLearnAgglomerativeClustering(
-            n_clusters=None,
-            affinity="precomputed",
-            linkage=self.linkage,
-            distance_threshold=self.distance_threshold,
-        )
-
-    def __call__(self, affinity: np.ndarray) -> np.ndarray:
-        return self._agglomerative_clustering.fit_predict(1.0 - affinity)
+from .clustering import Clustering
 
 
 class SpeakerDiarization(Pipeline):
@@ -171,6 +82,13 @@ class SpeakerDiarization(Pipeline):
         self.segmentation = segmentation
         self.embedding = embedding
 
+        try:
+            self.clustering = Clustering[clustering].value()
+        except KeyError:
+            raise ValueError(
+                f'clustering must be one of [{", ".join(list(Clustering.__members__))}]'
+            )
+
         self.seg_model_: Model = get_model(segmentation)
         self.emb_model_: Model = get_model(embedding)
         self.emb_model_.eval()
@@ -199,19 +117,6 @@ class SpeakerDiarization(Pipeline):
         # weights of constraints in final (constrained) affinity matrix.
         # Between 0 and 1, where alpha = 0.0 means no constraint.
         self.constraint_propagate = Uniform(0.0, 1.0)
-
-        if clustering == "AffinityPropagation":
-            self.clustering = AffinityPropagation()
-        elif clustering == "DBSCAN":
-            self.clustering = DBSCAN()
-        elif clustering == "OPTICS":
-            self.clustering = OPTICS()
-        elif clustering == "AgglomerativeClustering":
-            self.clustering = AgglomerativeClustering()
-        else:
-            raise ValueError(
-                "'clustering' must be one of {AffinityPropagation, DBSCAN, OPTICS, AgglomerativeClustering}"
-            )
 
     def initialize(self):
         """Initialize pipeline with current set of parameters"""
