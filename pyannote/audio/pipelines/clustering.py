@@ -30,6 +30,16 @@ from sklearn.cluster import DBSCAN as SKLearnDBSCAN
 from sklearn.cluster import OPTICS as SKLearnOPTICS
 from sklearn.cluster import AffinityPropagation as SKLearnAffinityPropagation
 from sklearn.cluster import AgglomerativeClustering as SKLearnAgglomerativeClustering
+from spectralcluster import (
+    AutoTune,
+    EigenGapType,
+    LaplacianType,
+    RefinementName,
+    RefinementOptions,
+    SpectralClusterer,
+    SymmetrizeType,
+    ThresholdType,
+)
 
 from pyannote.pipeline import Pipeline
 from pyannote.pipeline.parameter import Categorical, Integer, Uniform
@@ -42,7 +52,7 @@ class AffinityPropagation(Pipeline):
         self.preference = Uniform(-50.0, 0.0)  # check what this interval should be
 
     def initialize(self):
-        self._affinity_propagation = SKLearnAffinityPropagation(
+        self._clustering = SKLearnAffinityPropagation(
             damping=self.damping,
             max_iter=200,
             convergence_iter=15,
@@ -54,7 +64,7 @@ class AffinityPropagation(Pipeline):
         )
 
     def __call__(self, affinity: np.ndarray) -> np.ndarray:
-        return self._affinity_propagation.fit_predict(affinity)
+        return self._clustering.fit_predict(affinity)
 
 
 class DBSCAN(Pipeline):
@@ -64,7 +74,7 @@ class DBSCAN(Pipeline):
         self.min_samples = Integer(2, 100)
 
     def initialize(self):
-        self._dbscan = SKLearnDBSCAN(
+        self._clustering = SKLearnDBSCAN(
             eps=self.eps,
             min_samples=self.min_samples,
             metric="precomputed",
@@ -74,7 +84,7 @@ class DBSCAN(Pipeline):
         )
 
     def __call__(self, affinity: np.ndarray) -> np.ndarray:
-        return self._dbscan.fit_predict(np.clip(1.0 - affinity, 0.0, 1.0))
+        return self._clustering.fit_predict(np.clip(1.0 - affinity, 0.0, 1.0))
 
 
 class OPTICS(Pipeline):
@@ -85,7 +95,7 @@ class OPTICS(Pipeline):
         self.xi = Uniform(0.0, 1.0)
 
     def initialize(self):
-        self._optics = SKLearnOPTICS(
+        self._clustering = SKLearnOPTICS(
             min_samples=self.min_samples,
             max_eps=self.max_eps,
             metric="precomputed",
@@ -100,7 +110,7 @@ class OPTICS(Pipeline):
         )
 
     def __call__(self, affinity: np.ndarray) -> np.ndarray:
-        return self._optics.fit_predict(np.clip(1.0 - affinity, 0.0, 1.0))
+        return self._clustering.fit_predict(np.clip(1.0 - affinity, 0.0, 1.0))
 
 
 class AgglomerativeClustering(Pipeline):
@@ -110,7 +120,7 @@ class AgglomerativeClustering(Pipeline):
         self.distance_threshold = Uniform(0.0, 1.0)
 
     def initialize(self):
-        self._agglomerative_clustering = SKLearnAgglomerativeClustering(
+        self._clustering = SKLearnAgglomerativeClustering(
             n_clusters=None,
             affinity="precomputed",
             linkage=self.linkage,
@@ -118,7 +128,59 @@ class AgglomerativeClustering(Pipeline):
         )
 
     def __call__(self, affinity: np.ndarray) -> np.ndarray:
-        return self._agglomerative_clustering.fit_predict(1.0 - affinity)
+        return self._clustering.fit_predict(1.0 - affinity)
+
+
+class SpectralClustering(Pipeline):
+    def __init__(self):
+        super().__init__()
+        self.autotune = Categorical([True, False])
+        self.laplacian = Categorical(
+            ["Affinity", "Unnormalized", "RandomWalk", "GraphCut"]
+        )
+
+    def initialize(self):
+
+        autotune = None
+        refinement_options = None
+
+        if self.autotune:
+            autotune = AutoTune(
+                p_percentile_min=0.50,
+                p_percentile_max=0.95,
+                init_search_step=0.01,
+                search_level=1,
+            )
+
+            refinement_options = RefinementOptions(
+                thresholding_soft_multiplier=0.01,
+                thresholding_type=ThresholdType.Percentile,
+                thresholding_with_binarization=True,
+                thresholding_preserve_diagonal=True,
+                symmetrize_type=SymmetrizeType.Average,
+                refinement_sequence=[
+                    RefinementName.RowWiseThreshold,
+                    RefinementName.Symmetrize,
+                ],
+            )
+
+        self._clustering = SpectralClusterer(
+            min_clusters=None,
+            max_clusters=None,
+            refinement_options=refinement_options,
+            autotune=autotune,
+            laplacian_type=LaplacianType[self.laplacian],
+            stop_eigenvalue=1e-2,
+            row_wise_renorm=False,
+            custom_dist="cosine",
+            max_iter=300,
+            constraint_options=None,
+            eigengap_type=EigenGapType.Ratio,
+            affinity_function=lambda precomputed: precomputed,  # precomputed affinity
+        )
+
+    def __call__(self, affinity: np.ndarray) -> np.ndarray:
+        return self._clustering.predict(affinity)
 
 
 class Clustering(Enum):
@@ -126,3 +188,4 @@ class Clustering(Enum):
     DBSCAN = DBSCAN
     OPTICS = OPTICS
     AgglomerativeClustering = AgglomerativeClustering
+    SpectralClustering = SpectralClustering
