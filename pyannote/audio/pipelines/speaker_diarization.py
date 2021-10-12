@@ -472,8 +472,7 @@ class SpeakerDiarization(Pipeline):
         if debug:
             file["@diarization/segmentation/active"] = np.copy(actives)
 
-        # TODO: use "pure_long_enough" instead of "actives"...
-        # TODO: ... and then assign "actives and not pure_long_enough" in a postprocessing step
+        # TODO: perform clustering on most talkative speakers first
 
         # __ DEBUG [ORACLE CLUSTERING] _________________________________________________
         if debug and isinstance(file, Mapping) and "annotation" in file:
@@ -632,9 +631,7 @@ class SpeakerDiarization(Pipeline):
 
         # __ CLUSTERING-BASED SEGMENTATION AGGREGATION _________________________________
         # build final aggregated speaker activations
-        # clusters = einops.rearrange(
-        #     clusters, "(c s) -> c s", c=num_chunks, s=num_speakers
-        # )
+
         clustered_segmentations = np.NAN * np.zeros(
             (num_chunks, num_frames, num_clusters)
         )
