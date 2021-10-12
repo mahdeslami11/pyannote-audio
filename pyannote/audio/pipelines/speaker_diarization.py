@@ -27,6 +27,7 @@ from typing import Mapping, Text
 import einops
 import numpy as np
 import torch
+from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist, squareform
 from scipy.special import softmax
 
@@ -41,6 +42,8 @@ from pyannote.metrics.diarization import GreedyDiarizationErrorRate
 from pyannote.pipeline.parameter import Categorical, Frozen, Uniform
 
 from .clustering import Clustering
+
+# TODO: automagically estimate HAC threshold based on local segmentation
 
 
 class SpeakerDiarization(Pipeline):
@@ -90,6 +93,8 @@ class SpeakerDiarization(Pipeline):
             )
 
         self.seg_model_: Model = get_model(segmentation)
+
+        # TODO: add support for SpeechBrain ECAPA-TDNN
         self.emb_model_: Model = get_model(embedding)
         self.emb_model_.eval()
 
@@ -458,16 +463,16 @@ class SpeakerDiarization(Pipeline):
         # frame resolution (e.g. duration = step = 17ms)
 
         # __ LOCALLY ACTIVE SPEAKER DETECTION __________________________________________
-        # active.data[c, k] indicates whether kth speaker is active in cth chunk
-        active: np.ndarray = np.any(segmentations > self.onset, axis=1).data
+        # actives[c, k] indicates whether kth speaker is active in cth chunk
+        actives: np.ndarray = np.any(segmentations > self.onset, axis=1).data
         # (num_chunks, num_speakers)
 
         # __ DEBUG [ACTIVE] ____________________________________________________________
         if debug:
-            file["@diarization/segmentation/active"] = np.copy(active)
+            file["@diarization/segmentation/active"] = np.copy(actives)
 
-        # TODO: use "pure_long_enough" instead of "active"...
-        # TODO: ... and then assign "active and not pure_long_enough" in a postprocessing step
+        # TODO: use "pure_long_enough" instead of "actives"...
+        # TODO: ... and then assign "actives and not pure_long_enough" in a postprocessing step
 
         # __ DEBUG [ORACLE CLUSTERING] _________________________________________________
         if debug and isinstance(file, Mapping) and "annotation" in file:
@@ -483,9 +488,9 @@ class SpeakerDiarization(Pipeline):
                 (chunk, segmentation),
             ) in enumerate(segmentations):
 
-                if np.sum(active[c]) == 0:
+                if np.sum(actives[c]) == 0:
                     continue
-                segmentation = segmentation[np.newaxis, :, active[c]]
+                segmentation = segmentation[np.newaxis, :, actives[c]]
 
                 local_reference = reference.crop(chunk)
                 _, (permutation,) = permutate(
@@ -502,7 +507,7 @@ class SpeakerDiarization(Pipeline):
 
             file["@diarization/clusters/oracle"] = permutations
 
-        active = einops.rearrange(active, "c s -> (c s)")
+        actives = einops.rearrange(actives, "c s -> (c s)")
 
         # __ SEGMENTATION-BASED CLUSTERING CONSTRAINTS _________________________________
         # compute constraints based on segmentation
@@ -515,12 +520,12 @@ class SpeakerDiarization(Pipeline):
         if debug:
             file["@diarization/constraint/raw"] = np.copy(constraint)
 
-        constraint = constraint[active][:, active]
+        constraint = constraint[actives][:, actives]
         # (num_active_speakers, num_active_speakers)
 
         # __ EMBEDDING-BASED AFFINITY MATRIX ___________________________________________
         # compute affinity matrix (num_active_speakers, num_active_speakers)-shaped
-        affinity = squareform(1 - 0.5 * pdist(embeddings[active], metric="cosine"))
+        affinity = squareform(1 - 0.5 * pdist(embeddings[actives], metric="cosine"))
 
         # __ DEBUG [AFFINITY] __________________________________________________________
         if debug:
@@ -552,19 +557,19 @@ class SpeakerDiarization(Pipeline):
         # * k=-1                if speaker is active but not assigned to any cluster
         # * k in {0, ... K - 1} if speaker is active and is assigned to cluster k
         clusters = -2 * np.ones(num_chunks * num_speakers, dtype=np.int)
-        num_active = np.sum(active)
+        num_active = np.sum(actives)
         if num_active < 2:
-            clusters[active] = 0
+            clusters[actives] = 0
             num_clusters = 1
 
         else:
-            clusters[active] = self.clustering(affinity)
+            clusters[actives] = self.clustering(affinity)
             num_clusters = np.max(clusters) + 1
 
             # corner case where affinity propagation fails to converge
             # and returns only -1 labels
             if num_clusters == 0:
-                clusters[active] = 0
+                clusters[actives] = 0
                 num_clusters = 1
 
         # __ DEBUG [CLUSTERING] ________________________________________________________
@@ -573,32 +578,62 @@ class SpeakerDiarization(Pipeline):
                 einops.rearrange(clusters, "(c s) -> c s", c=num_chunks, s=num_speakers)
             )
 
-        # __ UNASSIGNED SPEAKER ASSIGNMENT _____________________________________________
-        # assign not-yet-assigned speakers to closest centroid
+        # __ FINAL SPEAKER ASSIGNMENT ___________________________________________________
+
+        # compute speaker-to-centroid distance matrix
         centroids = np.vstack(
             [np.mean(embeddings[clusters == k], axis=0) for k in range(num_clusters)]
         )
         distances = cdist(embeddings, centroids, metric="cosine")
-        unassigned = clusters == -1
-        clusters[unassigned] = np.argmin(distances[unassigned], axis=1)
+        # (chunk_idx x num_speakers, num_clusters)
 
-        # TODO: make sure two speakers from the same chunk are not assigned to the same cluster
-        # TODO: this can be done using linear_sum_assignment with a custom speaker-to-centroid
-        # TODO: distance matrix crafted in such a way that previously assigned clusters are not
-        # TODO: altered...
-
-        # __ DEBUG [CLUSTERING] ________________________________________________________
+        # __ DEBUG [CLUSTERING] _________________________________________________________
         if debug:
             file["@diarization/clusters/centroids"] = np.copy(centroids)
-            file["@diarization/clusters/assigned"] = np.copy(
-                einops.rearrange(clusters, "(c s) -> c s", c=num_chunks, s=num_speakers)
-            )
+            file["@diarization/distances/raw"] = np.copy(distances)
 
-        # __ CLUSTERING-BASED SEGMENTATION AGGREGATION _________________________________
-        # build final aggregated speaker activations
+        # artificially decrease distance to actual cluster
+        # (to force assignment to this cluster)
+        assigned = clusters > -1
+        distances[np.where(assigned)[0], clusters[assigned]] -= 1000.0
+
+        # artificially increase distance for inactive speakers
+        # (to prevent them from being assigned to any cluster)
+        distances[np.where(~actives)] += 1000.0
+
+        # reshape matrices
+        distances = einops.rearrange(
+            distances,
+            "(c s) k -> c s k",
+            c=num_chunks,
+            s=num_speakers,
+            k=num_clusters,
+        )
+        actives = einops.rearrange(
+            actives, "(c s) -> c s", c=num_chunks, s=num_speakers
+        )
         clusters = einops.rearrange(
             clusters, "(c s) -> c s", c=num_chunks, s=num_speakers
         )
+
+        # find optimal bijective assignment between active speakers and clusters
+        # (while preventing two speakers of the same chunk from being assigned
+        # to the same cluster)
+        for c, (distance, active) in enumerate(zip(distances, actives)):
+            # distance is (num_speakers, num_clusters)-shaped
+            # active is (num_speakers)-shaped
+            for s, k in zip(*linear_sum_assignment(distance, maximize=False)):
+                clusters[c, s] = k if active[s] else -2
+
+        # __ DEBUG [CLUSTERING] ________________________________________________________
+        if debug:
+            file["@diarization/clusters/assigned"] = np.copy(clusters)
+
+        # __ CLUSTERING-BASED SEGMENTATION AGGREGATION _________________________________
+        # build final aggregated speaker activations
+        # clusters = einops.rearrange(
+        #     clusters, "(c s) -> c s", c=num_chunks, s=num_speakers
+        # )
         clustered_segmentations = np.NAN * np.zeros(
             (num_chunks, num_frames, num_clusters)
         )
@@ -618,15 +653,18 @@ class SpeakerDiarization(Pipeline):
 
         # __ DEBUG [AGGREGATION] _______________________________________________________
         if debug:
-            file[
-                "@diarization/segmentation/clustered"
-            ] = clustered_segmentations  # copy?
+            file["@diarization/segmentation/clustered"] = np.copy(
+                clustered_segmentations
+            )
 
         speaker_activations = Inference.aggregate(clustered_segmentations, frames)
 
         # __ DEBUG [AGGREGATION] _______________________________________________________
         if debug:
             file["@diarization/segmentation/aggregated"] = speaker_activations
+
+        # TODO: now that aggregation has been fixed,
+        # TODO: replace final output by proper binarization
 
         # __ SPEAKER COUNTING __________________________________________________________
         # estimate instantaneous number of speakers
