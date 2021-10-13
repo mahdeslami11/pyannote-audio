@@ -30,6 +30,7 @@ from sklearn.cluster import DBSCAN as SKLearnDBSCAN
 from sklearn.cluster import OPTICS as SKLearnOPTICS
 from sklearn.cluster import AffinityPropagation as SKLearnAffinityPropagation
 from sklearn.cluster import AgglomerativeClustering as SKLearnAgglomerativeClustering
+from sklearn_extra.cluster import KMedoids as SKKMedoids
 from spectralcluster import (
     AutoTune,
     EigenGapType,
@@ -46,8 +47,12 @@ from pyannote.pipeline.parameter import Categorical, Integer, Uniform
 
 
 class AffinityPropagation(Pipeline):
-    def __init__(self):
+    def __init__(self, expects_num_clusters: bool = False):
         super().__init__()
+        if expects_num_clusters:
+            raise NotImplementedError(
+                "AffinityPropagation clustering algorithm does not support predefined number of clusters."
+            )
         self.damping = Uniform(0.5, 1.0)
         self.preference = Uniform(-50.0, 0.0)  # check what this interval should be
 
@@ -63,13 +68,46 @@ class AffinityPropagation(Pipeline):
             random_state=1337,  # for reproducibility
         )
 
-    def __call__(self, affinity: np.ndarray) -> np.ndarray:
+    def __call__(self, affinity: np.ndarray, num_clusters: int = None) -> np.ndarray:
+        if num_clusters is not None:
+            raise NotImplementedError(
+                "AffinityPropagation clustering algorithm does not support predefined number of clusters."
+            )
         return self._clustering.fit_predict(affinity)
 
 
-class DBSCAN(Pipeline):
-    def __init__(self):
+class KMedoids(Pipeline):
+    def __init__(self, expects_num_clusters: bool = True):
         super().__init__()
+        if not expects_num_clusters:
+            raise NotImplementedError(
+                "KMedoids clustering algorithm expects the number of clusters to be given."
+            )
+
+    def __call__(self, affinity: np.ndarray, num_clusters: int = None) -> np.ndarray:
+        if num_clusters is None:
+            raise ValueError(
+                "KMedoids clustering algorithm expects the number of clusters (num_clusters) to be given (you did not provide one)."
+            )
+        clustering = SKKMedoids(
+            n_clusters=num_clusters,
+            metric="precomputed",
+            method="pam",
+            init="heuristic",
+            max_iter=300,
+            random_state=1337,
+        )
+        return clustering.fit_predict(np.clip(1.0 - affinity, 0.0, 1.0))
+
+
+class DBSCAN(Pipeline):
+    def __init__(self, expects_num_clusters: bool = False):
+        super().__init__()
+        if expects_num_clusters:
+            raise NotImplementedError(
+                "DBSCAN clustering algorithm does not support predefined number of clusters."
+            )
+
         self.eps = Uniform(0.0, 1.0)
         self.min_samples = Integer(2, 100)
 
@@ -83,13 +121,22 @@ class DBSCAN(Pipeline):
             n_jobs=None,
         )
 
-    def __call__(self, affinity: np.ndarray) -> np.ndarray:
+    def __call__(self, affinity: np.ndarray, num_clusters: int = None) -> np.ndarray:
+        if num_clusters is not None:
+            raise NotImplementedError(
+                "DBSCAN clustering algorithm does not support predefined number of clusters."
+            )
         return self._clustering.fit_predict(np.clip(1.0 - affinity, 0.0, 1.0))
 
 
 class OPTICS(Pipeline):
-    def __init__(self):
+    def __init__(self, expects_num_clusters: bool = False):
         super().__init__()
+        if expects_num_clusters:
+            raise NotImplementedError(
+                "OPTICS clustering algorithm does not support predefined number of clusters."
+            )
+
         self.min_samples = Integer(2, 100)
         self.max_eps = Uniform(0.0, 1.0)
         self.xi = Uniform(0.0, 1.0)
@@ -109,31 +156,49 @@ class OPTICS(Pipeline):
             n_jobs=None,
         )
 
-    def __call__(self, affinity: np.ndarray) -> np.ndarray:
+    def __call__(self, affinity: np.ndarray, num_clusters: int = None) -> np.ndarray:
+        if num_clusters is not None:
+            raise NotImplementedError(
+                "OPTICS clustering algorithm does not support predefined number of clusters."
+            )
         return self._clustering.fit_predict(np.clip(1.0 - affinity, 0.0, 1.0))
 
 
 class AgglomerativeClustering(Pipeline):
-    def __init__(self):
+    def __init__(self, expects_num_clusters: bool = False):
         super().__init__()
+        self.expects_num_clusters = expects_num_clusters
         self.linkage = Categorical(["complete", "average", "single"])
-        self.distance_threshold = Uniform(0.0, 1.0)
+        if not self.expects_num_clusters:
+            self.distance_threshold = Uniform(0.0, 1.0)
 
     def initialize(self):
-        self._clustering = SKLearnAgglomerativeClustering(
-            n_clusters=None,
-            affinity="precomputed",
-            linkage=self.linkage,
-            distance_threshold=self.distance_threshold,
-        )
+        if not self.expects_num_clusters:
+            self._clustering = SKLearnAgglomerativeClustering(
+                n_clusters=None,
+                affinity="precomputed",
+                linkage=self.linkage,
+                distance_threshold=self.distance_threshold,
+            )
 
-    def __call__(self, affinity: np.ndarray) -> np.ndarray:
-        return self._clustering.fit_predict(1.0 - affinity)
+    def __call__(self, affinity: np.ndarray, num_clusters: int = None) -> np.ndarray:
+
+        if num_clusters is None:
+            return self._clustering.fit_predict(1.0 - affinity)
+
+        else:
+            clustering = SKLearnAgglomerativeClustering(
+                n_clusters=num_clusters,
+                affinity="precomputed",
+                linkage=self.linkage,
+            )
+            return clustering.fit_predict(1.0 - affinity)
 
 
 class SpectralClustering(Pipeline):
-    def __init__(self):
+    def __init__(self, expects_num_clusters: bool = False):
         super().__init__()
+        self.expects_num_clusters = expects_num_clusters
         self.autotune = Categorical([True, False])
         self.laplacian = Categorical(
             ["Affinity", "Unnormalized", "RandomWalk", "GraphCut"]
@@ -141,18 +206,18 @@ class SpectralClustering(Pipeline):
 
     def initialize(self):
 
-        autotune = None
-        refinement_options = None
+        self._autotune = None
+        self._refinement_options = None
 
         if self.autotune:
-            autotune = AutoTune(
+            self._autotune = AutoTune(
                 p_percentile_min=0.50,
                 p_percentile_max=0.95,
                 init_search_step=0.01,
                 search_level=1,
             )
 
-            refinement_options = RefinementOptions(
+            self._refinement_options = RefinementOptions(
                 thresholding_soft_multiplier=0.01,
                 thresholding_type=ThresholdType.Percentile,
                 thresholding_with_binarization=True,
@@ -164,28 +229,51 @@ class SpectralClustering(Pipeline):
                 ],
             )
 
-        self._clustering = SpectralClusterer(
-            min_clusters=None,
-            max_clusters=None,
-            refinement_options=refinement_options,
-            autotune=autotune,
-            laplacian_type=LaplacianType[self.laplacian],
-            stop_eigenvalue=1e-2,
-            row_wise_renorm=False,
-            custom_dist="cosine",
-            max_iter=300,
-            constraint_options=None,
-            eigengap_type=EigenGapType.Ratio,
-            affinity_function=lambda precomputed: precomputed,  # precomputed affinity
-        )
+        self._laplacian_type = LaplacianType[self.laplacian]
 
-    def __call__(self, affinity: np.ndarray) -> np.ndarray:
-        return self._clustering.predict(affinity)
+        if not self.expects_num_clusters:
+            self._clustering = SpectralClusterer(
+                min_clusters=None,
+                max_clusters=None,
+                refinement_options=self._refinement_options,
+                autotune=self._autotune,
+                laplacian_type=self._laplacian_type,
+                stop_eigenvalue=1e-2,
+                row_wise_renorm=False,
+                custom_dist="cosine",
+                max_iter=300,
+                constraint_options=None,
+                eigengap_type=EigenGapType.Ratio,
+                affinity_function=lambda precomputed: precomputed,  # precomputed affinity
+            )
+
+    def __call__(self, affinity: np.ndarray, num_clusters: int = None) -> np.ndarray:
+
+        if num_clusters is None:
+            return self._clustering.predict(affinity)
+
+        else:
+            clustering = SpectralClusterer(
+                min_clusters=num_clusters,
+                max_clusters=num_clusters,
+                refinement_options=self._refinement_options,
+                autotune=self._autotune,
+                laplacian_type=self._laplacian_type,
+                stop_eigenvalue=1e-2,
+                row_wise_renorm=False,
+                custom_dist="cosine",
+                max_iter=300,
+                constraint_options=None,
+                eigengap_type=EigenGapType.Ratio,
+                affinity_function=lambda precomputed: precomputed,  # precomputed affinity
+            )
+            return clustering.predict(affinity)
 
 
 class Clustering(Enum):
     AffinityPropagation = AffinityPropagation
-    DBSCAN = DBSCAN
-    OPTICS = OPTICS
     AgglomerativeClustering = AgglomerativeClustering
+    DBSCAN = DBSCAN
+    KMedoids = KMedoids
+    OPTICS = OPTICS
     SpectralClustering = SpectralClustering
