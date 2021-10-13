@@ -615,38 +615,50 @@ class SpeakerDiarization(Pipeline):
             file["@diarization/clusters/centroids"] = np.copy(centroids)
             file["@diarization/distances/raw"] = np.copy(distances)
 
-        # artificially decrease distance to actual cluster
-        # (to force assignment to this cluster)
-        assigned = clusters > -1
-        distances[np.where(assigned)[0], clusters[assigned]] -= 1000.0
+        if False:
+            # I tried to be smart but this actually decreases the overall performance
+            # for some reasons that I haven't had the chance to look at for now...
 
-        # artificially increase distance for inactive speakers
-        # (to prevent them from being assigned to any cluster)
-        distances[np.where(~actives)] += 1000.0
+            # artificially decrease distance to actual cluster
+            # (to force assignment to this cluster)
+            assigned = clusters > -1
+            distances[np.where(assigned)[0], clusters[assigned]] -= 1000.0
 
-        # reshape matrices
-        distances = einops.rearrange(
-            distances,
-            "(c s) k -> c s k",
-            c=num_chunks,
-            s=local_num_speakers,
-            k=num_clusters,
-        )
-        actives = einops.rearrange(
-            actives, "(c s) -> c s", c=num_chunks, s=local_num_speakers
-        )
-        clusters = einops.rearrange(
-            clusters, "(c s) -> c s", c=num_chunks, s=local_num_speakers
-        )
+            # artificially increase distance for inactive speakers
+            # (to prevent them from being assigned to any cluster)
+            distances[np.where(~actives)] += 1000.0
 
-        # find optimal bijective assignment between active speakers and clusters
-        # (while preventing two speakers of the same chunk from being assigned
-        # to the same cluster)
-        for c, (distance, active) in enumerate(zip(distances, actives)):
-            # distance is (local_num_speakers, num_clusters)-shaped
-            # active is (local_num_speakers)-shaped
-            for s, k in zip(*linear_sum_assignment(distance, maximize=False)):
-                clusters[c, s] = k if active[s] else -2
+            # reshape matrices
+            distances = einops.rearrange(
+                distances,
+                "(c s) k -> c s k",
+                c=num_chunks,
+                s=local_num_speakers,
+                k=num_clusters,
+            )
+            actives = einops.rearrange(
+                actives, "(c s) -> c s", c=num_chunks, s=local_num_speakers
+            )
+            clusters = einops.rearrange(
+                clusters, "(c s) -> c s", c=num_chunks, s=local_num_speakers
+            )
+
+            # find optimal bijective assignment between active speakers and clusters
+            # (while preventing two speakers of the same chunk from being assigned
+            # to the same cluster)
+            for c, (distance, active) in enumerate(zip(distances, actives)):
+                # distance is (local_num_speakers, num_clusters)-shaped
+                # active is (local_num_speakers)-shaped
+                for s, k in zip(*linear_sum_assignment(distance, maximize=False)):
+                    clusters[c, s] = k if active[s] else -2
+
+        else:
+            unassigned = clusters == -1
+            clusters[unassigned] = np.argmin(distances[unassigned], axis=1)
+
+            clusters = einops.rearrange(
+                clusters, "(c s) -> c s", c=num_chunks, s=local_num_speakers
+            )
 
         # __ DEBUG [CLUSTERING] ________________________________________________________
         if debug:
@@ -661,12 +673,16 @@ class SpeakerDiarization(Pipeline):
         for c, (cluster, (chunk, segmentation)) in enumerate(
             zip(clusters, segmentations)
         ):
+
             # cluster is (local_num_speakers, )-shaped
             # segmentation is (num_frames, local_num_speakers)-shaped
-            for s, k in enumerate(cluster):
+            for k in np.unique(cluster):
                 if k == -2:
                     continue
-                clustered_segmentations[c, :, k] = segmentation[:, s]
+
+                clustered_segmentations[c, :, k] = np.max(
+                    segmentation[:, cluster == k], axis=1
+                )
 
         clustered_segmentations = SlidingWindowFeature(
             clustered_segmentations, segmentations.sliding_window
