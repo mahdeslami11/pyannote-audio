@@ -417,8 +417,8 @@ class SpeakerDiarization(Pipeline):
 
                 if not self.training:
                     warnings.warn(
-                        "This pipeline expects the number of speakers (num_speakers) to be given. "
-                        "It has been automatically set to {num_speakers:d} based on reference annotation. "
+                        f"This pipeline expects the number of speakers (num_speakers) to be given. "
+                        f"It has been automatically set to {num_speakers:d} based on reference annotation. "
                     )
 
             else:
