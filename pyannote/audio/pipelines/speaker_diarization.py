@@ -411,11 +411,19 @@ class SpeakerDiarization(Pipeline):
         """
 
         if self.expects_num_speakers and num_speakers is None:
-            if self.training:
+
+            if "annotation" in file:
                 num_speakers = len(file["annotation"].labels())
+
+                if not self.training:
+                    warnings.warn(
+                        "This pipeline expects the number of speakers (num_speakers) to be given. "
+                        "It has been automatically set to {num_speakers:d} based on reference annotation. "
+                    )
+
             else:
-                warnings.warn(
-                    "This pipeline expects the number of speakers (num_speakers) to be given (you did not provide one). Brace yourself!"
+                raise ValueError(
+                    "This pipeline expects the number of speakers (num_speakers) to be given."
                 )
 
         # __ LOCAL SPEAKER SEGMENTATION ________________________________________________
