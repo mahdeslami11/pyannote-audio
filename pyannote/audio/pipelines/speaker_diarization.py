@@ -115,7 +115,6 @@ class SpeakerDiarization(Pipeline):
 
         # hyper-parameters
         self.onset = Uniform(0.05, 0.95)
-        self.offset = Uniform(0.05, 0.95)
         self.min_duration_on = Uniform(0.0, 1.0)
         self.min_duration_off = Uniform(0.0, 1.0)
 
@@ -131,8 +130,8 @@ class SpeakerDiarization(Pipeline):
         """Initialize pipeline with current set of parameters"""
 
         self._binarize = Binarize(
-            onset=self.onset,
-            offset=self.offset,
+            onset=0.5,
+            offset=0.5,
             min_duration_on=self.min_duration_on,
             min_duration_off=self.min_duration_off,
         )
@@ -651,17 +650,44 @@ class SpeakerDiarization(Pipeline):
 
         # __ DEBUG [AGGREGATION] _______________________________________________________
         if debug:
-            file["@diarization/segmentation/clustered"] = clustered_segmentations
+            file["@diarization/segmentation/clustered"] = np.copy(
+                clustered_segmentations
+            )
 
-        activations = Inference.aggregate(clustered_segmentations, frames)
+        speaker_activations = Inference.aggregate(clustered_segmentations, frames)
 
         # __ DEBUG [AGGREGATION] _______________________________________________________
         if debug:
-            file["@diarization/segmentation/aggregated"] = activations
+            file["@diarization/segmentation/aggregated"] = speaker_activations
+
+        # TODO: now that aggregation has been fixed,
+        # TODO: replace final output by proper binarization
+
+        # __ SPEAKER COUNTING __________________________________________________________
+        # estimate instantaneous number of speakers
+        active_speaker_count = Inference.aggregate(
+            np.sum(segmentations > self.onset, axis=-1, keepdims=True),
+            frames,
+        )
+        active_speaker_count.data = np.round(active_speaker_count)
+        # TODO: improve speaker counting by using onset AND offset?
+
+        # __ DEBUG [COUNTING] __________________________________________________________
+        if debug:
+            file["@diarization/speaker_count"] = active_speaker_count
 
         # __ FINAL BINARIZATION ________________________________________________________
+        sorted_speakers = np.argsort(-speaker_activations, axis=-1)
+        binarized = np.zeros_like(speaker_activations.data)
+        for t, ((_, count), speakers) in enumerate(
+            zip(active_speaker_count, sorted_speakers)
+        ):
+            # TODO: find a way to stop clustering early enough to avoid num_clusters < count
+            count = min(num_clusters, int(count.item()))
+            for i in range(count):
+                binarized[t, speakers[i]] = 1.0
 
-        diarization = self._binarize(activations)
+        diarization = self._binarize(SlidingWindowFeature(binarized, frames))
         diarization.uri = file["uri"]
 
         return diarization
