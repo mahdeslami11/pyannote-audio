@@ -231,7 +231,9 @@ class SpeakerDiarization(Pipeline):
             if pooling_weights is None:
                 embeddings = model(waveforms)
             else:
-                embeddings = model(waveforms, weights=pooling_weights)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", message="Mismatch between frames")
+                    embeddings = model(waveforms, weights=pooling_weights)
 
         embeddings = embeddings.cpu().numpy()
 
