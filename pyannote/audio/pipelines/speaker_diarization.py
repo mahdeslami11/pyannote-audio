@@ -579,7 +579,7 @@ class SpeakerDiarization(Pipeline):
         # * k in {0, ... K - 1} if speaker is active and is assigned to cluster k
         clusters = -2 * np.ones(num_chunks * local_num_speakers, dtype=np.int)
         num_active = np.sum(actives)
-        if num_active < 2:
+        if num_active < 2 or num_speakers == 1:
             clusters[actives] = 0
             num_clusters = 1
 
