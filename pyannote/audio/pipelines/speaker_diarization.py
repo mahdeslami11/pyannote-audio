@@ -36,7 +36,7 @@ from pyannote.audio import Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.pipelines.utils import PipelineModel, get_devices, get_model
 from pyannote.audio.utils.permutation import permutate
-from pyannote.audio.utils.signal import Binarize
+from pyannote.audio.utils.signal import Binarize, binarize
 from pyannote.core import Annotation, Segment, SlidingWindow, SlidingWindowFeature
 from pyannote.core.utils.distance import pdist
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
@@ -123,8 +123,7 @@ class SpeakerDiarization(Pipeline):
 
         # hyper-parameters
         self.onset = Uniform(0.05, 0.95)
-        self.min_duration_on = Uniform(0.0, 1.0)
-        self.min_duration_off = Uniform(0.0, 1.0)
+        self.offset = Uniform(0.05, 0.95)
 
         # affinity
         self.use_overlap_aware_embedding = Categorical([True, False])
@@ -140,8 +139,6 @@ class SpeakerDiarization(Pipeline):
         self._binarize = Binarize(
             onset=0.5,
             offset=0.5,
-            min_duration_on=self.min_duration_on,
-            min_duration_off=self.min_duration_off,
         )
 
     def trim_warmup(self, segmentations: SlidingWindowFeature) -> SlidingWindowFeature:
@@ -239,12 +236,14 @@ class SpeakerDiarization(Pipeline):
 
         return embeddings
 
-    def compute_constraints(self, segmentations: SlidingWindowFeature) -> np.ndarray:
+    def compute_constraints(
+        self, binarized_segmentations: SlidingWindowFeature
+    ) -> np.ndarray:
         """
 
         Parameters
         ----------
-        segmentations : SlidingWindowFeature
+        binarized_segmentations : SlidingWindowFeature
             (num_chunks, num_frames, local_num_speakers)-shaped segmentation.
 
         Returns
@@ -254,7 +253,7 @@ class SpeakerDiarization(Pipeline):
 
         """
 
-        num_chunks, num_frames, local_num_speakers = segmentations.data.shape
+        num_chunks, num_frames, local_num_speakers = binarized_segmentations.data.shape
 
         # 1. intra-chunk "cannot link" constraints (upper triangle only)
         chunk_idx = np.broadcast_to(
@@ -272,20 +271,20 @@ class SpeakerDiarization(Pipeline):
         # two speakers from two overlapping chunks are marked as "must-link"
         # if and only if the optimal permutation maps them and they are
         # both active in their common temporal support.
-        chunks = segmentations.sliding_window
+        chunks = binarized_segmentations.sliding_window
 
         # number of overlapping chunk
         num_overlapping_chunks = round(chunks.duration // chunks.step - 1.0)
 
         # loop on pairs of overlapping chunks
         # np.fill_diagonal(constraint, 1.0)
-        for C, (_, segmentation) in enumerate(segmentations):
+        for C, (_, binarized_segmentation) in enumerate(binarized_segmentations):
             for c in range(max(0, C - num_overlapping_chunks), C):
 
                 # extract common temporal support
                 shift = round((C - c) * num_frames * chunks.step / chunks.duration)
-                this_segmentation = segmentation[: num_frames - shift]
-                past_segmentation = segmentations[c, shift:]
+                this_segmentation = binarized_segmentation[: num_frames - shift]
+                past_segmentation = binarized_segmentations[c, shift:]
 
                 # find the optimal one-to-one mapping
                 _, (permutation,) = permutate(
@@ -294,8 +293,8 @@ class SpeakerDiarization(Pipeline):
 
                 # check whether speakers are active on the common temporal support
                 # otherwise there is no point trying to match them
-                this_active = np.any(this_segmentation > self.onset, axis=0)
-                past_active = np.any(past_segmentation > self.onset, axis=0)
+                this_active = np.any(this_segmentation, axis=0)
+                past_active = np.any(past_segmentation, axis=0)
 
                 for this, past in enumerate(permutation):
                     if this_active[this] and past_active[past]:
@@ -435,9 +434,31 @@ class SpeakerDiarization(Pipeline):
             file[self.CACHED_SEGMENTATION] = self._segmentation_inference(file)
         segmentations: SlidingWindowFeature = file[self.CACHED_SEGMENTATION]
 
+        # apply hysteresis thresholding
+        binarized_segmentations: SlidingWindowFeature = binarize(
+            segmentations, onset=self.onset, offset=self.offset, initial_state=False
+        )
+
         # trim warm-up regions
         segmentations = self.trim_warmup(segmentations)
+        binarized_segmentations = self.trim_warmup(binarized_segmentations)
         num_chunks, num_frames, local_num_speakers = segmentations.data.shape
+
+        frames: SlidingWindow = self._segmentation_inference.model.introspection.frames
+        # frame resolution (e.g. duration = step = 17ms)
+
+        # __ SPEAKER COUNTING __________________________________________________________
+        # estimate instantaneous number of speakers
+        speaker_count = Inference.aggregate(
+            np.sum(binarized_segmentations, axis=-1, keepdims=True),
+            frames,
+        )
+        speaker_count.data = np.round(speaker_count)
+
+        # __ DEBUG [COUNTING] __________________________________________________________
+        if debug:
+            file["@diarization/segmentation/binarized"] = binarized_segmentations
+            file["@diarization/speaker_count"] = speaker_count
 
         # __ LOCAL SPEAKER EMBEDDING ___________________________________________________
         # extract embeddings (only if needed)
@@ -491,12 +512,9 @@ class SpeakerDiarization(Pipeline):
         num_chunks = int(embeddings.shape[0] / local_num_speakers)
         segmentations.data = segmentations.data[:num_chunks]
 
-        frames: SlidingWindow = self._segmentation_inference.model.introspection.frames
-        # frame resolution (e.g. duration = step = 17ms)
-
         # __ LOCALLY ACTIVE SPEAKER DETECTION __________________________________________
-        # actives[c, k] indicates whether kth speaker is active in cth chunk
-        actives: np.ndarray = np.any(segmentations > self.onset, axis=1).data
+        # actives[c, s] indicates whether sth speaker is active in cth chunk
+        actives: np.ndarray = np.any(binarized_segmentations, axis=1).data
         # (num_chunks, local_num_speakers)
 
         # __ DEBUG [ACTIVE] ____________________________________________________________
@@ -705,31 +723,16 @@ class SpeakerDiarization(Pipeline):
             file["@diarization/segmentation/clustered"] = clustered_segmentations
             file["@diarization/segmentation/aggregated"] = speaker_activations
 
-        # __ SPEAKER COUNTING __________________________________________________________
-        # estimate instantaneous number of speakers
-        active_speaker_count = Inference.aggregate(
-            np.sum(segmentations > self.onset, axis=-1, keepdims=True),
-            frames,
-        )
-        active_speaker_count.data = np.round(active_speaker_count)
-        # TODO: improve speaker counting by using onset AND offset?
-
-        # __ DEBUG [COUNTING] __________________________________________________________
-        if debug:
-            file["@diarization/speaker_count"] = active_speaker_count
-
         # __ FINAL BINARIZATION ________________________________________________________
         sorted_speakers = np.argsort(-speaker_activations, axis=-1)
-        binarized = np.zeros_like(speaker_activations.data)
-        for t, ((_, count), speakers) in enumerate(
-            zip(active_speaker_count, sorted_speakers)
-        ):
+        final_binarized = np.zeros_like(speaker_activations.data)
+        for t, ((_, count), speakers) in enumerate(zip(speaker_count, sorted_speakers)):
             # TODO: find a way to stop clustering early enough to avoid num_clusters < count
             count = min(num_clusters, int(count.item()))
             for i in range(count):
-                binarized[t, speakers[i]] = 1.0
+                final_binarized[t, speakers[i]] = 1.0
 
-        diarization = self._binarize(SlidingWindowFeature(binarized, frames))
+        diarization = self._binarize(SlidingWindowFeature(final_binarized, frames))
         diarization.uri = file["uri"]
 
         return diarization
