@@ -23,16 +23,16 @@
 """Speaker diarization pipelines"""
 
 import warnings
-from typing import Mapping, Text
+from copy import deepcopy
+from typing import Any, Callable, Mapping, Optional, Text, Union
 
-import einops
 import numpy as np
 import torch
-from scipy.optimize import linear_sum_assignment
+from einops import rearrange
 from scipy.spatial.distance import cdist, squareform
 from scipy.special import softmax
 
-from pyannote.audio import Inference, Model, Pipeline
+from pyannote.audio import Audio, Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.pipelines.utils import PipelineModel, get_devices, get_model
 from pyannote.audio.utils.permutation import permutate
@@ -40,7 +40,7 @@ from pyannote.audio.utils.signal import Binarize, binarize
 from pyannote.core import Annotation, Segment, SlidingWindow, SlidingWindowFeature
 from pyannote.core.utils.distance import pdist
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
-from pyannote.pipeline.parameter import Categorical, Frozen, Uniform
+from pyannote.pipeline.parameter import Uniform
 
 from .clustering import Clustering
 
@@ -122,11 +122,14 @@ class SpeakerDiarization(Pipeline):
         self.warm_up = Uniform(0.0, 0.2)
 
         # hyper-parameters
+
+        # onset/offset hysteresis thresholding
         self.onset = Uniform(0.05, 0.95)
         self.offset = Uniform(0.05, 0.95)
 
-        # affinity
-        self.use_overlap_aware_embedding = Categorical([True, False])
+        # minimum amount of speech needed to use speaker in clustering
+        self.min_activity = Uniform(0.0, self._segmentation_inference.duration)
+
         self.affinity_threshold_percentile = Uniform(0.0, 1.0)
 
         # weights of constraints in final (constrained) affinity matrix.
@@ -142,6 +145,18 @@ class SpeakerDiarization(Pipeline):
         )
 
     def trim_warmup(self, segmentations: SlidingWindowFeature) -> SlidingWindowFeature:
+        """Trim left and right warm-up regions
+
+        Parameters
+        ----------
+        segmentations : SlidingWindowFeature
+            (num_chunks, num_frames, num_speakers)-shaped speaker activation scores
+
+        Returns
+        -------
+        trimmed : SlidingWindowFeature
+            (num_chunks, trimmed_num_frames, num_speakers)-shaped speaker activation scores
+        """
 
         _, num_frames, _ = segmentations.data.shape
         new_data = segmentations.data[
@@ -187,7 +202,7 @@ class SpeakerDiarization(Pipeline):
         file: AudioFile,
         chunk: Segment,
         model: Model,
-        pooling_weights: np.ndarray = None,
+        masks: np.ndarray = None,
     ) -> np.ndarray:
         """Extract embedding from a chunk
 
@@ -197,23 +212,21 @@ class SpeakerDiarization(Pipeline):
         chunk : Segment
         model : Model
             Pretrained embedding model.
-        pooling_weights : np.ndarray, optional
+        masks : np.ndarray, optional
             (num_frames, local_num_speakers) pooling weights
 
         Returns
         -------
         embeddings : np.ndarray
-            (1, dimension) if pooling_weights is None, else (local_num_speakers, dimension)
+            (1, dimension) if masks is None, else (local_num_speakers, dimension)
         """
 
-        if pooling_weights is None:
+        if masks is None:
             local_num_speakers = 1
 
         else:
-            _, local_num_speakers = pooling_weights.shape
-            pooling_weights = (
-                torch.from_numpy(pooling_weights).float().T.to(model.device)
-            )
+            _, local_num_speakers = masks.shape
+            masks = torch.from_numpy(masks).float().T.to(model.device)
             # (local_num_speakers, num_frames)
 
         waveforms = (
@@ -225,12 +238,12 @@ class SpeakerDiarization(Pipeline):
         # (local_num_speakers, num_channels == 1, num_samples)
 
         with torch.no_grad():
-            if pooling_weights is None:
+            if masks is None:
                 embeddings = model(waveforms)
             else:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
-                    embeddings = model(waveforms, weights=pooling_weights)
+                    embeddings = model(waveforms, weights=masks)
 
         embeddings = embeddings.cpu().numpy()
 
@@ -261,8 +274,7 @@ class SpeakerDiarization(Pipeline):
         )
         constraint = np.triu(
             squareform(
-                -1.0
-                * pdist(einops.rearrange(chunk_idx, "s c -> (c s)"), metric="equal")
+                -1.0 * pdist(rearrange(chunk_idx, "s c -> (c s)"), metric="equal")
             )
         )
         # (num_chunks x local_num_speakers, num_chunks x local_num_speakers)
@@ -387,10 +399,15 @@ class SpeakerDiarization(Pipeline):
         return affinity1 + affinity2, propagated_constraint
 
     CACHED_SEGMENTATION = "@diarization/segmentation/raw"
-    CACHED_EMBEDDING = "@diarization/embedding/raw"
+
+    def debug(self, file: Mapping, key: Text, value: Any):
+        file[f"@diarization/{key}"] = deepcopy(value)
 
     def apply(
-        self, file: AudioFile, num_speakers: int = None, debug: bool = False
+        self,
+        file: AudioFile,
+        num_speakers: int = None,
+        debug: Optional[Union[bool, Callable]] = False,
     ) -> Annotation:
         """Apply speaker diarization
 
@@ -400,7 +417,7 @@ class SpeakerDiarization(Pipeline):
             Processed file.
         num_speakers : int, optional
             Expected number of speakers.
-        debug : bool, optional
+        debug : bool or callable, optional
             Set to True to add debugging keys into `file`.
 
         Returns
@@ -409,6 +426,10 @@ class SpeakerDiarization(Pipeline):
             Speaker diarization
         """
 
+        if not callable(debug):
+            debug = self.debug if debug else lambda *args: None
+
+        # __ HANDLE EXPECTED NUMBER OF SPEAKERS ________________________________________
         if self.expects_num_speakers and num_speakers is None:
 
             if "annotation" in file:
@@ -425,16 +446,20 @@ class SpeakerDiarization(Pipeline):
                     "This pipeline expects the number of speakers (num_speakers) to be given."
                 )
 
-        # __ LOCAL SPEAKER SEGMENTATION ________________________________________________
+        # __ SPEAKER SEGMENTATION ______________________________________________________
+
         # apply segmentation model (only if needed)
         # output shape is (num_chunks, num_frames, local_num_speakers)
         if (not self.training) or (
             self.training and self.CACHED_SEGMENTATION not in file
         ):
             file[self.CACHED_SEGMENTATION] = self._segmentation_inference(file)
-        segmentations: SlidingWindowFeature = file[self.CACHED_SEGMENTATION]
 
-        # apply hysteresis thresholding
+        segmentations: SlidingWindowFeature = file[self.CACHED_SEGMENTATION]
+        frames: SlidingWindow = self._segmentation_inference.model.introspection.frames
+        duration: float = self._segmentation_inference.duration
+
+        # apply hysteresis thresholding on each chunk
         binarized_segmentations: SlidingWindowFeature = binarize(
             segmentations, onset=self.onset, offset=self.offset, initial_state=False
         )
@@ -442,92 +467,71 @@ class SpeakerDiarization(Pipeline):
         # trim warm-up regions
         segmentations = self.trim_warmup(segmentations)
         binarized_segmentations = self.trim_warmup(binarized_segmentations)
-        num_chunks, num_frames, local_num_speakers = segmentations.data.shape
 
-        frames: SlidingWindow = self._segmentation_inference.model.introspection.frames
-        # frame resolution (e.g. duration = step = 17ms)
+        # mask overlapping speech regions
+        masked_segmentations = SlidingWindowFeature(
+            binarized_segmentations.data
+            * (np.sum(binarized_segmentations.data, axis=-1, keepdims=True) == 1.0),
+            binarized_segmentations.sliding_window,
+        )
 
-        # __ SPEAKER COUNTING __________________________________________________________
-        # estimate instantaneous number of speakers
+        # estimate frame-level number of instantaneous speakers
         speaker_count = Inference.aggregate(
             np.sum(binarized_segmentations, axis=-1, keepdims=True),
             frames,
         )
         speaker_count.data = np.round(speaker_count)
 
-        # __ DEBUG [COUNTING] __________________________________________________________
-        if debug:
-            file["@diarization/segmentation/binarized"] = binarized_segmentations
-            file["@diarization/speaker_count"] = speaker_count
+        # shape
+        num_chunks, num_frames, local_num_speakers = segmentations.data.shape
 
-        # __ LOCAL SPEAKER EMBEDDING ___________________________________________________
-        # extract embeddings (only if needed)
-        # output shape is (num_valid_chunks x local_num_speakers, embedding_dimension)
-        if (
-            (not self.training)
-            or (not isinstance(self.warm_up, Frozen))
-            or (self.training and self.CACHED_EMBEDDING not in file)
-        ):
+        # __ SPEAKER STATUS ____________________________________________________________
 
-            embeddings = []
+        SKIP = 0  # SKIP this speaker because it is never active in current chunk
+        KEEP = 1  # KEEP this speaker because it is active at least once within current chunk
+        LONG = 2  # this speaker speaks LONG enough within current chunk to be used in clustering
 
-            for c, (chunk, segmentation) in enumerate(segmentations):
+        speaker_status = np.full((num_chunks, local_num_speakers), SKIP, dtype=np.int)
+        speaker_status[np.any(binarized_segmentations.data, axis=1)] = KEEP
+        speaker_status[
+            np.mean(masked_segmentations, axis=1) * duration * (1.0 - self.warm_up)
+            > self.min_activity
+        ] = LONG
 
-                if self.use_overlap_aware_embedding:
-                    pooling_weights: np.ndarray = self.get_pooling_weights(segmentation)
-                    # (num_frames, local_num_speakers)
-                else:
-                    pooling_weights: np.ndarray = segmentation
-                    # (num_frames, local_num_speakers)
+        if np.sum(speaker_status == LONG) == 0:
+            warnings.warn("Please decrease 'min_activity' threshold.")
+            return Annotation(uri=file["uri"])
 
-                try:
-                    chunk_embeddings: np.ndarray = self.get_embedding(
-                        file, chunk, self.emb_model_, pooling_weights=pooling_weights
-                    )
-                    # (local_num_speakers, dimension)
+        # TODO: handle corner case where there is 0 or 1 LONG speaker
 
-                except ValueError:
-                    if c + 1 == num_chunks:
-                        # it might happen that one cannot extract embeddings from
-                        # the very last chunk because of audio duration.
-                        continue
-                    else:
-                        # however, if we fail in the middle of the file, something
-                        # bad has happened and we should not go any further...
-                        raise ValueError()
+        debug(file, "segmentation/binarized", binarized_segmentations)
+        debug(file, "segmentation/speaker_count", speaker_count)
 
-                embeddings.append(chunk_embeddings)
+        # __ SPEAKER EMBEDDING _________________________________________________________
 
-            embeddings = np.vstack(embeddings)
-            # (num_valid_chunks x local_num_speakers, dimension)
+        embeddings = []
 
-            # unit-normalize embeddings
-            embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True)
+        for c, (chunk, masked_segmentation) in enumerate(masked_segmentations):
 
-            # cache embeddings
-            file[self.CACHED_EMBEDDING] = embeddings
+            chunk_embeddings: np.ndarray = self.get_embedding(
+                file, chunk, self.emb_model_, masks=masked_segmentation
+            )
+            # (local_num_speakers, dimension)
 
-        embeddings = file[self.CACHED_EMBEDDING]
-        # update number of chunks (only those with embeddings)
-        num_chunks = int(embeddings.shape[0] / local_num_speakers)
-        segmentations.data = segmentations.data[:num_chunks]
+            embeddings.append(chunk_embeddings)
 
-        # __ LOCALLY ACTIVE SPEAKER DETECTION __________________________________________
-        # actives[c, s] indicates whether sth speaker is active in cth chunk
-        actives: np.ndarray = np.any(binarized_segmentations, axis=1).data
-        # (num_chunks, local_num_speakers)
+        # stack and unit-normalized embeddings
+        embeddings = np.stack(embeddings)
+        embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
+        debug(file, "clustering/embeddings", embeddings)
 
-        # __ DEBUG [ACTIVE] ____________________________________________________________
-        if debug:
-            file["@diarization/segmentation/active"] = np.copy(actives)
+        # skip speakers for which embedding extraction failed for some reason
+        speaker_status[np.any(np.isnan(embeddings), axis=-1)] = SKIP
 
-        # TODO: perform clustering on most talkative speakers first
-
-        # __ DEBUG [ORACLE CLUSTERING] _________________________________________________
-        if debug and isinstance(file, Mapping) and "annotation" in file:
+        if "annotation" in file:
 
             reference = file["annotation"].discretize(
-                duration=segmentations.sliding_window[len(segmentations) - 1].end,
+                support=Segment(0.0, Audio().get_duration(file)),
                 resolution=frames,
             )
             permutations = []
@@ -537,9 +541,10 @@ class SpeakerDiarization(Pipeline):
                 (chunk, segmentation),
             ) in enumerate(segmentations):
 
-                if np.sum(actives[c]) == 0:
+                if np.all(speaker_status[c] != LONG):
                     continue
-                segmentation = segmentation[np.newaxis, :, actives[c]]
+
+                segmentation = segmentation[np.newaxis, :, speaker_status[c] == LONG]
 
                 local_reference = reference.crop(chunk)
                 _, (permutation,) = permutate(
@@ -554,143 +559,86 @@ class SpeakerDiarization(Pipeline):
                     ]
                 )
 
-            file["@diarization/clusters/oracle"] = permutations
+            debug(file, "clustering/clusters/oracle", permutations)
 
-        actives = einops.rearrange(actives, "c s -> (c s)")
+        # __ RAW AFFINITY ______________________________________________________________
 
-        # __ SEGMENTATION-BASED CLUSTERING CONSTRAINTS _________________________________
-        # compute constraints based on segmentation
+        affinity = squareform(
+            1 - 0.5 * pdist(embeddings[speaker_status == LONG], metric="cosine")
+        )
+        np.fill_diagonal(affinity, 1.0)
+        debug(file, "clustering/affinity/raw", affinity)
 
-        # compute (soft) {must/cannot}-link constraints based on local segmentation
-        constraint = self.compute_constraints(segmentations)
-        # (num_valid_chunks x local_num_speakers, num_valid_chunks x local_num_speakers)
+        # __ CONSTRAINED AFFINITY ______________________________________________________
 
-        # __ DEBUG [CONSTRAINTS] ___________________________________________________
-        if debug:
-            file["@diarization/constraint/raw"] = np.copy(constraint)
+        if self.constraint_propagate > 0:
 
-        constraint = constraint[actives][:, actives]
-        # (num_active_speakers, num_active_speakers)
+            # compute (soft) {must/cannot}-link constraints based on local segmentation
+            constraints = self.compute_constraints(binarized_segmentations)
 
-        # __ EMBEDDING-BASED AFFINITY MATRIX ___________________________________________
-        # compute affinity matrix (num_active_speakers, num_active_speakers)-shaped
-        affinity = squareform(1 - 0.5 * pdist(embeddings[actives], metric="cosine"))
+            long = rearrange(
+                speaker_status == LONG,
+                "c s -> (c s)",
+                c=num_chunks,
+                s=local_num_speakers,
+            )
 
-        # __ DEBUG [AFFINITY] __________________________________________________________
-        if debug:
-            file["@diarization/affinity/raw"] = np.copy(affinity)
+            constraints = constraints[long][:, long]
+            debug(file, "clustering/constraints", constraints)
 
-        # __ AFFINITY MATRIX REFINEMENT BY NEAREST NEIGHBOR FILTERING __________________
+            affinity, _ = self.propagate_constraints(affinity, constraints)
+            debug(file, "clustering/affinity/constrained", affinity)
+
+        # __ REFINED AFFINITY ___________________________________________________________
+
         affinity = affinity * (
             affinity
-            > np.percentile(affinity, 100 * self.affinity_threshold_percentile, axis=0)
+            >= np.percentile(affinity, 100 * self.affinity_threshold_percentile, axis=0)
         )
-        # make the affinity matrix symmetric again
         affinity = 0.5 * (affinity + affinity.T)
-
-        # __ DEBUG [AFFINITY] ______________________________________________________
-        if debug:
-            file["@diarization/affinity/refined"] = np.copy(affinity)
-
-        # __ AFFINITY MATRIX REFINEMENT BY CONSTRAINT PROPAGATION ______________________
-        affinity, constraint = self.propagate_constraints(affinity, constraint)
-
-        # __ DEBUG [AFFINITY] ______________________________________________________
-        if debug:
-            file["@diarization/constraint/propagated"] = np.copy(constraint)
-            file["@diarization/affinity/constrained"] = np.copy(affinity)
+        debug(file, "clustering/affinity/refined", affinity)
 
         # __ ACTIVE SPEAKER CLUSTERING _________________________________________________
         # clusters[chunk_id x local_num_speakers + speaker_id] = k
-        # * k=-2                if speaker is inactive
+        # * k=SpeakerStatus.Inactive                if speaker is inactive
         # * k=-1                if speaker is active but not assigned to any cluster
         # * k in {0, ... K - 1} if speaker is active and is assigned to cluster k
-        clusters = -2 * np.ones(num_chunks * local_num_speakers, dtype=np.int)
-        num_active = np.sum(actives)
-        if num_active < 2 or num_speakers == 1:
-            clusters[actives] = 0
+
+        clusters = np.full((num_chunks, local_num_speakers), -1, dtype=np.int)
+        clusters[speaker_status == SKIP] = -2
+
+        if num_speakers == 1 or np.sum(speaker_status == LONG) < 2:
+            clusters[speaker_status == LONG] = 0
             num_clusters = 1
 
         else:
-            clusters[actives] = self.clustering(affinity, num_clusters=num_speakers)
+            clusters[speaker_status == LONG] = self.clustering(
+                affinity, num_clusters=num_speakers
+            )
             num_clusters = np.max(clusters) + 1
 
-            # corner case where affinity propagation fails to converge
-            # and returns only -1 labels
+            # corner case where clustering fails to converge and returns only -1 labels
             if num_clusters == 0:
-                clusters[actives] = 0
+                clusters[speaker_status == LONG] = 0
                 num_clusters = 1
 
-        # __ DEBUG [CLUSTERING] ________________________________________________________
-        if debug:
-            file["@diarization/clusters/raw"] = np.copy(
-                einops.rearrange(
-                    clusters, "(c s) -> c s", c=num_chunks, s=local_num_speakers
-                )
-            )
+        debug(file, "clustering/clusters/raw", clusters)
 
         # __ FINAL SPEAKER ASSIGNMENT ___________________________________________________
 
-        # compute speaker-to-centroid distance matrix
         centroids = np.vstack(
             [np.mean(embeddings[clusters == k], axis=0) for k in range(num_clusters)]
         )
-        distances = cdist(embeddings, centroids, metric="cosine")
-        # (chunk_idx x local_num_speakers, num_clusters)
+        unassigned = (speaker_status == KEEP) | (clusters == -1)
+        distances = cdist(
+            embeddings[unassigned],
+            centroids,
+            metric="cosine",
+        )
+        clusters[unassigned] = np.argmin(distances, axis=1)
 
-        # __ DEBUG [CLUSTERING] _________________________________________________________
-        if debug:
-            file["@diarization/clusters/centroids"] = np.copy(centroids)
-            file["@diarization/distances/raw"] = np.copy(distances)
-
-        if False:
-            # I tried to be smart but this actually decreases the overall performance
-            # for some reasons that I haven't had the chance to look at for now...
-
-            # artificially decrease distance to actual cluster
-            # (to force assignment to this cluster)
-            assigned = clusters > -1
-            distances[np.where(assigned)[0], clusters[assigned]] -= 1000.0
-
-            # artificially increase distance for inactive speakers
-            # (to prevent them from being assigned to any cluster)
-            distances[np.where(~actives)] += 1000.0
-
-            # reshape matrices
-            distances = einops.rearrange(
-                distances,
-                "(c s) k -> c s k",
-                c=num_chunks,
-                s=local_num_speakers,
-                k=num_clusters,
-            )
-            actives = einops.rearrange(
-                actives, "(c s) -> c s", c=num_chunks, s=local_num_speakers
-            )
-            clusters = einops.rearrange(
-                clusters, "(c s) -> c s", c=num_chunks, s=local_num_speakers
-            )
-
-            # find optimal bijective assignment between active speakers and clusters
-            # (while preventing two speakers of the same chunk from being assigned
-            # to the same cluster)
-            for c, (distance, active) in enumerate(zip(distances, actives)):
-                # distance is (local_num_speakers, num_clusters)-shaped
-                # active is (local_num_speakers)-shaped
-                for s, k in zip(*linear_sum_assignment(distance, maximize=False)):
-                    clusters[c, s] = k if active[s] else -2
-
-        else:
-            unassigned = clusters == -1
-            clusters[unassigned] = np.argmin(distances[unassigned], axis=1)
-
-            clusters = einops.rearrange(
-                clusters, "(c s) -> c s", c=num_chunks, s=local_num_speakers
-            )
-
-        # __ DEBUG [CLUSTERING] ________________________________________________________
-        if debug:
-            file["@diarization/clusters/assigned"] = np.copy(clusters)
+        debug(file, "clustering/clusters/centroids", centroids)
+        debug(file, "clustering/clusters/assigned", clusters)
 
         # __ CLUSTERING-BASED SEGMENTATION AGGREGATION _________________________________
         # build final aggregated speaker activations
@@ -715,13 +663,10 @@ class SpeakerDiarization(Pipeline):
         clustered_segmentations = SlidingWindowFeature(
             clustered_segmentations, segmentations.sliding_window
         )
-
         speaker_activations = Inference.aggregate(clustered_segmentations, frames)
 
-        # __ DEBUG [AGGREGATION] _______________________________________________________
-        if debug:
-            file["@diarization/segmentation/clustered"] = clustered_segmentations
-            file["@diarization/segmentation/aggregated"] = speaker_activations
+        debug(file, "segmentation/clustered", clustered_segmentations)
+        debug(file, "segmentation/aggregated", speaker_activations)
 
         # __ FINAL BINARIZATION ________________________________________________________
         sorted_speakers = np.argsort(-speaker_activations, axis=-1)
