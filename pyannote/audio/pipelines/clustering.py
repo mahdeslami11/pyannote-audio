@@ -250,7 +250,7 @@ class SpectralClustering(Pipeline):
     def __call__(self, affinity: np.ndarray, num_clusters: int = None) -> np.ndarray:
 
         if num_clusters is None:
-            return self._clustering.predict(affinity)
+            clustering = self._clustering
 
         else:
             clustering = SpectralClusterer(
@@ -267,7 +267,14 @@ class SpectralClustering(Pipeline):
                 eigengap_type=EigenGapType.Ratio,
                 affinity_function=lambda precomputed: precomputed,  # precomputed affinity
             )
-            return clustering.predict(affinity)
+
+        try:
+            labels = clustering.predict(affinity)
+        except ValueError:
+            num_items, _ = affinity.shape
+            labels = np.zeros((num_items,), dtype=np.int)
+
+        return labels
 
 
 class Clustering(Enum):
