@@ -34,6 +34,8 @@ from scipy.special import softmax
 
 from pyannote.audio import Audio, Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
+
+# from pyannote.audio.core.model import CACHE_DIR
 from pyannote.audio.pipelines.utils import PipelineModel, get_devices, get_model
 from pyannote.audio.utils.permutation import permutate
 from pyannote.audio.utils.signal import Binarize, binarize
@@ -100,28 +102,34 @@ class SpeakerDiarization(Pipeline):
             expects_num_clusters=self.expects_num_speakers
         )
 
+        self.seg_model_device_, self.emb_model_device_ = get_devices(needs=2)
+
+        # segmentation
         self.seg_model_: Model = get_model(segmentation)
-
-        # TODO: add support for SpeechBrain ECAPA-TDNN
-        self.emb_model_: Model = get_model(embedding)
-        self.emb_model_.eval()
-
-        # send models to GPU (when GPUs are available and model is not already on GPU)
-        cpu_models = [
-            model
-            for model in (self.seg_model_, self.emb_model_)
-            if model.device.type == "cpu"
-        ]
-        for cpu_model, gpu_device in zip(
-            cpu_models, get_devices(needs=len(cpu_models))
-        ):
-            cpu_model.to(gpu_device)
-
+        self.seg_model_.to(self.seg_model_device_)
         self._segmentation_inference = Inference(self.seg_model_, skip_aggregation=True)
 
-        self.warm_up = Uniform(0.0, 0.2)
+        # embedding
+        if isinstance(embedding, str) and embedding.startswith("speechbrain/"):
+            # from speechbrain.pretrained import EncoderClassifier
+
+            # self.emb_model_ = EncoderClassifier.from_hparams(
+            #     source=self.embedding,
+            #     savedir=f"{CACHE_DIR}/speechbrain",
+            #     run_opts={"device": self.emb_model_device_},
+            # )
+            # self.emb_model_audio_ = Audio(sample_rate=16000, mono=True)
+            raise NotImplementedError("Speechbrain is not supported yet.")
+
+        else:
+            self.emb_model_: Model = get_model(embedding)
+            self.emb_model_.eval()
+            self.emb_model_.to(self.emb_model_device_)
+            self.emb_model_audio_ = self.emb_model_.audio
 
         # hyper-parameters
+
+        self.warm_up = Uniform(0.0, 0.2)
 
         # onset/offset hysteresis thresholding
         self.onset = Uniform(0.05, 0.95)
@@ -494,16 +502,16 @@ class SpeakerDiarization(Pipeline):
         for c, (chunk, masked_segmentation) in enumerate(masked_segmentations):
 
             waveforms = (
-                self.emb_model_.audio.crop(file, chunk)[0]
+                self.emb_model_audio_.crop(file, chunk)[0]
                 .unsqueeze(0)
                 .expand(local_num_speakers, -1, -1)
-                .to(self.emb_model_.device)
+                .to(self.emb_model_device_)
             )
 
             masks = (
                 torch.from_numpy(masked_segmentation)
                 .float()
-                .T.to(self.emb_model_.device)
+                .T.to(self.emb_model_device_)
             )
 
             chunk_embeddings = self.get_embedding(waveforms, masks).cpu().numpy()
