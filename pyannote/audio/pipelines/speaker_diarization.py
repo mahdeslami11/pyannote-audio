@@ -197,11 +197,10 @@ class SpeakerDiarization(Pipeline):
         weights[weights < 1e-8] = 1e-8
         return weights
 
-    @staticmethod
     def get_embedding(
+        self,
         file: AudioFile,
         chunk: Segment,
-        model: Model,
         masks: np.ndarray = None,
     ) -> np.ndarray:
         """Extract embedding from a chunk
@@ -226,24 +225,24 @@ class SpeakerDiarization(Pipeline):
 
         else:
             _, local_num_speakers = masks.shape
-            masks = torch.from_numpy(masks).float().T.to(model.device)
+            masks = torch.from_numpy(masks).float().T.to(self.emb_model_.device)
             # (local_num_speakers, num_frames)
 
         waveforms = (
-            model.audio.crop(file, chunk)[0]
+            self.emb_model_.audio.crop(file, chunk)[0]
             .unsqueeze(0)
             .expand(local_num_speakers, -1, -1)
-            .to(model.device)
+            .to(self.emb_model_.device)
         )
         # (local_num_speakers, num_channels == 1, num_samples)
 
         with torch.no_grad():
             if masks is None:
-                embeddings = model(waveforms)
+                embeddings = self.emb_model_(waveforms)
             else:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
-                    embeddings = model(waveforms, weights=masks)
+                    embeddings = self.emb_model_(waveforms, weights=masks)
 
         embeddings = embeddings.cpu().numpy()
 
@@ -514,7 +513,7 @@ class SpeakerDiarization(Pipeline):
         for c, (chunk, masked_segmentation) in enumerate(masked_segmentations):
 
             chunk_embeddings: np.ndarray = self.get_embedding(
-                file, chunk, self.emb_model_, masks=masked_segmentation
+                file, chunk, masks=masked_segmentation
             )
             # (local_num_speakers, dimension)
 
