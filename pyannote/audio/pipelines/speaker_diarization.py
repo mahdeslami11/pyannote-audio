@@ -486,16 +486,16 @@ class SpeakerDiarization(Pipeline):
 
         for c, (chunk, masked_segmentation) in enumerate(masked_segmentations):
 
-            waveforms = (
-                self.emb_model_audio_.crop(file, chunk)[0]
-                .unsqueeze(0)
-                .expand(local_num_speakers, -1, -1)
-            )
-
-            masks = torch.from_numpy(masked_segmentation).float().T
-
             # Speechbrain model
             if isinstance(self.emb_model_, EncoderClassifier):
+
+                waveforms = (
+                    self.emb_model_audio_.crop(file, chunk)[0]
+                    .unsqueeze(0)
+                    .expand(local_num_speakers, -1, -1)
+                )
+
+                masks = torch.from_numpy(masked_segmentation).float().T
 
                 signals, wav_lens = self.get_speechbrain_inputs(waveforms, masks)
                 max_len = wav_lens.max()
@@ -525,14 +525,20 @@ class SpeakerDiarization(Pipeline):
             # pyannote.audio model
             else:
 
-                chunk_embeddings = (
-                    self.get_embedding(
-                        waveforms.to(self.emb_model_device_),
-                        masks.to(self.emb_model_device_),
-                    )
-                    .cpu()
-                    .numpy()
+                waveforms = (
+                    self.emb_model_audio_.crop(file, chunk)[0]
+                    .unsqueeze(0)
+                    .expand(local_num_speakers, -1, -1)
+                    .to(self.emb_model_device_)
                 )
+
+                masks = (
+                    torch.from_numpy(masked_segmentation)
+                    .float()
+                    .T.to(self.emb_model_device_)
+                )
+
+                chunk_embeddings = self.get_embedding(waveforms, masks).cpu().numpy()
                 # (local_num_speakers, dimension)
 
             embeddings.append(chunk_embeddings)
