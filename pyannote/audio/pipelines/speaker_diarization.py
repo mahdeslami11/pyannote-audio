@@ -199,9 +199,8 @@ class SpeakerDiarization(Pipeline):
 
     def get_embedding(
         self,
-        file: AudioFile,
-        chunk: Segment,
-        masks: np.ndarray = None,
+        waveforms: torch.Tensor,
+        masks: torch.Tensor,
     ) -> np.ndarray:
         """Extract embedding from a chunk
 
@@ -220,22 +219,6 @@ class SpeakerDiarization(Pipeline):
             (1, dimension) if masks is None, else (local_num_speakers, dimension)
         """
 
-        if masks is None:
-            local_num_speakers = 1
-
-        else:
-            _, local_num_speakers = masks.shape
-            masks = torch.from_numpy(masks).float().T.to(self.emb_model_.device)
-            # (local_num_speakers, num_frames)
-
-        waveforms = (
-            self.emb_model_.audio.crop(file, chunk)[0]
-            .unsqueeze(0)
-            .expand(local_num_speakers, -1, -1)
-            .to(self.emb_model_.device)
-        )
-        # (local_num_speakers, num_channels == 1, num_samples)
-
         with torch.no_grad():
             if masks is None:
                 embeddings = self.emb_model_(waveforms)
@@ -243,8 +226,6 @@ class SpeakerDiarization(Pipeline):
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     embeddings = self.emb_model_(waveforms, weights=masks)
-
-        embeddings = embeddings.cpu().numpy()
 
         return embeddings
 
@@ -512,9 +493,20 @@ class SpeakerDiarization(Pipeline):
 
         for c, (chunk, masked_segmentation) in enumerate(masked_segmentations):
 
-            chunk_embeddings: np.ndarray = self.get_embedding(
-                file, chunk, masks=masked_segmentation
+            waveforms = (
+                self.emb_model_.audio.crop(file, chunk)[0]
+                .unsqueeze(0)
+                .expand(local_num_speakers, -1, -1)
+                .to(self.emb_model_.device)
             )
+
+            masks = (
+                torch.from_numpy(masked_segmentation)
+                .float()
+                .T.to(self.emb_model_.device)
+            )
+
+            chunk_embeddings = self.get_embedding(waveforms, masks).cpu().numpy()
             # (local_num_speakers, dimension)
 
             embeddings.append(chunk_embeddings)
