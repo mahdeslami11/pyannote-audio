@@ -28,14 +28,15 @@ from typing import Any, Callable, Mapping, Optional, Text, Union
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from einops import rearrange
 from scipy.spatial.distance import cdist, squareform
-from scipy.special import softmax
+from speechbrain.pretrained.interfaces import EncoderClassifier
+from torch.nn.utils.rnn import pad_sequence
 
 from pyannote.audio import Audio, Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
-
-# from pyannote.audio.core.model import CACHE_DIR
+from pyannote.audio.core.model import CACHE_DIR
 from pyannote.audio.pipelines.utils import PipelineModel, get_devices, get_model
 from pyannote.audio.utils.permutation import permutate
 from pyannote.audio.utils.signal import Binarize, binarize
@@ -46,22 +47,18 @@ from pyannote.pipeline.parameter import Uniform
 
 from .clustering import Clustering
 
-# TODO: automagically estimate HAC threshold based on local segmentation
-
 
 class SpeakerDiarization(Pipeline):
     """Speaker diarization pipeline
 
     Parameters
     ----------
-    segmentation : Inference or str, optional
-        `Inference` instance used to extract raw segmentation scores.
-        When `str`, assumes that file already contains a corresponding key with
-        precomputed scores. Defaults to "seg".
-    embeddings : Inference or str, optional
-        `Inference` instance used to extract speaker embeddings. When `str`,
-        assumes that file already contains a corresponding key with precomputed
-        embeddings. Defaults to "emb".
+    segmentation : PipelineModel, optional
+        TODO
+        Defaults to "pyannote/segmentation".
+    embeddings : PipelineModel, optional
+        TODO
+        Defaults to "pyannote/embedding".
     clustering : {"AffinityPropagation", "DBSCAN", "OPTICS", "AgglomerativeClustering"}, optional
         Defaults to "AffinityPropagation".
     expects_num_speakers : bool, optional
@@ -111,15 +108,13 @@ class SpeakerDiarization(Pipeline):
 
         # embedding
         if isinstance(embedding, str) and embedding.startswith("speechbrain/"):
-            # from speechbrain.pretrained import EncoderClassifier
 
-            # self.emb_model_ = EncoderClassifier.from_hparams(
-            #     source=self.embedding,
-            #     savedir=f"{CACHE_DIR}/speechbrain",
-            #     run_opts={"device": self.emb_model_device_},
-            # )
-            # self.emb_model_audio_ = Audio(sample_rate=16000, mono=True)
-            raise NotImplementedError("Speechbrain is not supported yet.")
+            self.emb_model_ = EncoderClassifier.from_hparams(
+                source=self.embedding,
+                savedir=f"{CACHE_DIR}/speechbrain",
+                run_opts={"device": self.emb_model_device_},
+            )
+            self.emb_model_audio_ = Audio(sample_rate=16000, mono=True)
 
         else:
             self.emb_model_: Model = get_model(embedding)
@@ -181,29 +176,25 @@ class SpeakerDiarization(Pipeline):
 
         return SlidingWindowFeature(new_data, new_chunks)
 
-    @staticmethod
-    def get_pooling_weights(segmentation: np.ndarray) -> np.ndarray:
-        """Overlap-aware weights
+    def get_speechbrain_inputs(self, waveforms, masks):
 
-        Parameters
-        ----------
-        segmentation: np.ndarray
-            (num_frames, local_num_speakers) segmentation scores
+        imasks = F.interpolate(
+            masks.unsqueeze(dim=1), size=waveforms.shape[-1], mode="nearest"
+        ).squeeze(dim=1)
 
-        Returns
-        -------
-        weights: np.ndarray
-            (num_frames, local_num_speakers) overlap-aware weights
-        """
+        imasks = imasks > 0.5
 
-        power: int = 3
-        scale: float = 10.0
-        pow_segmentation = pow(segmentation, power)
-        weights = pow_segmentation * pow(
-            softmax(scale * pow_segmentation, axis=1), power
+        signals = pad_sequence(
+            [
+                waveform[imask]
+                for waveform, imask in zip(waveforms.squeeze(dim=1), imasks)
+            ],
+            batch_first=True,
         )
-        weights[weights < 1e-8] = 1e-8
-        return weights
+
+        wav_lens = imasks.sum(dim=1)
+
+        return signals, wav_lens
 
     def get_embedding(
         self,
@@ -214,12 +205,6 @@ class SpeakerDiarization(Pipeline):
 
         Parameters
         ----------
-        file : AudioFile
-        chunk : Segment
-        model : Model
-            Pretrained embedding model.
-        masks : np.ndarray, optional
-            (num_frames, local_num_speakers) pooling weights
 
         Returns
         -------
@@ -505,17 +490,50 @@ class SpeakerDiarization(Pipeline):
                 self.emb_model_audio_.crop(file, chunk)[0]
                 .unsqueeze(0)
                 .expand(local_num_speakers, -1, -1)
-                .to(self.emb_model_device_)
             )
 
-            masks = (
-                torch.from_numpy(masked_segmentation)
-                .float()
-                .T.to(self.emb_model_device_)
-            )
+            masks = torch.from_numpy(masked_segmentation).float().T
 
-            chunk_embeddings = self.get_embedding(waveforms, masks).cpu().numpy()
-            # (local_num_speakers, dimension)
+            # Speechbrain model
+            if isinstance(self.emb_model_, EncoderClassifier):
+
+                signals, wav_lens = self.get_speechbrain_inputs(waveforms, masks)
+                max_len = wav_lens.max()
+
+                # corner case: every signal is too short
+                if max_len < 640:
+                    chunk_embeddings = np.NAN * np.zeros((local_num_speakers, 192))
+
+                else:
+
+                    too_short = wav_lens < 640
+                    wav_lens = wav_lens / max_len
+                    wav_lens[too_short] = 1.0
+
+                    chunk_embeddings = (
+                        self.emb_model_.encode_batch(
+                            signals.to(self.emb_model_device_),
+                            wav_lens=wav_lens.to(self.emb_model_device_),
+                        )
+                        .squeeze(dim=1)
+                        .cpu()
+                        .numpy()
+                    )
+
+                    chunk_embeddings[too_short] = np.NAN
+
+            # pyannote.audio model
+            else:
+
+                chunk_embeddings = (
+                    self.get_embedding(
+                        waveforms.to(self.emb_model_device_),
+                        masks.to(self.emb_model_device_),
+                    )
+                    .cpu()
+                    .numpy()
+                )
+                # (local_num_speakers, dimension)
 
             embeddings.append(chunk_embeddings)
 
