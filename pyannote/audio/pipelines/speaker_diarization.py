@@ -446,7 +446,8 @@ class SpeakerDiarization(Pipeline):
 
         # stack and unit-normalized embeddings
         embeddings = np.stack(embeddings)
-        embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
         debug(file, "clustering/embeddings", embeddings)
 
         # skip speakers for which embedding extraction failed for some reason
