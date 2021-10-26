@@ -35,7 +35,8 @@ from torch.nn.utils.rnn import pad_sequence
 
 from pyannote.audio import Audio, Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
-from pyannote.audio.core.model import CACHE_DIR
+
+# from pyannote.audio.core.model import CACHE_DIR
 from pyannote.audio.pipelines.utils import PipelineModel, get_devices, get_model
 from pyannote.audio.utils.permutation import permutate
 from pyannote.audio.utils.signal import Binarize, binarize
@@ -47,7 +48,10 @@ from pyannote.pipeline.parameter import Uniform
 from .clustering import Clustering
 
 try:
-    from speechbrain.pretrained.interfaces import EncoderClassifier
+    import speechbrain
+
+    print(speechbrain.__version__)
+    # from speechbrain.pretrained.interfaces import EncoderClassifier
 except ImportError:
     pass
 
@@ -112,13 +116,13 @@ class SpeakerDiarization(Pipeline):
 
         # embedding
         if isinstance(embedding, str) and embedding.startswith("speechbrain/"):
-
-            self.emb_model_ = EncoderClassifier.from_hparams(
-                source=self.embedding,
-                savedir=f"{CACHE_DIR}/speechbrain",
-                run_opts={"device": self.emb_model_device_},
-            )
-            self.emb_model_audio_ = Audio(sample_rate=16000, mono=True)
+            pass
+            # self.emb_model_ = EncoderClassifier.from_hparams(
+            #     source=self.embedding,
+            #     savedir=f"{CACHE_DIR}/speechbrain",
+            #     run_opts={"device": self.emb_model_device_},
+            # )
+            # self.emb_model_audio_ = Audio(sample_rate=16000, mono=True)
 
         else:
             self.emb_model_: Model = get_model(embedding)
