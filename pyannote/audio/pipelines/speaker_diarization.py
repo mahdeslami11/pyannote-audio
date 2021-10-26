@@ -31,7 +31,6 @@ import torch
 import torch.nn.functional as F
 from einops import rearrange
 from scipy.spatial.distance import cdist, squareform
-from speechbrain.pretrained.interfaces import EncoderClassifier
 from torch.nn.utils.rnn import pad_sequence
 
 from pyannote.audio import Audio, Inference, Model, Pipeline
@@ -108,6 +107,7 @@ class SpeakerDiarization(Pipeline):
 
         # embedding
         if isinstance(embedding, str) and embedding.startswith("speechbrain/"):
+            from speechbrain.pretrained.interfaces import EncoderClassifier
 
             self.emb_model_ = EncoderClassifier.from_hparams(
                 source=self.embedding,
@@ -486,44 +486,7 @@ class SpeakerDiarization(Pipeline):
 
         for c, (chunk, masked_segmentation) in enumerate(masked_segmentations):
 
-            # Speechbrain model
-            if isinstance(self.emb_model_, EncoderClassifier):
-
-                waveforms = (
-                    self.emb_model_audio_.crop(file, chunk)[0]
-                    .unsqueeze(0)
-                    .expand(local_num_speakers, -1, -1)
-                )
-
-                masks = torch.from_numpy(masked_segmentation).float().T
-
-                signals, wav_lens = self.get_speechbrain_inputs(waveforms, masks)
-                max_len = wav_lens.max()
-
-                # corner case: every signal is too short
-                if max_len < 640:
-                    chunk_embeddings = np.NAN * np.zeros((local_num_speakers, 192))
-
-                else:
-
-                    too_short = wav_lens < 640
-                    wav_lens = wav_lens / max_len
-                    wav_lens[too_short] = 1.0
-
-                    chunk_embeddings = (
-                        self.emb_model_.encode_batch(
-                            signals.to(self.emb_model_device_),
-                            wav_lens=wav_lens.to(self.emb_model_device_),
-                        )
-                        .squeeze(dim=1)
-                        .cpu()
-                        .numpy()
-                    )
-
-                    chunk_embeddings[too_short] = np.NAN
-
-            # pyannote.audio model
-            else:
+            if isinstance(self.emb_model_, Model):
 
                 waveforms = (
                     self.emb_model_audio_.crop(file, chunk)[0]
@@ -540,6 +503,44 @@ class SpeakerDiarization(Pipeline):
 
                 chunk_embeddings = self.get_embedding(waveforms, masks).cpu().numpy()
                 # (local_num_speakers, dimension)
+
+            # else:
+
+            #     # Speechbrain model
+            #     if isinstance(self.emb_model_, EncoderClassifier):
+
+            #         waveforms = (
+            #             self.emb_model_audio_.crop(file, chunk)[0]
+            #             .unsqueeze(0)
+            #             .expand(local_num_speakers, -1, -1)
+            #         )
+
+            #         masks = torch.from_numpy(masked_segmentation).float().T
+
+            #         signals, wav_lens = self.get_speechbrain_inputs(waveforms, masks)
+            #         max_len = wav_lens.max()
+
+            #         # corner case: every signal is too short
+            #         if max_len < 640:
+            #             chunk_embeddings = np.NAN * np.zeros((local_num_speakers, 192))
+
+            #         else:
+
+            #             too_short = wav_lens < 640
+            #             wav_lens = wav_lens / max_len
+            #             wav_lens[too_short] = 1.0
+
+            #             chunk_embeddings = (
+            #                 self.emb_model_.encode_batch(
+            #                     signals.to(self.emb_model_device_),
+            #                     wav_lens=wav_lens.to(self.emb_model_device_),
+            #                 )
+            #                 .squeeze(dim=1)
+            #                 .cpu()
+            #                 .numpy()
+            #             )
+
+            #             chunk_embeddings[too_short] = np.NAN
 
             embeddings.append(chunk_embeddings)
 
