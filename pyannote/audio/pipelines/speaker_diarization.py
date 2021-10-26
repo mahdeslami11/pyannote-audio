@@ -196,32 +196,6 @@ class SpeakerDiarization(Pipeline):
 
         return signals, wav_lens
 
-    def get_embedding(
-        self,
-        waveforms: torch.Tensor,
-        masks: torch.Tensor,
-    ) -> np.ndarray:
-        """Extract embedding from a chunk
-
-        Parameters
-        ----------
-
-        Returns
-        -------
-        embeddings : np.ndarray
-            (1, dimension) if masks is None, else (local_num_speakers, dimension)
-        """
-
-        with torch.no_grad():
-            if masks is None:
-                embeddings = self.emb_model_(waveforms)
-            else:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    embeddings = self.emb_model_(waveforms, weights=masks)
-
-        return embeddings
-
     def compute_constraints(
         self, binarized_segmentations: SlidingWindowFeature
     ) -> np.ndarray:
@@ -501,8 +475,12 @@ class SpeakerDiarization(Pipeline):
                     .T.to(self.emb_model_device_)
                 )
 
-                chunk_embeddings = self.get_embedding(waveforms, masks).cpu().numpy()
-                # (local_num_speakers, dimension)
+                with torch.no_grad():
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        chunk_embeddings = (
+                            self.emb_model_(waveforms, weights=masks).cpu().numpy()
+                        )
 
             # else:
 
