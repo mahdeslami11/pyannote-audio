@@ -312,7 +312,7 @@ class SpeakerDiarization(Pipeline):
 
     CACHED_SEGMENTATION = "@diarization/segmentation/raw"
 
-    def debug(self, file: Mapping, key: Text, value: Any):
+    def dbg_default(self, file: Mapping, key: Text, value: Any):
         file[f"@diarization/{key}"] = deepcopy(value)
 
     def apply(
@@ -338,8 +338,10 @@ class SpeakerDiarization(Pipeline):
             Speaker diarization
         """
 
-        if not callable(debug):
-            debug = self.debug if debug else lambda *args: None
+        if callable(debug):
+            dbg = debug
+        else:
+            dbg = self.dbg_default if debug else lambda *args: None
 
         # __ HANDLE EXPECTED NUMBER OF SPEAKERS ________________________________________
         if self.expects_num_speakers and num_speakers is None:
@@ -416,8 +418,8 @@ class SpeakerDiarization(Pipeline):
 
         # TODO: handle corner case where there is 0 or 1 LONG speaker
 
-        debug(file, "segmentation/binarized", binarized_segmentations)
-        debug(file, "segmentation/speaker_count", speaker_count)
+        dbg(file, "segmentation/binarized", binarized_segmentations)
+        dbg(file, "segmentation/speaker_count", speaker_count)
 
         # __ SPEAKER EMBEDDING _________________________________________________________
 
@@ -448,18 +450,18 @@ class SpeakerDiarization(Pipeline):
         embeddings = np.stack(embeddings)
         with np.errstate(divide="ignore", invalid="ignore"):
             embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
-        debug(file, "clustering/embeddings", embeddings)
+        dbg(file, "clustering/embeddings", embeddings)
 
         # skip speakers for which embedding extraction failed for some reason
         speaker_status[np.any(np.isnan(embeddings), axis=-1)] = SKIP
 
-        if "annotation" in file:
+        if (debug is not False) and ("annotation" in file):
 
             reference = file["annotation"].discretize(
                 support=Segment(0.0, Audio().get_duration(file)),
                 resolution=frames,
             )
-            permutations = []
+            oracle_clusters = []
 
             for (
                 c,
@@ -477,14 +479,19 @@ class SpeakerDiarization(Pipeline):
                     local_reference[:num_frames],
                 )
                 active_reference = np.any(local_reference > 0, axis=0)
-                permutations.extend(
+                oracle_clusters.extend(
                     [
-                        i if ((i is not None) and (active_reference[i])) else None
+                        i if ((i is not None) and (active_reference[i])) else -1
                         for i in permutation
                     ]
                 )
 
-            debug(file, "clustering/clusters/oracle", permutations)
+            oracle_clusters = np.array(oracle_clusters)
+            oracle = 1.0 * squareform(pdist(oracle_clusters, metric="equal"))
+            np.fill_diagonal(oracle, True)
+            oracle[oracle_clusters == -1] = -1
+            oracle[:, oracle_clusters == -1] = -1
+            dbg(file, "clustering/clusters/oracle", oracle)
 
         # __ RAW AFFINITY ______________________________________________________________
 
@@ -492,7 +499,7 @@ class SpeakerDiarization(Pipeline):
             1 - 0.5 * pdist(embeddings[speaker_status == LONG], metric="cosine")
         )
         np.fill_diagonal(affinity, 1.0)
-        debug(file, "clustering/affinity/raw", affinity)
+        dbg(file, "clustering/affinity/raw", affinity)
 
         # __ CONSTRAINED AFFINITY ______________________________________________________
 
@@ -509,10 +516,10 @@ class SpeakerDiarization(Pipeline):
             )
 
             constraints = constraints[long][:, long]
-            debug(file, "clustering/constraints", constraints)
+            dbg(file, "clustering/constraints", constraints)
 
             affinity, _ = self.propagate_constraints(affinity, constraints)
-            debug(file, "clustering/affinity/constrained", affinity)
+            dbg(file, "clustering/affinity/constrained", affinity)
 
         # __ REFINED AFFINITY ___________________________________________________________
 
@@ -521,7 +528,7 @@ class SpeakerDiarization(Pipeline):
             >= np.percentile(affinity, 100 * self.affinity_threshold_percentile, axis=0)
         )
         affinity = 0.5 * (affinity + affinity.T)
-        debug(file, "clustering/affinity/refined", affinity)
+        dbg(file, "clustering/affinity/refined", affinity)
 
         # __ ACTIVE SPEAKER CLUSTERING _________________________________________________
         # clusters[chunk_id x local_num_speakers + speaker_id] = k
@@ -547,7 +554,7 @@ class SpeakerDiarization(Pipeline):
                 clusters[speaker_status == LONG] = 0
                 num_clusters = 1
 
-        debug(file, "clustering/clusters/raw", clusters)
+        dbg(file, "clustering/clusters/raw", clusters)
 
         # __ FINAL SPEAKER ASSIGNMENT ___________________________________________________
 
@@ -562,8 +569,8 @@ class SpeakerDiarization(Pipeline):
         )
         clusters[unassigned] = np.argmin(distances, axis=1)
 
-        debug(file, "clustering/clusters/centroids", centroids)
-        debug(file, "clustering/clusters/assigned", clusters)
+        dbg(file, "clustering/clusters/centroids", centroids)
+        dbg(file, "clustering/clusters/assigned", clusters)
 
         # __ CLUSTERING-BASED SEGMENTATION AGGREGATION _________________________________
         # build final aggregated speaker activations
@@ -590,8 +597,8 @@ class SpeakerDiarization(Pipeline):
         )
         speaker_activations = Inference.aggregate(clustered_segmentations, frames)
 
-        debug(file, "segmentation/clustered", clustered_segmentations)
-        debug(file, "segmentation/aggregated", speaker_activations)
+        dbg(file, "segmentation/clustered", clustered_segmentations)
+        dbg(file, "segmentation/aggregated", speaker_activations)
 
         # __ FINAL BINARIZATION ________________________________________________________
         sorted_speakers = np.argsort(-speaker_activations, axis=-1)
