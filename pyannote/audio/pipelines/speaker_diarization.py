@@ -132,35 +132,6 @@ class SpeakerDiarization(Pipeline):
             offset=0.5,
         )
 
-    def trim_warmup(self, segmentations: SlidingWindowFeature) -> SlidingWindowFeature:
-        """Trim left and right warm-up regions
-
-        Parameters
-        ----------
-        segmentations : SlidingWindowFeature
-            (num_chunks, num_frames, num_speakers)-shaped speaker activation scores
-
-        Returns
-        -------
-        trimmed : SlidingWindowFeature
-            (num_chunks, trimmed_num_frames, num_speakers)-shaped speaker activation scores
-        """
-
-        _, num_frames, _ = segmentations.data.shape
-        new_data = segmentations.data[
-            :,
-            round(num_frames * self.warm_up) : round(num_frames * (1.0 - self.warm_up)),
-        ]
-
-        chunks = segmentations.sliding_window
-        new_chunks = SlidingWindow(
-            start=chunks.start + self.warm_up * chunks.duration,
-            step=chunks.step,
-            duration=(1.0 - 2 * self.warm_up) * chunks.duration,
-        )
-
-        return SlidingWindowFeature(new_data, new_chunks)
-
     def compute_constraints(
         self, binarized_segmentations: SlidingWindowFeature
     ) -> np.ndarray:
@@ -379,8 +350,12 @@ class SpeakerDiarization(Pipeline):
         )
 
         # trim warm-up regions
-        segmentations = self.trim_warmup(segmentations)
-        binarized_segmentations = self.trim_warmup(binarized_segmentations)
+        segmentations = Inference.trim(
+            segmentations, warm_up=(self.warm_up, self.warm_up)
+        )
+        binarized_segmentations = Inference.trim(
+            binarized_segmentations, warm_up=(self.warm_up, self.warm_up)
+        )
 
         # mask overlapping speech regions
         masked_segmentations = SlidingWindowFeature(

@@ -413,7 +413,7 @@ class Inference:
         Parameters
         ----------
         scores : SlidingWindowFeature
-            Raw (unaggregated) scores. Shape is (num_chunks, num_frames_per_chunk, num_classes)
+            Raw (unaggregated) scores. Shape is (num_chunks, num_frames_per_chunk, num_classes).
         frames : SlidingWindow
             Frames.
         warm_up : (float, float) tuple
@@ -485,3 +485,47 @@ class Inference:
         return SlidingWindowFeature(
             aggregated_output / np.maximum(overlapping_chunk_count, epsilon), frames
         )
+
+    @staticmethod
+    def trim(
+        scores: SlidingWindowFeature,
+        warm_up: Tuple[float, float] = (0.1, 0.1),
+    ) -> SlidingWindowFeature:
+        """Trim left and right warm-up regions
+
+        Parameters
+        ----------
+        scores : SlidingWindowFeature
+            (num_chunks, num_frames, num_classes)-shaped scores.
+        warm_up : (float, float) tuple
+            Left/right warm up ratio of chunk duration.
+            Defaults to (0.1, 0.1), i.e. 10% on both sides.
+
+        Returns
+        -------
+        trimmed : SlidingWindowFeature
+            (num_chunks, trimmed_num_frames, num_speakers)-shaped scores
+        """
+
+        assert (
+            scores.data.ndim == 3
+        ), "Inference.trim expects (num_chunks, num_frames, num_classes)-shaped `scores`"
+        _, num_frames, _ = scores.data.shape
+
+        chunks = scores.sliding_window
+
+        num_frames_left = round(num_frames * warm_up[0])
+        num_frames_right = round(num_frames * warm_up[1])
+        num_frames_step = round(num_frames * chunks.step / chunks.duration)
+        assert (
+            num_frames - num_frames_left - num_frames_right > num_frames_step
+        ), f"Total `warm_up` is so large ({sum(warm_up) * 100:g}% of each chunk) that resulting trimmed scores does not cover a whole step ({chunks.step:g}s)"
+        new_data = scores.data[:, num_frames_left : num_frames - num_frames_right]
+
+        new_chunks = SlidingWindow(
+            start=chunks.start + warm_up[0] * chunks.duration,
+            step=chunks.step,
+            duration=(1 - warm_up[0] - warm_up[1]) * chunks.duration,
+        )
+
+        return SlidingWindowFeature(new_data, new_chunks)
