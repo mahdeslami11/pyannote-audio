@@ -101,6 +101,8 @@ def permutate_torch(
     permutated_y2 = torch.zeros(y1.shape, device=y2.device, dtype=y2.dtype)
 
     for b, (y1_, y2_) in enumerate(zip(y1, y2)):
+        # y1_ is (num_samples, num_classes_1)-shaped
+        # y2_ is (num_samples, num_classes_2)-shaped
         with torch.no_grad():
             cost = torch.stack(
                 [
