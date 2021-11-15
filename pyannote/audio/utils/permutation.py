@@ -38,7 +38,33 @@ def permutate(y1, y2, cost_func: Optional[Callable] = None, return_cost: bool = 
 
 
 def mse_cost_func(Y, y):
+    """Compute class-wise mean-squared error
+
+    Parameters
+    ----------
+    Y, y : (num_frames, num_classes) torch.tensor
+
+    Returns
+    -------
+    mse : (num_classes, ) torch.tensor
+        Mean-squared error
+    """
     return torch.mean(F.mse_loss(Y, y, reduction="none"), axis=0)
+
+
+def mae_cost_func(Y, y):
+    """Compute class-wise mean absolute difference error
+
+    Parameters
+    ----------
+    Y, y: (num_frames, num_classes) torch.tensor
+
+    Returns
+    -------
+    mae : (num_classes, ) torch.tensor
+        Mean absolute difference error
+    """
+    return torch.mean(torch.abs(Y - y), axis=0)
 
 
 @permutate.register
