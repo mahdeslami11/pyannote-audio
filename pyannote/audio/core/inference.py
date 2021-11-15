@@ -409,7 +409,6 @@ class Inference:
         warm_up: Tuple[float, float] = (0.0, 0.0),
         epsilon: float = 1e-12,
         hamming: bool = False,
-        skip_division: bool = False,
     ) -> SlidingWindowFeature:
         """Aggregation
 
