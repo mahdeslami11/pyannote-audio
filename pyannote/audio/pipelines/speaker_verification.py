@@ -86,7 +86,7 @@ class SpeechBrainPretrainedSpeakerEmbedding:
             run_opts={"device": self.device},
         )
 
-    @property
+    @cached_property
     def sample_rate(self) -> int:
         return self.classifier_.audio_normalizer.sample_rate
 
@@ -95,6 +95,10 @@ class SpeechBrainPretrainedSpeakerEmbedding:
         dummy_waveforms = torch.rand(1, 16000)
         *_, dimension = self.classifier_.encode_batch(dummy_waveforms).shape
         return dimension
+
+    @cached_property
+    def metric(self) -> str:
+        return "cosine"
 
     @cached_property
     def min_num_samples(self) -> int:
@@ -192,13 +196,21 @@ class PyannoteAudioPretrainedSpeakerEmbedding:
         self.model_.eval()
         self.model_.to(self.device)
 
-    @property
+    @cached_property
     def sample_rate(self) -> int:
         return self.model_.audio.sample_rate
 
-    @property
+    @cached_property
     def dimension(self) -> int:
         return self.model_.introspection.dimension
+
+    @cached_property
+    def metric(self) -> str:
+        return "cosine"
+
+    @cached_property
+    def min_num_samples(self) -> int:
+        return self.model_.introspection.min_num_samples
 
     def __call__(
         self, waveforms: torch.Tensor, masks: torch.Tensor = None
