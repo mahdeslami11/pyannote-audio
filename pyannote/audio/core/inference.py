@@ -295,8 +295,9 @@ class Inference:
                 outputs,
                 SlidingWindow(start=0.0, duration=self.duration, step=self.step),
             ),
-            frames,
+            frames=frames,
             warm_up=self.warm_up,
+            hamming=True,
         )
 
         if has_last_chunk:
@@ -404,9 +405,11 @@ class Inference:
     @staticmethod
     def aggregate(
         scores: SlidingWindowFeature,
-        frames: SlidingWindow,
+        frames: SlidingWindow = None,
         warm_up: Tuple[float, float] = (0.0, 0.0),
         epsilon: float = 1e-12,
+        hamming: bool = False,
+        skip_division: bool = False,
     ) -> SlidingWindowFeature:
         """Aggregation
 
@@ -414,9 +417,9 @@ class Inference:
         ----------
         scores : SlidingWindowFeature
             Raw (unaggregated) scores. Shape is (num_chunks, num_frames_per_chunk, num_classes).
-        frames : SlidingWindow
+        frames : SlidingWindow, optional
             Frames.
-        warm_up : (float, float) tuple
+        warm_up : (float, float) tuple, optional
             Left/right warm up duration (in seconds).
 
         Returns
@@ -427,11 +430,20 @@ class Inference:
 
         num_chunks, num_frames_per_chunk, num_classes = scores.data.shape
 
+        if frames is None:
+            chunks = scores.sliding_window
+            duration = step = chunks.duration / num_frames_per_chunk
+            frames = SlidingWindow(start=chunks.start, duration=duration, step=step)
+
         masks = 1 - np.isnan(scores)
         scores.data = np.nan_to_num(scores.data, copy=True, nan=0.0)
 
         # Hamming window used for overlap-add aggregation
-        hamming_window = np.hamming(num_frames_per_chunk).reshape(-1, 1)
+        hamming_window = (
+            np.hamming(num_frames_per_chunk).reshape(-1, 1)
+            if hamming
+            else np.ones((num_frames_per_chunk, 1))
+        )
 
         # anything before warm_up_left (and after num_frames_per_chunk - warm_up_right)
         # will not be used in the final aggregation
@@ -453,7 +465,9 @@ class Inference:
         # for frame #i
         num_frames = (
             frames.closest_frame(
-                scores.sliding_window.duration + num_chunks * scores.sliding_window.step
+                scores.sliding_window.start
+                + scores.sliding_window.duration
+                + (num_chunks - 1) * scores.sliding_window.step
             )
             + 1
         )
