@@ -20,6 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import math
 import warnings
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Text, Tuple, Union
@@ -32,6 +33,7 @@ from pytorch_lightning.utilities.memory import is_oom_error
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.core.model import Model
 from pyannote.audio.core.task import Resolution
+from pyannote.audio.utils.permutation import mae_cost_func, permutate
 from pyannote.audio.utils.progress import InferenceProgressHook
 from pyannote.core import Segment, SlidingWindow, SlidingWindowFeature
 
@@ -542,3 +544,95 @@ class Inference:
         )
 
         return SlidingWindowFeature(new_data, new_chunks)
+
+    @staticmethod
+    def stitch(
+        activations: SlidingWindowFeature,
+        lookahead: Optional[Tuple[int, int]] = None,
+        cost_func=None,
+    ) -> SlidingWindowFeature:
+        """
+
+        Parameters
+        ----------
+        activations : SlidingWindowFeature
+            (num_chunks, num_frames, num_classes)-shaped scores.
+        lookahead : (int, int) tuple
+            Number of past and future adjacent chunks to use for stitching.
+            Defaults to (k, k) with k = chunk_duration / chunk_step - 1
+        cost_func : callable
+            Cost function used to find the optimal mapping between chunks.
+            Defaults to mean absolute error.
+
+        """
+
+        chunks: SlidingWindow = activations.sliding_window
+        max_lookahead = math.floor(chunks.duration / chunks.step - 1)
+        if lookahead is None:
+            lookahead = 2 * (max_lookahead,)
+
+        assert all(L <= max_lookahead for L in lookahead)
+
+        if cost_func is None:
+            cost_func = mae_cost_func
+
+        num_chunks, num_frames, num_classes = activations.data.shape
+
+        stitches = []
+        for C, (chunk, activation) in enumerate(activations):
+
+            local_stitch = np.NAN * np.zeros(
+                (sum(lookahead) + 1, num_frames, num_classes)
+            )
+
+            for c in range(
+                max(0, C - lookahead[0]), min(num_chunks, C + lookahead[1] + 1)
+            ):
+
+                # extract common temporal support
+                shift = round((C - c) * num_frames * chunks.step / chunks.duration)
+
+                if shift < 0:
+                    shift = -shift
+                    this_activations = activation[shift:]
+                    that_activations = activations[c, : num_frames - shift]
+                else:
+                    this_activations = activation[: num_frames - shift]
+                    that_activations = activations[c, shift:]
+
+                # find the optimal one-to-one mapping
+                _, (permutation,) = permutate(
+                    this_activations[np.newaxis],
+                    that_activations,
+                    cost_func=cost_func,
+                )
+
+                for this, that in enumerate(permutation):
+
+                    # TODO -- only stitch under certain condiditions
+                    # TODO (e.g. when both mapped speakers are active or similar enough)
+
+                    local_stitch[c - C + lookahead[0], :, this] = activations[
+                        c, :, that
+                    ]
+
+            stitched_chunks = SlidingWindow(
+                start=chunk.start - lookahead[0] * chunks.step,
+                duration=chunks.duration,
+                step=chunks.step,
+            )
+
+            local_stitch = Inference.aggregate(
+                SlidingWindowFeature(local_stitch, stitched_chunks)
+            )
+
+            stitches.append(local_stitch.data)
+
+        stitches = np.stack(stitches)
+        stitched_chunks = SlidingWindow(
+            start=chunks.start - lookahead[0] * chunks.step,
+            duration=chunks.duration + sum(lookahead) * chunks.step,
+            step=chunks.step,
+        )
+
+        return SlidingWindowFeature(stitches, stitched_chunks)
