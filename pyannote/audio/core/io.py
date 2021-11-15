@@ -42,7 +42,6 @@ from torch import Tensor
 
 from pyannote.core import Segment
 from pyannote.core.utils.types import Alignment
-from pyannote.database import ProtocolFile
 
 torchaudio.set_audio_backend("soundfile")
 
