@@ -23,12 +23,11 @@
 """Speaker diarization pipelines"""
 
 import warnings
-from copy import deepcopy
-from typing import Any, Callable, Mapping, Optional, Text, Union
+from functools import partial
+from typing import Callable, Optional, Text
 
 import numpy as np
 import torch
-from einops import rearrange
 from scipy.spatial.distance import cdist, squareform
 
 from pyannote.audio import Audio, Inference, Model, Pipeline
@@ -59,7 +58,7 @@ class SpeakerDiarization(Pipeline):
         assumes that file already contains a corresponding key with precomputed
         embeddings. Defaults to "emb".
     clustering : {"AffinityPropagation", "DBSCAN", "OPTICS", "AgglomerativeClustering"}, optional
-        Defaults to "AffinityPropagation".
+        Defaults to "AgglomerativeClustering".
     expects_num_speakers : bool, optional
         Defaults to False.
 
@@ -78,7 +77,7 @@ class SpeakerDiarization(Pipeline):
         self,
         segmentation: PipelineModel = "pyannote/segmentation",
         embedding: PipelineModel = "pyannote/embedding",
-        clustering: Text = "AffinityPropagation",
+        clustering: Text = "AgglomerativeClustering",
         expects_num_speakers: bool = False,
     ):
 
@@ -90,12 +89,13 @@ class SpeakerDiarization(Pipeline):
 
         seg_device, emb_device = get_devices(needs=2)
 
-        self.seg_model_: Model = get_model(segmentation)
-        self.seg_model_.to(seg_device)
-        self._segmentation_inference = Inference(self.seg_model_, skip_aggregation=True)
+        model: Model = get_model(segmentation)
+        model.to(seg_device)
+        self._segmentation = Inference(model, skip_aggregation=True)
+        self._frames: SlidingWindow = self._segmentation.model.introspection.frames
 
-        self.emb_model_ = PretrainedSpeakerEmbedding(self.embedding, device=emb_device)
-        self.emb_audio_ = Audio(sample_rate=self.emb_model_.sample_rate, mono=True)
+        self._embedding = PretrainedSpeakerEmbedding(self.embedding, device=emb_device)
+        self._audio = Audio(sample_rate=self._embedding.sample_rate, mono=True)
 
         try:
             Klustering = Clustering[clustering]
@@ -107,190 +107,28 @@ class SpeakerDiarization(Pipeline):
             expects_num_clusters=self.expects_num_speakers
         )
 
-        self.warm_up = Uniform(0.0, 0.2)
-
         # hyper-parameters
 
+        self.warm_up = 0.05
+
         # onset/offset hysteresis thresholding
-        self.onset = Uniform(0.05, 0.95)
-        self.offset = Uniform(0.05, 0.95)
+        self.onset = Uniform(0.01, 0.99)
+        self.offset = Uniform(0.01, 0.99)
 
         # minimum amount of speech needed to use speaker in clustering
-        self.min_activity = Uniform(0.0, self._segmentation_inference.duration)
-
-        self.affinity_threshold_percentile = Uniform(0.0, 1.0)
-
-        # weights of constraints in final (constrained) affinity matrix.
-        # Between 0 and 1, where alpha = 0.0 means no constraint.
-        self.constraint_propagate = Uniform(0.0, 1.0)
-
-    def initialize(self):
-        """Initialize pipeline with current set of parameters"""
-
-        self._binarize = Binarize(
-            onset=0.5,
-            offset=0.5,
-        )
-
-    def compute_constraints(
-        self, binarized_segmentations: SlidingWindowFeature
-    ) -> np.ndarray:
-        """
-
-        Parameters
-        ----------
-        binarized_segmentations : SlidingWindowFeature
-            (num_chunks, num_frames, local_num_speakers)-shaped segmentation.
-
-        Returns
-        -------
-        constraints : np.ndarray
-            (num_chunks x local_num_speakers, num_chunks x local_num_speakers)-shaped constraint matrix
-
-        """
-
-        num_chunks, num_frames, local_num_speakers = binarized_segmentations.data.shape
-
-        # 1. intra-chunk "cannot link" constraints (upper triangle only)
-        chunk_idx = np.broadcast_to(
-            np.arange(num_chunks), (local_num_speakers, num_chunks)
-        )
-        constraint = np.triu(
-            squareform(
-                -1.0 * pdist(rearrange(chunk_idx, "s c -> (c s)"), metric="equal")
-            )
-        )
-        # (num_chunks x local_num_speakers, num_chunks x local_num_speakers)
-
-        # 2. inter-chunk "must link" constraints
-        # two speakers from two overlapping chunks are marked as "must-link"
-        # if and only if the optimal permutation maps them and they are
-        # both active in their common temporal support.
-        chunks = binarized_segmentations.sliding_window
-
-        # number of overlapping chunk
-        num_overlapping_chunks = round(chunks.duration // chunks.step - 1.0)
-
-        # loop on pairs of overlapping chunks
-        # np.fill_diagonal(constraint, 1.0)
-        for C, (_, binarized_segmentation) in enumerate(binarized_segmentations):
-            for c in range(max(0, C - num_overlapping_chunks), C):
-
-                # extract common temporal support
-                shift = round((C - c) * num_frames * chunks.step / chunks.duration)
-                this_segmentation = binarized_segmentation[: num_frames - shift]
-                past_segmentation = binarized_segmentations[c, shift:]
-
-                # find the optimal one-to-one mapping
-                _, (permutation,) = permutate(
-                    this_segmentation[np.newaxis], past_segmentation
-                )
-
-                # check whether speakers are active on the common temporal support
-                # otherwise there is no point trying to match them
-                this_active = np.any(this_segmentation, axis=0)
-                past_active = np.any(past_segmentation, axis=0)
-
-                for this, past in enumerate(permutation):
-                    if this_active[this] and past_active[past]:
-                        constraint[
-                            c * local_num_speakers + past,
-                            C * local_num_speakers + this,
-                        ] = 1.0
-                        # TODO: investigate weighting this by (num_frames - shift) / num_frames
-                        # TODO: i.e. by the duration of the common temporal support
-
-        # propagate cannot link constraints by "transitivity": if c_ij = -1 and c_jk = 1 then c_ik = -1
-        # (only when this new constraint is not conflicting with existing constraint, i.e. when c_ik = 1)
-
-        # loop on (i, j) pairs such that c_ij is either 1 or -1
-        for i, j in zip(*np.where(constraint != 0)):
-
-            # find all k for which c_ij = - c_jk and mark c_ik as cannot-link
-            # unless it has been marked as must-link (c_ik = 1) before
-            constraint[
-                i, (constraint[i] != 1.0) & (constraint[j] + constraint[i, j] == 0.0)
-            ] = -1.0
-
-        # make constraint matrix symmetric
-        constraint = squareform(squareform(constraint, checks=False))
-        np.fill_diagonal(constraint, 1.0)
-
-        return constraint
-
-    def propagate_constraints(
-        self, affinity: np.ndarray, constraint: np.ndarray
-    ) -> np.ndarray:
-        """Update affinity matrix by constraint propagation
-
-        Stolen from
-        https://github.com/wq2012/SpectralCluster/blob/34d155654dbbfcda61b808a4f61afa666476b3d2/spectralcluster/constraint.py
-
-        Parameters
-        ----------
-        affinity : np.ndarray
-            (N, N) affinity matrix with values in [0, 1].
-            * affinity[i, j] = 1 indicates that i and j are very similar
-            * affinity[i, j] = 0 indicates that i and j are very dissimilar
-        constraint : np.ndarray
-            (N, N) constraint matrix with values in [-1, 1].
-            * constraint[i, j] > 0 indicates a must-link constraint
-            * constraint[i, j] < 0 indicates a cannot-link constraint
-            * constraint[i, j] = 0 indicates absence of constraint
-
-        Returns
-        -------
-        constrained_affinity : np.ndarray
-            Constrained affinity matrix.
-        propagated_constraint : np.ndarray
-            Propagated constraint matrix.
-
-        Reference
-        ---------
-        Lu, Zhiwu, and IP, Horace HS.
-        "Constrained spectral clustering via exhaustive and efficient constraint propagation."
-        ECCV 2010
-        """
-
-        degree = np.diag(np.sum(affinity, axis=1))
-        degree_norm = np.diag(1 / (np.sqrt(np.diag(degree)) + 1e-10))
-
-        # Compute affinity_norm as D^(-1/2)AD^(-1/2)
-        affinity_norm = degree_norm.dot(affinity).dot(degree_norm)
-
-        # The closed form of the final converged constraint matrix is:
-        # (1-alpha)^2 * (I-alpha*affinity_norm)^(-1) * constraint *
-        # (I-alpha*affinity_norm)^(-1). We save (I-alpha*affinity_norm)^(-1) as a
-        # `temp_value` for readibility
-        temp_value = np.linalg.inv(
-            np.eye(affinity.shape[0]) - (1 - self.constraint_propagate) * affinity_norm
-        )
-        propagated_constraint = self.constraint_propagate ** 2 * temp_value.dot(
-            constraint
-        ).dot(temp_value)
-
-        # `is_positive` is a mask matrix where values of the propagated_constraint
-        # are positive. The affinity matrix is adjusted by the final constraint
-        # matrix using equation (4) in reference paper
-        is_positive = propagated_constraint > 0
-        affinity1 = 1 - (1 - propagated_constraint * is_positive) * (
-            1 - affinity * is_positive
-        )
-        affinity2 = (1 + propagated_constraint * np.invert(is_positive)) * (
-            affinity * np.invert(is_positive)
-        )
-        return affinity1 + affinity2, propagated_constraint
+        self.min_activity = Uniform(0.0, 10.0)
 
     CACHED_SEGMENTATION = "@diarization/segmentation/raw"
 
-    def dbg_default(self, file: Mapping, key: Text, value: Any):
-        file[f"@diarization/{key}"] = deepcopy(value)
+    @staticmethod
+    def hook_default(*args, **kwargs):
+        return
 
     def apply(
         self,
         file: AudioFile,
         num_speakers: int = None,
-        debug: Optional[Union[bool, Callable]] = False,
+        hook: Optional[Callable] = None,
     ) -> Annotation:
         """Apply speaker diarization
 
@@ -300,8 +138,9 @@ class SpeakerDiarization(Pipeline):
             Processed file.
         num_speakers : int, optional
             Expected number of speakers.
-        debug : bool or callable, optional
-            Set to True to add debugging keys into `file`.
+        hook : callable, optional
+            Hook called after each major step of the pipeline with the following
+            signature: hook("step_name", step_artefact, file=file)
 
         Returns
         -------
@@ -309,10 +148,12 @@ class SpeakerDiarization(Pipeline):
             Speaker diarization
         """
 
-        if callable(debug):
-            dbg = debug
+        if hook is None:
+            hook = self.hook_default
+            hook.missing = True
         else:
-            dbg = self.dbg_default if debug else lambda *args: None
+            hook = partial(hook, file=file)
+            hook.missing = False
 
         # __ HANDLE EXPECTED NUMBER OF SPEAKERS ________________________________________
         if self.expects_num_speakers and num_speakers is None:
@@ -338,24 +179,32 @@ class SpeakerDiarization(Pipeline):
         if (not self.training) or (
             self.training and self.CACHED_SEGMENTATION not in file
         ):
-            file[self.CACHED_SEGMENTATION] = self._segmentation_inference(file)
+            file[self.CACHED_SEGMENTATION] = self._segmentation(file)
 
         segmentations: SlidingWindowFeature = file[self.CACHED_SEGMENTATION]
-        frames: SlidingWindow = self._segmentation_inference.model.introspection.frames
-        duration: float = self._segmentation_inference.duration
+
+        # trim warm-up regions and stitch resulting segmentations
+        segmentations = Inference.stitch(
+            Inference.trim(segmentations, warm_up=(self.warm_up, self.warm_up)),
+            lookahead=None,  # TODO: make it an hyper-parameter?
+        )
+
+        hook("@segmentation/raw", segmentations)
+
+        frames = SlidingWindow(
+            start=segmentations.sliding_window.start,
+            duration=self._frames.duration,
+            step=self._frames.step,
+        )
+
+        chunk_duration: float = segmentations.sliding_window.duration
 
         # apply hysteresis thresholding on each chunk
         binarized_segmentations: SlidingWindowFeature = binarize(
             segmentations, onset=self.onset, offset=self.offset, initial_state=False
         )
 
-        # trim warm-up regions
-        segmentations = Inference.trim(
-            segmentations, warm_up=(self.warm_up, self.warm_up)
-        )
-        binarized_segmentations = Inference.trim(
-            binarized_segmentations, warm_up=(self.warm_up, self.warm_up)
-        )
+        hook("@segmentation/binary", binarized_segmentations)
 
         # mask overlapping speech regions
         masked_segmentations = SlidingWindowFeature(
@@ -364,12 +213,17 @@ class SpeakerDiarization(Pipeline):
             binarized_segmentations.sliding_window,
         )
 
+        hook("@segmentation/mask", binarized_segmentations)
+
         # estimate frame-level number of instantaneous speakers
         speaker_count = Inference.aggregate(
             np.sum(binarized_segmentations, axis=-1, keepdims=True),
-            frames,
+            frames=frames,
+            hamming=True,
         )
         speaker_count.data = np.round(speaker_count)
+
+        hook("@segmentation/count", speaker_count)
 
         # shape
         num_chunks, num_frames, local_num_speakers = segmentations.data.shape
@@ -383,8 +237,7 @@ class SpeakerDiarization(Pipeline):
         speaker_status = np.full((num_chunks, local_num_speakers), SKIP, dtype=np.int)
         speaker_status[np.any(binarized_segmentations.data, axis=1)] = KEEP
         speaker_status[
-            np.mean(masked_segmentations, axis=1) * duration * (1.0 - self.warm_up)
-            > self.min_activity
+            np.mean(masked_segmentations, axis=1) * chunk_duration > self.min_activity
         ] = LONG
 
         if np.sum(speaker_status == LONG) == 0:
@@ -392,9 +245,6 @@ class SpeakerDiarization(Pipeline):
             return Annotation(uri=file["uri"])
 
         # TODO: handle corner case where there is 0 or 1 LONG speaker
-
-        dbg(file, "segmentation/binarized", binarized_segmentations)
-        dbg(file, "segmentation/speaker_count", speaker_count)
 
         # __ SPEAKER EMBEDDING _________________________________________________________
 
@@ -406,17 +256,18 @@ class SpeakerDiarization(Pipeline):
 
             if np.all(status == SKIP):
                 chunk_embeddings = np.zeros(
-                    (local_num_speakers, self.emb_model_.dimension), dtype=np.float32
+                    (local_num_speakers, self._embedding.dimension), dtype=np.float32
                 )
 
             else:
                 waveforms: torch.Tensor = (
-                    self.emb_audio_.crop(file, chunk)[0]
+                    self._audio.crop(file, chunk, mode="pad")[0]
                     .unsqueeze(0)
                     .expand(local_num_speakers, -1, -1)
                 )
+
                 masks = torch.from_numpy(masked_segmentation).float().T
-                chunk_embeddings: np.ndarray = self.emb_model_(waveforms, masks=masks)
+                chunk_embeddings: np.ndarray = self._embedding(waveforms, masks=masks)
                 # (local_num_speakers, dimension)
 
             embeddings.append(chunk_embeddings)
@@ -425,12 +276,12 @@ class SpeakerDiarization(Pipeline):
         embeddings = np.stack(embeddings)
         with np.errstate(divide="ignore", invalid="ignore"):
             embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
-        dbg(file, "clustering/embeddings", embeddings)
+        hook("@clustering/embedding", embeddings)
 
         # skip speakers for which embedding extraction failed for some reason
         speaker_status[np.any(np.isnan(embeddings), axis=-1)] = SKIP
 
-        if (debug is not False) and ("annotation" in file):
+        if not hook.missing and "annotation" in file:
 
             reference = file["annotation"].discretize(
                 support=Segment(0.0, Audio().get_duration(file)),
@@ -466,7 +317,8 @@ class SpeakerDiarization(Pipeline):
             np.fill_diagonal(oracle, True)
             oracle[oracle_clusters == -1] = -1
             oracle[:, oracle_clusters == -1] = -1
-            dbg(file, "clustering/clusters/oracle", oracle)
+
+            hook("@clustering/oracle", oracle)
 
         # __ RAW AFFINITY ______________________________________________________________
 
@@ -474,40 +326,11 @@ class SpeakerDiarization(Pipeline):
             1 - 0.5 * pdist(embeddings[speaker_status == LONG], metric="cosine")
         )
         np.fill_diagonal(affinity, 1.0)
-        dbg(file, "clustering/affinity/raw", affinity)
-
-        # __ CONSTRAINED AFFINITY ______________________________________________________
-
-        if self.constraint_propagate > 0:
-
-            # compute (soft) {must/cannot}-link constraints based on local segmentation
-            constraints = self.compute_constraints(binarized_segmentations)
-
-            long = rearrange(
-                speaker_status == LONG,
-                "c s -> (c s)",
-                c=num_chunks,
-                s=local_num_speakers,
-            )
-
-            constraints = constraints[long][:, long]
-            dbg(file, "clustering/constraints", constraints)
-
-            affinity, _ = self.propagate_constraints(affinity, constraints)
-            dbg(file, "clustering/affinity/constrained", affinity)
-
-        # __ REFINED AFFINITY ___________________________________________________________
-
-        affinity = affinity * (
-            affinity
-            >= np.percentile(affinity, 100 * self.affinity_threshold_percentile, axis=0)
-        )
-        affinity = 0.5 * (affinity + affinity.T)
-        dbg(file, "clustering/affinity/refined", affinity)
+        hook("@clustering/affinity", affinity)
 
         # __ ACTIVE SPEAKER CLUSTERING _________________________________________________
         # clusters[chunk_id x local_num_speakers + speaker_id] = k
-        # * k=SpeakerStatus.Inactive                if speaker is inactive
+        # * k=-2                if speaker is inactive
         # * k=-1                if speaker is active but not assigned to any cluster
         # * k in {0, ... K - 1} if speaker is active and is assigned to cluster k
 
@@ -529,7 +352,7 @@ class SpeakerDiarization(Pipeline):
                 clusters[speaker_status == LONG] = 0
                 num_clusters = 1
 
-        dbg(file, "clustering/clusters/raw", clusters)
+        hook("@clustering/clusters", clusters)
 
         # __ FINAL SPEAKER ASSIGNMENT ___________________________________________________
 
@@ -544,8 +367,8 @@ class SpeakerDiarization(Pipeline):
         )
         clusters[unassigned] = np.argmin(distances, axis=1)
 
-        dbg(file, "clustering/clusters/centroids", centroids)
-        dbg(file, "clustering/clusters/assigned", clusters)
+        hook("@clustering/centroids", centroids)
+        hook("@clustering/assignment", clusters)
 
         # __ CLUSTERING-BASED SEGMENTATION AGGREGATION _________________________________
         # build final aggregated speaker activations
@@ -570,10 +393,11 @@ class SpeakerDiarization(Pipeline):
         clustered_segmentations = SlidingWindowFeature(
             clustered_segmentations, segmentations.sliding_window
         )
-        speaker_activations = Inference.aggregate(clustered_segmentations, frames)
+        speaker_activations = Inference.aggregate(
+            clustered_segmentations, frames=frames, hamming=True
+        )
 
-        dbg(file, "segmentation/clustered", clustered_segmentations)
-        dbg(file, "segmentation/aggregated", speaker_activations)
+        hook("@diarization/raw", speaker_activations)
 
         # __ FINAL BINARIZATION ________________________________________________________
         sorted_speakers = np.argsort(-speaker_activations, axis=-1)
@@ -584,7 +408,10 @@ class SpeakerDiarization(Pipeline):
             for i in range(count):
                 final_binarized[t, speakers[i]] = 1.0
 
-        diarization = self._binarize(SlidingWindowFeature(final_binarized, frames))
+        final_binarized = SlidingWindowFeature(final_binarized, frames)
+        hook("@diarization/binary", final_binarized)
+
+        diarization = Binarize()(final_binarized)
         diarization.uri = file["uri"]
 
         return diarization
