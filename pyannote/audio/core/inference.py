@@ -335,7 +335,7 @@ class Inference:
         self,
         file: AudioFile,
         chunk: Union[Segment, List[Segment]],
-        fixed: Optional[float] = None,
+        duration: Optional[float] = None,
     ) -> Union[SlidingWindowFeature, np.ndarray]:
         """Run inference on a chunk or a list of chunks
 
@@ -349,12 +349,10 @@ class Inference:
             the smallest chunk that contains all chunks. In case window is set
             to "whole", this is equivalent to concatenating each chunk into one
             (artifical) chunk before processing it.
-        fixed : float, optional
+        duration : float, optional
             Enforce chunk duration (in seconds). This is a hack to avoid rounding
             errors that may result in a different number of audio samples for two
             chunks of the same duration.
-
-        # TODO: document "fixed" better in pyannote.audio.core.io.Audio
 
         Returns
         -------
@@ -379,7 +377,9 @@ class Inference:
                 end = max(c.end for c in chunk)
                 chunk = Segment(start=start, end=end)
 
-            waveform, sample_rate = self.model.audio.crop(file, chunk, fixed=fixed)
+            waveform, sample_rate = self.model.audio.crop(
+                file, chunk, duration=duration
+            )
             output = self.slide(waveform, sample_rate)
 
             frames = output.sliding_window
@@ -391,7 +391,9 @@ class Inference:
         elif self.window == "whole":
 
             if isinstance(chunk, Segment):
-                waveform, sample_rate = self.model.audio.crop(file, chunk, fixed=fixed)
+                waveform, sample_rate = self.model.audio.crop(
+                    file, chunk, duration=duration
+                )
             else:
                 waveform = torch.cat(
                     [self.model.audio.crop(file, c)[0] for c in chunk], dim=1
