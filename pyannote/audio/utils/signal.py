@@ -104,6 +104,8 @@ def binarize_ndarray(
 
     batch_size, num_frames = scores.shape
 
+    scores = np.nan_to_num(scores)
+
     if initial_state is None:
         initial_state = scores[:, 0] >= 0.5 * (onset + offset)
 
