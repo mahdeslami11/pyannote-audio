@@ -300,6 +300,7 @@ class Inference:
             frames=frames,
             warm_up=self.warm_up,
             hamming=True,
+            missing=0.0,
         )
 
         if has_last_chunk:
@@ -413,6 +414,7 @@ class Inference:
         warm_up: Tuple[float, float] = (0.0, 0.0),
         epsilon: float = 1e-12,
         hamming: bool = False,
+        missing: float = np.NaN,
     ) -> SlidingWindowFeature:
         """Aggregation
 
@@ -424,6 +426,8 @@ class Inference:
             Frames.
         warm_up : (float, float) tuple, optional
             Left/right warm up duration (in seconds).
+        missing : float, optional
+            Value used to replace missing (ie all NaNs) values.
 
         Returns
         -------
@@ -484,6 +488,12 @@ class Inference:
             (num_frames, num_classes), dtype=np.float32
         )
 
+        # aggregated_mask[i] will be used to indicate whether
+        # at least one non-NAN frame contributed to frame #i
+        aggregated_mask: np.ndarray = np.zeros(
+            (num_frames, num_classes), dtype=np.float32
+        )
+
         # loop on the scores of sliding chunks
         for (chunk, score), (_, mask) in zip(scores, masks):
             # chunk ~ Segment
@@ -499,9 +509,18 @@ class Inference:
                 start_frame : start_frame + num_frames_per_chunk
             ] += (mask * hamming_window * warm_up_window)
 
-        return SlidingWindowFeature(
-            aggregated_output / np.maximum(overlapping_chunk_count, epsilon), frames
-        )
+            aggregated_mask[
+                start_frame : start_frame + num_frames_per_chunk
+            ] = np.maximum(
+                aggregated_mask[start_frame : start_frame + num_frames_per_chunk],
+                mask,
+            )
+
+        average = aggregated_output / np.maximum(overlapping_chunk_count, epsilon)
+
+        average[aggregated_mask == 0.0] = missing
+
+        return SlidingWindowFeature(average, frames)
 
     @staticmethod
     def trim(
@@ -551,7 +570,8 @@ class Inference:
     def stitch(
         activations: SlidingWindowFeature,
         lookahead: Optional[Tuple[int, int]] = None,
-        cost_func=None,
+        cost_func: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = None,
+        match_func: Callable[[np.ndarray, np.ndarray, float], bool] = None,
     ) -> SlidingWindowFeature:
         """
 
@@ -564,8 +584,8 @@ class Inference:
             Defaults to (k, k) with k = chunk_duration / chunk_step - 1
         cost_func : callable
             Cost function used to find the optimal mapping between chunks.
-            Defaults to mean absolute error.
-
+            Defaults to mean absolute error (utils.permutations.mae_cost_func)
+        match_func : callable
         """
 
         chunks: SlidingWindow = activations.sliding_window
@@ -577,6 +597,13 @@ class Inference:
 
         if cost_func is None:
             cost_func = mae_cost_func
+
+        if match_func is None:
+
+            def always_match(this: np.ndarray, that: np.ndarray, cost: float):
+                return True
+
+            match_func = always_match
 
         num_chunks, num_frames, num_classes = activations.data.shape
 
@@ -603,20 +630,28 @@ class Inference:
                     that_activations = activations[c, shift:]
 
                 # find the optimal one-to-one mapping
-                _, (permutation,) = permutate(
+                _, (permutation,), (cost,) = permutate(
                     this_activations[np.newaxis],
                     that_activations,
                     cost_func=cost_func,
+                    return_cost=True,
                 )
 
                 for this, that in enumerate(permutation):
 
-                    # TODO -- only stitch under certain condiditions
-                    # TODO (e.g. when both mapped speakers are active or similar enough)
+                    # only stitch under certain condiditions
+                    matching = (c == C) or (
+                        match_func(
+                            this_activations[:, this],
+                            that_activations[:, that],
+                            cost[this, that],
+                        )
+                    )
 
-                    local_stitch[c - C + lookahead[0], :, this] = activations[
-                        c, :, that
-                    ]
+                    if matching:
+                        local_stitch[c - C + lookahead[0], :, this] = activations[
+                            c, :, that
+                        ]
 
             stitched_chunks = SlidingWindow(
                 start=chunk.start - lookahead[0] * chunks.step,
@@ -625,7 +660,7 @@ class Inference:
             )
 
             local_stitch = Inference.aggregate(
-                SlidingWindowFeature(local_stitch, stitched_chunks)
+                SlidingWindowFeature(local_stitch, stitched_chunks), hamming=True
             )
 
             stitches.append(local_stitch.data)

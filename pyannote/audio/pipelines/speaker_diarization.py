@@ -33,7 +33,7 @@ from scipy.spatial.distance import cdist, squareform
 from pyannote.audio import Audio, Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.pipelines.utils import PipelineModel, get_devices, get_model
-from pyannote.audio.utils.permutation import permutate
+from pyannote.audio.utils.permutation import mae_cost_func, permutate
 from pyannote.audio.utils.signal import Binarize, binarize
 from pyannote.core import Annotation, Segment, SlidingWindow, SlidingWindowFeature
 from pyannote.core.utils.distance import pdist
@@ -109,7 +109,9 @@ class SpeakerDiarization(Pipeline):
 
         # hyper-parameters
 
+        # stitching
         self.warm_up = 0.05
+        self.stitch_threshold = Uniform(0.0, 1.0)
 
         # onset/offset hysteresis thresholding
         self.onset = Uniform(0.01, 0.99)
@@ -123,6 +125,15 @@ class SpeakerDiarization(Pipeline):
     @staticmethod
     def hook_default(*args, **kwargs):
         return
+
+    def stitch_match_func(
+        self, this: np.ndarray, that: np.ndarray, cost: float
+    ) -> bool:
+        return (
+            np.any(this > self.onset)
+            and np.any(that > self.onset)
+            and cost < self.stitch_threshold
+        )
 
     def apply(
         self,
@@ -182,14 +193,22 @@ class SpeakerDiarization(Pipeline):
             file[self.CACHED_SEGMENTATION] = self._segmentation(file)
 
         segmentations: SlidingWindowFeature = file[self.CACHED_SEGMENTATION]
-
-        # trim warm-up regions and stitch resulting segmentations
-        segmentations = Inference.stitch(
-            Inference.trim(segmentations, warm_up=(self.warm_up, self.warm_up)),
-            lookahead=None,  # TODO: make it an hyper-parameter?
-        )
-
         hook("@segmentation/raw", segmentations)
+
+        # trim warm-up regions
+        segmentations = Inference.trim(
+            segmentations, warm_up=(self.warm_up, self.warm_up)
+        )
+        hook("@segmentation/trim", segmentations)
+
+        # stitch segmentations
+        segmentations = Inference.stitch(
+            segmentations,
+            lookahead=None,  # TODO: make it an hyper-parameter?,
+            cost_func=mae_cost_func,
+            match_func=self.stitch_match_func,
+        )
+        hook("@segmentation/stitch", segmentations)
 
         frames = SlidingWindow(
             start=segmentations.sliding_window.start,
@@ -213,13 +232,14 @@ class SpeakerDiarization(Pipeline):
             binarized_segmentations.sliding_window,
         )
 
-        hook("@segmentation/mask", binarized_segmentations)
+        hook("@segmentation/mask", masked_segmentations)
 
         # estimate frame-level number of instantaneous speakers
         speaker_count = Inference.aggregate(
             np.sum(binarized_segmentations, axis=-1, keepdims=True),
             frames=frames,
             hamming=True,
+            missing=0.0,
         )
         speaker_count.data = np.round(speaker_count)
 
@@ -283,6 +303,11 @@ class SpeakerDiarization(Pipeline):
 
         if not hook.missing and "annotation" in file:
 
+            def oracle_cost_func(Y, y):
+                return torch.from_numpy(
+                    np.nanmean(np.abs(Y.numpy() - y.numpy()), axis=0)
+                )
+
             reference = file["annotation"].discretize(
                 support=Segment(0.0, Audio().get_duration(file)),
                 resolution=frames,
@@ -303,6 +328,7 @@ class SpeakerDiarization(Pipeline):
                 _, (permutation,) = permutate(
                     segmentation,
                     local_reference[:num_frames],
+                    cost_func=oracle_cost_func,
                 )
                 active_reference = np.any(local_reference > 0, axis=0)
                 oracle_clusters.extend(
@@ -394,7 +420,10 @@ class SpeakerDiarization(Pipeline):
             clustered_segmentations, segmentations.sliding_window
         )
         speaker_activations = Inference.aggregate(
-            clustered_segmentations, frames=frames, hamming=True
+            clustered_segmentations,
+            frames=frames,
+            hamming=True,
+            missing=0.0,
         )
 
         hook("@diarization/raw", speaker_activations)
