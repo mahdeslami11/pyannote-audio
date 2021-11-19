@@ -423,7 +423,9 @@ class Inference:
         scores : SlidingWindowFeature
             Raw (unaggregated) scores. Shape is (num_chunks, num_frames_per_chunk, num_classes).
         frames : SlidingWindow, optional
-            Frames.
+            Frames resolution. Defaults to estimate it automatically based on `scores` shape
+            and chunk size. Providing the exact frame resolution (when known) leads to better
+            temporal precision.
         warm_up : (float, float) tuple, optional
             Left/right warm up duration (in seconds).
         missing : float, optional
@@ -437,10 +439,16 @@ class Inference:
 
         num_chunks, num_frames_per_chunk, num_classes = scores.data.shape
 
+        chunks = scores.sliding_window
         if frames is None:
-            chunks = scores.sliding_window
             duration = step = chunks.duration / num_frames_per_chunk
             frames = SlidingWindow(start=chunks.start, duration=duration, step=step)
+        else:
+            frames = SlidingWindow(
+                start=chunks.start,
+                duration=frames.duration,
+                step=frames.step,
+            )
 
         masks = 1 - np.isnan(scores)
         scores.data = np.nan_to_num(scores.data, copy=True, nan=0.0)
@@ -569,6 +577,7 @@ class Inference:
     @staticmethod
     def stitch(
         activations: SlidingWindowFeature,
+        frames: SlidingWindow = None,
         lookahead: Optional[Tuple[int, int]] = None,
         cost_func: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = None,
         match_func: Callable[[np.ndarray, np.ndarray, float], bool] = None,
@@ -579,6 +588,10 @@ class Inference:
         ----------
         activations : SlidingWindowFeature
             (num_chunks, num_frames, num_classes)-shaped scores.
+        frames : SlidingWindow, optional
+            Frames resolution. Defaults to estimate it automatically based on `activations`
+            shape and chunk size. Providing the exact frame resolution (when known) leads to better
+            temporal precision.
         lookahead : (int, int) tuple
             Number of past and future adjacent chunks to use for stitching.
             Defaults to (k, k) with k = chunk_duration / chunk_step - 1
@@ -588,7 +601,20 @@ class Inference:
         match_func : callable
         """
 
+        num_chunks, num_frames, num_classes = activations.data.shape
+
         chunks: SlidingWindow = activations.sliding_window
+
+        if frames is None:
+            duration = step = chunks.duration / num_frames
+            frames = SlidingWindow(start=chunks.start, duration=duration, step=step)
+        else:
+            frames = SlidingWindow(
+                start=chunks.start,
+                duration=frames.duration,
+                step=frames.step,
+            )
+
         max_lookahead = math.floor(chunks.duration / chunks.step - 1)
         if lookahead is None:
             lookahead = 2 * (max_lookahead,)
@@ -604,8 +630,6 @@ class Inference:
                 return True
 
             match_func = always_match
-
-        num_chunks, num_frames, num_classes = activations.data.shape
 
         stitches = []
         for C, (chunk, activation) in enumerate(activations):
@@ -653,6 +677,8 @@ class Inference:
                             c, :, that
                         ]
 
+                    # TODO: do not lookahead further once a mismatch is found
+
             stitched_chunks = SlidingWindow(
                 start=chunk.start - lookahead[0] * chunks.step,
                 duration=chunks.duration,
@@ -660,7 +686,9 @@ class Inference:
             )
 
             local_stitch = Inference.aggregate(
-                SlidingWindowFeature(local_stitch, stitched_chunks), hamming=True
+                SlidingWindowFeature(local_stitch, stitched_chunks),
+                frames=frames,
+                hamming=True,
             )
 
             stitches.append(local_stitch.data)
