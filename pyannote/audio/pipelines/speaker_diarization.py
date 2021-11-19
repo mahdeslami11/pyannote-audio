@@ -204,17 +204,12 @@ class SpeakerDiarization(Pipeline):
         # stitch segmentations
         segmentations = Inference.stitch(
             segmentations,
+            frames=self._frames,
             lookahead=None,  # TODO: make it an hyper-parameter?,
             cost_func=mae_cost_func,
             match_func=self.stitch_match_func,
         )
         hook("@segmentation/stitch", segmentations)
-
-        frames = SlidingWindow(
-            start=segmentations.sliding_window.start,
-            duration=self._frames.duration,
-            step=self._frames.step,
-        )
 
         chunk_duration: float = segmentations.sliding_window.duration
 
@@ -237,7 +232,7 @@ class SpeakerDiarization(Pipeline):
         # estimate frame-level number of instantaneous speakers
         speaker_count = Inference.aggregate(
             np.sum(binarized_segmentations, axis=-1, keepdims=True),
-            frames=frames,
+            frames=self._frames,
             hamming=True,
             missing=0.0,
         )
@@ -262,6 +257,7 @@ class SpeakerDiarization(Pipeline):
 
         if np.sum(speaker_status == LONG) == 0:
             warnings.warn("Please decrease 'min_activity' threshold.")
+
             return Annotation(uri=file["uri"])
 
         # TODO: handle corner case where there is 0 or 1 LONG speaker
@@ -310,7 +306,7 @@ class SpeakerDiarization(Pipeline):
 
             reference = file["annotation"].discretize(
                 support=Segment(0.0, Audio().get_duration(file)),
-                resolution=frames,
+                resolution=self._frames,
             )
             oracle_clusters = []
 
@@ -419,9 +415,12 @@ class SpeakerDiarization(Pipeline):
         clustered_segmentations = SlidingWindowFeature(
             clustered_segmentations, segmentations.sliding_window
         )
+
+        hook("@segmentation/cluster", clustered_segmentations)
+
         speaker_activations = Inference.aggregate(
             clustered_segmentations,
-            frames=frames,
+            frames=self._frames,
             hamming=True,
             missing=0.0,
         )
@@ -437,7 +436,9 @@ class SpeakerDiarization(Pipeline):
             for i in range(count):
                 final_binarized[t, speakers[i]] = 1.0
 
-        final_binarized = SlidingWindowFeature(final_binarized, frames)
+        final_binarized = SlidingWindowFeature(
+            final_binarized, speaker_activations.sliding_window
+        )
         hook("@diarization/binary", final_binarized)
 
         diarization = Binarize()(final_binarized)
