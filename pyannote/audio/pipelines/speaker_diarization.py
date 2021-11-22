@@ -57,7 +57,7 @@ class SpeakerDiarization(Pipeline):
         `Inference` instance used to extract speaker embeddings. When `str`,
         assumes that file already contains a corresponding key with precomputed
         embeddings. Defaults to "emb".
-    clustering : {"AffinityPropagation", "DBSCAN", "OPTICS", "AgglomerativeClustering"}, optional
+    clustering : {"AgglomerativeClustering", "SpectralClustering"}, optional
         Defaults to "AgglomerativeClustering".
     expects_num_speakers : bool, optional
         Defaults to False.
@@ -104,7 +104,8 @@ class SpeakerDiarization(Pipeline):
                 f'clustering must be one of [{", ".join(list(Clustering.__members__))}]'
             )
         self.clustering = Klustering.value(
-            expects_num_clusters=self.expects_num_speakers
+            metric=self._embedding.metric,
+            expects_num_clusters=self.expects_num_speakers,
         )
 
         # hyper-parameters
@@ -266,6 +267,7 @@ class SpeakerDiarization(Pipeline):
 
         embeddings = []
 
+        # TODO: batchify this loop
         for c, ((chunk, masked_segmentation), status) in enumerate(
             zip(masked_segmentations, speaker_status)
         ):
@@ -298,6 +300,13 @@ class SpeakerDiarization(Pipeline):
         speaker_status[np.any(np.isnan(embeddings), axis=-1)] = SKIP
 
         if not hook.missing and "annotation" in file:
+
+            hook(
+                "@clustering/distance",
+                pdist(
+                    embeddings[speaker_status == LONG], metric=self._embedding.metric
+                ),
+            )
 
             def oracle_cost_func(Y, y):
                 return torch.from_numpy(
@@ -342,14 +351,6 @@ class SpeakerDiarization(Pipeline):
 
             hook("@clustering/oracle", oracle)
 
-        # __ RAW AFFINITY ______________________________________________________________
-
-        affinity = squareform(
-            1 - 0.5 * pdist(embeddings[speaker_status == LONG], metric="cosine")
-        )
-        np.fill_diagonal(affinity, 1.0)
-        hook("@clustering/affinity", affinity)
-
         # __ ACTIVE SPEAKER CLUSTERING _________________________________________________
         # clusters[chunk_id x local_num_speakers + speaker_id] = k
         # * k=-2                if speaker is inactive
@@ -365,7 +366,7 @@ class SpeakerDiarization(Pipeline):
 
         else:
             clusters[speaker_status == LONG] = self.clustering(
-                affinity, num_clusters=num_speakers
+                embeddings[speaker_status == LONG], num_clusters=num_speakers
             )
             num_clusters = np.max(clusters) + 1
 
@@ -385,7 +386,7 @@ class SpeakerDiarization(Pipeline):
         distances = cdist(
             embeddings[unassigned],
             centroids,
-            metric="cosine",
+            metric=self._embedding.metric,
         )
         clusters[unassigned] = np.argmin(distances, axis=1)
 
@@ -443,6 +444,8 @@ class SpeakerDiarization(Pipeline):
 
         diarization = Binarize()(final_binarized)
         diarization.uri = file["uri"]
+
+        # TODO: map `diarization` labels to reference labels when the latter are available.
 
         return diarization
 
