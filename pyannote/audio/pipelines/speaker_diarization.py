@@ -241,6 +241,9 @@ class SpeakerDiarization(Pipeline):
 
         hook("@segmentation/count", speaker_count)
 
+        # minimum number of speakers
+        min_speakers = round(np.max(speaker_count.data))
+
         # shape
         num_chunks, num_frames, local_num_speakers = segmentations.data.shape
 
@@ -366,7 +369,9 @@ class SpeakerDiarization(Pipeline):
 
         else:
             clusters[speaker_status == LONG] = self.clustering(
-                embeddings[speaker_status == LONG], num_clusters=num_speakers
+                embeddings[speaker_status == LONG],
+                num_clusters=num_speakers,
+                min_clusters=min_speakers,
             )
             num_clusters = np.max(clusters) + 1
 
