@@ -24,7 +24,7 @@
 
 import warnings
 from functools import partial
-from typing import Callable, Optional, Text
+from typing import Callable, Mapping, Optional, Text, Union
 
 import numpy as np
 import torch
@@ -37,7 +37,10 @@ from pyannote.audio.utils.permutation import mae_cost_func, permutate
 from pyannote.audio.utils.signal import Binarize, binarize
 from pyannote.core import Annotation, Segment, SlidingWindow, SlidingWindowFeature
 from pyannote.core.utils.distance import pdist
-from pyannote.metrics.diarization import GreedyDiarizationErrorRate
+from pyannote.metrics.diarization import (
+    DiarizationErrorRate,
+    GreedyDiarizationErrorRate,
+)
 from pyannote.pipeline.parameter import Uniform
 
 from .clustering import Clustering
@@ -332,6 +335,7 @@ class SpeakerDiarization(Pipeline):
 
                 segmentation = segmentation[np.newaxis, :, speaker_status[c] == LONG]
 
+                # FIXME: local_reference is too short when chunk.start < 0 or chunk.end > duration
                 local_reference = reference.crop(chunk)
                 _, (permutation,) = permutate(
                     segmentation,
@@ -450,9 +454,37 @@ class SpeakerDiarization(Pipeline):
         diarization = Binarize()(final_binarized)
         diarization.uri = file["uri"]
 
-        # TODO: map `diarization` labels to reference labels when the latter are available.
-
         return diarization
+
+    @staticmethod
+    def optimal_mapping(
+        reference: Union[Mapping, Annotation], hypothesis: Annotation
+    ) -> Annotation:
+        """Find the optimal bijective mapping
+
+        Parameters
+        ----------
+        reference : Annotation or Mapping
+            Reference annotation. Can be an Annotation instance or
+            a mapping with an "annotation" key.
+        hypothesis : Annotation
+
+        Returns
+        -------
+        mapped : Annotation
+            Hypothesis mapped to reference speakers.
+
+        """
+        if isinstance(reference, Mapping):
+            reference = reference["annotation"]
+            annotated = reference["annotated"] if "annotated" in reference else None
+        else:
+            annotated = None
+
+        mapping = DiarizationErrorRate().optimal_mapping(
+            reference, hypothesis, uem=annotated
+        )
+        return hypothesis.rename_labels(mapping=mapping)
 
     def get_metric(self) -> GreedyDiarizationErrorRate:
         return GreedyDiarizationErrorRate(collar=0.0, skip_overlap=False)
