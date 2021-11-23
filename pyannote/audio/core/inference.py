@@ -20,6 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import itertools
 import math
 import warnings
 from pathlib import Path
@@ -632,15 +633,35 @@ class Inference:
             match_func = always_match
 
         stitches = []
+
+        lookahead_indices = list(
+            itertools.chain(
+                range(-1, -1 - lookahead[0], -1), [0], range(1, lookahead[1] + 1)
+            )
+        )
+        # example with lookahead = (4, 2) -- 4 chunks in the past, 2 in the future:
+        # lookahead_indices = [-4, -3, -2, -1, 0, 1, 2]
+
         for C, (chunk, activation) in enumerate(activations):
 
             local_stitch = np.NAN * np.zeros(
                 (sum(lookahead) + 1, num_frames, num_classes)
             )
 
-            for c in range(
-                max(0, C - lookahead[0]), min(num_chunks, C + lookahead[1] + 1)
-            ):
+            # reset matching flag for new chunk
+            matching = True
+
+            for k in lookahead_indices:
+                c = C + k
+
+                if c < 0:
+                    continue
+                if c >= num_chunks:
+                    break
+
+                # reset matching flag for positive lookahead
+                if c == C:
+                    matching = True
 
                 # extract common temporal support
                 shift = round((C - c) * num_frames * chunks.step / chunks.duration)
@@ -664,20 +685,17 @@ class Inference:
                 for this, that in enumerate(permutation):
 
                     # only stitch under certain condiditions
-                    matching = (c == C) or (
-                        match_func(
-                            this_activations[:, this],
-                            that_activations[:, that],
-                            cost[this, that],
-                        )
+                    matching &= (C == c) or match_func(
+                        this_activations[:, this],
+                        that_activations[:, that],
+                        cost[this, that],
                     )
+                    # "&=" is here to prevent further lookahead once a mismatch is found
 
                     if matching:
                         local_stitch[c - C + lookahead[0], :, this] = activations[
                             c, :, that
                         ]
-
-                    # TODO: do not lookahead further once a mismatch is found
 
             stitched_chunks = SlidingWindow(
                 start=chunk.start - lookahead[0] * chunks.step,
