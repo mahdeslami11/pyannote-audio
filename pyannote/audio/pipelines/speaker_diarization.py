@@ -246,7 +246,9 @@ class SpeakerDiarization(Pipeline):
         hook("@segmentation/count", speaker_count)
 
         # minimum number of speakers
-        min_speakers = round(np.max(speaker_count.data))
+        # min_speakers = round(np.max(speaker_count.data))
+        # FIXME: corner case in clustering of two elements and min_speakers == 2
+        min_speakers = 1
 
         # shape
         num_chunks, num_frames, local_num_speakers = segmentations.data.shape
