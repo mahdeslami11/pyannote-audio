@@ -133,11 +133,12 @@ class SpeakerDiarization(Pipeline):
     def stitch_match_func(
         self, this: np.ndarray, that: np.ndarray, cost: float
     ) -> bool:
-        return (
-            np.any(this > self.onset)
-            and np.any(that > self.onset)
-            and cost < self.stitch_threshold
-        )
+        # return (
+        #     np.any(this > self.onset)
+        #     and np.any(that > self.onset)
+        #     and cost < self.stitch_threshold
+        # )
+        return cost < self.stitch_threshold
 
     def apply(
         self,
