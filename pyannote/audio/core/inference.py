@@ -20,11 +20,13 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import itertools
 import math
 import warnings
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Text, Tuple, Union
 
+import networkx as nx
 import numpy as np
 import torch
 from einops import rearrange
@@ -632,11 +634,9 @@ class Inference:
             match_func = always_match
 
         stitches = []
-        for C, (chunk, activation) in enumerate(activations):
+        stitching_graph = nx.Graph()
 
-            local_stitch = np.NAN * np.zeros(
-                (sum(lookahead) + 1, num_frames, num_classes)
-            )
+        for C, (chunk, activation) in enumerate(activations):
 
             for c in range(
                 max(0, C - lookahead[0]), min(num_chunks, C + lookahead[1] + 1)
@@ -664,20 +664,44 @@ class Inference:
                 for this, that in enumerate(permutation):
 
                     # only stitch under certain condiditions
-                    matching = (c == C) or (
-                        match_func(
-                            this_activations[:, this],
-                            that_activations[:, that],
-                            cost[this, that],
-                        )
+                    matching = match_func(
+                        this_activations[:, this],
+                        that_activations[:, that],
+                        cost[this, that],
                     )
 
-                    if matching:
-                        local_stitch[c - C + lookahead[0], :, this] = activations[
-                            c, :, that
-                        ]
+                    if matching or (c == C):
+                        stitching_graph.add_edge(
+                            (C, this), (c, that), cost=cost[this, that]
+                        )
 
-                    # TODO: do not lookahead further once a mismatch is found
+        for C in range(num_chunks):
+
+            local_stitch = np.NAN * np.zeros(
+                (sum(lookahead) + 1, num_frames, num_classes)
+            )
+
+            for this in range(num_classes):
+                cliques = nx.cliques_containing_node(stitching_graph, nodes=(C, this))
+                past_clique = max(
+                    [
+                        [(c, that) for (c, that) in clique if c <= C]
+                        for clique in cliques
+                    ],
+                    key=len,
+                )
+                future_clique = max(
+                    [
+                        [(c, that) for (c, that) in clique if c >= C]
+                        for clique in cliques
+                    ],
+                    key=len,
+                )
+
+                for c, that in itertools.chain(past_clique, future_clique):
+                    local_stitch[c - C + lookahead[0], :, this] = activations[
+                        c, :, that
+                    ]
 
             stitched_chunks = SlidingWindow(
                 start=chunk.start - lookahead[0] * chunks.step,
