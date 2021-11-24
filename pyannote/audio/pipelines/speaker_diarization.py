@@ -433,6 +433,7 @@ class SpeakerDiarization(Pipeline):
             frames=self._frames,
             hamming=True,
             missing=0.0,
+            skip_average=True,
         )
 
         hook("@diarization/raw", speaker_activations)

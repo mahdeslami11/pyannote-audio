@@ -415,6 +415,7 @@ class Inference:
         epsilon: float = 1e-12,
         hamming: bool = False,
         missing: float = np.NaN,
+        skip_average: bool = False,
     ) -> SlidingWindowFeature:
         """Aggregation
 
@@ -430,6 +431,8 @@ class Inference:
             Left/right warm up duration (in seconds).
         missing : float, optional
             Value used to replace missing (ie all NaNs) values.
+        skip_average : bool, optional
+            Skip final averaging step.
 
         Returns
         -------
