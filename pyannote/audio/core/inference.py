@@ -527,7 +527,10 @@ class Inference:
                 mask,
             )
 
-        average = aggregated_output / np.maximum(overlapping_chunk_count, epsilon)
+        if skip_average:
+            average = aggregated_output
+        else:
+            average = aggregated_output / np.maximum(overlapping_chunk_count, epsilon)
 
         average[aggregated_mask == 0.0] = missing
 
