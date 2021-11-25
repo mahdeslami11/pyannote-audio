@@ -22,7 +22,6 @@
 
 """Clustering pipelines"""
 
-
 from enum import Enum
 
 import numpy as np
@@ -34,6 +33,86 @@ from pyannote.core.utils.distance import pdist
 from pyannote.core.utils.hierarchy import linkage
 from pyannote.pipeline import Pipeline
 from pyannote.pipeline.parameter import Categorical, Uniform
+
+
+class ConstrainedAgglomerativeClustering(Pipeline):
+    """Constrained  agglomerative clustering
+
+    Parameters
+    ----------
+    metric : {"cosine", "euclidean", ...}, optional
+        Distance metric to use. Defaults to "cosine".
+    expects_num_clusters : bool, optional
+        Whether the number of clusters should be provided.
+        Defaults to False.
+
+    Hyper-parameters
+    ----------------
+    threshold : float in range [0.0, 2.0]
+    centroid_threshold : float in range [0.0, 2.0]
+
+    Notes
+    -----
+    Embeddings are expected to be unit-normalized
+
+    """
+
+    def __init__(self, metric: str = "cosine", expects_num_clusters: bool = False):
+        super().__init__()
+
+        self.metric = metric
+        if expects_num_clusters:
+            raise ValueError()
+
+        self.threshold = Uniform(0.0, 2.0)
+        self.centroid_threshold = Uniform(0.0, 2.0)
+
+    def __call__(
+        self,
+        embeddings: np.ndarray,
+        num_clusters: int = None,  # not (yet) supported
+        min_clusters: int = None,  # not (yet) supported
+        max_clusters: int = None,  # not (yet) supported
+        constraints: np.ndarray = None,
+    ) -> np.ndarray:
+
+        num_embeddings, _ = embeddings.shape
+
+        min_clusters = max(1, num_clusters or min_clusters or 1)
+        max_clusters = min(
+            num_embeddings, num_clusters or max_clusters or num_embeddings
+        )
+
+        if constraints is None:
+            constraints = np.zeros((num_embeddings, num_embeddings))
+
+        # step 1: cluster embeddings with constraints
+        dendrogram: np.ndarray = linkage(
+            embeddings,
+            method="pool",
+            metric=self.metric,
+            cannot_link=list(zip(*np.where(constraints < 0.0))),
+            must_link=list(zip(*np.where(constraints > 0.0))),
+        )
+
+        threshold = self.threshold
+        clusters = fcluster(dendrogram, threshold, criterion="distance") - 1
+
+        num_centroids = np.max(clusters) + 1
+        if num_centroids == 1:
+            return clusters
+
+        # step 2: cluster centroids without constraints
+        centroids = np.vstack(
+            [np.mean(embeddings[clusters == k], axis=0) for k in range(num_centroids)]
+        )
+        centroid_dendrogram = linkage(centroids, method="average", metric=self.metric)
+        centroid_threshold = self.centroid_threshold
+        centroid_clusters = (
+            fcluster(centroid_dendrogram, centroid_threshold, criterion="distance") - 1
+        )
+
+        return centroid_clusters[clusters]
 
 
 class AgglomerativeClustering(Pipeline):
@@ -78,6 +157,7 @@ class AgglomerativeClustering(Pipeline):
         num_clusters: int = None,
         min_clusters: int = None,
         max_clusters: int = None,
+        constraints: np.ndarray = None,  # not supported
     ) -> np.ndarray:
         """Apply agglomerative clustering
 
@@ -177,6 +257,7 @@ class SpectralClustering(Pipeline):
         num_clusters: int = None,
         min_clusters: int = None,
         max_clusters: int = None,
+        constraints: np.ndarray = None,  # not (yet) supported
     ) -> np.ndarray:
         """Apply spectral clustering
 
@@ -223,4 +304,5 @@ class SpectralClustering(Pipeline):
 
 class Clustering(Enum):
     AgglomerativeClustering = AgglomerativeClustering
+    ConstrainedAgglomerativeClustering = ConstrainedAgglomerativeClustering
     SpectralClustering = SpectralClustering
