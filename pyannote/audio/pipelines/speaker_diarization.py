@@ -28,6 +28,7 @@ from typing import Callable, Mapping, Optional, Text, Union
 
 import numpy as np
 import torch
+from einops import rearrange
 from scipy.spatial.distance import cdist, squareform
 
 from pyannote.audio import Audio, Inference, Model, Pipeline
@@ -247,6 +248,14 @@ class SpeakerDiarization(Pipeline):
         # shape
         num_chunks, num_frames, local_num_speakers = segmentations.data.shape
 
+        # mark same-chunk speakers as "cannot-link" constraints
+        chunk_idx = np.broadcast_to(
+            np.arange(num_chunks), (local_num_speakers, num_chunks)
+        )
+        constraints = squareform(
+            -1.0 * pdist(rearrange(chunk_idx, "s c -> (c s)"), metric="equal")
+        )
+
         # __ SPEAKER STATUS ____________________________________________________________
 
         SKIP = 0  # SKIP this speaker because it is never active in current chunk
@@ -261,7 +270,6 @@ class SpeakerDiarization(Pipeline):
 
         if np.sum(speaker_status == LONG) == 0:
             warnings.warn("Please decrease 'min_activity' threshold.")
-
             return Annotation(uri=file["uri"])
 
         # TODO: handle corner case where there is 0 or 1 LONG speaker
@@ -301,15 +309,9 @@ class SpeakerDiarization(Pipeline):
 
         # skip speakers for which embedding extraction failed for some reason
         speaker_status[np.any(np.isnan(embeddings), axis=-1)] = SKIP
+        flatten_speaker_status = rearrange(speaker_status, "c s -> (c s)")
 
         if not hook.missing and "annotation" in file:
-
-            hook(
-                "@clustering/distance",
-                pdist(
-                    embeddings[speaker_status == LONG], metric=self._embedding.metric
-                ),
-            )
 
             def oracle_cost_func(Y, y):
                 return torch.from_numpy(
@@ -372,6 +374,9 @@ class SpeakerDiarization(Pipeline):
             clusters[speaker_status == LONG] = self.clustering(
                 embeddings[speaker_status == LONG],
                 num_clusters=num_speakers,
+                constraints=constraints[flatten_speaker_status == LONG][
+                    :, flatten_speaker_status == LONG
+                ],
             )
             num_clusters = np.max(clusters) + 1
 
@@ -379,6 +384,20 @@ class SpeakerDiarization(Pipeline):
             if num_clusters == 0:
                 clusters[speaker_status == LONG] = 0
                 num_clusters = 1
+
+        hook(
+            "@clustering/distance",
+            squareform(
+                pdist(embeddings[speaker_status == LONG], metric=self._embedding.metric)
+            ),
+        )
+
+        hook(
+            "@clustering/constraints",
+            constraints[flatten_speaker_status == LONG][
+                :, flatten_speaker_status == LONG
+            ],
+        )
 
         hook("@clustering/clusters", clusters)
 
