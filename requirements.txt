@@ -9,6 +9,7 @@ pyannote.metrics >=3.1,<4.0
 pyannote.pipeline >=2.2,<3.0
 pytorch_lightning >=1.5.4,<1.6
 pytorch_metric_learning >=1.0.0,<2.0
+scikit-learn >=1.0.1,<2.0
 semver >=2.10.2,<3.0
 soundfile >=0.10.2,<0.11
 spectralcluster >= 0.2.4,<0.3
