@@ -61,7 +61,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         `Inference` instance used to extract speaker embeddings. When `str`,
         assumes that file already contains a corresponding key with precomputed
         embeddings. Defaults to "emb".
-    clustering : {"AgglomerativeClustering", "SpectralClustering"}, optional
+    clustering : {"AgglomerativeClustering", "SpectralClustering", "VariationalBayesianGaussianClustering"}, optional
         Defaults to "AgglomerativeClustering".
     expects_num_speakers : bool, optional
         Defaults to False.

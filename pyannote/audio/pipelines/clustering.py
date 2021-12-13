@@ -22,12 +22,12 @@
 
 """Clustering pipelines"""
 
-
 from enum import Enum
 
 import numpy as np
 from scipy.cluster.hierarchy import fcluster
 from scipy.spatial.distance import squareform
+from sklearn.mixture import BayesianGaussianMixture, GaussianMixture
 from spectralcluster import EigenGapType, LaplacianType, SpectralClusterer
 
 from pyannote.core.utils.distance import pdist
@@ -166,6 +166,122 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
         return fcluster(dendrogram, threshold, criterion="distance") - 1
 
 
+class VariationalBayesianGaussianClustering(ClusteringMixin, Pipeline):
+    """Variational Bayesian Gaussian Mixture
+
+    Parameters
+    ----------
+    metric : {"cosine", "euclidean", ...}, optional
+        Distance metric to use. Defaults to "cosine".
+    expects_num_clusters : bool, optional
+        Whether the number of clusters should be provided.
+        Defaults to False.
+
+    Hyper-parameters
+    ----------------
+    weight_concentration_prior: float in range [0.0, 1.0]
+
+    Notes
+    -----
+    Embeddings are expected to be unit-normalized.
+    """
+
+    def __init__(self, metric: str = "cosine", expects_num_clusters: bool = False):
+        super().__init__()
+
+        self.metric = metric
+
+        self.expects_num_clusters = expects_num_clusters
+        if not self.expects_num_clusters:
+            self.weight_concentration_prior_type = "dirichlet_distribution"
+            # self.weight_concentration_prior_type = Categorical(["dirichlet_process", "dirichlet_distribution"])
+
+            self.weight_concentration_prior = Uniform(0.0, 1.0)
+
+        self.covariance_type = "full"
+        # self.covariance_type = Categorical(["full", "tied", "diag", "spherical"])
+
+    def __call__(
+        self,
+        embeddings: np.ndarray,
+        num_clusters: int = None,
+        min_clusters: int = None,
+        max_clusters: int = None,
+    ) -> np.ndarray:
+        """Apply agglomerative clustering
+
+        Parameters
+        ----------
+        embeddings : (num_embeddings, dimension) np.ndarray
+        num_clusters : int, optional
+            Number of clusters, when known. Default behavior is to use
+            internal threshold hyper-parameter to decide on the number
+            of clusters.
+        min_clusters : int, optional
+            Minimum number of clusters. Defaults to 1.
+            Has no effect when `num_clusters` is provided.
+        max_clusters : int, optional
+            Maximum number of clusters. Defaults to `num_embeddings`.
+            Has no effect when `num_clusters` is provided.
+
+        Returns
+        -------
+        clusters : (num_embeddings, ) np.ndarray
+        """
+
+        num_embeddings, _ = embeddings.shape
+        num_clusters, min_clusters, max_clusters = self.set_num_clusters(
+            num_embeddings,
+            num_clusters=num_clusters,
+            min_clusters=min_clusters,
+            max_clusters=max_clusters,
+        )
+
+        if num_clusters is None:
+
+            n_components = max_clusters or max(20, min_clusters or 20)
+
+            gmm = BayesianGaussianMixture(
+                n_components=n_components,
+                covariance_type=self.covariance_type,
+                tol=0.001,
+                reg_covar=1e-06,
+                max_iter=100,
+                n_init=1,
+                init_params="kmeans",
+                weight_concentration_prior_type="dirichlet_process",
+                weight_concentration_prior=self.weight_concentration_prior,
+                mean_precision_prior=None,
+                mean_prior=None,
+                degrees_of_freedom_prior=None,
+                covariance_prior=None,
+                random_state=1337,
+                warm_start=False,
+                verbose=0,
+                verbose_interval=10,
+            )
+
+        else:
+            gmm = GaussianMixture(
+                n_components=num_clusters,
+                covariance_type=self.covariance_type,
+                tol=0.001,
+                reg_covar=1e-06,
+                max_iter=100,
+                n_init=1,
+                init_params="kmeans",
+                weights_init=None,
+                means_init=None,
+                precisions_init=None,
+                random_state=1337,
+                warm_start=False,
+                verbose=0,
+                verbose_interval=10,
+            )
+
+        return gmm.fit_predict(embeddings)
+
+
 class SpectralClustering(ClusteringMixin, Pipeline):
     """Spectral clustering
 
@@ -249,4 +365,5 @@ class SpectralClustering(ClusteringMixin, Pipeline):
 
 class Clustering(Enum):
     AgglomerativeClustering = AgglomerativeClustering
+    VariationalBayesianGaussianClustering = VariationalBayesianGaussianClustering
     SpectralClustering = SpectralClustering
