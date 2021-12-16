@@ -76,6 +76,13 @@ class SpeechBrainPretrainedSpeakerEmbedding:
         embedding: Text = "speechbrain/spkrec-ecapa-voxceleb",
         device: torch.device = None,
     ):
+
+        if not SPEECHBRAIN_IS_AVAILABLE:
+            raise ImportError(
+                f"'speechbrain' must be installed to use '{embedding}' embeddings. "
+                "Visit https://speechbrain.github.io for installation instructions."
+            )
+
         super().__init__()
         self.embedding = embedding
         self.device = device
