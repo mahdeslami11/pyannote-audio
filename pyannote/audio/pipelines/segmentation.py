@@ -327,7 +327,12 @@ class SpeakerSegmentation(SpeakerDiarizationMixin, Pipeline):
 
         diarization.uri = file["uri"]
 
-        return diarization
+        return diarization.rename_labels(
+            {
+                label: expected_label
+                for label, expected_label in zip(diarization.labels(), self.classes())
+            }
+        )
 
     def get_metric(self):
 
