@@ -130,7 +130,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         # minimum duration of clean speech to extract good enough speaker embedding
         duration = self.speaker_segmentation._segmentation.duration
-        self.clean_embedding_min_duration = Uniform(0.5, duration)
+        self.clean_embedding_min_duration = Uniform(
+            self._embedding_min_duration, duration
+        )
 
         # hyper-parameters used for post-processing i.e. removing short speech turns
         # or filling short gaps between speech turns of one speaker
