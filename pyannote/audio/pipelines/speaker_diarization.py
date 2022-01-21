@@ -24,9 +24,11 @@
 
 import warnings
 from typing import Callable, Optional, Text
+from enum import IntEnum
 
 import numpy as np
 import torch
+from scipy.spatial.distance import cdist
 
 from pyannote.audio import Audio, Pipeline
 from pyannote.audio.core.io import AudioFile
@@ -42,6 +44,20 @@ from pyannote.pipeline.parameter import Uniform
 from .segmentation import SpeakerSegmentation
 from .clustering import Clustering
 from .speaker_verification import PretrainedSpeakerEmbedding
+
+
+class SpeakerStatus(IntEnum):
+
+    # speaker speaks too little to extract embeddings
+    LITTLE_SPEECH = 0
+
+    # speaker speaks sufficiently to extract embeddings
+    # but their embedding may be noisy due to overlap
+    NOISY_SPEECH = 1
+
+    # speaker speaks sufficiently to extract embeddings
+    # from clean (i.e. single-speaker) speech
+    CLEAN_SPEECH = 2
 
 
 class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
@@ -107,6 +123,10 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             expects_num_clusters=self.expects_num_speakers,
         )
 
+        # minimum duration of speech to extract speaker embedding
+        duration = self.speaker_segmentation._segmentation.duration
+        self.min_embedding_duration = Uniform(0.5, duration)
+
         # hyper-parameters used for post-processing i.e. removing short speech turns
         # or filling short gaps between speech turns of one speaker
         self.min_duration_on = Uniform(0.0, 1.0)
@@ -171,58 +191,112 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
                     "This pipeline expects the number of speakers (num_speakers) to be given."
                 )
 
-        # speaker segmentation
-        segmentation: SlidingWindow = self.speaker_segmentation(file)
+        # raw speaker segmentation (including overlapping speech)
+        noisy_segmentation: SlidingWindow = self.speaker_segmentation(file)
+        _, num_segmented_speakers = noisy_segmentation.data.shape
 
-        # mask overlapping speech regions
-        mask = SlidingWindowFeature(
-            segmentation.data
-            * (np.sum(segmentation.data, axis=-1, keepdims=True) == 1.0),
-            segmentation.sliding_window,
+        # speaker segmentation where overlapping frames are zero'ed out
+        clean_segmentation = SlidingWindowFeature(
+            noisy_segmentation.data
+            * (np.sum(noisy_segmentation.data, axis=-1, keepdims=True) == 1.0),
+            noisy_segmentation.sliding_window,
         )
 
-        # extract one embedding per segmented speaker
-        embeddings = []
-        for s, active in enumerate(mask.data.T):
+        # categorize segmented speakers based on the amount of (non-overlapping) speech:
+        status = np.full(
+            (num_segmented_speakers), SpeakerStatus.LITTLE_SPEECH, dtype=np.int
+        )
+        status[
+            np.sum(noisy_segmentation.data, axis=0) * self._frames.step
+            > self.min_embedding_duration
+        ] = SpeakerStatus.NOISY_SPEECH
+        status[
+            np.sum(clean_segmentation.data, axis=0) * self._frames.step
+            > self.min_embedding_duration
+        ] = SpeakerStatus.CLEAN_SPEECH
+
+        # extract one embedding per speaker (unless they speak too little)
+        clean_embeddings, noisy_embeddings = [], []
+
+        for s, (clean_mask, noisy_mask) in enumerate(
+            zip(clean_segmentation.data.T, noisy_segmentation.data.T,)
+        ):
+
+            if status[s] == SpeakerStatus.LITTLE_SPEECH:
+                continue
+            elif status[s] == SpeakerStatus.CLEAN_SPEECH:
+                mask = clean_mask
+                embeddings = clean_embeddings
+            elif status[s] == SpeakerStatus.NOISY_SPEECH:
+                mask = noisy_mask
+                embeddings = noisy_embeddings
 
             # compute speaker temporal support
-            first_active_frame, last_active_frame = np.nonzero(active)[0][[0, -1]]
-            active_support = Segment(
-                self._frames[first_active_frame].start,
-                self._frames[last_active_frame].end,
+            first_frame, last_frame = np.nonzero(mask)[0][[0, -1]]
+            support = Segment(
+                self._frames[first_frame].start, self._frames[last_frame].end,
             )
 
-            # TODO. infer cannot-link constraints by intersecting speaker support
-
-            # read waveform and mask
-            speaker_waveform: torch.Tensor = Audio().crop(
-                file, active_support, mode="pad"
-            )[0][None]
-            speaker_mask: torch.Tensor = torch.from_numpy(
-                active[first_active_frame : last_active_frame + 1]
+            # extract waveform and binary mask
+            waveform: torch.Tensor = Audio().crop(file, support, mode="pad")[0][None]
+            mask: torch.Tensor = torch.from_numpy(
+                mask[first_frame : last_frame + 1]
             ).float()[None]
 
             # compute embedding
-            embeddings.append(self._embedding(speaker_waveform, masks=speaker_mask))
+            embeddings.append(self._embedding(waveform, masks=mask))
 
-        # perform clustering
-        clusters = self.clustering(
-            np.vstack(embeddings),
+        # convert from list of (1, dimension) arrays to (num_speaker, dimension) array
+        clean_embeddings = np.vstack(clean_embeddings)
+        noisy_embeddings = np.vstack(noisy_embeddings)
+
+        # TODO. infer cannot-link constraints by intersecting speaker support
+
+        # cluster clean embeddings
+        clusters = np.full((num_segmented_speakers), -1, dtype=np.int)
+        # TODO: take cannot link constraint into account
+
+        clusters[status == SpeakerStatus.CLEAN_SPEECH] = self.clustering(
+            clean_embeddings,
             num_clusters=num_speakers,
             min_clusters=min_speakers,
             max_clusters=max_speakers,
         )
+        num_clusters = np.max(clusters) + 1
+
+        # assign noisy embeddings to most similar cluster
+        distance = cdist(
+            clean_embeddings, noisy_embeddings, metric=self._embedding.metric
+        )
+        distance = np.vstack(
+            [
+                np.mean(
+                    distance[clusters[status == SpeakerStatus.CLEAN_SPEECH] == k, :],
+                    axis=0,
+                )
+                for k in range(num_clusters)
+            ]
+        )
+        clusters[status == SpeakerStatus.NOISY_SPEECH] = np.argmin(distance, axis=0)
+        # TODO: take cannot link constraint into account
+        # (e.g. by artificially increasing distance to cluster)
+
+        # assign speakers with missing embeddings to an arbitrary cluster
+        # TODO: we can do better...
+        clusters[status == SpeakerStatus.LITTLE_SPEECH] = -1
 
         # build discrete diarization
-        num_clusters = np.max(clusters) + 1
-        num_frames, _ = segmentation.data.shape
-        discrete_diarization = np.zeros((num_frames, num_clusters))
+        num_frames, _ = noisy_segmentation.data.shape
+        discrete_diarization = np.zeros((num_frames, num_clusters + 1))
         for k in range(num_clusters):
             discrete_diarization[:, k] = np.sum(
-                segmentation.data[:, clusters == k], axis=1
+                noisy_segmentation.data[:, clusters == k], axis=1
             )
+        discrete_diarization[:, -1] = np.sum(
+            noisy_segmentation.data[:, clusters == -1], axis=1
+        )
         discrete_diarization = SlidingWindowFeature(
-            discrete_diarization, segmentation.sliding_window
+            discrete_diarization, noisy_segmentation.sliding_window
         )
 
         # convert to continuous diarization
