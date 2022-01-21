@@ -112,6 +112,11 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         self._audio = Audio(sample_rate=self._embedding.sample_rate, mono=True)
 
+        # minimum duration below which speaker embedding extraction will fail
+        self._embedding_min_duration = (
+            self._embedding.min_num_samples + 1
+        ) / self._embedding.sample_rate
+
         try:
             Klustering = Clustering[clustering]
         except KeyError:
@@ -123,9 +128,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             expects_num_clusters=self.expects_num_speakers,
         )
 
-        # minimum duration of speech to extract speaker embedding
+        # minimum duration of clean speech to extract good enough speaker embedding
         duration = self.speaker_segmentation._segmentation.duration
-        self.min_embedding_duration = Uniform(0.5, duration)
+        self.clean_embedding_min_duration = Uniform(0.5, duration)
 
         # hyper-parameters used for post-processing i.e. removing short speech turns
         # or filling short gaps between speech turns of one speaker
@@ -208,11 +213,11 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         )
         status[
             np.sum(noisy_segmentation.data, axis=0) * self._frames.step
-            > self.min_embedding_duration
+            > self._embedding_min_duration
         ] = SpeakerStatus.NOISY_SPEECH
         status[
             np.sum(clean_segmentation.data, axis=0) * self._frames.step
-            > self.min_embedding_duration
+            > self.clean_embedding_min_duration
         ] = SpeakerStatus.CLEAN_SPEECH
 
         # extract one embedding per speaker (unless they speak too little)
