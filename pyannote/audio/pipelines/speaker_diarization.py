@@ -247,8 +247,12 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             embeddings.append(self._embedding(waveform, masks=mask))
 
         # convert from list of (1, dimension) arrays to (num_speaker, dimension) array
-        clean_embeddings = np.vstack(clean_embeddings)
-        noisy_embeddings = np.vstack(noisy_embeddings)
+        num_clean_embeddings = len(clean_embeddings)
+        if num_clean_embeddings > 0:
+            clean_embeddings = np.vstack(clean_embeddings)
+        num_noisy_embeddings = len(noisy_embeddings)
+        if num_noisy_embeddings > 0:
+            noisy_embeddings = np.vstack(noisy_embeddings)
 
         # TODO. infer cannot-link constraints by intersecting speaker support
 
@@ -256,30 +260,40 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         clusters = np.full((num_segmented_speakers), -1, dtype=np.int)
         # TODO: take cannot link constraint into account
 
-        clusters[status == SpeakerStatus.CLEAN_SPEECH] = self.clustering(
-            clean_embeddings,
-            num_clusters=num_speakers,
-            min_clusters=min_speakers,
-            max_clusters=max_speakers,
-        )
-        num_clusters = np.max(clusters) + 1
+        if num_clean_embeddings < 2:
+            clusters[status == SpeakerStatus.CLEAN_SPEECH] = 0
+            clusters[status == SpeakerStatus.NOISY_SPEECH] = 0
+            num_clusters = 1
+        else:
+            clusters[status == SpeakerStatus.CLEAN_SPEECH] = self.clustering(
+                clean_embeddings,
+                num_clusters=num_speakers,
+                min_clusters=min_speakers,
+                max_clusters=max_speakers,
+            )
+            num_clusters = np.max(clusters) + 1
 
-        # assign noisy embeddings to most similar cluster
-        distance = cdist(
-            clean_embeddings, noisy_embeddings, metric=self._embedding.metric
-        )
-        distance = np.vstack(
-            [
-                np.mean(
-                    distance[clusters[status == SpeakerStatus.CLEAN_SPEECH] == k, :],
-                    axis=0,
+            # assign noisy embeddings to most similar cluster
+            if num_noisy_embeddings > 0:
+                distance = cdist(
+                    clean_embeddings, noisy_embeddings, metric=self._embedding.metric
                 )
-                for k in range(num_clusters)
-            ]
-        )
-        clusters[status == SpeakerStatus.NOISY_SPEECH] = np.argmin(distance, axis=0)
-        # TODO: take cannot link constraint into account
-        # (e.g. by artificially increasing distance to cluster)
+                distance = np.vstack(
+                    [
+                        np.mean(
+                            distance[
+                                clusters[status == SpeakerStatus.CLEAN_SPEECH] == k, :
+                            ],
+                            axis=0,
+                        )
+                        for k in range(num_clusters)
+                    ]
+                )
+                clusters[status == SpeakerStatus.NOISY_SPEECH] = np.argmin(
+                    distance, axis=0
+                )
+                # TODO: take cannot link constraint into account
+                # (e.g. by artificially increasing distance to cluster)
 
         # assign speakers with missing embeddings to an arbitrary cluster
         # TODO: we can do better...
