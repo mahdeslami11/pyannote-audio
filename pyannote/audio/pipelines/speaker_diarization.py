@@ -42,7 +42,7 @@ from pyannote.metrics.diarization import GreedyDiarizationErrorRate
 from pyannote.pipeline.parameter import Uniform
 
 from .segmentation import SpeakerSegmentation
-from .clustering import Clustering
+from .clustering import Clustering, NearestClusterAssignment
 from .speaker_verification import PretrainedSpeakerEmbedding
 
 
@@ -127,6 +127,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             metric=self._embedding.metric,
             expects_num_clusters=self.expects_num_speakers,
         )
+        self.nearest_cluster_assignment = NearestClusterAssignment(
+            metric=self._embedding.metric, allow_reassignment=True
+        )
 
         # minimum duration of clean speech to extract good enough speaker embedding
         duration = self.speaker_segmentation._segmentation.duration
@@ -174,8 +177,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         hook = self.setup_hook(file, hook=hook)
 
-        # __ HANDLE EXPECTED NUMBER OF SPEAKERS ________________________________________
-
+        # validate provided num/min/max speakers
         num_speakers, min_speakers, max_speakers = self.set_num_speakers(
             num_speakers=num_speakers,
             min_speakers=min_speakers,
@@ -224,6 +226,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         # extract one embedding per speaker (unless they speak too little)
         clean_embeddings, noisy_embeddings = [], []
+        speaker_support = Annotation(uri=file["uri"])
 
         for s, (clean_mask, noisy_mask) in enumerate(
             zip(clean_segmentation.data.T, noisy_segmentation.data.T,)
@@ -243,6 +246,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             support = Segment(
                 self._frames[first_frame].start, self._frames[last_frame].end,
             )
+            speaker_support[support, s] = s
 
             # extract waveform and binary mask
             waveform: torch.Tensor = Audio().crop(file, support, mode="pad")[0][None]
@@ -253,6 +257,13 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             # compute embedding
             embeddings.append(self._embedding(waveform, masks=mask))
 
+        # infer cannot link constraints from overlapping speaker support
+        cannot_link = np.full(
+            (num_segmented_speakers, num_segmented_speakers), 0, dtype=np.int
+        )
+        for (_, s), (_, t) in speaker_support.co_iter(speaker_support):
+            cannot_link[s, t] = s != t
+
         # convert from list of (1, dimension) arrays to (num_speaker, dimension) array
         num_clean_embeddings = len(clean_embeddings)
         if num_clean_embeddings > 0:
@@ -261,11 +272,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         if num_noisy_embeddings > 0:
             noisy_embeddings = np.vstack(noisy_embeddings)
 
-        # TODO. infer cannot-link constraints by intersecting speaker support
-
-        # cluster clean embeddings
         clusters = np.full((num_segmented_speakers), -1, dtype=np.int)
-        # TODO: take cannot link constraint into account
 
         # cluster clean embeddings
         if num_clean_embeddings < 2:
@@ -283,49 +290,16 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
             num_clusters = np.max(clusters) + 1
 
-        # assign remaining embeddings to most similar cluster
-
-        distance_to_cluster = np.full((num_segmented_speakers, num_clusters), np.inf)
-
-        # artificially set distance to cluster to 0.0 for clean embeddings
-        for s, k in enumerate(clusters):
-            if k < 0:
-                continue
-            distance_to_cluster[s, k] = 0.0
-
-        # compute distance to cluster for noisy embeddings
-        if num_noisy_embeddings > 0:
-            noisy_distance = cdist(
-                clean_embeddings, noisy_embeddings, metric=self._embedding.metric
-            )
-            noisy_distance = np.vstack(
-                [
-                    np.mean(
-                        noisy_distance[
-                            clusters[status == SpeakerStatus.CLEAN_SPEECH] == k, :
-                        ],
-                        axis=0,
-                    )
-                    for k in range(num_clusters)
-                ]
-            )
-            distance_to_cluster[status == SpeakerStatus.NOISY_SPEECH] = noisy_distance.T
-
-        # artificially set "distance" to cluster for embedding-less speakers
-        # as 1 - prior probability of clean clusters
-        _, count = np.unique(
-            clusters[status == SpeakerStatus.CLEAN_SPEECH], return_counts=True
+        # assign embeddings to most similar cluster
+        # (taking cannot link constraints into account)
+        embeddings = np.full(
+            (num_segmented_speakers, self._embedding.dimension), np.NAN
         )
-        prior = count / np.sum(count)
-        distance_to_cluster[status == SpeakerStatus.LITTLE_SPEECH] = (
-            1.0 - prior + 1000.0
+        embeddings[status == SpeakerStatus.CLEAN_SPEECH] = clean_embeddings
+        embeddings[status == SpeakerStatus.NOISY_SPEECH] = noisy_embeddings
+        clusters = self.nearest_cluster_assignment(
+            embeddings, clusters, cannot_link=cannot_link
         )
-
-        # TODO: take cannot link constraint into account
-        # artificially increase distance to cluster if it is already taken
-        # by another speaker which cannot be linked
-
-        clusters = np.argmin(distance_to_cluster, axis=1)
 
         # build discrete diarization
         num_frames, _ = noisy_segmentation.data.shape
