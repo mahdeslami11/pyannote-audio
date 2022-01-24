@@ -295,8 +295,10 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         embeddings = np.full(
             (num_segmented_speakers, self._embedding.dimension), np.NAN
         )
-        embeddings[status == SpeakerStatus.CLEAN_SPEECH] = clean_embeddings
-        embeddings[status == SpeakerStatus.NOISY_SPEECH] = noisy_embeddings
+        if num_clean_embeddings > 0:
+            embeddings[status == SpeakerStatus.CLEAN_SPEECH] = clean_embeddings
+        if num_noisy_embeddings > 0:
+            embeddings[status == SpeakerStatus.NOISY_SPEECH] = noisy_embeddings
         clusters = self.nearest_cluster_assignment(
             embeddings, clusters, cannot_link=cannot_link
         )
