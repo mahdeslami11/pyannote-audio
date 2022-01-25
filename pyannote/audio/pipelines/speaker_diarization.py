@@ -28,8 +28,7 @@ from enum import IntEnum
 
 import numpy as np
 import torch
-from scipy.spatial.distance import cdist
-
+from pyannote.core.utils.distance import l2_normalize
 from pyannote.audio import Audio, Pipeline
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.pipelines.utils import (
@@ -201,8 +200,12 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
                 )
 
         # raw speaker segmentation (including overlapping speech)
-        noisy_segmentation: SlidingWindow = self.speaker_segmentation(file)
+        noisy_segmentation: SlidingWindow = self.speaker_segmentation(
+            file, hook=self.sub_hook("speaker_segmentation", hook)
+        )
         _, num_segmented_speakers = noisy_segmentation.data.shape
+
+        hook("speaker_segmentation", noisy_segmentation)
 
         # speaker segmentation where overlapping frames are zero'ed out
         clean_segmentation = SlidingWindowFeature(
@@ -212,6 +215,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         )
 
         # categorize segmented speakers based on the amount of (non-overlapping) speech:
+        clean_duration = np.sum(clean_segmentation.data, axis=0) * self._frames.step
+
         status = np.full(
             (num_segmented_speakers), SpeakerStatus.LITTLE_SPEECH, dtype=np.int
         )
@@ -220,12 +225,15 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             > self._embedding_min_duration
         ] = SpeakerStatus.NOISY_SPEECH
         status[
-            np.sum(clean_segmentation.data, axis=0) * self._frames.step
-            > self.clean_embedding_min_duration
+            clean_duration > self.clean_embedding_min_duration
         ] = SpeakerStatus.CLEAN_SPEECH
 
+        hook("speaker_status", status)
+
         # extract one embedding per speaker (unless they speak too little)
-        clean_embeddings, noisy_embeddings = [], []
+        embeddings = np.full(
+            (num_segmented_speakers, self._embedding.dimension), np.NAN
+        )
         speaker_support = Annotation(uri=file["uri"])
 
         for s, (clean_mask, noisy_mask) in enumerate(
@@ -236,10 +244,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
                 continue
             elif status[s] == SpeakerStatus.CLEAN_SPEECH:
                 mask = clean_mask
-                embeddings = clean_embeddings
             elif status[s] == SpeakerStatus.NOISY_SPEECH:
                 mask = noisy_mask
-                embeddings = noisy_embeddings
 
             # compute speaker temporal support
             first_frame, last_frame = np.nonzero(mask)[0][[0, -1]]
@@ -255,7 +261,14 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             ).float()[None]
 
             # compute embedding
-            embeddings.append(self._embedding(waveform, masks=mask))
+            embeddings[s] = self._embedding(waveform, masks=mask)
+
+        # scale embeddings according to the amount of clean speech they were extracted from
+        # (might be useful for "pool"-linkage HAC)
+        if self._embedding.metric == "cosine":
+            embeddings = l2_normalize(embeddings) * clean_duration.reshape(-1, 1)
+
+        hook("speaker_embedding", embeddings)
 
         # infer cannot link constraints from overlapping speaker support
         cannot_link = np.full(
@@ -264,13 +277,11 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         for (_, s), (_, t) in speaker_support.co_iter(speaker_support):
             cannot_link[s, t] = s != t
 
+        hook("speaker_support", speaker_support)
+        hook("cannot_link", cannot_link)
+
         # convert from list of (1, dimension) arrays to (num_speaker, dimension) array
-        num_clean_embeddings = len(clean_embeddings)
-        if num_clean_embeddings > 0:
-            clean_embeddings = np.vstack(clean_embeddings)
-        num_noisy_embeddings = len(noisy_embeddings)
-        if num_noisy_embeddings > 0:
-            noisy_embeddings = np.vstack(noisy_embeddings)
+        num_clean_embeddings = sum(status == SpeakerStatus.CLEAN_SPEECH)
 
         clusters = np.full((num_segmented_speakers), -1, dtype=np.int)
 
@@ -281,7 +292,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             num_clusters = 1
         else:
             clusters[status == SpeakerStatus.CLEAN_SPEECH] = self.clustering(
-                clean_embeddings,
+                embeddings[status == SpeakerStatus.CLEAN_SPEECH],
                 num_clusters=num_speakers,
                 min_clusters=min_speakers,
                 max_clusters=max_speakers,
@@ -290,18 +301,33 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
             num_clusters = np.max(clusters) + 1
 
+        hook("clusters", clusters)
+
         # assign embeddings to most similar cluster
         # (taking cannot link constraints into account)
-        embeddings = np.full(
-            (num_segmented_speakers, self._embedding.dimension), np.NAN
-        )
-        if num_clean_embeddings > 0:
-            embeddings[status == SpeakerStatus.CLEAN_SPEECH] = clean_embeddings
-        if num_noisy_embeddings > 0:
-            embeddings[status == SpeakerStatus.NOISY_SPEECH] = noisy_embeddings
         clusters = self.nearest_cluster_assignment(
             embeddings, clusters, cannot_link=cannot_link
         )
+
+        hook("assignment", clusters)
+
+        if (not hook.missing) and ("annotation" in file):
+
+            oracle_clusters = np.zeros_like(clusters)
+            reference = file["annotation"].discretize(
+                noisy_segmentation.extent, resolution=noisy_segmentation.sliding_window
+            )
+            for support, s in speaker_support.itertracks():
+                # (num_frames, num_speakers) array
+                r = reference.crop(support, fixed=support.duration)
+                # (num_frames, ) array
+                h = noisy_segmentation.crop(support, fixed=support.duration)[:, s]
+
+                oracle_clusters[s] = np.argmin(
+                    np.mean(np.abs(r - h.reshape(-1, 1)), axis=0)
+                )
+
+            hook("oracle_assignment", oracle_clusters)
 
         # build discrete diarization
         num_frames, _ = noisy_segmentation.data.shape
@@ -316,6 +342,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         discrete_diarization = SlidingWindowFeature(
             discrete_diarization, noisy_segmentation.sliding_window
         )
+
+        hook("aggregation", discrete_diarization)
 
         # convert to continuous diarization
         diarization = self.to_annotation(
