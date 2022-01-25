@@ -150,11 +150,24 @@ class Pipeline(_Pipeline):
                 return
 
             hook.missing = True
-        else:
+
+        elif not getattr(hook, "setup", False):
+
             hook = partial(hook, file=file)
             hook.missing = False
 
+        hook.setup = True
+
         return hook
+
+    @staticmethod
+    def sub_hook(sub_pipeline: str, hook: Optional[Callable]):
+        def wrapped(step, artefact):
+            hook(f"{sub_pipeline}/{step}", artefact)
+
+        wrapped.missing = hook.missing
+        wrapped.setup = True
+        return wrapped
 
     def default_parameters(self):
         raise NotImplementedError()
