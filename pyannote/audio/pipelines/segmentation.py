@@ -129,6 +129,8 @@ class SpeakerSegmentation(SpeakerDiarizationMixin, Pipeline):
                     {"min_duration_on": 0.0, "min_duration_off": 0.0,}
                 )
 
+            return parameters
+
         raise NotImplementedError()
 
     CACHED_SEGMENTATION = "@segmentation/raw"
