@@ -417,7 +417,10 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
                         for i in permutation
                     ]
                 )
-                chunk_idx.extend([c] * len(permutation))
+                chunk_idx.extend([
+                        c if ((i is not None) and (active_reference[i])) else -1
+                        for i in permutation
+                ])
 
             oracle_clusters = np.array(oracle_clusters)
             oracle = 1.0 * squareform(pdist(oracle_clusters, metric="equal"))
