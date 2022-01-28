@@ -390,10 +390,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
                 )
 
             chunks = segmentations.sliding_window
-            support = Segment(chunks[0].start, chunks[num_chunks - 1].end)
-
             reference = file["annotation"].discretize(
-                support=support, resolution=self._frames,
+                support=Segment(chunks[0].start, chunks[num_chunks - 1].end + chunks.step), 
+                resolution=self._frames,
             )
 
             oracle_clusters = []
