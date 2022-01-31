@@ -46,10 +46,7 @@ def interpolate(target: torch.Tensor, weight: torch.Tensor = None):
     num_frames = target.shape[1]
     if weight is not None and weight.shape[1] != num_frames:
         weight = F.interpolate(
-            weight.transpose(1, 2),
-            size=num_frames,
-            mode="linear",
-            align_corners=False,
+            weight.transpose(1, 2), size=num_frames, mode="linear", align_corners=False,
         ).transpose(1, 2)
     return weight
 
@@ -167,3 +164,54 @@ def nll_loss(
         # (batch_size, num_frames)
 
         return torch.sum(losses * weight) / torch.sum(weight)
+
+
+def soft_f1_loss(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    weight: torch.Tensor = None,
+    eps: float = 1e-10,
+) -> torch.Tensor:
+    """Frame-weighted soft-F1 loss
+
+    Parameters
+    ----------
+
+    prediction : torch.Tensor
+        Prediction with shape (batch_size, num_frames, num_classes).
+    target : torch.Tensor
+        Target with shape (batch_size, num_frames) for binary or multi-class classification,
+        or (batch_size, num_frames, num_classes) for multi-label classification.
+    weight : (batch_size, num_frames, 1) torch.Tensor, optional
+        Frame weight with shape (batch_size, num_frames, 1).
+
+    Returns
+    -------
+    loss : torch.Tensor
+    """
+
+    # reshape target to (batch_size, num_frames, num_classes) even if num_classes is 1
+    if len(target.shape) == 2:
+        target = target.unsqueeze(dim=2)
+
+    tp = target * prediction
+    fp = (1 - target) * prediction
+    fn = target * (1 - prediction)
+
+    # compute statistics per class
+    if weight is None:
+        tp = tp.sum(dim=1)
+        fp = fp.sum(dim=1)
+        fn = fn.sum(dim=1)
+    else:
+        weight = interpolate(target, weight=weight).expand(target.shape)
+        tp = (tp * weight).sum(dim=1) / weight.sum(dim=1)
+        fp = (fp * weight).sum(dim=1) / weight.sum(dim=1)
+        fn = (fn * weight).sum(dim=1) / weight.sum(dim=1)
+
+    precision = tp / (tp + fp + eps)
+    recall = tp / (tp + fn + eps)
+    f1 = 2 * (precision * recall) / (precision + recall + eps)
+    # (batch_size, num_classes)-shaped
+
+    return 1 - f1.mean()

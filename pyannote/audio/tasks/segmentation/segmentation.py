@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2020-2021 CNRS
+# Copyright (c) 2020-2022 CNRS
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -28,15 +28,12 @@ import torch
 from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
 from typing_extensions import Literal
 
-from pyannote.audio.core.model import Model
 from pyannote.audio.core.task import Problem, Resolution, Specifications, Task
 from pyannote.audio.tasks.segmentation.mixins import SegmentationTaskMixin
-from pyannote.audio.utils.loss import binary_cross_entropy, mse_loss
+from pyannote.audio.utils.loss import binary_cross_entropy, mse_loss, soft_f1_loss
 from pyannote.audio.utils.permutation import permutate
-from pyannote.audio.utils.signal import binarize
-from pyannote.audio.core.inference import Inference
-from pyannote.core import Segment, SlidingWindow
-from pyannote.database import Protocol, Subset
+from pyannote.core import SlidingWindow
+from pyannote.database import Protocol
 
 
 class Segmentation(SegmentationTaskMixin, Task):
@@ -83,8 +80,10 @@ class Segmentation(SegmentationTaskMixin, Task):
     augmentation : BaseWaveformTransform, optional
         torch_audiomentations waveform transform, used by dataloader
         during training.
-    vad_loss : {"bce", "mse"}, optional
-        Add voice activity detection loss.
+    loss : {"bce", "mse", "f1"}, optional
+        Speaker segmentation loss. Defaults to "bce" (binary cross entropy)
+    vad_loss : {"bce", "mse", "f1"}, optional
+        Add voice activity detection loss. Defaults to None.
 
     Reference
     ----------
@@ -110,7 +109,7 @@ class Segmentation(SegmentationTaskMixin, Task):
         num_workers: int = None,
         pin_memory: bool = False,
         augmentation: BaseWaveformTransform = None,
-        loss: Literal["bce", "mse"] = "bce",
+        loss: Literal["bce", "mse", "f1"] = "bce",
         vad_loss: Literal["bce", "mse"] = None,
     ):
 
@@ -129,8 +128,8 @@ class Segmentation(SegmentationTaskMixin, Task):
         self.balance = balance
         self.weight = weight
 
-        if loss not in ["bce", "mse"]:
-            raise ValueError("'loss' must be one of {'bce', 'mse'}.")
+        if loss not in ["bce", "mse", "f1"]:
+            raise ValueError("'loss' must be one of {'bce', 'mse', 'f1}.")
         self.loss = loss
         self.vad_loss = vad_loss
 
@@ -257,6 +256,11 @@ class Segmentation(SegmentationTaskMixin, Task):
         elif self.loss == "mse":
             seg_loss = mse_loss(permutated_prediction, target.float(), weight=weight)
 
+        elif self.loss == "f1":
+            seg_loss = soft_f1_loss(
+                permutated_prediction, target.float(), weight=weight
+            )
+
         return seg_loss
 
     def voice_activity_detection_loss(
@@ -293,6 +297,9 @@ class Segmentation(SegmentationTaskMixin, Task):
 
         elif self.vad_loss == "mse":
             loss = mse_loss(vad_prediction, vad_target, weight=weight)
+
+        elif self.vad_loss == "f1":
+            loss = soft_f1_loss(vad_prediction, vad_target, weight=weight)
 
         return loss
 
