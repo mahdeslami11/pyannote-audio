@@ -67,6 +67,37 @@ def mae_cost_func(Y, y):
     return torch.mean(torch.abs(Y - y), axis=0)
 
 
+def _soft_f1(prediction, target, eps=1e-10):
+
+    tp = (target * prediction).sum(dim=0)
+    fp = ((1 - target) * prediction).sum(dim=0)
+    fn = (target * (1 - prediction)).sum(dim=0)
+    precision = tp / (tp + fp + eps)
+    recall = tp / (tp + fn + eps)
+    return 2 * (precision * recall) / (precision + recall + eps)
+
+
+def soft_f1_cost_func(Y, y, eps: float = 1e-10, onset: float = 0.5):
+    """Compute class-wise soft-F1 cost 
+    
+    Parameters
+    ----------
+    Y, y : (num_frames, num_classes) torch.tensor
+    onset : float, optional
+    eps : float, optional
+
+    Returns
+    -------
+    1 - f1 : (num_classes, ) torch.tensor
+    
+    """
+
+    return 1.0 - 0.5 * (
+        _soft_f1(Y, 1.0 * (y > onset), eps=eps)
+        + _soft_f1(y, 1.0 * (Y > onset), eps=eps)
+    )
+
+
 @permutate.register
 def permutate_torch(
     y1: torch.Tensor,

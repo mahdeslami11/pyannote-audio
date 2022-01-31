@@ -25,11 +25,12 @@
 import itertools
 import warnings
 from typing import Callable, Optional, Text
+from functools import partial
 
 import numpy as np
 import torch
 from einops import rearrange
-from scipy.spatial.distance import cdist, squareform
+from scipy.spatial.distance import squareform
 
 from pyannote.audio import Audio, Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
@@ -39,7 +40,7 @@ from pyannote.audio.pipelines.utils import (
     get_devices,
     get_model,
 )
-from pyannote.audio.utils.permutation import mae_cost_func, permutate
+from pyannote.audio.utils.permutation import soft_f1_cost_func, permutate
 from pyannote.audio.utils.signal import binarize
 from pyannote.core import Annotation, Segment, SlidingWindow, SlidingWindowFeature
 from pyannote.core.utils.distance import pdist
@@ -141,7 +142,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         # stitching
         self.warm_up = 0.05
-        self.stitch_threshold = Uniform(0.0, 1.0)
+        self.stitch_threshold = Uniform(0.0, 0.5)
 
         # hyper-parameters used for hysteresis thresholding
         self.onset = Uniform(0.01, 0.99)
@@ -281,7 +282,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             segmentations,
             frames=self._frames,
             lookahead=None,  # TODO: make it an hyper-parameter?,
-            cost_func=mae_cost_func,
+            cost_func=partial(soft_f1_cost_func, onset=self.onset),
             match_func=self.stitch_match_func,
         )
         hook("@segmentation/stitch", segmentations)
