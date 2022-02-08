@@ -1,4 +1,5 @@
 asteroid-filterbanks >=0.4,<0.5
+backports.cached_property
 einops >=0.3,<0.4.0
 huggingface_hub
 librosa >=0.8,<0.9
