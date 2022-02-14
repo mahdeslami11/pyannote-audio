@@ -26,9 +26,9 @@
 # AUTHORS
 # Hervé BREDIN - http://herve.niderb.fr
 
-from pyannote.audio.utils.signal import Binarize
 from pyannote.database import ProtocolFile
-from pyannote.core import Annotation
+from pyannote.core import Annotation, Segment
+
 
 class LowerTemporalResolution:
     """Artificially degrade temporal resolution of reference annotation
@@ -44,10 +44,20 @@ class LowerTemporalResolution:
     def __init__(self, resolution: float = 0.1):
         super().__init__()
         self.resolution = resolution
-        self._binarize = Binarize()
 
     def __call__(self, current_file: ProtocolFile) -> Annotation:
+
         annotation = current_file["annotation"]
+        new_annotation = annotation.empty()
+
+        for new_track, (segment, _, label) in enumerate(
+            annotation.itertracks(yield_label=True)
+        ):
+            new_start = self.resolution * int(segment.start / self.resolution + 0.5)
+            new_end = self.resolution * int(segment.end / self.resolution + 0.5)
+            new_segment = Segment(start=new_start, end=new_end)
+            new_annotation[new_segment, new_track] = label
+
         support = current_file["annotated"].extent()
-        return self._binarize(annotation.discretize(support, resolution=self.resolution)).crop(support)
+        return new_annotation.support().crop(support)
 
