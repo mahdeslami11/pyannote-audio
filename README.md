@@ -29,7 +29,7 @@ for turn, _, speaker in diarization.itertracks(yield_label=True):
 
 ## What's new in `pyannote.audio` 2.0
 
-For version 2.0 of `pyannote.audio`, [I](https://herve.niderb.fr) decided to rewrite almost everything from scratch.
+For version 2.0 of `pyannote.audio`, [I](https://herve.niderb.fr) decided to rewrite almost everything from scratch.  
 Highlights of this release are:
 
 - :exploding_head: much better performance (see [Benchmark](#benchmark))
@@ -37,6 +37,7 @@ Highlights of this release are:
 - :hugs: pretrained [pipelines](https://hf.co/models?other=pyannote-audio-pipeline) (and [models](https://hf.co/models?other=pyannote-audio-model)) on [:hugs: model hub](https://huggingface.co/pyannote)
 - :zap: multi-GPU training with [pytorch-lightning](https://pytorchlightning.ai/)
 - :control_knobs: data augmentation with [torch-audiomentations](https://github.com/asteroid-team/torch-audiomentations)
+- :boom: [Prodigy](https://prodi.gy/) recipes for model-assisted audio annotation
 
 ## Installation
 
