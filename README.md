@@ -70,6 +70,17 @@ pip install https://github.com/pyannote/pyannote-audio/archive/develop.zip
     - [Speaker verification](tutorials/speaker_verification.ipynb)
     - Visualization and debugging
 
+## Frequently asked questions
+
+#### **[Pretrained pipelines](https://huggingface.co/models?other=pyannote-audio-pipeline) do not produce good results on my data. What can I do?**
+
+1. [Annotate](https://github.com/pyannote/pyannote-audio/blob/develop/tutorials/prodigy.md) dozens of conversations manually and separate them into development and test subsets in [`pyannote.database`](https://github.com/pyannote/pyannote-database#speaker-diarization).
+2. [Optimize the hyper-parameters](https://github.com/pyannote/pyannote-audio/blob/develop/tutorials/voice_activity_detection.ipynb) of the pretained pipeline using the development set. If performance is still not good enough, go to step 3.
+3. Annotate hundreds of conversations manually and set them up as training subset in `pyannote.database`. 
+4. [Fine-tune](https://github.com/pyannote/pyannote-audio/blob/develop/tutorials/training_a_model.ipynb) the models (on which the pipeline relies) using the training set.
+5. [Optimize the hyper-parameters](https://github.com/pyannote/pyannote-audio/blob/develop/tutorials/voice_activity_detection.ipynb) of the pipeline using the fine-tuned models using the development set. If performance is still not good enough, go back to step 3.
+
+
 ## Benchmark
 
 The pretrained speaker diarization pipeline with default parameters is expected to be much better in v2.0 than in v1.1:
