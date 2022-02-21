@@ -74,8 +74,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
     segmentation_batch_size : int, optional
         Batch size used for speaker segmentation. Defaults to 32.
     embedding_batch_size : int, optional
-        Batch size used for speaker embedding. Defaults to number of local speakers
-        returned by the segmentation model.
+        Batch size used for speaker embedding. Defaults to 32.
 
     Hyper-parameters
     ----------------
