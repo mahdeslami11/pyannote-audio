@@ -23,18 +23,23 @@
 """Clustering pipelines"""
 
 
+from functools import partial
 from typing import Optional
 from enum import Enum
+import warnings
 
 import numpy as np
 from scipy.cluster.hierarchy import fcluster
 from scipy.spatial.distance import squareform
+from scipy.stats import norm
 from spectralcluster import EigenGapType, LaplacianType, SpectralClusterer
 
 from pyannote.core.utils.distance import pdist
 from pyannote.core.utils.hierarchy import linkage
 from pyannote.pipeline import Pipeline
 from pyannote.pipeline.parameter import Categorical, Uniform
+
+from sklearn.mixture import GaussianMixture
 
 
 class ClusteringMixin:
@@ -73,9 +78,13 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
     ----------
     metric : {"cosine", "euclidean", ...}, optional
         Distance metric to use. Defaults to "cosine".
+    adaptive_threshold : bool, optional
+        Whether to use adaptive threshold. 
+        Defaults to use fixed threshold (False)
     expects_num_clusters : bool, optional
         Whether the number of clusters should be provided.
         Defaults to False.
+
 
     Hyper-parameters
     ----------------
@@ -89,18 +98,26 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
     Embeddings are expected to be unit-normalized.
     """
 
-    def __init__(self, metric: str = "cosine", expects_num_clusters: bool = False):
+    def __init__(
+        self,
+        metric: str = "cosine",
+        adaptive_threshold: bool = False,
+        expects_num_clusters: bool = False,
+    ):
         super().__init__()
 
         self.metric = metric
-
+        self.adaptive_threshold = adaptive_threshold
         self.expects_num_clusters = expects_num_clusters
-        if not self.expects_num_clusters:
-            self.threshold = Uniform(0.0, 2.0)  # assume unit-normalized embeddings
 
         self.method = Categorical(
             ["average", "centroid", "complete", "median", "pool", "single", "ward"]
         )
+
+        if not self.expects_num_clusters:
+            self.threshold = (
+                AdaptiveThreshold() if self.adaptive_threshold else FixedThreshold()
+            )
 
     def __call__(
         self,
@@ -144,6 +161,9 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
 
         if num_clusters is None:
 
+            distances = pdist(embeddings, metric=self.metric)
+            threshold = self.threshold(distances, dendrogram)
+
             max_threshold: float = (
                 dendrogram[-min_clusters, 2]
                 if min_clusters < num_embeddings
@@ -155,7 +175,7 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
                 else -np.inf
             )
 
-            threshold = min(max(self.threshold, min_threshold), max_threshold)
+            threshold = min(max(threshold, min_threshold), max_threshold)
 
         else:
 
@@ -166,6 +186,91 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
             )
 
         return fcluster(dendrogram, threshold, criterion="distance") - 1
+
+
+class FixedThreshold(Pipeline):
+    def __init__(self):
+        super().__init__()
+        self.threshold = Uniform(0.0, 2.0)  # assume unit-normalized embeddings
+
+    def __call__(self, *args, **kwargs) -> float:
+        return self.threshold
+
+
+class AdaptiveThreshold(Pipeline):
+    def __init__(self):
+        super().__init__()
+        self.llr = Uniform(-10.0, 0.0)
+
+    def __call__(
+        self,
+        distances: np.ndarray,
+        dendrogram: np.ndarray,
+        constraints: np.ndarray = None,
+    ) -> float:
+        """
+        
+        Parameters
+        ----------
+        distances : np.ndarray
+            Pairwise distance matrix (in pdist format)
+        dendrogram : np.ndarray, optional
+            Dendrogram returned by linkage clustering function.
+        constraints : np.ndarray, optional
+            Pairwise constraint matrix (in pdist format)
+            * squareform(constraints)[i, j] > 0: "must link"
+            * squareform(constraints)[i, j] = 0: no constraint
+            * squareform(constraints)[i, j] < 0: "cannot link"
+
+        Returns
+        -------
+        threshold : float
+            Selected threshold
+        """
+
+        if constraints is not None:
+            warnings.warn("AdaptiveThreshold does not support constraints.")
+
+        distances = distances[:, np.newaxis]
+        thresholds = dendrogram[:, 2]
+
+        # fit 1-gaussian and 2-gaussians GMM on distance distribution
+        one_gauss = GaussianMixture(n_components=1, random_state=0).fit(distances)
+        two_gauss = GaussianMixture(n_components=2, random_state=0).fit(distances)
+
+        # if the 1-gaussian GMM fits the distribution better,
+        # then it is very likely that there is just one cluster
+        if one_gauss.bic(distances) < two_gauss.bic(distances):
+            return np.inf
+
+        # gaussian with largest (resp. smallest) mean corresponds
+        # to inter- (resp. intra-) cluster distance
+        mu = two_gauss.means_.squeeze()
+        intra_idx, inter_idx = np.argsort(mu)
+        intra_mu, inter_mu = mu[intra_idx], mu[inter_idx]
+        sigma = np.sqrt(two_gauss.covariances_.squeeze())
+        intra_sigma, inter_sigma = sigma[intra_idx], sigma[inter_idx]
+
+        # build list of candidate thresholds
+        # - must be greater than average intra-cluster distance
+        thresholds = thresholds[thresholds > intra_mu]
+        # - must be right in between pairs of dendrogram thresholds
+        thresholds = np.hstack(
+            [0.5 * (thresholds[1:] + thresholds[:-1]), [thresholds[-1] + 1e-6]]
+        )
+
+        # return threshold whose LLR is the closest to the target LLR (self.llr)
+        llr = norm.logpdf(thresholds, loc=intra_mu, scale=intra_sigma) - norm.logpdf(
+            thresholds, loc=inter_mu, scale=inter_sigma
+        )
+
+        if llr[-1] > llr[0]:
+            # TODO: add isotonic regression
+            warnings.warn(
+                "TODO: ensure LLR is monotonic/decreasing as a function of threshold"
+            )
+
+        return thresholds[np.argmin(np.abs(llr - self.llr))]
 
 
 class SpectralClustering(ClusteringMixin, Pipeline):
@@ -251,6 +356,9 @@ class SpectralClustering(ClusteringMixin, Pipeline):
 
 class Clustering(Enum):
     AgglomerativeClustering = AgglomerativeClustering
+    AdaptiveAgglomerativeClustering = partial(
+        AgglomerativeClustering, adaptive_threshold=True
+    )
     SpectralClustering = SpectralClustering
 
 
