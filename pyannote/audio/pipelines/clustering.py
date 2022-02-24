@@ -253,7 +253,9 @@ class AdaptiveThreshold(Pipeline):
 
         # build list of candidate thresholds
         # - must be greater than average intra-cluster distance
-        thresholds = thresholds[thresholds > intra_mu]
+        large_enough = thresholds > intra_mu
+        if np.sum(large_enough) >= 2:
+            thresholds = thresholds[large_enough]
         # - must be right in between pairs of dendrogram thresholds
         thresholds = np.hstack(
             [0.5 * (thresholds[1:] + thresholds[:-1]), [thresholds[-1] + 1e-6]]
