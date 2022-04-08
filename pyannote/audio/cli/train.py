@@ -123,7 +123,7 @@ def train(cfg: DictConfig) -> Optional[float]:
             monitor=monitor,
             mode=direction,
             min_delta=0.0,
-            patience=cfg.scheduler.patience * 2,
+            patience=100,
             strict=True,
             verbose=False,
         )
