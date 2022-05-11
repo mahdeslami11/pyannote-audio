@@ -29,14 +29,13 @@ from typing import Callable, Optional
 import numpy as np
 import torch
 from einops import rearrange
-from hmmlearn.hmm import GaussianHMM
 from pyannote.core import Annotation, Segment, SlidingWindow, SlidingWindowFeature
-from pyannote.core.utils.distance import cdist
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
 from pyannote.pipeline.parameter import Uniform
 
 from pyannote.audio import Audio, Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
+from pyannote.audio.pipelines.clustering import GaussianHiddenMarkovModel
 from pyannote.audio.pipelines.speaker_verification import PretrainedSpeakerEmbedding
 from pyannote.audio.pipelines.utils import (
     PipelineModel,
@@ -44,6 +43,8 @@ from pyannote.audio.pipelines.utils import (
     get_devices,
     get_model,
 )
+from pyannote.audio.utils.permutation import mae_cost_func
+from pyannote.audio.utils.signal import binarize
 
 
 def batchify(iterable, batch_size: int = 32, fillvalue=None):
@@ -56,23 +57,27 @@ def batchify(iterable, batch_size: int = 32, fillvalue=None):
 class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
     """Speaker diarization pipeline
 
-    TODO: add local stitching (better embeddings because they are extracted on more data)
-    TODO: add overlap-aware masks (better embeddings because they are extracted on clean data)
-
     Parameters
     ----------
     segmentation : Model, str, or dict, optional
         Pretrained segmentation model. Defaults to "pyannote/segmentation".
         See pyannote.audio.pipelines.utils.get_model for supported format.
+    segmentation_step: float, optional
+        Defaults to 0.1.
+    segmentation_stitching: bool, optional
+        Whether to stitch local segmentation. Defaults to False.
+    segmentation_batch_size : int, optional
+        Batch size used for speaker segmentation. Defaults to 32.
     embedding : Model, str, or dict, optional
         Pretrained embedding model. Defaults to "pyannote/segmentation".
         See pyannote.audio.pipelines.utils.get_model for supported format.
-    expects_num_speakers : bool, optional
+    embedding_filtering: bool, optional
+        Whether to filter out multi-speaker frames before extracting embeddings.
         Defaults to False.
-    segmentation_batch_size : int, optional
-        Batch size used for speaker segmentation. Defaults to 32.
     embedding_batch_size : int, optional
         Batch size used for speaker embedding. Defaults to 32.
+    expects_num_speakers : bool, optional
+        Defaults to False.
 
     Hyper-parameters
     ----------------
@@ -88,16 +93,22 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
     def __init__(
         self,
         segmentation: PipelineModel = "pyannote/segmentation",
-        embedding: PipelineModel = "pyannote/embedding",
-        expects_num_speakers: bool = False,
+        segmentation_step: float = 0.1,
+        segmentation_stitching: bool = False,
         segmentation_batch_size: int = 32,
+        embedding: PipelineModel = "pyannote/embedding",
+        embedding_filtering: bool = False,
         embedding_batch_size: int = 32,
+        expects_num_speakers: bool = False,
     ):
 
         super().__init__()
 
         self.segmentation = segmentation
+        self.segmentation_step = segmentation_step
+        self.segmentation_stitching = segmentation_stitching
         self.embedding = embedding
+        self.embedding_filtering = embedding_filtering
         self.expects_num_speakers = expects_num_speakers
         self.segmentation_batch_size = segmentation_batch_size
 
@@ -105,8 +116,13 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         model: Model = get_model(segmentation)
         model.to(seg_device)
+
         self._segmentation = Inference(
-            model, skip_aggregation=True, batch_size=self.segmentation_batch_size
+            model,
+            duration=model.specifications.duration,
+            step=self.segmentation_step * model.specifications.duration,
+            skip_aggregation=True,
+            batch_size=self.segmentation_batch_size,
         )
         self._frames: SlidingWindow = self._segmentation.model.introspection.frames
 
@@ -117,11 +133,18 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         self._audio = Audio(sample_rate=self._embedding.sample_rate, mono=True)
 
+        self.clustering = GaussianHiddenMarkovModel(
+            metric=self._embedding.metric, expects_num_clusters=expects_num_speakers
+        )
+
         # hyper-parameters
 
         # hyper-parameters used for hysteresis thresholding
         self.onset = Uniform(0.01, 0.99)
         self.offset = Uniform(0.01, 0.99)
+
+        if self.segmentation_stitching:
+            self.stitching_threshold = Uniform(0.01, 0.99)
 
         # hyper-parameters used for post-processing i.e. removing short speech turns
         # or filling short gaps between speech turns of one speaker
@@ -134,8 +157,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             yield f"SPEAKER_{speaker:02d}"
             speaker += 1
 
-    CACHED_SEGMENTATION = "cache/segmentation/inference"
-    CACHED_EMBEDDINGS = "cache/embedding/inference"
+    @property
+    def CACHED_SEGMENTATION(self):
+        return "cache/segmentation"
 
     def get_segmentations(self, file):
         # apply segmentation model (only if needed)
@@ -151,7 +175,29 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         return segmentations
 
-    def get_embeddings(self, file, segmentations):
+    def stitch_match_func(
+        self, this: np.ndarray, that: np.ndarray, cost: float
+    ) -> bool:
+        return (
+            np.any(this > self.onset)
+            and np.any(that > self.onset)
+            and cost < self.stitching_threshold
+        )
+
+    @property
+    def CACHED_EMBEDDINGS(self):
+        if self.segmentation_stitching:
+            if self.embedding_filtering:
+                return "cache/embedding/stitched+filtered"
+            else:
+                return "cache/embedding/stitched"
+        else:
+            if self.embedding_filtering:
+                return "cache/embedding/filtered"
+            else:
+                return "cache/embedding"
+
+    def get_embeddings(self, file, segmentations: SlidingWindowFeature):
         # apply embedding model (only if needed)
         # output shape is (num_chunks, local_num_speakers, dimension)
 
@@ -167,6 +213,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
                     waveform, _ = self._audio.crop(file, chunk, mode="pad")
                     # waveform: (1, num_samples) torch.Tensor
+
+                    # mask may contain NaN (in case of partial stitching)
+                    masks = np.nan_to_num(masks, nan=0.0)
 
                     for mask in masks.T:
                         # mask: (num_frames, ) np.ndarray
@@ -269,8 +318,6 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         hook("segmentation", segmentations)
         #   shape: (num_chunks, num_frames, local_num_speakers)
 
-        num_chunks, num_frames, local_num_speakers = segmentations.data.shape
-
         # estimate frame-level number of instantaneous speakers
         count = self.speaker_count(
             segmentations,
@@ -282,7 +329,39 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         #   shape: (num_frames, 1)
         #   dtype: int
 
-        embeddings = self.get_embeddings(file, segmentations)
+        if self.segmentation_stitching:
+            segmentations = Inference.stitch(
+                segmentations,
+                frames=self._frames,
+                cost_func=mae_cost_func,
+                match_func=self.stitch_match_func,
+            )
+            hook("stitched_segmentation", segmentations)
+
+        num_chunks, num_frames, local_num_speakers = segmentations.data.shape
+        duration = segmentations.sliding_window.duration
+
+        if self.embedding_filtering:
+            # filter out overlapping speaker frames
+            # fs[c, f, s] = 1 iff speaker s is the only active speaker at frame f of chunk c
+            binarized_segmentations: SlidingWindowFeature = binarize(
+                segmentations, onset=self.onset, offset=self.offset, initial_state=False
+            )
+            filtered_segmentations = SlidingWindowFeature(
+                (
+                    binarized_segmentations.data
+                    * (
+                        np.sum(binarized_segmentations.data, axis=-1, keepdims=True)
+                        == 1.0
+                    )
+                ).astype(np.float32),
+                binarized_segmentations.sliding_window,
+            )
+            embeddings = self.get_embeddings(file, filtered_segmentations)
+            hook("filtered_segmentation", filtered_segmentations)
+        else:
+            embeddings = self.get_embeddings(file, segmentations)
+
         hook("embeddings", embeddings)
         #   shape: (num_chunks, local_num_speakers, dimension)
 
@@ -291,7 +370,6 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
 
         # focus on step-long center of each chunk
-        duration = segmentations.sliding_window.duration
         step = segmentations.sliding_window.step
         ratio = 0.5 * (duration - step) / duration
         center_segmentations = Inference.trim(segmentations, warm_up=(ratio, ratio))
@@ -315,22 +393,17 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         X = most_active_embedding[valid_most_active_embedding]
 
-        hmm = GaussianHMM(
-            n_components=num_speakers,
-            covariance_type="diag",
-            n_iter=100,
-            implementation="log",
-        ).fit(X)
-
-        distances_to_centroids = rearrange(
-            cdist(
-                rearrange(embeddings, "c s d -> (c s) d"), hmm.means_, metric="cosine"
+        clusters = rearrange(
+            self.clustering(
+                X,
+                num_clusters=num_speakers,
+                min_clusters=min_speakers,
+                max_clusters=max_speakers,
+                embeddings=rearrange(embeddings, "c s d -> (c s) d"),
             ),
-            "(c s) k -> c s k",
+            "(c s) -> c s",
             c=num_chunks,
         )
-        clusters = np.argmin(distances_to_centroids, axis=-1)
-        # (num_chunks, local_num_speakers)
 
         # mark inactive speakers as such (cluster = -2)
         num_active_frames: np.ndarray = np.sum(segmentations.data > self.onset, axis=1)
@@ -338,7 +411,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         # build final aggregated speaker activations
 
-        num_clusters = num_speakers
+        num_clusters = np.max(clusters) + 1
         clustered_segmentations = np.NAN * np.zeros(
             (num_chunks, num_frames, num_clusters)
         )
