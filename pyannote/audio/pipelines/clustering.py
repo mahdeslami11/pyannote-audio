@@ -23,18 +23,18 @@
 """Clustering pipelines"""
 
 
-from typing import Optional
 from enum import Enum
+from typing import Optional
 
 import numpy as np
-from scipy.cluster.hierarchy import fcluster
-from scipy.spatial.distance import squareform
-from spectralcluster import EigenGapType, LaplacianType, SpectralClusterer
-
-from pyannote.core.utils.distance import pdist
+from hmmlearn.hmm import GaussianHMM
+from pyannote.core.utils.distance import cdist, pdist
 from pyannote.core.utils.hierarchy import linkage
 from pyannote.pipeline import Pipeline
 from pyannote.pipeline.parameter import Categorical, Uniform
+from scipy.cluster.hierarchy import fcluster
+from scipy.spatial.distance import squareform
+from spectralcluster import EigenGapType, LaplacianType, SpectralClusterer
 
 
 class ClusteringMixin:
@@ -249,14 +249,108 @@ class SpectralClustering(ClusteringMixin, Pipeline):
         ).predict(embeddings)
 
 
+class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
+    """Hidden Markov Model with Gaussian states
+
+    Parameters
+    ----------
+    n_trials :
+
+    """
+
+    def __init__(
+        self,
+        metric: str = "cosine",
+        expects_num_clusters: bool = False,
+        n_trials: int = 3,
+    ):
+        super().__init__()
+        self.metric = metric
+        self.expects_num_clusters = expects_num_clusters
+        self.n_trials = n_trials
+
+    def __call__(
+        self,
+        main_embeddings: np.ndarray,
+        num_clusters: int = None,
+        min_clusters: int = None,
+        max_clusters: int = None,
+        embeddings: np.ndarray = None,
+    ) -> np.ndarray:
+
+        num_embeddings, _ = main_embeddings.shape
+        num_clusters, min_clusters, max_clusters = self.set_num_clusters(
+            num_embeddings,
+            num_clusters=num_clusters,
+            min_clusters=min_clusters,
+            max_clusters=max_clusters,
+        )
+
+        assert (
+            max_clusters < num_embeddings
+        ), "Please provide an `max_clusters` upper bound"
+
+        # TODO: try to infer that automatically by looking at the evolution of BIC = f(num_clusters)
+
+        best_bic = np.inf
+        for n_components in range(min_clusters, max_clusters + 1):
+
+            for random_state in range(self.n_trials):
+
+                hmm = GaussianHMM(
+                    n_components=n_components,
+                    covariance_type="diag",
+                    n_iter=100,
+                    random_state=random_state,
+                    implementation="log",
+                ).fit(main_embeddings)
+
+                # keep best model according to BIC criterion
+                bic = self.bic(hmm, main_embeddings)
+                if bic < best_bic:
+                    best_hmm = hmm
+                    best_bic = bic
+
+        if embeddings is None:
+            embeddings = main_embeddings
+
+        distances = cdist(embeddings, best_hmm.means_, metric=self.metric)
+
+        return np.argmin(distances, axis=-1)
+
+    @staticmethod
+    def bic(hmm, embeddings):
+
+        num_embeddings, dimension = embeddings.shape
+        num_states = hmm.n_components
+
+        if hmm.covariance_type == "diag":
+
+            n_parameters = (
+                2 * (num_states * dimension)  # mean and covariance
+                + num_states * (num_states - 1)  # transition probability
+                + (num_states - 1)  # start probability
+            )
+
+        else:
+            raise ValueError(
+                "Computation of BIC criterion is only supported for 'diag' covariance_type."
+            )
+
+        log_likelihood = hmm.score(embeddings)
+
+        return np.log(num_embeddings) * n_parameters - 2 * log_likelihood
+
+
 class Clustering(Enum):
     AgglomerativeClustering = AgglomerativeClustering
     SpectralClustering = SpectralClustering
+    GaussianHiddenMarkovModel = GaussianHiddenMarkovModel
 
 
 class NearestClusterAssignment:
     """
-    
+
     Parameters
     ----------
     metric : {"cosine", "euclidean", ...}, optional
@@ -265,7 +359,7 @@ class NearestClusterAssignment:
         Allow already assigned embeddings to be reassigned to a new cluster
         in case it is closer than the original one. Defaults to stick with
         the original cluster.
-    
+
     """
 
     def __init__(self, metric: str = "cosine", allow_reassignment: bool = False):
@@ -280,18 +374,18 @@ class NearestClusterAssignment:
         cannot_link: Optional[np.ndarray] = None,
     ):
         """
-        
+
         Parameters
         ----------
         embeddings : (num_embeddings, dimension) np.ndarray
-            Speaker embeddings. NaN embeddings indicate that cluster prior 
+            Speaker embeddings. NaN embeddings indicate that cluster prior
             probability must be used to assign them.
         clusters : (num_embeddings, ) np.ndarray
-            Clustering output, where 
-            * clusters[e] == k  means eth embedding has already been assigned to kth cluster. 
+            Clustering output, where
+            * clusters[e] == k  means eth embedding has already been assigned to kth cluster.
             * clusters[e] == -1 means eth embedding as yet to be assigned.
         cannot_link : (num_embeddings, num_embeddings) np.ndarray
-            "cannot link" constraints.  
+            "cannot link" constraints.
 
         Returns
         -------
@@ -339,4 +433,3 @@ class NearestClusterAssignment:
             return new_clusters
         else:
             return np.where(clusters == -1, new_clusters, clusters)
-
