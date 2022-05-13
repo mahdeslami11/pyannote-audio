@@ -446,8 +446,12 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
             )
             hmm.fit(training_sequence)
 
-            log_likelihood = hmm.score(training_sequence)
-            if log_likelihood > best_log_likelihood:
+            try:
+                log_likelihood = hmm.score(training_sequence)
+            except ValueError:
+                log_likelihood = -np.inf
+
+            if log_likelihood >= best_log_likelihood:
                 best_log_likelihood = log_likelihood
                 best_hmm = hmm
 
