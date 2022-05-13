@@ -184,85 +184,61 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             and cost < self.stitching_threshold
         )
 
-    @property
-    def CACHED_EMBEDDINGS(self):
-        if self.segmentation_stitching:
-            if self.embedding_filtering:
-                return "cache/embedding/stitched+filtered"
-            else:
-                return "cache/embedding/stitched"
-        else:
-            if self.embedding_filtering:
-                return "cache/embedding/filtered"
-            else:
-                return "cache/embedding"
-
     def get_embeddings(self, file, segmentations: SlidingWindowFeature):
         # apply embedding model (only if needed)
         # output shape is (num_chunks, local_num_speakers, dimension)
 
-        if self.training and self.CACHED_EMBEDDINGS in file:
-            embeddings = file[self.CACHED_EMBEDDINGS]
+        def iter_waveform_and_mask():
+            for chunk, masks in segmentations:
+                # chunk: Segment(t, t + duration)
+                # masks: (num_frames, local_num_speakers) np.ndarray
 
-        else:
-
-            def iter_waveform_and_mask():
-                for chunk, masks in segmentations:
-                    # chunk: Segment(t, t + duration)
-                    # masks: (num_frames, local_num_speakers) np.ndarray
-
-                    waveform, _ = self._audio.crop(
-                        file,
-                        chunk,
-                        duration=segmentations.sliding_window.duration,
-                        mode="pad",
-                    )
-                    # waveform: (1, num_samples) torch.Tensor
-
-                    # mask may contain NaN (in case of partial stitching)
-                    masks = np.nan_to_num(masks, nan=0.0)
-
-                    for mask in masks.T:
-                        # mask: (num_frames, ) np.ndarray
-
-                        yield waveform[None], torch.from_numpy(mask)[None]
-                        # w: (1, 1, num_samples) torch.Tensor
-                        # m: (1, num_frames) torch.Tensor
-
-            batches = batchify(
-                iter_waveform_and_mask(),
-                batch_size=self.embedding_batch_size,
-                fillvalue=(None, None),
-            )
-
-            embedding_batches = []
-
-            for batch in batches:
-                waveforms, masks = zip(*filter(lambda b: b[0] is not None, batch))
-
-                waveform_batch = torch.vstack(waveforms)
-                # (batch_size, 1, num_samples) torch.Tensor
-
-                mask_batch = torch.vstack(masks)
-                # (batch_size, num_frames) torch.Tensor
-
-                embedding_batch: np.ndarray = self._embedding(
-                    waveform_batch, masks=mask_batch
+                waveform, _ = self._audio.crop(
+                    file,
+                    chunk,
+                    duration=segmentations.sliding_window.duration,
+                    mode="pad",
                 )
-                # (batch_size, dimension) np.ndarray
+                # waveform: (1, num_samples) torch.Tensor
 
-                embedding_batches.append(embedding_batch)
+                # mask may contain NaN (in case of partial stitching)
+                masks = np.nan_to_num(masks, nan=0.0)
 
-            embeddings = rearrange(
-                np.vstack(embedding_batches), "(c s) d -> c s d", c=len(segmentations)
+                for mask in masks.T:
+                    # mask: (num_frames, ) np.ndarray
+
+                    yield waveform[None], torch.from_numpy(mask)[None]
+                    # w: (1, 1, num_samples) torch.Tensor
+                    # m: (1, num_frames) torch.Tensor
+
+        batches = batchify(
+            iter_waveform_and_mask(),
+            batch_size=self.embedding_batch_size,
+            fillvalue=(None, None),
+        )
+
+        embedding_batches = []
+
+        for batch in batches:
+            waveforms, masks = zip(*filter(lambda b: b[0] is not None, batch))
+
+            waveform_batch = torch.vstack(waveforms)
+            # (batch_size, 1, num_samples) torch.Tensor
+
+            mask_batch = torch.vstack(masks)
+            # (batch_size, num_frames) torch.Tensor
+
+            embedding_batch: np.ndarray = self._embedding(
+                waveform_batch, masks=mask_batch
             )
-            # (num_chunks, local_num_speakers, dimension)
+            # (batch_size, dimension) np.ndarray
 
-        # cache embeddings when training
-        if self.training:
-            file[self.CACHED_EMBEDDINGS] = embeddings
+            embedding_batches.append(embedding_batch)
 
-        return embeddings
+        return rearrange(
+            np.vstack(embedding_batches), "(c s) d -> c s d", c=len(segmentations)
+        )
+        # (num_chunks, local_num_speakers, dimension)
 
     def apply(
         self,
@@ -346,12 +322,13 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         num_chunks, num_frames, local_num_speakers = segmentations.data.shape
         duration = segmentations.sliding_window.duration
 
+        binarized_segmentations: SlidingWindowFeature = binarize(
+            segmentations, onset=self.onset, offset=self.offset, initial_state=False
+        )
+
         if self.embedding_filtering:
             # filter out overlapping speaker frames
             # fs[c, f, s] = 1 iff speaker s is the only active speaker at frame f of chunk c
-            binarized_segmentations: SlidingWindowFeature = binarize(
-                segmentations, onset=self.onset, offset=self.offset, initial_state=False
-            )
             filtered_segmentations = SlidingWindowFeature(
                 (
                     binarized_segmentations.data
@@ -364,8 +341,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             )
             embeddings = self.get_embeddings(file, filtered_segmentations)
             hook("filtered_segmentation", filtered_segmentations)
+
         else:
-            embeddings = self.get_embeddings(file, segmentations)
+            embeddings = self.get_embeddings(file, binarized_segmentations)
 
         hook("embeddings", embeddings)
         #   shape: (num_chunks, local_num_speakers, dimension)
