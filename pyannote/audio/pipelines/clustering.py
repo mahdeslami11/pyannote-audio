@@ -251,6 +251,51 @@ class SpectralClustering(ClusteringMixin, Pipeline):
         ).predict(embeddings)
 
 
+def nearest_cluster_assignment(embeddings, embedding2cluster_func, constrained=False):
+    """
+
+    Parameters
+    ----------
+    embeddings : (num_chunks, num_speakers, dimension)-shaped array
+    embedding2cluster_func : callable
+        Takes a (num_embeddings, dimension)-shaped array as input,
+        returns a (num_embeddings, num_clusters)-shaped array as
+        output.
+    constrained : bool, optional
+        Whether to force "same chunk" speakers to be assigned
+        to different clusters.
+
+    Returns
+    -------
+    clusters : (num_chunks, num_speakers)-shaped array
+        Index of clusters assigned to each (chunk, speaker).
+    """
+
+    num_chunks, num_speakers, dimension = embeddings.shape
+
+    # compute cost of assigning embeddings to clusters
+    e2k_cost = rearrange(
+        embedding2cluster_func(rearrange(embeddings, "c s d -> (c s) d")),
+        "(c s) k -> c s k",
+        c=num_chunks,
+        s=num_speakers,
+    )
+    num_chunks, num_speakers, num_clusters = e2k_cost.shape
+
+    # replace NaNs by maximum cost between any (embedding, cluster) pair
+    e2k_cost = np.nan_to_num(e2k_cost, nan=np.nanmax(e2k_cost))
+
+    clusters = np.argmin(e2k_cost, axis=2)
+    #   shape: (num_chunks, num_speakers)
+
+    if constrained:
+        for c, s2k in enumerate(e2k_cost):
+            for s, k in zip(*linear_sum_assignment(s2k, maximize=False)):
+                clusters[c, s] = k
+
+    return clusters
+
+
 class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
     """Hidden Markov Model with Gaussian states
 
@@ -264,7 +309,7 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         self,
         metric: str = "cosine",
         expects_num_clusters: bool = False,
-        n_trials: int = 10,
+        n_trials: int = 5,
     ):
         super().__init__()
 
@@ -361,13 +406,11 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
             max_clusters = 20
 
         # TODO: try to infer max_clusters automatically by looking at the evolution of selection criterion
-        assert (
-            max_clusters < num_embeddings
-        ), "Please provide an `max_clusters` upper bound"
 
         # estimate num_clusters by fitting an HMM with an increasing number of states
         if num_clusters is None:
 
+            num_clusters = max_clusters
             for n_components in range(min_clusters, max_clusters + 1):
 
                 hmm = GaussianHMM(
@@ -387,9 +430,8 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
                         num_clusters = max(min_clusters, n_components - 1)
                         break
 
-        # FIXME
-        if num_clusters is None:
-            num_clusters = max_clusters
+        if num_clusters == 1:
+            return np.zeros((num_chunks, num_speakers), dtype=np.int)
 
         # once num_clusters is estimated, fit the HMM several times
         # and keep the one that best fits the data
@@ -401,7 +443,8 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
                 n_iter=100,
                 random_state=random_state,
                 implementation="log",
-            ).fit(training_sequence)
+            )
+            hmm.fit(training_sequence)
 
             log_likelihood = hmm.score(training_sequence)
             if log_likelihood > best_log_likelihood:
@@ -430,51 +473,6 @@ class Clustering(Enum):
     AgglomerativeClustering = AgglomerativeClustering
     SpectralClustering = SpectralClustering
     GaussianHiddenMarkovModel = GaussianHiddenMarkovModel
-
-
-def nearest_cluster_assignment(embeddings, embedding2cluster_func, constrained=False):
-    """
-
-    Parameters
-    ----------
-    embeddings : (num_chunks, num_speakers, dimension)-shaped array
-    embedding2cluster_func : callable
-        Takes a (num_embeddings, dimension)-shaped array as input,
-        returns a (num_embeddings, num_clusters)-shaped array as
-        output.
-    constrained : bool, optional
-        Whether to force "same chunk" speakers to be assigned
-        to different clusters.
-
-    Returns
-    -------
-    clusters : (num_chunks, num_speakers)-shaped array
-        Index of clusters assigned to each (chunk, speaker).
-    """
-
-    num_chunks, num_speakers, dimension = embeddings.shape
-
-    # compute cost of assigning embeddings to clusters
-    e2k_cost = rearrange(
-        embedding2cluster_func(rearrange(embeddings, "c s d -> (c s) d")),
-        "(c s) k -> c s k",
-        c=num_chunks,
-        s=num_speakers,
-    )
-    num_chunks, num_speakers, num_clusters = e2k_cost.shape
-
-    # replace NaNs by maximum cost between any (embedding, cluster) pair
-    e2k_cost = np.nan_to_num(e2k_cost, nan=np.nanmax(e2k_cost))
-
-    clusters = np.argmin(e2k_cost, axis=2)
-    #   shape: (num_chunks, num_speakers)
-
-    if constrained:
-        for c, s2k in enumerate(e2k_cost):
-            for s, k in zip(*linear_sum_assignment(s2k, maximize=False)):
-                clusters[c, s] = k
-
-    return clusters
 
 
 class NearestClusterAssignment:
