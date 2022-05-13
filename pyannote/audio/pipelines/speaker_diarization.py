@@ -380,32 +380,17 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         num_active_frames: np.ndarray = np.sum(
             center_segmentations.data > self.onset, axis=1
         )
-        # (num_chunks, local_num_speakers)
+        priors = num_active_frames / (
+            np.sum(num_active_frames, axis=1, keepdims=True) + 1e-8
+        )
+        #   shape: (num_chunks, local_num_speakers)
 
-        # index of most active speaker in the center of the chunk
-        most_active_speaker = np.argmax(num_active_frames, axis=1)
-        # (num_chunks, )
-
-        most_active_embedding = embeddings[range(num_chunks), most_active_speaker]
-        # (num_chunks, dimension)
-
-        # keep non-NANs most active embeddings
-        valid_most_active_embedding = ~np.any(np.isnan(most_active_embedding), axis=1)
-
-        X = most_active_embedding[valid_most_active_embedding]
-
-        hook("embeddings/clustering", X)
-
-        clusters = rearrange(
-            self.clustering(
-                X,
-                num_clusters=num_speakers,
-                min_clusters=min_speakers,
-                max_clusters=max_speakers,
-                embeddings=rearrange(embeddings, "c s d -> (c s) d"),
-            ),
-            "(c s) -> c s",
-            c=num_chunks,
+        clusters = self.clustering(
+            embeddings,
+            priors=priors,
+            num_clusters=num_speakers,
+            min_clusters=min_speakers,
+            max_clusters=max_speakers,
         )
 
         if hasattr(self.clustering, "debug_"):

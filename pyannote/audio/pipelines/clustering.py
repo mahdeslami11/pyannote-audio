@@ -24,15 +24,17 @@
 
 
 from enum import Enum
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
+from einops import rearrange
 from hmmlearn.hmm import GaussianHMM
 from pyannote.core.utils.distance import cdist, pdist
 from pyannote.core.utils.hierarchy import linkage
 from pyannote.pipeline import Pipeline
 from pyannote.pipeline.parameter import Categorical, Uniform
 from scipy.cluster.hierarchy import fcluster
+from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import squareform
 from spectralcluster import EigenGapType, LaplacianType, SpectralClusterer
 
@@ -274,10 +276,42 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         self.n_trials = n_trials
         self.threshold = Uniform(0.0, 2.0)
 
+    def get_training_sequence(
+        self, embeddings: np.ndarray, priors: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+
+        Parameters
+        ----------
+        embeddings : (num_chunks, num_speakers, dimension) array
+            Sequence of embeddings.
+        priors : (num_chunks, num_speakers) array
+
+        Returns
+        -------
+        training_sequence : (num_steps, dimension) array
+        chunk_idx : (num_steps, ) array
+        speaker_idx : (num_steps, ) array
+
+        """
+
+        num_chunks, _, _ = embeddings.shape
+
+        speaker_idx = np.argmax(priors, axis=1)
+        # (num_chunks, )
+
+        training_sequence = embeddings[range(num_chunks), speaker_idx]
+        # (num_chunks, dimension)
+
+        chunk_idx = np.where(~np.any(np.isnan(training_sequence), axis=1))[0]
+        # (num_chunks, )
+
+        return (training_sequence[chunk_idx], chunk_idx, speaker_idx[chunk_idx])
+
     def __call__(
         self,
-        main_embeddings: np.ndarray,
-        embeddings: np.ndarray = None,
+        embeddings: np.ndarray,
+        priors: np.ndarray = None,
         num_clusters: int = None,
         min_clusters: int = None,
         max_clusters: int = None,
@@ -286,26 +320,34 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
 
         Parameters
         ----------
-        main_embeddings : (num_chunks, dimension) array
+        embeddings : (num_chunks, num_speakers, dimension) array
             Sequence of embeddings.
+        priors : (num_chunks, num_speakers) array
         num_clusters : int, optional
             Number of clusters, when known.
         min_clusters : int, optional
             Minimum number of clusters. Has no effect when `num_clusters` is provided.
         max_clusters : int, optional
             Maximum number of clusters. Has no effect when `num_clusters` is provided.
+
+
+        Returns
+        -------
+        clusters : (num_chunks, num_speakers) array
+            Sequence of clusters
         """
 
-        num_embeddings, _ = main_embeddings.shape
+        num_chunks, num_speakers, dimension = embeddings.shape
 
         if self.metric == "cosine":
             # unit-normalize embeddings to somehow make them "euclidean"
             with np.errstate(divide="ignore", invalid="ignore"):
-                main_embeddings /= np.linalg.norm(
-                    main_embeddings, axis=-1, keepdims=True
-                )
-                if embeddings is not None:
-                    embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
+                embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
+
+        training_sequence, chunk_idx, speaker_idx = self.get_training_sequence(
+            embeddings, priors
+        )
+        num_embeddings, _ = training_sequence.shape
 
         num_clusters, min_clusters, max_clusters = self.set_num_clusters(
             num_embeddings,
@@ -314,11 +356,10 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
             max_clusters=max_clusters,
         )
 
+        # TODO: try to infer max_clusters automatically by looking at the evolution of selection criterion
         assert (
             max_clusters < num_embeddings
         ), "Please provide an `max_clusters` upper bound"
-
-        # TODO: try to infer that automatically by looking at the evolution of BIC = f(num_clusters)
 
         # estimate num_clusters by fitting an HMM with an increasing number of states
         if num_clusters is None:
@@ -331,7 +372,7 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
                     n_iter=100,
                     # random_state=random_state,
                     implementation="log",
-                ).fit(main_embeddings)
+                ).fit(training_sequence)
 
                 if n_components > 1:
                     # as soon as two states get too close to each other, stop adding states
@@ -352,33 +393,80 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
                 n_iter=100,
                 random_state=random_state,
                 implementation="log",
-            ).fit(main_embeddings)
+            ).fit(training_sequence)
 
-            log_likelihood = hmm.score(main_embeddings)
+            log_likelihood = hmm.score(training_sequence)
             if log_likelihood > best_log_likelihood:
                 best_log_likelihood = log_likelihood
                 best_hmm = hmm
 
         # store
-        self.debug_ = {"best_hmm": best_hmm}
+        self.debug_ = {"best_hmm": best_hmm, "training_sequence": training_sequence}
 
-        if embeddings is None:
-            embeddings = main_embeddings
+        def embedding2cluster_func(e):
+            return cdist(e, best_hmm.means_, metric="cosine")
 
-        # TODO: use actual Viterbi decoding instead of distance to state mean
-        # how can we not screw sequence structure with multiple overlapping speakers?
-        # for timesteps where there is just one speaker, no problem
-        # for multispeaker, we could fallback to distance to state mean
-        #                or we could run max_num_overlapping_speakers decodings
-        distances = cdist(embeddings, best_hmm.means_, metric="cosine")
+        clusters = nearest_cluster_assignment(
+            embeddings, embedding2cluster_func, constrained=False
+        )
+        # setting `constrained` to True actually degraded performance
+        # in initial experiments on AMI with distance-to-state embedding2cluster_func
 
-        return np.argmin(distances, axis=-1)
+        # using decoding instead of distance-to-state actually degraded performance
+        # clusters[chunk_idx, speaker_idx] = best_hmm.predict(training_sequence)
+
+        return clusters
 
 
 class Clustering(Enum):
     AgglomerativeClustering = AgglomerativeClustering
     SpectralClustering = SpectralClustering
     GaussianHiddenMarkovModel = GaussianHiddenMarkovModel
+
+
+def nearest_cluster_assignment(embeddings, embedding2cluster_func, constrained=False):
+    """
+
+    Parameters
+    ----------
+    embeddings : (num_chunks, num_speakers, dimension)-shaped array
+    embedding2cluster_func : callable
+        Takes a (num_embeddings, dimension)-shaped array as input,
+        returns a (num_embeddings, num_clusters)-shaped array as
+        output.
+    constrained : bool, optional
+        Whether to force "same chunk" speakers to be assigned
+        to different clusters.
+
+    Returns
+    -------
+    clusters : (num_chunks, num_speakers)-shaped array
+        Index of clusters assigned to each (chunk, speaker).
+    """
+
+    num_chunks, num_speakers, dimension = embeddings.shape
+
+    # compute cost of assigning embeddings to clusters
+    e2k_cost = rearrange(
+        embedding2cluster_func(rearrange(embeddings, "c s d -> (c s) d")),
+        "(c s) k -> c s k",
+        c=num_chunks,
+        s=num_speakers,
+    )
+    num_chunks, num_speakers, num_clusters = e2k_cost.shape
+
+    # replace NaNs by maximum cost between any (embedding, cluster) pair
+    e2k_cost = np.nan_to_num(e2k_cost, nan=np.nanmax(e2k_cost))
+
+    clusters = np.argmin(e2k_cost, axis=2)
+    #   shape: (num_chunks, num_speakers)
+
+    if constrained:
+        for c, s2k in enumerate(e2k_cost):
+            for s, k in zip(*linear_sum_assignment(s2k, maximize=False)):
+                clusters[c, s] = k
+
+    return clusters
 
 
 class NearestClusterAssignment:
