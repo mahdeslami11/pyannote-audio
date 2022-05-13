@@ -211,7 +211,12 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
                     # chunk: Segment(t, t + duration)
                     # masks: (num_frames, local_num_speakers) np.ndarray
 
-                    waveform, _ = self._audio.crop(file, chunk, mode="pad")
+                    waveform, _ = self._audio.crop(
+                        file,
+                        chunk,
+                        duration=segmentations.sliding_window.duration,
+                        mode="pad",
+                    )
                     # waveform: (1, num_samples) torch.Tensor
 
                     # mask may contain NaN (in case of partial stitching)
@@ -365,11 +370,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         hook("embeddings", embeddings)
         #   shape: (num_chunks, local_num_speakers, dimension)
 
-        # unit-normalize embeddings
-        with np.errstate(divide="ignore", invalid="ignore"):
-            embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
-
-        # focus on step-long center of each chunk
+        # focus on center of each chunk
         step = segmentations.sliding_window.step
         ratio = 0.5 * (duration - step) / duration
         center_segmentations = Inference.trim(segmentations, warm_up=(ratio, ratio))
@@ -393,6 +394,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         X = most_active_embedding[valid_most_active_embedding]
 
+        hook("embeddings/clustering", X)
+
         clusters = rearrange(
             self.clustering(
                 X,
@@ -404,6 +407,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             "(c s) -> c s",
             c=num_chunks,
         )
+
+        if hasattr(self.clustering, "debug_"):
+            hook("clustering.debug_", self.clustering.debug_)
 
         # mark inactive speakers as such (cluster = -2)
         num_active_frames: np.ndarray = np.sum(segmentations.data > self.onset, axis=1)

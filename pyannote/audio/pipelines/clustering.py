@@ -1,6 +1,6 @@
 # The MIT License (MIT)
 #
-# Copyright (c) 2021 CNRS
+# Copyright (c) 2021- CNRS
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -262,23 +262,51 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         self,
         metric: str = "cosine",
         expects_num_clusters: bool = False,
-        n_trials: int = 3,
+        n_trials: int = 10,
     ):
         super().__init__()
+
+        if metric not in ["euclidean", "cosine"]:
+            raise ValueError("`metric` must be one of {'cosine', 'euclidean'}")
+
         self.metric = metric
         self.expects_num_clusters = expects_num_clusters
         self.n_trials = n_trials
+        self.threshold = Uniform(0.0, 2.0)
 
     def __call__(
         self,
         main_embeddings: np.ndarray,
+        embeddings: np.ndarray = None,
         num_clusters: int = None,
         min_clusters: int = None,
         max_clusters: int = None,
-        embeddings: np.ndarray = None,
     ) -> np.ndarray:
+        """
+
+        Parameters
+        ----------
+        main_embeddings : (num_chunks, dimension) array
+            Sequence of embeddings.
+        num_clusters : int, optional
+            Number of clusters, when known.
+        min_clusters : int, optional
+            Minimum number of clusters. Has no effect when `num_clusters` is provided.
+        max_clusters : int, optional
+            Maximum number of clusters. Has no effect when `num_clusters` is provided.
+        """
 
         num_embeddings, _ = main_embeddings.shape
+
+        if self.metric == "cosine":
+            # unit-normalize embeddings to somehow make them "euclidean"
+            with np.errstate(divide="ignore", invalid="ignore"):
+                main_embeddings /= np.linalg.norm(
+                    main_embeddings, axis=-1, keepdims=True
+                )
+                if embeddings is not None:
+                    embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
+
         num_clusters, min_clusters, max_clusters = self.set_num_clusters(
             num_embeddings,
             num_clusters=num_clusters,
@@ -292,54 +320,59 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
 
         # TODO: try to infer that automatically by looking at the evolution of BIC = f(num_clusters)
 
-        best_bic = np.inf
-        for n_components in range(min_clusters, max_clusters + 1):
+        # estimate num_clusters by fitting an HMM with an increasing number of states
+        if num_clusters is None:
 
-            for random_state in range(self.n_trials):
+            for n_components in range(min_clusters, max_clusters + 1):
 
                 hmm = GaussianHMM(
                     n_components=n_components,
                     covariance_type="diag",
                     n_iter=100,
-                    random_state=random_state,
+                    # random_state=random_state,
                     implementation="log",
                 ).fit(main_embeddings)
 
-                # keep best model according to BIC criterion
-                bic = self.bic(hmm, main_embeddings)
-                if bic < best_bic:
-                    best_hmm = hmm
-                    best_bic = bic
+                if n_components > 1:
+                    # as soon as two states get too close to each other, stop adding states
+                    min_state_dist = np.min(pdist(hmm.means_, metric="euclidean"))
+                    # print(f"{n_components=} {min_state_dist:.2f}")
+
+                    if min_state_dist < self.threshold:
+                        num_clusters = max(min_clusters, n_components - 1)
+                        break
+
+        # once num_clusters is estimated, fit the HMM several times
+        # and keep the one that best fits the data
+        best_log_likelihood = -np.inf
+        for random_state in range(self.n_trials):
+            hmm = GaussianHMM(
+                n_components=num_clusters,
+                covariance_type="diag",
+                n_iter=100,
+                random_state=random_state,
+                implementation="log",
+            ).fit(main_embeddings)
+
+            log_likelihood = hmm.score(main_embeddings)
+            if log_likelihood > best_log_likelihood:
+                best_log_likelihood = log_likelihood
+                best_hmm = hmm
+
+        # store
+        self.debug_ = {"best_hmm": best_hmm}
 
         if embeddings is None:
             embeddings = main_embeddings
 
-        distances = cdist(embeddings, best_hmm.means_, metric=self.metric)
+        # TODO: use actual Viterbi decoding instead of distance to state mean
+        # how can we not screw sequence structure with multiple overlapping speakers?
+        # for timesteps where there is just one speaker, no problem
+        # for multispeaker, we could fallback to distance to state mean
+        #                or we could run max_num_overlapping_speakers decodings
+        distances = cdist(embeddings, best_hmm.means_, metric="cosine")
 
         return np.argmin(distances, axis=-1)
-
-    @staticmethod
-    def bic(hmm, embeddings):
-
-        num_embeddings, dimension = embeddings.shape
-        num_states = hmm.n_components
-
-        if hmm.covariance_type == "diag":
-
-            n_parameters = (
-                2 * (num_states * dimension)  # mean and covariance
-                + num_states * (num_states - 1)  # transition probability
-                + (num_states - 1)  # start probability
-            )
-
-        else:
-            raise ValueError(
-                "Computation of BIC criterion is only supported for 'diag' covariance_type."
-            )
-
-        log_likelihood = hmm.score(embeddings)
-
-        return np.log(num_embeddings) * n_parameters - 2 * log_likelihood
 
 
 class Clustering(Enum):
