@@ -387,6 +387,10 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
                         num_clusters = max(min_clusters, n_components - 1)
                         break
 
+        # FIXME
+        if num_clusters is None:
+            num_clusters = max_clusters
+
         # once num_clusters is estimated, fit the HMM several times
         # and keep the one that best fits the data
         best_log_likelihood = -np.inf
