@@ -356,6 +356,10 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
             max_clusters=max_clusters,
         )
 
+        # FIXME
+        if max_clusters == num_embeddings:
+            max_clusters = 20
+
         # TODO: try to infer max_clusters automatically by looking at the evolution of selection criterion
         assert (
             max_clusters < num_embeddings
