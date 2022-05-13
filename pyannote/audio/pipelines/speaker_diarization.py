@@ -140,8 +140,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         # hyper-parameters
 
         # hyper-parameters used for hysteresis thresholding
-        self.onset = Uniform(0.01, 0.99)
-        self.offset = Uniform(0.01, 0.99)
+        self.onset = Uniform(0.1, 0.9)
+        self.offset = Uniform(0.1, 0.9)
 
         if self.segmentation_stitching:
             self.stitching_threshold = Uniform(0.01, 0.99)
@@ -384,6 +384,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             np.sum(num_active_frames, axis=1, keepdims=True) + 1e-8
         )
         #   shape: (num_chunks, local_num_speakers)
+
+        # corner case where there is less than two steps with active speakers
 
         clusters = self.clustering(
             embeddings,
