@@ -139,9 +139,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         # hyper-parameters
 
-        # hyper-parameters used for hysteresis thresholding
-        self.onset = Uniform(0.1, 0.9)
-        self.offset = Uniform(0.1, 0.9)
+        self.segmentation_onset = Uniform(0.1, 0.9)
+        self.embedding_onset = Uniform(0.1, 0.9)
 
         if self.segmentation_stitching:
             self.stitching_threshold = Uniform(0.01, 0.99)
@@ -179,8 +178,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         self, this: np.ndarray, that: np.ndarray, cost: float
     ) -> bool:
         return (
-            np.any(this > self.onset)
-            and np.any(that > self.onset)
+            np.any(this > self.segmentation_onset)
+            and np.any(that > self.segmentation_onset)
             and cost < self.stitching_threshold
         )
 
@@ -302,8 +301,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         # estimate frame-level number of instantaneous speakers
         count = self.speaker_count(
             segmentations,
-            onset=self.onset,
-            offset=self.offset,
+            onset=self.segmentation_onset,
+            offset=self.segmentation_onset,
             frames=self._frames,
         )
         hook("speaker_counting", count)
@@ -323,7 +322,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         duration = segmentations.sliding_window.duration
 
         binarized_segmentations: SlidingWindowFeature = binarize(
-            segmentations, onset=self.onset, offset=self.offset, initial_state=False
+            segmentations,
+            onset=self.embedding_onset,
+            initial_state=False,
         )
 
         if self.embedding_filtering:
@@ -356,7 +357,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         # number of frames during which speakers are active
         # in the center of the chunk
         num_active_frames: np.ndarray = np.sum(
-            center_segmentations.data > self.onset, axis=1
+            center_segmentations.data > self.segmentation_onset, axis=1
         )
         priors = num_active_frames / (
             np.sum(num_active_frames, axis=1, keepdims=True) + 1e-8
@@ -377,7 +378,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             hook("clustering.debug_", self.clustering.debug_)
 
         # mark inactive speakers as such (cluster = -2)
-        num_active_frames: np.ndarray = np.sum(segmentations.data > self.onset, axis=1)
+        num_active_frames: np.ndarray = np.sum(
+            segmentations.data > self.segmentation_onset, axis=1
+        )
         clusters[num_active_frames == 0] = -2
 
         # build final aggregated speaker activations
