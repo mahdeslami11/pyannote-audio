@@ -26,13 +26,13 @@ from typing import Any, Mapping, Optional, Text, Tuple, Union
 
 import numpy as np
 import torch
+from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
+from pyannote.metrics.diarization import DiarizationErrorRate
 from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
 from torch_audiomentations.utils.config import from_dict as augmentation_from_dict
 
 from pyannote.audio import Inference, Model
 from pyannote.audio.utils.signal import Binarize, binarize
-from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
-from pyannote.metrics.diarization import DiarizationErrorRate
 
 PipelineModel = Union[Model, Text, Mapping]
 
@@ -204,7 +204,9 @@ class SpeakerDiarizationMixin:
 
     @staticmethod
     def set_num_speakers(
-        num_speakers: int = None, min_speakers: int = None, max_speakers: int = None,
+        num_speakers: int = None,
+        min_speakers: int = None,
+        max_speakers: int = None,
     ):
         """Validate number of speakers
 
@@ -272,7 +274,7 @@ class SpeakerDiarizationMixin:
     def speaker_count(
         segmentations: SlidingWindowFeature,
         onset: float = 0.5,
-        offset: float = 0.5,
+        offset: float = None,
         warm_up: Tuple[float, float] = (0.1, 0.1),
         frames: SlidingWindow = None,
     ) -> SlidingWindowFeature:
@@ -285,7 +287,7 @@ class SpeakerDiarizationMixin:
         onset : float, optional
            Onset threshold. Defaults to 0.5
         offset : float, optional
-           Offset threshold. Defaults to 0.5
+           Offset threshold. Defaults to `onset`.
         warm_up : (float, float) tuple, optional
             Left/right warm up ratio of chunk duration.
             Defaults to (0.1, 0.1), i.e. 10% on both sides.
@@ -299,8 +301,9 @@ class SpeakerDiarizationMixin:
         count : SlidingWindowFeature
             (num_frames, 1)-shaped instantaneous speaker count
         """
+
         binarized: SlidingWindowFeature = binarize(
-            segmentations, onset=onset, offset=offset, initial_state=False
+            segmentations, onset=onset, offset=offset or onset, initial_state=False
         )
         trimmed = Inference.trim(binarized, warm_up=warm_up)
         count = Inference.aggregate(
@@ -320,7 +323,7 @@ class SpeakerDiarizationMixin:
         min_duration_off: float = 0.0,
     ) -> Annotation:
         """
-        
+
         Parameters
         ----------
         discrete_diarization : SlidingWindowFeature
@@ -347,7 +350,8 @@ class SpeakerDiarizationMixin:
 
     @staticmethod
     def to_diarization(
-        segmentations: SlidingWindowFeature, count: SlidingWindowFeature,
+        segmentations: SlidingWindowFeature,
+        count: SlidingWindowFeature,
     ) -> SlidingWindowFeature:
         """Build diarization out of preprocessed segmentation and precomputed speaker count
 
