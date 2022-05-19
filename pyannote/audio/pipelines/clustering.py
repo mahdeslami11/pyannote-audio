@@ -408,6 +408,7 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         # TODO: try to infer max_clusters automatically by looking at the evolution of selection criterion
 
         # estimate num_clusters by fitting an HMM with an increasing number of states
+        debug = {"training_sequence": training_sequence, "hmm": dict()}
         if num_clusters is None:
 
             num_clusters = max_clusters
@@ -421,10 +422,11 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
                     implementation="log",
                 ).fit(training_sequence)
 
+                debug["hmm"][n_components] = hmm
+
                 if n_components > 1:
                     # as soon as two states get too close to each other, stop adding states
                     min_state_dist = np.min(pdist(hmm.means_, metric="euclidean"))
-                    # print(f"{n_components=} {min_state_dist:.2f}")
 
                     if min_state_dist < self.threshold:
                         num_clusters = max(min_clusters, n_components - 1)
@@ -455,8 +457,8 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
                 best_log_likelihood = log_likelihood
                 best_hmm = hmm
 
-        # store
-        self.debug_ = {"best_hmm": best_hmm, "training_sequence": training_sequence}
+        debug["best_hmm"] = best_hmm
+        self.debug_ = debug
 
         def embedding2cluster_func(e):
             return cdist(e, best_hmm.means_, metric="cosine")
