@@ -309,6 +309,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         #   shape: (num_frames, 1)
         #   dtype: int
 
+        # TODO: investigate the use of stitching just for embedding extraction
         if self.segmentation_stitching:
             segmentations = Inference.stitch(
                 segmentations,
@@ -321,6 +322,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         num_chunks, num_frames, local_num_speakers = segmentations.data.shape
         duration = segmentations.sliding_window.duration
 
+        # TODO: investigate filling short gaps
         binarized_segmentations: SlidingWindowFeature = binarize(
             segmentations,
             onset=self.embedding_onset,
