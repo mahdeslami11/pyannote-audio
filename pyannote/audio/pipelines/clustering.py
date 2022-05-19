@@ -463,6 +463,9 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         def embedding2cluster_func(e):
             return cdist(e, best_hmm.means_, metric="cosine")
 
+        # TODO: investigate cluster assignment smoothing based on stitching probability
+        # TODO: à la self-attention weighing
+
         clusters = nearest_cluster_assignment(
             embeddings, embedding2cluster_func, constrained=False
         )
