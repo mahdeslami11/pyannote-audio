@@ -27,12 +27,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
+from pyannote.core.utils.generators import pairwise
 
 from pyannote.audio.core.model import Model
 from pyannote.audio.core.task import Task
 from pyannote.audio.models.blocks.sincnet import SincNet
 from pyannote.audio.utils.params import merge_dict
-from pyannote.core.utils.generators import pairwise
 
 
 class PyanNet(Model):
@@ -66,8 +66,9 @@ class PyanNet(Model):
         "hidden_size": 128,
         "num_layers": 2,
         "bidirectional": True,
-        "monolithic": True,
         "dropout": 0.0,
+        "monolithic": True,
+        "layer_norm": False,
     }
     LINEAR_DEFAULTS = {"hidden_size": 128, "num_layers": 2}
 
@@ -85,17 +86,24 @@ class PyanNet(Model):
 
         sincnet = merge_dict(self.SINCNET_DEFAULTS, sincnet)
         sincnet["sample_rate"] = sample_rate
+
         lstm = merge_dict(self.LSTM_DEFAULTS, lstm)
         lstm["batch_first"] = True
+        if lstm["layer_norm"]:
+            lstm["monolithic"] = False
+
         linear = merge_dict(self.LINEAR_DEFAULTS, linear)
         self.save_hyperparameters("sincnet", "lstm", "linear")
 
         self.sincnet = SincNet(**self.hparams.sincnet)
 
         monolithic = lstm["monolithic"]
+        layer_norm = lstm["layer_norm"]
+
         if monolithic:
             multi_layer_lstm = dict(lstm)
             del multi_layer_lstm["monolithic"]
+            del multi_layer_lstm["layer_norm"]
             self.lstm = nn.LSTM(60, **multi_layer_lstm)
 
         else:
@@ -107,6 +115,7 @@ class PyanNet(Model):
             one_layer_lstm["num_layers"] = 1
             one_layer_lstm["dropout"] = 0.0
             del one_layer_lstm["monolithic"]
+            del one_layer_lstm["layer_norm"]
 
             self.lstm = nn.ModuleList(
                 [
@@ -120,6 +129,18 @@ class PyanNet(Model):
                 ]
             )
 
+            if layer_norm:
+                self.layer_norm = nn.ModuleList(
+                    [
+                        nn.LayerNorm(
+                            lstm["hidden_size"] * (2 if lstm["bidirectional"] else 1),
+                            eps=1e-5,
+                            elementwise_affine=True,
+                        )
+                        for i in range(num_layers)
+                    ]
+                )
+
         if linear["num_layers"] < 1:
             return
 
@@ -130,7 +151,9 @@ class PyanNet(Model):
             [
                 nn.Linear(in_features, out_features)
                 for in_features, out_features in pairwise(
-                    [lstm_out_features,]
+                    [
+                        lstm_out_features,
+                    ]
                     + [self.hparams.linear["hidden_size"]]
                     * self.hparams.linear["num_layers"]
                 )
@@ -171,6 +194,8 @@ class PyanNet(Model):
             outputs = rearrange(outputs, "batch feature frame -> batch frame feature")
             for i, lstm in enumerate(self.lstm):
                 outputs, _ = lstm(outputs)
+                if self.hparams.lstm["layer_norm"]:
+                    outputs = self.layer_norm[i](outputs)
                 if i + 1 < self.hparams.lstm["num_layers"]:
                     outputs = self.dropout(outputs)
 
