@@ -21,9 +21,11 @@
 # SOFTWARE.
 
 import itertools
+import math
 from copy import deepcopy
 from typing import Any, Mapping, Optional, Text, Tuple, Union
 
+import networkx as nx
 import numpy as np
 import torch
 from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
@@ -32,6 +34,7 @@ from torch_audiomentations.core.transforms_interface import BaseWaveformTransfor
 from torch_audiomentations.utils.config import from_dict as augmentation_from_dict
 
 from pyannote.audio import Inference, Model
+from pyannote.audio.utils.permutation import mae_cost_func, permutate
 from pyannote.audio.utils.signal import Binarize, binarize
 
 PipelineModel = Union[Model, Text, Mapping]
@@ -317,6 +320,79 @@ class SpeakerDiarizationMixin:
         return count
 
     @staticmethod
+    def get_stitching_graph(
+        segmentations: SlidingWindowFeature, onset: float = 0.5
+    ) -> nx.Graph:
+        """Build stitching graph
+
+        Parameters
+        ----------
+        segmentations : (num_chunks, num_frames, local_num_speakers)-shaped SlidingWindowFeature
+            Raw output of segmentation model.
+        onset : float, optional
+            Onset speaker activation threshold. Defaults to 0.5
+
+        Returns
+        -------
+        stitching_graph : nx.Graph
+            Nodes are (chunk_idx, speaker_idx) tuples.
+            An edge between two nodes indicate that those are likely to be the same speaker
+            (the lower the value of "cost" attribute, the more likely).
+        """
+
+        chunks = segmentations.sliding_window
+        num_chunks, num_frames, _ = segmentations.data.shape
+        max_lookahead = math.floor(chunks.duration / chunks.step - 1)
+        lookahead = 2 * (max_lookahead,)
+
+        stitching_graph = nx.Graph()
+
+        for C, (chunk, segmentation) in enumerate(segmentations):
+            for c in range(
+                max(0, C - lookahead[0]), min(num_chunks, C + lookahead[1] + 1)
+            ):
+
+                if c == C:
+                    continue
+
+                # extract common temporal support
+                shift = round((C - c) * num_frames * chunks.step / chunks.duration)
+
+                if shift < 0:
+                    shift = -shift
+                    this_segmentations = segmentation[shift:]
+                    that_segmentations = segmentations[c, : num_frames - shift]
+                else:
+                    this_segmentations = segmentation[: num_frames - shift]
+                    that_segmentations = segmentations[c, shift:]
+
+                # find the optimal one-to-one mapping
+                _, (permutation,), (cost,) = permutate(
+                    this_segmentations[np.newaxis],
+                    that_segmentations,
+                    cost_func=mae_cost_func,
+                    return_cost=True,
+                )
+
+                for this, that in enumerate(permutation):
+
+                    this_is_active = np.any(this_segmentations[:, this] > onset)
+                    that_is_active = np.any(that_segmentations[:, that] > onset)
+
+                    if this_is_active:
+                        stitching_graph.add_node((C, this))
+
+                    if that_is_active:
+                        stitching_graph.add_node((c, that))
+
+                    if this_is_active and that_is_active:
+                        stitching_graph.add_edge(
+                            (C, this), (c, that), cost=cost[this, that]
+                        )
+
+        return stitching_graph
+
+    @staticmethod
     def to_annotation(
         discrete_diarization: SlidingWindowFeature,
         min_duration_on: float = 0.0,
@@ -376,16 +452,21 @@ class SpeakerDiarizationMixin:
             skip_average=True,
         )
 
+        # add extra speakers if speaker count
         _, num_speakers = activations.data.shape
-        count.data = np.minimum(count.data, num_speakers)
+        at_least_num_speakers = np.max(count.data)
+        if num_speakers < at_least_num_speakers:
+            activations.data = np.pad(
+                activations.data, ((0, 0), (0, at_least_num_speakers - num_speakers))
+            )
 
         extent = activations.extent & count.extent
         activations = activations.crop(extent, return_data=False)
         count = count.crop(extent, return_data=False)
 
+        # for each frame f, mark count[f] most likely speakers as active
         sorted_speakers = np.argsort(-activations, axis=-1)
         binary = np.zeros_like(activations.data)
-
         for t, ((_, c), speakers) in enumerate(zip(count, sorted_speakers)):
             for i in range(c.item()):
                 binary[t, speakers[i]] = 1.0

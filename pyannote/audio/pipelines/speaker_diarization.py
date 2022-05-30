@@ -35,7 +35,9 @@ from pyannote.pipeline.parameter import Uniform
 
 from pyannote.audio import Audio, Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
-from pyannote.audio.pipelines.clustering import GaussianHiddenMarkovModel
+from pyannote.audio.pipelines.clustering import (  # GaussianHiddenMarkovModel,; KMeansClustering,
+    HMMClustering,
+)
 from pyannote.audio.pipelines.speaker_verification import PretrainedSpeakerEmbedding
 from pyannote.audio.pipelines.utils import (
     PipelineModel,
@@ -133,7 +135,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         self._audio = Audio(sample_rate=self._embedding.sample_rate, mono=True)
 
-        self.clustering = GaussianHiddenMarkovModel(
+        self.clustering = HMMClustering(
             metric=self._embedding.metric, expects_num_clusters=expects_num_speakers
         )
 
@@ -368,12 +370,29 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         # corner case where there is less than two steps with active speakers
 
+        # intra-chunk cannot link constraints
+        constraints = np.zeros(
+            (num_chunks, local_num_speakers, num_chunks, local_num_speakers)
+        )
+        for c in range(num_chunks):
+            constraints[c, :, c, :] = -1
+        for s in range(local_num_speakers):
+            constraints[:, s, :, s] = 0
+
+        g = self.get_stitching_graph(segmentations, onset=self.segmentation_onset)
+        for (c, s), (c_, s_) in g.edges():
+            constraints[c, s, c_, s_] = 1
+            constraints[c_, s_, c, s] = 1
+
+        # TODO: add adjacent chunk must link constraints
+
         clusters = self.clustering(
             embeddings,
             priors=priors,
             num_clusters=num_speakers,
             min_clusters=min_speakers,
             max_clusters=max_speakers,
+            constraints=constraints,
         )
 
         if hasattr(self.clustering, "debug_"):
@@ -384,6 +403,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             segmentations.data > self.segmentation_onset, axis=1
         )
         clusters[num_active_frames == 0] = -2
+
+        hook("clusters", clusters)
 
         # build final aggregated speaker activations
 
@@ -402,6 +423,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
                 if k == -2:
                     continue
 
+                # in case there are multiple speakers from the same chunk
+                # assigned to the same cluster, we use their frame-wise max
                 clustered_segmentations[c, :, k] = np.max(
                     segmentation[:, cluster == k], axis=1
                 )

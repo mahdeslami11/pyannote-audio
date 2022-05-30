@@ -36,10 +36,16 @@ from pyannote.pipeline.parameter import Categorical, Uniform
 from scipy.cluster.hierarchy import fcluster
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import squareform
+from sklearn.cluster import KMeans
 from spectralcluster import EigenGapType, LaplacianType, SpectralClusterer
 
 
-class ClusteringMixin:
+class ClusteringMixin(Pipeline):
+    def __init__(self, metric="cosine", expects_num_clusters: bool = False):
+        super().__init__()
+        self.metric = metric
+        self.expects_num_clusters = expects_num_clusters
+
     def set_num_clusters(
         self,
         num_embeddings: int,
@@ -47,6 +53,28 @@ class ClusteringMixin:
         min_clusters: int = None,
         max_clusters: int = None,
     ):
+        """Refine actual/min/max number of clusters
+
+        Parameters
+        ----------
+        num_embeddings : int
+            Number of embeddings to cluster.
+        num_clusters : int, optional
+            Actual number of clusters, when known.
+        min_clusters : int, optional
+            Minimum number of clusters. Defaults to 1.
+            Not used when `num_clusters` is provided.
+        max_clusters : int, optional
+            Maximum number of clusters. Defaults to `num_embeddings`.
+            Not used when `num_clusters` is provided.
+
+        Returns
+        -------
+        num_clusters : int
+        min_clusters : int
+        max_clusters : int
+            Refined actual/min/max number of clusters, when possible.
+        """
 
         min_clusters = num_clusters or min_clusters or 1
         min_clusters = max(1, min(num_embeddings, min_clusters))
@@ -66,6 +94,289 @@ class ClusteringMixin:
             raise ValueError("num_clusters must be provided.")
 
         return num_clusters, min_clusters, max_clusters
+
+    def select_embeddings(
+        self, embeddings: np.ndarray, **kwargs
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Select embeddings for clustering
+
+        Default behavior is to keep all but NAN embeddings
+
+        Parameters
+        ----------
+        embeddings : (num_chunks, num_speakers, dimension)-shaped array
+
+        Returns
+        -------
+        chunk_idx : (num_embeddings, )-shaped array
+        speaker_idx : (num_embeddings, )-shaped array
+        """
+
+        # num_chunks, num_speakers, dimension = embeddings.shape
+        chunk_idx, speaker_idx = np.where(~np.any(np.isnan(embeddings), axis=2))
+        return chunk_idx, speaker_idx
+
+    def filter_embeddings(
+        self,
+        embeddings: np.ndarray,
+        chunk_idx: np.ndarray,
+        speaker_idx: np.ndarray,
+        constraints: np.ndarray = None,
+    ):
+        """
+
+        Returns
+        -------
+        filtered_embeddings : (num_embeddings, dimension)-shaped array
+        filtered_constraints : (num_embeddings, num_embeddings)-shaped array
+
+        """
+
+        num_chunks, num_speakers, dimension = embeddings.shape
+
+        flatten_idx = chunk_idx * num_speakers + speaker_idx
+
+        filtered_embeddings = rearrange(embeddings, "c s d -> (c s) d")[flatten_idx, :]
+
+        if constraints is None:
+            filtered_constraints = None
+
+        else:
+            filtered_constraints = rearrange(constraints, "c s cc ss -> (c s) (cc ss)")[
+                flatten_idx, :
+            ][:, flatten_idx]
+
+        return filtered_embeddings, filtered_constraints
+
+    def filter_contraints(
+        self, constraints: np.ndarray, chunk_idx: np.ndarray, speaker_idx: np.ndarray
+    ):
+        num_chunks, num_speakers, _, _ = constraints.shape
+        flatten_idx = chunk_idx * num_speakers + speaker_idx
+        return rearrange(constraints, "c s cc ss -> (c s) (cc ss)")[flatten_idx, :][
+            :, flatten_idx
+        ]
+
+    def select_embeddings_for_fit(
+        self, embeddings: np.ndarray, constraints: Optional[np.ndarray] = None, **kwargs
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        raise NotImplementedError()
+
+    def fit(
+        self,
+        embeddings: np.ndarray,
+        num_clusters: int = None,
+        constraints: np.ndarray = None,
+        **kwargs,
+    ):
+        """
+
+        Parameters
+        ----------
+        embeddings : (num_embeddings, dimension)-shaped array
+        constraints : (num_embeddings, num_embeddings)-shape array
+        num_clusters : int
+
+        Returns
+        -------
+        clusters : (num_embeddings, )-shaped array
+
+        """
+        self.num_clusters_ = num_clusters or 1
+        return np.random.randint(self.num_clusters_, size=(embeddings.shape[0],))
+
+    def transform(self, embeddings: np.ndarray):
+        return np.random.random((len(embeddings.shape[0], self.num_clusters_)))
+
+    def predict(
+        self,
+        embeddings: np.ndarray,
+        constraints: np.ndarray = None,
+        chunk_idx: np.ndarray = None,
+        speaker_idx: np.ndarray = None,
+        **kwargs,
+    ):
+        """Assign to clusters
+
+        Parameters
+        ----------
+        embeddings : (num_chunks, num_speakers, dimension)-shaped array
+        constraints : (num_chunks, num_speakers, num_chunks, num_speakers)-shapedarray
+        chunk_idx : (num_embeddings, )-shaped array
+        speaker_idx : (num_embeddings, )-shaped array
+
+        Returns
+        -------
+        clusters : (num_chunks, num_speakers)-shaped array
+        """
+
+        num_chunks, num_speakers, dimension = embeddings.shape
+
+        # only process selected subset of embeddings (as returned by select_embeddings)
+        valid_embeddings, _ = self.filter_embeddings(
+            embeddings, chunk_idx=chunk_idx, speaker_idx=speaker_idx
+        )
+        #   shape: (num_embeddings, dimension)
+
+        # compute cost of assigning each embedding to each cluster
+        e2k_cost = np.NAN * np.zeros((num_chunks, num_speakers, self.num_clusters_))
+        e2k_cost[chunk_idx, speaker_idx] = self.transform(valid_embeddings)
+        e2k_cost = np.nan_to_num(e2k_cost, nan=np.nanmax(e2k_cost))
+        #   shape: (num_chunks, num_speakers, num_clusters)
+
+        clusters = np.argmin(e2k_cost, axis=2)
+        #   shape: (num_chunks, num_speakers)
+
+        # if constraints:
+        #     for c, s2k in enumerate(e2k_cost):
+        #         for s, k in zip(*linear_sum_assignment(s2k, maximize=False)):
+        #             clusters[c, s] = k
+
+        return clusters
+
+    def get_broken_constraint_ratio(
+        self, clusters: np.ndarray, constraints: np.ndarray = None, **kwargs
+    ):
+        """Compute ratio of broken constraints
+
+        Parameters
+        ----------
+        clusters : (num_embeddings, )-shaped array
+            clusters[i] = k if embeddings #i is assigned to cluster #k
+        constraints : (num_embeddings, num_embeddings)-shaped array, optional
+            constraints[i, j] = +1 if embeddings #i and #j must be in the same cluster
+            constraints[i, j] = -1 if embeddings #i and #j must be in two different clusters
+            constraints[i, j] =  0 if there is no constraint
+
+        Returns
+        -------
+        broken_constraints_ratio : float
+            Ratio of broken constraints.
+        """
+
+        if constraints is None or np.all(constraints == 0.0):
+            raise ValueError(
+                "Broken constraint ratio cannot be computed without constraints."
+            )
+
+        same_cluster = pdist(clusters, metric="equal")
+
+        constraints_ = squareform(constraints)
+        must_link = constraints_ > 0
+        cannot_link = constraints_ < 0
+
+        num_broken_cannot_link = np.sum(same_cluster[cannot_link])
+        num_broken_must_link = np.sum(~same_cluster[must_link])
+
+        broken_cannot_link = num_broken_cannot_link / np.sum(cannot_link)
+        broken_must_link = num_broken_must_link / np.sum(must_link)
+
+        return broken_cannot_link, broken_must_link
+
+    def __call__(
+        self,
+        embeddings: np.ndarray,
+        num_clusters: int = None,
+        min_clusters: int = None,
+        max_clusters: int = None,
+        constraints: np.ndarray = None,
+        **kwargs,
+    ) -> np.ndarray:
+        """
+
+        Parameters
+        ----------
+        embeddings : (num_chunks, num_speakers, dimension)-shaped array
+        constraints : (num_chunks, num_speakers, num_chunks, num_speakers)-shaped array
+        num_clusters : int, optional
+        min_clusters : int, optional
+        max_clusters : int, optional
+
+        Returns
+        -------
+
+
+        """
+
+        num_chunks, num_speakers, dimension = embeddings.shape
+
+        chunk_idx, speaker_idx = self.select_embeddings(embeddings, **kwargs)
+
+        try:
+            embeddings_for_fit, constraints_for_fit = self.select_embeddings_for_fit(
+                embeddings,
+                constraints=constraints,
+                **kwargs,
+            )
+        except NotImplementedError:
+            embeddings_for_fit, constraints_for_fit = self.filter_embeddings(
+                embeddings,
+                chunk_idx=chunk_idx,
+                speaker_idx=speaker_idx,
+                constraints=constraints,
+            )
+
+        num_embeddings_for_fit, _ = embeddings_for_fit.shape
+        num_clusters, min_clusters, max_clusters = self.set_num_clusters(
+            num_embeddings_for_fit,
+            num_clusters=num_clusters,
+            min_clusters=min_clusters,
+            max_clusters=max_clusters,
+        )
+
+        # automatically select best number of clusters based on broken constraint ratio
+        if num_clusters is None:
+
+            for num_clusters_candidate in range(min_clusters, max_clusters + 1):
+
+                _ = self.fit(
+                    embeddings_for_fit,
+                    num_clusters=num_clusters_candidate,
+                )
+
+                clusters = self.predict(
+                    embeddings,
+                    constraints=None,  # this is important
+                    chunk_idx=chunk_idx,
+                    speaker_idx=speaker_idx,
+                )
+
+                constraints_ = self.filter_contraints(
+                    constraints, chunk_idx, speaker_idx
+                )
+
+                broken_cannot_link, broken_must_link = self.get_broken_constraint_ratio(
+                    clusters[chunk_idx, speaker_idx], constraints_
+                )
+                # TODO: consider doing this inside each cluster and give the same weight to each cluster?
+
+                ratio = broken_must_link / broken_cannot_link
+                print(
+                    f"{num_clusters_candidate=} {broken_cannot_link=:.2f} {broken_must_link=:.2f} {ratio=:.2f}"
+                )
+
+                alpha = 1.0
+                if broken_cannot_link < alpha * broken_must_link:
+                    break
+
+                num_clusters = num_clusters_candidate
+
+        print(f"{num_clusters=}")
+
+        # re-train with "best" number of clusters
+        self.fit(
+            embeddings_for_fit,
+            num_clusters=num_clusters,
+            constraints=constraints_for_fit,
+        )
+
+        # apply
+        return self.predict(
+            embeddings,
+            constraints=constraints,
+            chunk_idx=chunk_idx,
+            speaker_idx=speaker_idx,
+        )
 
 
 class AgglomerativeClustering(ClusteringMixin, Pipeline):
@@ -296,6 +607,128 @@ def nearest_cluster_assignment(embeddings, embedding2cluster_func, constrained=F
     return clusters
 
 
+class KMeansClustering(ClusteringMixin):
+
+    supported_metric = ["cosine", "euclidean"]
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def fit(
+        self,
+        embeddings: np.ndarray,
+        num_clusters: int = None,
+        **kwargs,
+    ) -> np.ndarray:
+
+        if num_clusters is None:
+            raise ValueError("KmeansClustering expects `num_clusters` to be provided.")
+
+        if self.metric == "cosine":
+            # unit-normalize embeddings to somehow make them "euclidean"
+            with np.errstate(divide="ignore", invalid="ignore"):
+                embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
+
+        self.num_clusters_ = num_clusters
+        self.kmeans_ = KMeans(n_clusters=self.num_clusters_).fit(embeddings)
+
+        return self.kmeans_.predict(embeddings)
+
+    def transform(self, embeddings):
+
+        if self.metric == "cosine":
+            # unit-normalize embeddings to somehow make them "euclidean"
+            with np.errstate(divide="ignore", invalid="ignore"):
+                embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
+
+        return self.kmeans_.transform(embeddings)
+
+
+class HMMClustering(ClusteringMixin):
+
+    supported_metric = ["cosine", "euclidean"]
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def select_embeddings_for_fit(
+        self,
+        embeddings: np.ndarray,
+        constraints: np.ndarray = None,
+        priors: Optional[np.ndarray] = None,
+        **kwargs,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Gather
+
+
+        HMM-based clustering does not support overlapping speakers: there can be
+        only one active speaker per time step.
+
+        Parameters
+        ----------
+        embeddings : (num_chunks, num_speakers, dimension)-shaped array
+        constraints : (num_chunks, num_speakers, num_chunks, num_speakers)-shaped array
+        priors : (num_chunks, num_speakers)-shaped array
+
+        Returns
+        -------
+        filtered_embeddings : (num_embeddings, dimension)-shaped array
+        filtered_constraints : (num_embeddings, num_embeddings)-shaped array
+
+        """
+
+        num_chunks, _, _ = embeddings.shape
+
+        speaker_idx = np.argmax(priors, axis=1)
+        # (num_chunks, )
+
+        training_sequence = embeddings[range(num_chunks), speaker_idx]
+        # (num_chunks, dimension)
+
+        chunk_idx = np.where(~np.any(np.isnan(training_sequence), axis=1))[0]
+        # (num_chunks, )
+
+        return self.filter_embeddings(
+            embeddings, chunk_idx, speaker_idx[chunk_idx], constraints=constraints
+        )
+
+    def fit(
+        self,
+        embeddings: np.ndarray,
+        num_clusters: int = None,
+        **kwargs,
+    ) -> np.ndarray:
+
+        if num_clusters is None:
+            raise ValueError("HMMClustering expects `num_clusters` to be provided.")
+
+        if self.metric == "cosine":
+            # unit-normalize embeddings to somehow make them "euclidean"
+            with np.errstate(divide="ignore", invalid="ignore"):
+                embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
+
+        self.num_clusters_ = num_clusters
+
+        self.hmm_ = GaussianHMM(
+            n_components=self.num_clusters_,
+            covariance_type="diag",
+            n_iter=100,
+            # random_state=random_state,
+            implementation="log",
+        ).fit(embeddings)
+
+        return np.argmin(cdist(embeddings, self.hmm_.means_, metric="cosine"), axis=1)
+
+    def transform(self, embeddings):
+
+        if self.metric == "cosine":
+            # unit-normalize embeddings to somehow make them "euclidean"
+            with np.errstate(divide="ignore", invalid="ignore"):
+                embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
+
+        return cdist(embeddings, self.hmm_.means_, metric="cosine")
+
+
 class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
     """Hidden Markov Model with Gaussian states
 
@@ -356,10 +789,10 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
     def __call__(
         self,
         embeddings: np.ndarray,
-        priors: np.ndarray = None,
         num_clusters: int = None,
         min_clusters: int = None,
         max_clusters: int = None,
+        priors: np.ndarray = None,
     ) -> np.ndarray:
         """
 
