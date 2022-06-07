@@ -29,6 +29,7 @@ from typing import Optional, Tuple
 import numpy as np
 from einops import rearrange
 from hmmlearn.hmm import GaussianHMM
+from pyannote.core import SlidingWindowFeature
 from pyannote.core.utils.distance import cdist, pdist
 from pyannote.core.utils.hierarchy import linkage
 from pyannote.pipeline import Pipeline
@@ -37,6 +38,8 @@ from scipy.cluster.hierarchy import fcluster
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import squareform
 from spectralcluster import EigenGapType, LaplacianType, SpectralClusterer
+
+from pyannote.audio import Inference
 
 
 class ClusteringMixin:
@@ -322,7 +325,7 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         self.threshold = Uniform(0.0, 2.0)
 
     def get_training_sequence(
-        self, embeddings: np.ndarray, priors: np.ndarray
+        self, embeddings: np.ndarray, segmentations: SlidingWindowFeature
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
 
@@ -330,7 +333,8 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         ----------
         embeddings : (num_chunks, num_speakers, dimension) array
             Sequence of embeddings.
-        priors : (num_chunks, num_speakers) array
+        segmentations : (num_chunks, num_frames, num_speakers) array
+            Binary segmentations.
 
         Returns
         -------
@@ -341,6 +345,24 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         """
 
         num_chunks, _, _ = embeddings.shape
+
+        # focus on center of each chunk
+        duration = segmentations.sliding_window.duration
+        step = segmentations.sliding_window.step
+
+        ratio = 0.5 * (duration - step) / duration
+        center_segmentations = Inference.trim(segmentations, warm_up=(ratio, ratio))
+        #   shape: num_chunks, num_center_frames, num_speakers
+
+        # number of frames during which speakers are active
+        # in the center of the chunk
+        num_active_frames: np.ndarray = np.sum(center_segmentations.data, axis=1)
+        #   shape: (num_chunks, num_speakers)
+
+        priors = num_active_frames / (
+            np.sum(num_active_frames, axis=1, keepdims=True) + 1e-8
+        )
+        #   shape: (num_chunks, local_num_speakers)
 
         speaker_idx = np.argmax(priors, axis=1)
         # (num_chunks, )
@@ -356,7 +378,7 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
     def __call__(
         self,
         embeddings: np.ndarray,
-        priors: np.ndarray = None,
+        segmentations: SlidingWindowFeature = None,
         num_clusters: int = None,
         min_clusters: int = None,
         max_clusters: int = None,
@@ -367,7 +389,8 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         ----------
         embeddings : (num_chunks, num_speakers, dimension) array
             Sequence of embeddings.
-        priors : (num_chunks, num_speakers) array
+        segmentations : (num_chunks, num_frames, num_speakers) array
+            Binary segmentations.
         num_clusters : int, optional
             Number of clusters, when known.
         min_clusters : int, optional
@@ -375,11 +398,14 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         max_clusters : int, optional
             Maximum number of clusters. Has no effect when `num_clusters` is provided.
 
-
         Returns
         -------
-        clusters : (num_chunks, num_speakers) array
-            Sequence of clusters
+        hard_clusters : (num_chunks, num_speakers) array
+            Hard cluster assignment (hard_clusters[c, s] = k means that sth speaker
+            of cth chunk is assigned to kth cluster)
+        soft_clusters : (num_chunks, num_speakers, num_clusters) array
+            Soft cluster assignment (the higher soft_clusters[c, s, k], the most likely
+            the sth speaker of cth chunk belongs to kth cluster)
         """
 
         num_chunks, num_speakers, dimension = embeddings.shape
@@ -390,7 +416,8 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
                 embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
 
         training_sequence, chunk_idx, speaker_idx = self.get_training_sequence(
-            embeddings, priors
+            embeddings,
+            segmentations,
         )
         num_embeddings, _ = training_sequence.shape
 
@@ -433,7 +460,9 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
                         break
 
         if num_clusters == 1:
-            return np.zeros((num_chunks, num_speakers), dtype=np.int)
+            return np.zeros((num_chunks, num_speakers), dtype=np.int), np.zeros(
+                (num_chunks, num_speakers, 1)
+            )
 
         # once num_clusters is estimated, fit the HMM several times
         # and keep the one that best fits the data
@@ -460,22 +489,25 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         debug["best_hmm"] = best_hmm
         self.debug_ = debug
 
-        def embedding2cluster_func(e):
-            return cdist(e, best_hmm.means_, metric="cosine")
-
-        # TODO: investigate cluster assignment smoothing based on stitching probability
-        # TODO: à la self-attention weighing
-
-        clusters = nearest_cluster_assignment(
-            embeddings, embedding2cluster_func, constrained=False
+        # compute distance between embeddings and clusters
+        e2k_distance = rearrange(
+            cdist(
+                rearrange(embeddings, "c s d -> (c s) d"),
+                best_hmm.means_,
+                metric="cosine",
+            ),
+            "(c s) k -> c s k",
+            c=num_chunks,
+            s=num_speakers,
         )
-        # setting `constrained` to True actually degraded performance
-        # in initial experiments on AMI with distance-to-state embedding2cluster_func
+        soft_clusters = 2 - e2k_distance
 
-        # using decoding instead of distance-to-state actually degraded performance
-        # clusters[chunk_idx, speaker_idx] = best_hmm.predict(training_sequence)
+        # NOTE: using decoding instead of distance-to-state actually degraded performance
+        # hard_clusters[chunk_idx, speaker_idx] = best_hmm.predict(training_sequence)
 
-        return clusters
+        hard_clusters = np.argmax(soft_clusters, axis=2)
+
+        return hard_clusters, soft_clusters
 
 
 class Clustering(Enum):
