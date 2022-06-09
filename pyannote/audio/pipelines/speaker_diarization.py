@@ -26,20 +26,23 @@ import itertools
 import warnings
 from typing import Callable, Optional
 
-import networkx as nx
+# import networkx as nx
 import numpy as np
-import scipy.special
+
+# import scipy.special
 import torch
 from einops import rearrange
 from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
 
 # from pyannote.core import Segment
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
+
+# from pyannote.pipeline.parameter import Uniform, Categorical
 from pyannote.pipeline.parameter import Uniform
 
 from pyannote.audio import Audio, Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
-from pyannote.audio.pipelines.clustering import GaussianHiddenMarkovModel
+from pyannote.audio.pipelines.clustering import Clustering
 from pyannote.audio.pipelines.speaker_verification import PretrainedSpeakerEmbedding
 from pyannote.audio.pipelines.utils import (
     PipelineModel,
@@ -49,7 +52,11 @@ from pyannote.audio.pipelines.utils import (
 )
 from pyannote.audio.utils.signal import binarize
 
-# from pyannote.pipeline.parameter import LogUniform
+# try:
+#     import cvxpy as cv
+#     CVXPY_IS_AVAILABLE = True
+# except ImportError:
+#     CVXPY_IS_AVAILABLE = False
 
 
 def batchify(iterable, batch_size: int = 32, fillvalue=None):
@@ -76,6 +83,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         See pyannote.audio.pipelines.utils.get_model for supported format.
     embedding_batch_size : int, optional
         Batch size used for speaker embedding. Defaults to 32.
+    clustering : str, optional
+        Clustering algorithm. See pyannote.audio.pipelines.clustering.Clustering
+        for available options. Defaults to "GaussianHiddenMarkovModel".
     expects_num_speakers : bool, optional
         Defaults to False.
 
@@ -97,16 +107,21 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         segmentation_batch_size: int = 32,
         embedding: PipelineModel = "pyannote/embedding",
         embedding_batch_size: int = 32,
+        clustering: str = "GaussianHiddenMarkovModel",
         expects_num_speakers: bool = False,
     ):
 
         super().__init__()
 
         self.segmentation = segmentation
-        self.segmentation_step = segmentation_step
-        self.embedding = embedding
-        self.expects_num_speakers = expects_num_speakers
         self.segmentation_batch_size = segmentation_batch_size
+        self.segmentation_step = segmentation_step
+
+        self.embedding = embedding
+        self.embedding_batch_size = embedding_batch_size
+
+        self.klustering = clustering
+        self.expects_num_speakers = expects_num_speakers
 
         seg_device, emb_device = get_devices(needs=2)
 
@@ -123,14 +138,18 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         self._frames: SlidingWindow = self._segmentation.model.introspection.frames
 
         self._embedding = PretrainedSpeakerEmbedding(self.embedding, device=emb_device)
-        self.embedding_batch_size = embedding_batch_size or len(
-            model.specifications.classes
-        )
 
         self._audio = Audio(sample_rate=self._embedding.sample_rate, mono=True)
 
-        self.clustering = GaussianHiddenMarkovModel(
-            metric=self._embedding.metric, expects_num_clusters=expects_num_speakers
+        try:
+            Klustering = Clustering[clustering]
+        except KeyError:
+            raise ValueError(
+                f'clustering must be one of [{", ".join(list(Clustering.__members__))}]'
+            )
+        self.clustering = Klustering.value(
+            metric=self._embedding.metric,
+            expects_num_clusters=self.expects_num_speakers,
         )
 
         # hyper-parameters
@@ -139,6 +158,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         self.embedding_onset = Uniform(0.1, 0.9)
 
         # self.soft_temperature = LogUniform(1e-2, 1e2)
+
+        # self.use_constrained_argmax = Categorical([True, False])
 
         # hyper-parameters used for post-processing i.e. removing short speech turns
         # or filling short gaps between speech turns of one speaker
@@ -292,52 +313,95 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         return self.to_diarization(clustered_segmentations, count)
 
-    def soft_stitching(
-        self, soft_clusters: np.ndarray, stitching_graph: nx.Graph
-    ) -> np.ndarray:
-        """WORK IN PROGRESS
+    # def soft_stitching(
+    #     self, soft_clusters: np.ndarray, stitching_graph: nx.Graph
+    # ) -> np.ndarray:
+    #     """WORK IN PROGRESS
 
-        Parameters
-        ----------
-        soft_clusters : (num_chunks, num_speakers, num_clusters)-shaped array
-        stitiching_graph : nx.Graph
+    #     Parameters
+    #     ----------
+    #     soft_clusters : (num_chunks, num_speakers, num_clusters)-shaped array
+    #     stitiching_graph : nx.Graph
 
-        Returns
-        -------
-        smoothed_soft_clusters : (num_chunks, num_speakers, num_clusters)-shaped array
-        """
+    #     Returns
+    #     -------
+    #     smoothed_soft_clusters : (num_chunks, num_speakers, num_clusters)-shaped array
+    #     """
 
-        num_chunks, num_speakers, num_clusters = soft_clusters.shape
+    #     num_chunks, num_speakers, num_clusters = soft_clusters.shape
 
-        stitchable = np.zeros((num_chunks, num_speakers, num_chunks, num_speakers))
-        for (c, s), (c_, s_), num_matching_frames in stitching_graph.edges(data="cost"):
-            if c == c_:
-                continue
+    #     stitchable = np.zeros((num_chunks, num_speakers, num_chunks, num_speakers))
+    #     for (c, s), (c_, s_), num_matching_frames in stitching_graph.edges(data="cost"):
+    #         if c == c_:
+    #             continue
 
-            stitchable[c, s, c_, s_] = num_matching_frames
-            stitchable[c_, s_, c, s] = num_matching_frames
+    #         stitchable[c, s, c_, s_] = num_matching_frames
+    #         stitchable[c_, s_, c, s] = num_matching_frames
 
-        smoothed_soft_clusters = np.einsum(
-            "ijkl,klm->ijm", stitchable, np.nan_to_num(soft_clusters, nan=0.0)
-        ) / (np.einsum("ijkl->ij", stitchable)[:, :, None] + 1e-8)
-        return smoothed_soft_clusters
+    #     smoothed_soft_clusters = np.einsum(
+    #         "ijkl,klm->ijm", stitchable, np.nan_to_num(soft_clusters, nan=0.0)
+    #     ) / (np.einsum("ijkl->ij", stitchable)[:, :, None] + 1e-8)
+    #     return smoothed_soft_clusters
 
-    def constrained_argmax(
-        self, soft_clusters: np.ndarray, stitching_graph: nx.Graph
-    ) -> np.ndarray:
-        """WORK IN PROGRESS
+    # def constrained_argmax(
+    #     self, soft_clusters: np.ndarray, segmentations: SlidingWindowFeature
+    # ) -> np.ndarray:
+    #     """
 
-        Parameters
-        ----------
-        soft_clusters : (num_chunks, num_speakers, num_clusters)-shaped array
-        stitching_graph : nx.Graph
+    #     Parameters
+    #     ----------
+    #     soft_clusters : (num_chunks, num_speakers, num_clusters)-shaped array
+    #     segmentations : SlidingWindowFeature
+    #         Binarized segmentation.
 
-        Returns
-        -------
-        hard_clusters : (num_chunks, num_speakers)-shaped array
+    #     Returns
+    #     -------
+    #     hard_clusters : (num_chunks, num_speakers)-shaped array
+    #         Hard cluster assignment with
 
-        """
-        return np.argmax(soft_clusters, axis=2)
+    #     """
+
+    #     import cvxpy as cp
+
+    #     num_chunks, num_speakers, num_clusters = soft_clusters.shape
+    #     hard_clusters = -2 * np.ones((num_chunks, num_speakers), dtype=np.int8)
+
+    #     for c, (scores, (chunk, segmentation)) in enumerate(
+    #         zip(soft_clusters, segmentations)
+    #     ):
+
+    #         # scores : (num_speakers, num_clusters) array
+    #         # segmentation : (num_frames, num_speakers) array
+
+    #         assignment = cp.Variable(shape=(num_speakers, num_clusters), boolean=True)
+    #         objective = cp.Maximize(cp.sum(cp.multiply(assignment, scores)))
+
+    #         one_cluster_per_speaker_constraints = [
+    #             cp.sum(assignment[i]) == 1 for i in range(num_speakers)
+    #         ]
+
+    #         # number of frames where both speakers are active
+    #         co_occurrence: np.ndarray = segmentation.T @ segmentation
+    #         np.fill_diagonal(co_occurrence, 0)
+    #         cannot_link = set(
+    #             tuple(sorted(x)) for x in zip(*np.where(co_occurrence > 0))
+    #         )
+    #         cannot_link_constraints = [
+    #             assignment[i] + assignment[j] <= 1 for i, j in cannot_link
+    #         ]
+
+    #         problem = cp.Problem(
+    #             objective, one_cluster_per_speaker_constraints + cannot_link_constraints
+    #         )
+    #         problem.solve()
+
+    #         if problem.status == "optimal":
+    #             hard_clusters[c] = np.argmax(assignment.value, axis=1)
+    #         else:
+    #             print(f"{co_occurrence=}")
+    #             hard_clusters[c] = np.argmax(scores, axis=1)
+
+    #     return hard_clusters
 
     def apply(
         self,
@@ -368,6 +432,10 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         diarization : Annotation
             Speaker diarization
         """
+
+        # if self.use_constrained_argmax and not CVXPY_IS_AVAILABLE:
+        #     self.use_constrained_argmax = False
+        #     warnings.warn()
 
         # setup hook (e.g. for debugging purposes)
         hook = self.setup_hook(file, hook=hook)
@@ -438,34 +506,48 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         # reconstruct discrete diarization from raw hard clusters
         hard_clusters = np.argmax(soft_clusters, axis=2)
         hard_clusters[inactive_speakers] = -2
+        hook("diarization/hard_clusters/raw", hard_clusters)
         discrete_diarization = self.reconstruct(segmentations, hard_clusters, count)
-        hook("diarization/no_stitching", discrete_diarization)
+        hook("diarization/discrete/raw", discrete_diarization)
+        diarization = self.to_annotation(
+            discrete_diarization,
+            min_duration_on=self.min_duration_on,
+            min_duration_off=self.min_duration_off,
+        )
+        diarization.uri = file["uri"]
+        if "annotation" in file:
+            diarization = self.optimal_mapping(file["annotation"], diarization)
+        hook("diarization/raw", diarization)
 
-        if False:
+        # if False:
 
-            # turn soft cluster assignment into probabilities
-            hook("soft_clusters/before_softmax", soft_clusters)
-            soft_clusters = scipy.special.softmax(
-                self.soft_temperature * soft_clusters, axis=2
-            )
-            hook("soft_clusters/after_softmax", soft_clusters)
+        #     # turn soft cluster assignment into probabilities
+        #     hook("soft_clusters/before_softmax", soft_clusters)
+        #     soft_clusters = scipy.special.softmax(
+        #         self.soft_temperature * soft_clusters, axis=2
+        #     )
+        #     hook("soft_clusters/after_softmax", soft_clusters)
 
-            # compute stitching graph based on binarized segmentation
-            stitching_graph = self.get_stitching_graph(binarized_segmentations)
+        #     # compute stitching graph based on binarized segmentation
+        #     stitching_graph = self.get_stitching_graph(binarized_segmentations)
 
-            # smooth soft cluster assignment using stitching graph
-            soft_clusters = self.soft_stitching(soft_clusters, stitching_graph)
-            hook("soft_clusters/after_smoothing", soft_clusters)
+        #     # smooth soft cluster assignment using stitching graph
+        #     soft_clusters = self.soft_stitching(soft_clusters, stitching_graph)
+        #     hook("soft_clusters/after_smoothing", soft_clusters)
 
-            # hard_clusters = np.argmax(soft_clusters, axis=2)
-            # hard_clusters[inactive_speakers] = -2
-            # discrete_diarization = self.reconstruct(segmentations, hard_clusters, count)
-            # hook("diarization/soft_stitching", discrete_diarization)
+        #     # hard_clusters = np.argmax(soft_clusters, axis=2)
+        #     # hard_clusters[inactive_speakers] = -2
+        #     # discrete_diarization = self.reconstruct(segmentations, hard_clusters, count)
+        #     # hook("diarization/soft_stitching", discrete_diarization)
 
-            hard_clusters = self.constrained_argmax(soft_clusters, stitching_graph)
-            hard_clusters[inactive_speakers] = -2
-            discrete_diarization = self.reconstruct(segmentations, hard_clusters, count)
-            hook("diarization/constrained_stitching", discrete_diarization)
+        # if self.use_constrained_argmax:
+        #     hard_clusters = self.constrained_argmax(
+        #         soft_clusters, binarized_segmentations
+        #     )
+        #     hard_clusters[inactive_speakers] = -2
+        #     hook("diarization/hard_clusters/constrained", hard_clusters)
+        #     discrete_diarization = self.reconstruct(segmentations, hard_clusters, count)
+        #     hook("diarization/discrete/constrained", discrete_diarization)
 
         # convert to continuous diarization
         diarization = self.to_annotation(

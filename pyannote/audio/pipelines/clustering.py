@@ -49,6 +49,9 @@ from spectralcluster import (
     ThresholdType,
 )
 
+from pyannote.audio import Inference
+
+
 class ClusteringMixin:
     def set_num_clusters(
         self,
@@ -254,17 +257,17 @@ class SpectralClustering(ClusteringMixin, Pipeline):
         Laplacian to use.
     eigengap : {"Ratio", "NormalizedDiff"}
         Eigengap approach to use.
-    spectral_min_embeddings : int 
-        Fallback to agglomerative clustering when clustering less than that 
-        many embeddings. 
-    refinement_sequence : str 
-        Sequence of refinement operations (e.g. "CGTSDN"). 
-        Each character represents one operation ("C" for CropDiagonal, "G" for GaussianBlur, 
-        "T" for RowWiseThreshold, "S" for Symmetrize, "D" for Diffuse, and "N" for RowWiseNormalize. 
-        Use empty string to not use any refinement. 
+    spectral_min_embeddings : int
+        Fallback to agglomerative clustering when clustering less than that
+        many embeddings.
+    refinement_sequence : str
+        Sequence of refinement operations (e.g. "CGTSDN").
+        Each character represents one operation ("C" for CropDiagonal, "G" for GaussianBlur,
+        "T" for RowWiseThreshold, "S" for Symmetrize, "D" for Diffuse, and "N" for RowWiseNormalize.
+        Use empty string to not use any refinement.
     gaussian_blur_sigma : float
         Sigma value for the Gaussian blur operation
-    p_percentile: [0, 1] float 
+    p_percentile: [0, 1] float
         p-percentile for the row wise thresholding
     symmetrize_type : {"Max", "Average"}
         How to symmetrize the matrix
@@ -274,7 +277,7 @@ class SpectralClustering(ClusteringMixin, Pipeline):
         In the row wise thresholding operation, set diagonals of the
         affinity matrix to 0 at the beginning, and back to 1 in the end
     thresholding_type : {"RowMax", "Percentile"}
-        Type of thresholding operation
+        Type of thresholding operation.
     use_autotune : boolean
         Use autotune to find optimal p_percentile
 
@@ -295,8 +298,7 @@ class SpectralClustering(ClusteringMixin, Pipeline):
         self.spectral_min_embeddings = Categorical([5, 10])
 
         # Hyperparameters for refinement operations.
-        self.refinement_sequence = Categorical(
-            ["", "TS", "GTS", "CGTSDN"])
+        self.refinement_sequence = Categorical(["", "TS", "GTS", "CGTSDN"])
         self.gaussian_blur_sigma = Uniform(0, 3)
         self.p_percentile = Uniform(0, 1)
         self.symmetrize_type = Categorical(["Max", "Average"])
@@ -311,30 +313,45 @@ class SpectralClustering(ClusteringMixin, Pipeline):
     def __call__(
         self,
         embeddings: np.ndarray,
+        segmentations: SlidingWindowFeature = None,
         num_clusters: int = None,
         min_clusters: int = None,
         max_clusters: int = None,
     ) -> np.ndarray:
         """Apply spectral clustering
+
         Parameters
         ----------
-        embeddings : (num_embeddings, dimension) np.ndarray
+        embeddings : (num_chunks, num_speakers, dimension) array
+            Sequence of embeddings.
+        segmentations : (num_chunks, num_frames, num_speakers) array
+            Binary segmentations.
         num_clusters : int, optional
             Number of clusters, when known. Default behavior is to use
             internal threshold hyper-parameter to decide on the number
             of clusters.
         min_clusters : int, optional
-            Minimum number of clusters. Defaults to 1.
-            Has no effect when `num_clusters` is provided.
+            Minimum number of clusters. Has no effect when `num_clusters` is provided.
         max_clusters : int, optional
-            Maximum number of clusters. Defaults to `num_embeddings`.
-            Has no effect when `num_clusters` is provided.
+            Maximum number of clusters. Has no effect when `num_clusters` is provided.
+
         Returns
         -------
-        clusters : (num_embeddings, ) np.ndarray
+        hard_clusters : (num_chunks, num_speakers) array
+            Hard cluster assignment (hard_clusters[c, s] = k means that sth speaker
+            of cth chunk is assigned to kth cluster)
+        soft_clusters : (num_chunks, num_speakers, num_clusters) array
+            Soft cluster assignment (the higher soft_clusters[c, s, k], the most likely
+            the sth speaker of cth chunk belongs to kth cluster)
         """
 
-        num_embeddings, _ = embeddings.shape
+        num_chunks, num_speakers, dimension = embeddings.shape
+
+        valid_embeddings, chunk_idx, speaker_idx = self.filter_embeddings(
+            embeddings, segmentations=segmentations
+        )
+
+        num_embeddings, _ = valid_embeddings.shape
         num_clusters, min_clusters, max_clusters = self.set_num_clusters(
             num_embeddings,
             num_clusters=num_clusters,
@@ -386,7 +403,7 @@ class SpectralClustering(ClusteringMixin, Pipeline):
             refinement_sequence=refinement_sequence,
         )
 
-        return SpectralClusterer(
+        valid_clusters = SpectralClusterer(
             min_clusters=min_clusters,
             max_clusters=max_clusters,
             refinement_options=refinement_options,
@@ -395,7 +412,31 @@ class SpectralClustering(ClusteringMixin, Pipeline):
             laplacian_type=LaplacianType[self.laplacian],
             eigengap_type=EigenGapType[self.eigengap],
             affinity_function=self._affinity_function,
-        ).predict(embeddings)
+        ).predict(valid_embeddings)
+
+        num_clusters = np.max(valid_clusters) + 1
+
+        centroids = np.vstack(
+            [
+                np.mean(valid_embeddings[valid_clusters == k], axis=0)
+                for k in range(num_clusters)
+            ]
+        )
+        e2k_distance = rearrange(
+            cdist(
+                rearrange(embeddings, "c s d -> (c s) d"),
+                centroids,
+                metric=self.metric,
+            ),
+            "(c s) k -> c s k",
+            c=num_chunks,
+            s=num_speakers,
+        )
+        soft_clusters = -e2k_distance
+        hard_clusters = np.argmax(soft_clusters, axis=2)
+        hard_clusters[chunk_idx, speaker_idx] = valid_clusters
+
+        return hard_clusters, soft_clusters
 
 
 def nearest_cluster_assignment(embeddings, embedding2cluster_func, constrained=False):
