@@ -37,7 +37,17 @@ from pyannote.pipeline.parameter import Categorical, Uniform
 from scipy.cluster.hierarchy import fcluster
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import squareform
-from spectralcluster import EigenGapType, LaplacianType, SpectralClusterer
+from spectralcluster import (
+    AutoTune,
+    EigenGapType,
+    FallbackOptions,
+    LaplacianType,
+    RefinementName,
+    RefinementOptions,
+    SpectralClusterer,
+    SymmetrizeType,
+    ThresholdType,
+)
 
 from pyannote.audio import Inference
 
@@ -69,6 +79,29 @@ class ClusteringMixin:
             raise ValueError("num_clusters must be provided.")
 
         return num_clusters, min_clusters, max_clusters
+
+    def filter_embeddings(
+        self, embeddings: np.ndarray, segmentations: SlidingWindowFeature = None
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Filter NaN embeddings
+
+        Parameters
+        ----------
+        embeddings : (num_chunks, num_speakers, dimension) array
+            Sequence of embeddings.
+        segmentations : (num_chunks, num_frames, num_speakers) array
+            Binary segmentations.
+
+        Returns
+        -------
+        filtered_embeddings : (num_embeddings, dimension) array
+        chunk_idx : (num_embeddings, ) array
+        speaker_idx : (num_embeddings, ) array
+        """
+
+        num_chunks, num_speakers, dimension = embeddings.shape
+        chunk_idx, speaker_idx = np.where(~np.any(np.isnan(embeddings), axis=2))
+        return embeddings[chunk_idx, speaker_idx], chunk_idx, speaker_idx
 
 
 class AgglomerativeClustering(ClusteringMixin, Pipeline):
@@ -110,6 +143,7 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
     def __call__(
         self,
         embeddings: np.ndarray,
+        segmentations: SlidingWindowFeature = None,
         num_clusters: int = None,
         min_clusters: int = None,
         max_clusters: int = None,
@@ -118,24 +152,36 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
 
         Parameters
         ----------
-        embeddings : (num_embeddings, dimension) np.ndarray
+        embeddings : (num_chunks, num_speakers, dimension) array
+            Sequence of embeddings.
+        segmentations : (num_chunks, num_frames, num_speakers) array
+            Binary segmentations.
         num_clusters : int, optional
             Number of clusters, when known. Default behavior is to use
             internal threshold hyper-parameter to decide on the number
             of clusters.
         min_clusters : int, optional
-            Minimum number of clusters. Defaults to 1.
-            Has no effect when `num_clusters` is provided.
+            Minimum number of clusters. Has no effect when `num_clusters` is provided.
         max_clusters : int, optional
-            Maximum number of clusters. Defaults to `num_embeddings`.
-            Has no effect when `num_clusters` is provided.
+            Maximum number of clusters. Has no effect when `num_clusters` is provided.
 
         Returns
         -------
-        clusters : (num_embeddings, ) np.ndarray
+        hard_clusters : (num_chunks, num_speakers) array
+            Hard cluster assignment (hard_clusters[c, s] = k means that sth speaker
+            of cth chunk is assigned to kth cluster)
+        soft_clusters : (num_chunks, num_speakers, num_clusters) array
+            Soft cluster assignment (the higher soft_clusters[c, s, k], the most likely
+            the sth speaker of cth chunk belongs to kth cluster)
         """
 
-        num_embeddings, _ = embeddings.shape
+        num_chunks, num_speakers, dimension = embeddings.shape
+
+        valid_embeddings, chunk_idx, speaker_idx = self.filter_embeddings(
+            embeddings, segmentations=segmentations
+        )
+
+        num_embeddings, _ = valid_embeddings.shape
         num_clusters, min_clusters, max_clusters = self.set_num_clusters(
             num_embeddings,
             num_clusters=num_clusters,
@@ -144,7 +190,7 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
         )
 
         dendrogram: np.ndarray = linkage(
-            embeddings, method=self.method, metric=self.metric
+            valid_embeddings, method=self.method, metric=self.metric
         )
 
         if num_clusters is None:
@@ -170,12 +216,34 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
                 else -np.inf
             )
 
-        return fcluster(dendrogram, threshold, criterion="distance") - 1
+        valid_clusters = fcluster(dendrogram, threshold, criterion="distance") - 1
+        num_clusters = np.max(valid_clusters) + 1
+
+        centroids = np.vstack(
+            [
+                np.mean(valid_embeddings[valid_clusters == k], axis=0)
+                for k in range(num_clusters)
+            ]
+        )
+        e2k_distance = rearrange(
+            cdist(
+                rearrange(embeddings, "c s d -> (c s) d"),
+                centroids,
+                metric=self.metric,
+            ),
+            "(c s) k -> c s k",
+            c=num_chunks,
+            s=num_speakers,
+        )
+        soft_clusters = -e2k_distance
+        hard_clusters = np.argmax(soft_clusters, axis=2)
+        hard_clusters[chunk_idx, speaker_idx] = valid_clusters
+
+        return hard_clusters, soft_clusters
 
 
 class SpectralClustering(ClusteringMixin, Pipeline):
     """Spectral clustering
-
     Parameters
     ----------
     metric : {"cosine", "euclidean", ...}, optional
@@ -183,14 +251,35 @@ class SpectralClustering(ClusteringMixin, Pipeline):
     expects_num_clusters : bool, optional
         Whether the number of clusters should be provided.
         Defaults to False.
-
     Hyper-parameters
     ----------------
     laplacian : {"Affinity", "Unnormalized", "RandomWalk", "GraphCut"}
         Laplacian to use.
     eigengap : {"Ratio", "NormalizedDiff"}
         Eigengap approach to use.
-
+    spectral_min_embeddings : int
+        Fallback to agglomerative clustering when clustering less than that
+        many embeddings.
+    refinement_sequence : str
+        Sequence of refinement operations (e.g. "CGTSDN").
+        Each character represents one operation ("C" for CropDiagonal, "G" for GaussianBlur,
+        "T" for RowWiseThreshold, "S" for Symmetrize, "D" for Diffuse, and "N" for RowWiseNormalize.
+        Use empty string to not use any refinement.
+    gaussian_blur_sigma : float
+        Sigma value for the Gaussian blur operation
+    p_percentile: [0, 1] float
+        p-percentile for the row wise thresholding
+    symmetrize_type : {"Max", "Average"}
+        How to symmetrize the matrix
+    thresholding_with_binarization : boolean
+        Set values larger than the threshold to 1.
+    thresholding_preserve_diagonal : boolean
+        In the row wise thresholding operation, set diagonals of the
+        affinity matrix to 0 at the beginning, and back to 1 in the end
+    thresholding_type : {"RowMax", "Percentile"}
+        Type of thresholding operation
+    use_autotune : boolean
+        Use autotune to find optimal p_percentile
     Notes
     -----
     Embeddings are expected to be unit-normalized.
@@ -205,6 +294,17 @@ class SpectralClustering(ClusteringMixin, Pipeline):
             ["Affinity", "Unnormalized", "RandomWalk", "GraphCut"]
         )
         self.eigengap = Categorical(["Ratio", "NormalizedDiff"])
+        self.spectral_min_embeddings = Categorical([5, 10])
+
+        # Hyperparameters for refinement operations.
+        self.refinement_sequence = Categorical(["", "TS", "GTS", "CGTSDN"])
+        self.gaussian_blur_sigma = Uniform(0, 3)
+        self.p_percentile = Uniform(0, 1)
+        self.symmetrize_type = Categorical(["Max", "Average"])
+        self.thresholding_with_binarization = Categorical([True, False])
+        self.thresholding_preserve_diagonal = Categorical([True, False])
+        self.thresholding_type = Categorical(["RowMax", "Percentile"])
+        self.use_autotune = Categorical([True, False])
 
     def _affinity_function(self, embeddings: np.ndarray) -> np.ndarray:
         return squareform(1.0 - 0.5 * pdist(embeddings, metric=self.metric))
@@ -217,7 +317,6 @@ class SpectralClustering(ClusteringMixin, Pipeline):
         max_clusters: int = None,
     ) -> np.ndarray:
         """Apply spectral clustering
-
         Parameters
         ----------
         embeddings : (num_embeddings, dimension) np.ndarray
@@ -231,7 +330,6 @@ class SpectralClustering(ClusteringMixin, Pipeline):
         max_clusters : int, optional
             Maximum number of clusters. Defaults to `num_embeddings`.
             Has no effect when `num_clusters` is provided.
-
         Returns
         -------
         clusters : (num_embeddings, ) np.ndarray
@@ -245,9 +343,56 @@ class SpectralClustering(ClusteringMixin, Pipeline):
             max_clusters=max_clusters,
         )
 
+        # Fallback options.
+        fallback_options = FallbackOptions(
+            spectral_min_embeddings=self.spectral_min_embeddings,
+        )
+
+        # Autotune options.
+        default_autotune = AutoTune(
+            p_percentile_min=0.40,
+            p_percentile_max=0.95,
+            init_search_step=0.05,
+            search_level=1,
+        )
+
+        # Sequence of refinement operations.
+        refinement_sequence = []
+        for refinement_char in self.refinement_sequence:
+            refinement_char = refinement_char.upper()
+            if refinement_char == "C":
+                refinement_sequence.append(RefinementName.CropDiagonal)
+            elif refinement_char == "G":
+                refinement_sequence.append(RefinementName.GaussianBlur)
+            elif refinement_char == "T":
+                refinement_sequence.append(RefinementName.RowWiseThreshold)
+            elif refinement_char == "S":
+                refinement_sequence.append(RefinementName.Symmetrize)
+            elif refinement_char == "D":
+                refinement_sequence.append(RefinementName.Diffuse)
+            elif refinement_char == "N":
+                refinement_sequence.append(RefinementName.RowWiseNormalize)
+            else:
+                raise ValueError("Unsupported refinement: " + refinement_char)
+
+        # Refinement options.
+        refinement_options = RefinementOptions(
+            gaussian_blur_sigma=self.gaussian_blur_sigma,
+            p_percentile=self.p_percentile,
+            thresholding_soft_multiplier=0.01,
+            thresholding_type=ThresholdType[self.thresholding_type],
+            thresholding_with_binarization=self.thresholding_with_binarization,
+            thresholding_preserve_diagonal=self.thresholding_preserve_diagonal,
+            symmetrize_type=SymmetrizeType[self.symmetrize_type],
+            refinement_sequence=refinement_sequence,
+        )
+
         return SpectralClusterer(
             min_clusters=min_clusters,
             max_clusters=max_clusters,
+            refinement_options=refinement_options,
+            autotune=default_autotune if self.use_autotune else None,
+            fallback_options=fallback_options,
             laplacian_type=LaplacianType[self.laplacian],
             eigengap_type=EigenGapType[self.eigengap],
             affinity_function=self._affinity_function,
@@ -392,7 +537,9 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         segmentations : (num_chunks, num_frames, num_speakers) array
             Binary segmentations.
         num_clusters : int, optional
-            Number of clusters, when known.
+            Number of clusters, when known. Default behavior is to use
+            internal threshold hyper-parameter to decide on the number
+            of clusters.
         min_clusters : int, optional
             Minimum number of clusters. Has no effect when `num_clusters` is provided.
         max_clusters : int, optional
