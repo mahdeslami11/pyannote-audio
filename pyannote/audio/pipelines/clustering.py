@@ -23,6 +23,7 @@
 """Clustering pipelines"""
 
 
+import math
 from enum import Enum
 from typing import Optional, Tuple
 
@@ -81,9 +82,12 @@ class ClusteringMixin:
         return num_clusters, min_clusters, max_clusters
 
     def filter_embeddings(
-        self, embeddings: np.ndarray, segmentations: SlidingWindowFeature = None
+        self,
+        embeddings: np.ndarray,
+        segmentations: SlidingWindowFeature = None,
+        target_overlap_ratio: float = 0.5,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Filter NaN embeddings
+        """Filter NaN embeddings and downsample embeddings
 
         Parameters
         ----------
@@ -91,6 +95,8 @@ class ClusteringMixin:
             Sequence of embeddings.
         segmentations : (num_chunks, num_frames, num_speakers) array
             Binary segmentations.
+        target_overlap_ratio : float, optional
+            Defaults to 0.5
 
         Returns
         -------
@@ -99,8 +105,16 @@ class ClusteringMixin:
         speaker_idx : (num_embeddings, ) array
         """
 
-        num_chunks, num_speakers, dimension = embeddings.shape
-        chunk_idx, speaker_idx = np.where(~np.any(np.isnan(embeddings), axis=2))
+        downsample_by = math.floor(
+            target_overlap_ratio
+            * segmentations.sliding_window.duration
+            / segmentations.sliding_window.step
+        )
+        chunk_idx, speaker_idx = np.where(
+            ~np.any(np.isnan(embeddings[::downsample_by]), axis=2)
+        )
+        chunk_idx *= downsample_by
+
         return embeddings[chunk_idx, speaker_idx], chunk_idx, speaker_idx
 
 
@@ -244,6 +258,7 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
 
 class SpectralClustering(ClusteringMixin, Pipeline):
     """Spectral clustering
+
     Parameters
     ----------
     metric : {"cosine", "euclidean", ...}, optional
@@ -251,6 +266,7 @@ class SpectralClustering(ClusteringMixin, Pipeline):
     expects_num_clusters : bool, optional
         Whether the number of clusters should be provided.
         Defaults to False.
+
     Hyper-parameters
     ----------------
     laplacian : {"Affinity", "Unnormalized", "RandomWalk", "GraphCut"}
