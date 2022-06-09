@@ -49,9 +49,6 @@ from spectralcluster import (
     ThresholdType,
 )
 
-from pyannote.audio import Inference
-
-
 class ClusteringMixin:
     def set_num_clusters(
         self,
@@ -257,17 +254,17 @@ class SpectralClustering(ClusteringMixin, Pipeline):
         Laplacian to use.
     eigengap : {"Ratio", "NormalizedDiff"}
         Eigengap approach to use.
-    spectral_min_embeddings : int
-        Fallback to agglomerative clustering when clustering less than that
-        many embeddings.
-    refinement_sequence : str
-        Sequence of refinement operations (e.g. "CGTSDN").
-        Each character represents one operation ("C" for CropDiagonal, "G" for GaussianBlur,
-        "T" for RowWiseThreshold, "S" for Symmetrize, "D" for Diffuse, and "N" for RowWiseNormalize.
-        Use empty string to not use any refinement.
+    spectral_min_embeddings : int 
+        Fallback to agglomerative clustering when clustering less than that 
+        many embeddings. 
+    refinement_sequence : str 
+        Sequence of refinement operations (e.g. "CGTSDN"). 
+        Each character represents one operation ("C" for CropDiagonal, "G" for GaussianBlur, 
+        "T" for RowWiseThreshold, "S" for Symmetrize, "D" for Diffuse, and "N" for RowWiseNormalize. 
+        Use empty string to not use any refinement. 
     gaussian_blur_sigma : float
         Sigma value for the Gaussian blur operation
-    p_percentile: [0, 1] float
+    p_percentile: [0, 1] float 
         p-percentile for the row wise thresholding
     symmetrize_type : {"Max", "Average"}
         How to symmetrize the matrix
@@ -280,6 +277,7 @@ class SpectralClustering(ClusteringMixin, Pipeline):
         Type of thresholding operation
     use_autotune : boolean
         Use autotune to find optimal p_percentile
+
     Notes
     -----
     Embeddings are expected to be unit-normalized.
@@ -297,7 +295,8 @@ class SpectralClustering(ClusteringMixin, Pipeline):
         self.spectral_min_embeddings = Categorical([5, 10])
 
         # Hyperparameters for refinement operations.
-        self.refinement_sequence = Categorical(["", "TS", "GTS", "CGTSDN"])
+        self.refinement_sequence = Categorical(
+            ["", "TS", "GTS", "CGTSDN"])
         self.gaussian_blur_sigma = Uniform(0, 3)
         self.p_percentile = Uniform(0, 1)
         self.symmetrize_type = Categorical(["Max", "Average"])
