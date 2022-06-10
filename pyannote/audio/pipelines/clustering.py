@@ -368,6 +368,13 @@ class SpectralClustering(ClusteringMixin, Pipeline):
         )
 
         num_embeddings, _ = valid_embeddings.shape
+
+        # may happen because of downsampling
+        if num_embeddings < 2:
+            hard_clusters = np.zeros((num_chunks, num_speakers), dtype=np.int8)
+            soft_clusters = np.zeros((num_chunks, num_speakers, 1))
+            return hard_clusters, soft_clusters
+
         num_clusters, min_clusters, max_clusters = self.set_num_clusters(
             num_embeddings,
             num_clusters=num_clusters,
