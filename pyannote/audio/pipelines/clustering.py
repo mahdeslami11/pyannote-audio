@@ -323,6 +323,9 @@ class SpectralClustering(ClusteringMixin, Pipeline):
         self.thresholding_type = Categorical(["RowMax", "Percentile"])
         self.use_autotune = Categorical([True, False])
 
+        # HACK https://github.com/wq2012/SpectralCluster/issues/39
+        self.one_speaker_threshold = Uniform(0.0, 2.0)
+
     def _affinity_function(self, embeddings: np.ndarray) -> np.ndarray:
         return squareform(1.0 - 0.5 * pdist(embeddings, metric=self.metric))
 
@@ -445,6 +448,14 @@ class SpectralClustering(ClusteringMixin, Pipeline):
                 for k in range(num_clusters)
             ]
         )
+
+        # HACK https://github.com/wq2012/SpectralCluster/issues/39
+        if min_clusters == 1 and num_clusters == 2:
+            if pdist(centroids, metric=self.metric).item() < self.one_speaker_threshold:
+                hard_clusters = np.zeros((num_chunks, num_speakers), dtype=np.int8)
+                soft_clusters = np.zeros((num_chunks, num_speakers, 1))
+                return hard_clusters, soft_clusters
+
         e2k_distance = rearrange(
             cdist(
                 rearrange(embeddings, "c s d -> (c s) d"),
