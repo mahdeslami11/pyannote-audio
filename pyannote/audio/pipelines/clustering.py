@@ -324,7 +324,8 @@ class SpectralClustering(ClusteringMixin, Pipeline):
         self.use_autotune = Categorical([True, False])
 
         # HACK https://github.com/wq2012/SpectralCluster/issues/39
-        self.one_speaker_threshold = Uniform(0.0, 2.0)
+        self.solo_speaker_ratio_threshold = Uniform(0.9, 1.0)
+        self.solo_speaker_distance_threshold = Uniform(0.0, 1.0)
 
     def _affinity_function(self, embeddings: np.ndarray) -> np.ndarray:
         return squareform(1.0 - 0.5 * pdist(embeddings, metric=self.metric))
@@ -450,9 +451,17 @@ class SpectralClustering(ClusteringMixin, Pipeline):
         )
 
         # HACK https://github.com/wq2012/SpectralCluster/issues/39
-        if min_clusters == 1 and num_clusters == 2:
-            if pdist(centroids, metric=self.metric).item() < self.one_speaker_threshold:
+        if (min_clusters == 1) and (num_clusters > 1):
+            num_active_speaker = np.sum(np.any(segmentations.data > 0, axis=1), axis=1)
+            solo_speaker_ratio = np.sum(num_active_speaker == 1) / np.sum(
+                num_active_speaker > 0
+            )
+            max_centroids_dist = np.max(pdist(centroids, metric=self.metric))
+            if (solo_speaker_ratio > self.solo_speaker_ratio_threshold) and (
+                max_centroids_dist < self.solo_speaker_distance_threshold
+            ):
                 hard_clusters = np.zeros((num_chunks, num_speakers), dtype=np.int8)
+                # TODO: actually compute distance to average
                 soft_clusters = np.zeros((num_chunks, num_speakers, 1))
                 return hard_clusters, soft_clusters
 
