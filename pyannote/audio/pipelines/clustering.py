@@ -41,7 +41,6 @@ from scipy.spatial.distance import squareform
 from spectralcluster import (
     AutoTune,
     EigenGapType,
-    FallbackOptions,
     LaplacianType,
     RefinementName,
     RefinementOptions,
@@ -311,7 +310,6 @@ class SpectralClustering(ClusteringMixin, Pipeline):
             ["Affinity", "Unnormalized", "RandomWalk", "GraphCut"]
         )
         self.eigengap = Categorical(["Ratio", "NormalizedDiff"])
-        self.spectral_min_embeddings = Categorical([5, 10])
 
         # Hyperparameters for refinement operations.
         self.refinement_sequence = Categorical(["", "TS", "GTS", "CGTSDN"])
@@ -322,10 +320,6 @@ class SpectralClustering(ClusteringMixin, Pipeline):
         self.thresholding_preserve_diagonal = Categorical([True, False])
         self.thresholding_type = Categorical(["RowMax", "Percentile"])
         self.use_autotune = Categorical([True, False])
-
-        # HACK https://github.com/wq2012/SpectralCluster/issues/39
-        self.solo_speaker_ratio_threshold = Uniform(0.9, 1.0)
-        self.solo_speaker_distance_threshold = Uniform(0.0, 1.0)
 
     def _affinity_function(self, embeddings: np.ndarray) -> np.ndarray:
         return squareform(1.0 - 0.5 * pdist(embeddings, metric=self.metric))
@@ -386,11 +380,6 @@ class SpectralClustering(ClusteringMixin, Pipeline):
             max_clusters=max_clusters,
         )
 
-        # Fallback options.
-        fallback_options = FallbackOptions(
-            spectral_min_embeddings=self.spectral_min_embeddings,
-        )
-
         # Autotune options.
         default_autotune = AutoTune(
             p_percentile_min=0.40,
@@ -435,7 +424,6 @@ class SpectralClustering(ClusteringMixin, Pipeline):
             max_clusters=max_clusters,
             refinement_options=refinement_options,
             autotune=default_autotune if self.use_autotune else None,
-            fallback_options=fallback_options,
             laplacian_type=LaplacianType[self.laplacian],
             eigengap_type=EigenGapType[self.eigengap],
             affinity_function=self._affinity_function,
@@ -449,21 +437,6 @@ class SpectralClustering(ClusteringMixin, Pipeline):
                 for k in range(num_clusters)
             ]
         )
-
-        # HACK https://github.com/wq2012/SpectralCluster/issues/39
-        if (min_clusters == 1) and (num_clusters > 1):
-            num_active_speaker = np.sum(np.any(segmentations.data > 0, axis=1), axis=1)
-            solo_speaker_ratio = np.sum(num_active_speaker == 1) / np.sum(
-                num_active_speaker > 0
-            )
-            max_centroids_dist = np.max(pdist(centroids, metric=self.metric))
-            if (solo_speaker_ratio > self.solo_speaker_ratio_threshold) and (
-                max_centroids_dist < self.solo_speaker_distance_threshold
-            ):
-                hard_clusters = np.zeros((num_chunks, num_speakers), dtype=np.int8)
-                # TODO: actually compute distance to average
-                soft_clusters = np.zeros((num_chunks, num_speakers, 1))
-                return hard_clusters, soft_clusters
 
         e2k_distance = rearrange(
             cdist(
