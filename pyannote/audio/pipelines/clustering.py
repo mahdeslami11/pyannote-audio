@@ -25,7 +25,7 @@
 
 import math
 from enum import Enum
-from typing import Optional, Tuple
+from typing import Tuple
 
 import numpy as np
 from einops import rearrange
@@ -36,7 +36,6 @@ from pyannote.core.utils.hierarchy import linkage
 from pyannote.pipeline import Pipeline
 from pyannote.pipeline.parameter import Categorical, Uniform
 from scipy.cluster.hierarchy import fcluster
-from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import squareform
 from spectralcluster import (
     AutoTune,
@@ -564,51 +563,6 @@ class SpectralClustering(ClusteringMixin, Pipeline):
         return hard_clusters, soft_clusters
 
 
-def nearest_cluster_assignment(embeddings, embedding2cluster_func, constrained=False):
-    """
-
-    Parameters
-    ----------
-    embeddings : (num_chunks, num_speakers, dimension)-shaped array
-    embedding2cluster_func : callable
-        Takes a (num_embeddings, dimension)-shaped array as input,
-        returns a (num_embeddings, num_clusters)-shaped array as
-        output.
-    constrained : bool, optional
-        Whether to force "same chunk" speakers to be assigned
-        to different clusters.
-
-    Returns
-    -------
-    clusters : (num_chunks, num_speakers)-shaped array
-        Index of clusters assigned to each (chunk, speaker).
-    """
-
-    num_chunks, num_speakers, dimension = embeddings.shape
-
-    # compute cost of assigning embeddings to clusters
-    e2k_cost = rearrange(
-        embedding2cluster_func(rearrange(embeddings, "c s d -> (c s) d")),
-        "(c s) k -> c s k",
-        c=num_chunks,
-        s=num_speakers,
-    )
-    num_chunks, num_speakers, num_clusters = e2k_cost.shape
-
-    # replace NaNs by maximum cost between any (embedding, cluster) pair
-    e2k_cost = np.nan_to_num(e2k_cost, nan=np.nanmax(e2k_cost))
-
-    clusters = np.argmin(e2k_cost, axis=2)
-    #   shape: (num_chunks, num_speakers)
-
-    if constrained:
-        for c, s2k in enumerate(e2k_cost):
-            for s, k in zip(*linear_sum_assignment(s2k, maximize=False)):
-                clusters[c, s] = k
-
-    return clusters
-
-
 class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
     """Hidden Markov Model with Gaussian states
 
@@ -826,90 +780,3 @@ class Clustering(Enum):
     AgglomerativeClustering = AgglomerativeClustering
     SpectralClustering = SpectralClustering
     GaussianHiddenMarkovModel = GaussianHiddenMarkovModel
-
-
-class NearestClusterAssignment:
-    """
-
-    Parameters
-    ----------
-    metric : {"cosine", "euclidean", ...}, optional
-        Distance metric to use. Defaults to "cosine".
-    allow_reassignment : bool, optional
-        Allow already assigned embeddings to be reassigned to a new cluster
-        in case it is closer than the original one. Defaults to stick with
-        the original cluster.
-
-    """
-
-    def __init__(self, metric: str = "cosine", allow_reassignment: bool = False):
-        super().__init__()
-        self.metric = metric
-        self.allow_reassignment = allow_reassignment
-
-    def __call__(
-        self,
-        embeddings: np.ndarray,
-        clusters: np.ndarray,
-        cannot_link: Optional[np.ndarray] = None,
-    ):
-        """
-
-        Parameters
-        ----------
-        embeddings : (num_embeddings, dimension) np.ndarray
-            Speaker embeddings. NaN embeddings indicate that cluster prior
-            probability must be used to assign them.
-        clusters : (num_embeddings, ) np.ndarray
-            Clustering output, where
-            * clusters[e] == k  means eth embedding has already been assigned to kth cluster.
-            * clusters[e] == -1 means eth embedding as yet to be assigned.
-        cannot_link : (num_embeddings, num_embeddings) np.ndarray
-            "cannot link" constraints.
-
-        Returns
-        -------
-        new_clusters : (num_embeddings, ) np.ndarray
-
-        """
-
-        num_embeddings = embeddings.shape[0]
-        if cannot_link is None:
-            cannot_link = np.zeros((num_embeddings, num_embeddings))
-
-        # compute embedding-to-embedding distances
-        e2e_distance = squareform(pdist(embeddings, metric=self.metric))
-
-        max_distance = np.nanmax(e2e_distance)
-        e2e_distance -= max_distance
-
-        # compute embedding-to-cluster distances
-        num_clusters = np.max(clusters) + 1
-        e2c_distance = np.vstack(
-            [np.mean(e2e_distance[clusters == k], axis=0) for k in range(num_clusters)]
-        ).T
-
-        # when embeddings cannot be extracted, arbitrarily use prior probability
-        # as distance to cluster
-        _, count = np.unique(clusters[clusters != -1], return_counts=True)
-        prior = count / np.sum(count)
-        e2c_distance[np.any(np.isnan(embeddings), axis=1)] = max_distance + 1.0 - prior
-
-        # without cannot link constraints
-        if np.count_nonzero(cannot_link) == 0:
-            # assign embeddings to nearest cluster
-            new_clusters = np.argmin(e2c_distance, axis=1)
-
-        # with cannot link constraints
-        else:
-            new_clusters = np.full_like(clusters, -1)
-            for _ in range(num_embeddings):
-                e, c = np.unravel_index(np.argmin(e2c_distance), e2c_distance.shape)
-                new_clusters[e] = c
-                e2c_distance[e, :] = np.inf
-                e2c_distance[np.nonzero(cannot_link[e]), c] += 1.0
-
-        if self.allow_reassignment:
-            return new_clusters
-        else:
-            return np.where(clusters == -1, new_clusters, clusters)
