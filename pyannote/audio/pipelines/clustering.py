@@ -593,6 +593,8 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         self.metric = metric
         self.expects_num_clusters = expects_num_clusters
         self.n_trials = n_trials
+
+        self.covariance_type = Categorical(["spherical", "diag", "full", "tied"])
         self.threshold = Uniform(0.0, 2.0)
 
     def get_training_sequence(
@@ -716,7 +718,7 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
 
                 hmm = GaussianHMM(
                     n_components=n_components,
-                    covariance_type="diag",
+                    covariance_type=self.covariance_type,
                     n_iter=100,
                     # random_state=random_state,
                     implementation="log",
@@ -743,7 +745,7 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         for random_state in range(self.n_trials):
             hmm = GaussianHMM(
                 n_components=num_clusters,
-                covariance_type="diag",
+                covariance_type=self.covariance_type,
                 n_iter=100,
                 random_state=random_state,
                 implementation="log",
