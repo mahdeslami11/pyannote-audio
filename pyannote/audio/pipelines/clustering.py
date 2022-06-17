@@ -31,12 +31,10 @@ import numpy as np
 from einops import rearrange
 from hmmlearn.hmm import GaussianHMM
 from pyannote.core import SlidingWindowFeature
-from pyannote.core.utils.distance import cdist, pdist
-from pyannote.core.utils.hierarchy import linkage
 from pyannote.pipeline import Pipeline
 from pyannote.pipeline.parameter import Categorical, Uniform
-from scipy.cluster.hierarchy import fcluster
-from scipy.spatial.distance import squareform
+from scipy.cluster.hierarchy import fcluster, linkage
+from scipy.spatial.distance import cdist, pdist, squareform
 from spectralcluster import (
     AutoTune,
     EigenGapType,
@@ -132,7 +130,7 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
 
     Hyper-parameters
     ----------------
-    method : {"average", "centroid", "complete", "median", "pool", "single", "ward"}
+    method : {"average", "centroid", "complete", "median", "single", "ward"}
         Linkage method.
     threshold : float in range [0.0, 2.0]
         Clustering threshold. Only when `expects_num_clusters` is False.
@@ -152,7 +150,7 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
             self.threshold = Uniform(0.0, 2.0)  # assume unit-normalized embeddings
 
         self.method = Categorical(
-            ["average", "centroid", "complete", "median", "pool", "single", "ward"]
+            ["average", "centroid", "complete", "median", "single", "ward", "weighted"]
         )
 
     @staticmethod
@@ -181,7 +179,7 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
             on values provided for `min_clusters`,  `max_clusters`, and `threshold`.
         threshold : float, optional
             Clustering threshold. Not used when `num_clusters` is provided.
-        method : {"average", "centroid", "complete", "median", "pool", "single", "ward"}, optional
+        method : {"average", "centroid", "complete", "median", "single", "ward"}, optional
             Linkage method.
         metric : {"cosine", "euclidean", ...}, optional
             Distance metric to use. Defaults to "cosine".
@@ -194,7 +192,16 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
 
         num_embeddings, _ = embeddings.shape
 
-        dendrogram: np.ndarray = linkage(embeddings, method=method, metric=metric)
+        if metric == "cosine" and method in ["centroid", "median", "ward"]:
+            # unit-normalize embeddings to somehow make them "euclidean"
+            with np.errstate(divide="ignore", invalid="ignore"):
+                embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
+            dendrogram: np.ndarray = linkage(
+                embeddings, method=method, metric="euclidean"
+            )
+
+        else:
+            dendrogram: np.ndarray = linkage(embeddings, method=method, metric=metric)
 
         if num_clusters is None:
 
