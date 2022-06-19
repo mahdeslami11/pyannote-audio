@@ -516,7 +516,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         hard_clusters[inactive_speakers] = -2
         hook("diarization/hard_clusters/raw", hard_clusters)
         discrete_diarization = self.reconstruct(
-            segmentations, hard_clusters, count, hook=hook
+            segmentations,
+            hard_clusters,
+            count,
         )
         hook("diarization/discrete/raw", discrete_diarization)
         diarization = self.to_annotation(
