@@ -33,7 +33,7 @@ from pyannote.metrics.diarization import DiarizationErrorRate
 from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
 from torch_audiomentations.utils.config import from_dict as augmentation_from_dict
 
-from pyannote.audio import Inference, Model
+from pyannote.audio import Audio, Inference, Model
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.utils.permutation import mae_cost_func, permutate
 from pyannote.audio.utils.signal import Binarize, binarize
@@ -513,7 +513,7 @@ def oracle_segmentation(
     Parameters
     ----------
     file : AudioFile
-        Audio file with "annotation" and "duration" key.
+        Audio file with "annotation".
     window : SlidingWindow
         Sliding window used for inference (see above)
     frames : SlidingWindow or float
@@ -528,7 +528,10 @@ def oracle_segmentation(
         Oracle segmentation.
     """
 
-    duration: float = file["duration"]
+    if "duration" not in file:
+        duration = Audio().get_duration(file)
+    else:
+        duration: float = file["duration"]
     reference: Annotation = file["annotation"]
 
     if not isinstance(frames, SlidingWindow):
