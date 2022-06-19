@@ -30,7 +30,7 @@ from typing import Tuple
 import numpy as np
 from einops import rearrange
 from hmmlearn.hmm import GaussianHMM
-from pyannote.core import SlidingWindowFeature
+from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.pipeline import Pipeline
 from pyannote.pipeline.parameter import Categorical, Uniform
 from scipy.cluster.hierarchy import fcluster, linkage
@@ -50,6 +50,9 @@ from spectralcluster import (
 )
 
 from pyannote.audio import Inference
+from pyannote.audio.core.io import AudioFile
+from pyannote.audio.pipelines.utils import oracle_segmentation
+from pyannote.audio.utils.permutation import permutate
 
 
 class ClusteringMixin:
@@ -104,11 +107,18 @@ class ClusteringMixin:
         speaker_idx : (num_embeddings, ) array
         """
 
-        downsample_by = math.floor(
-            target_overlap_ratio
-            * segmentations.sliding_window.duration
-            / segmentations.sliding_window.step
-        )
+        if target_overlap_ratio is None:
+            downsample_by = 1
+        else:
+            downsample_by = max(
+                1,
+                math.floor(
+                    target_overlap_ratio
+                    * segmentations.sliding_window.duration
+                    / segmentations.sliding_window.step
+                ),
+            )
+
         chunk_idx, speaker_idx = np.where(
             ~np.any(np.isnan(embeddings[::downsample_by]), axis=2)
         )
@@ -230,11 +240,12 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
 
     def __call__(
         self,
-        embeddings: np.ndarray,
+        embeddings: np.ndarray = None,
         segmentations: SlidingWindowFeature = None,
         num_clusters: int = None,
         min_clusters: int = None,
         max_clusters: int = None,
+        **kwargs,
     ) -> np.ndarray:
         """Apply agglomerative clustering
 
@@ -308,6 +319,68 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
         soft_clusters = -e2k_distance
         hard_clusters = np.argmax(soft_clusters, axis=2)
         hard_clusters[chunk_idx, speaker_idx] = valid_clusters
+
+        return hard_clusters, soft_clusters
+
+
+class OracleClustering(ClusteringMixin, Pipeline):
+    """Oracle clustering"""
+
+    def __init__(self, metric: str = "cosine", expects_num_clusters: bool = False):
+        super().__init__()
+
+    def __call__(
+        self,
+        segmentations: SlidingWindowFeature = None,
+        file: AudioFile = None,
+        frames: SlidingWindow = None,
+        **kwargs,
+    ) -> np.ndarray:
+        """Apply agglomerative clustering
+
+        Parameters
+        ----------
+        segmentations : (num_chunks, num_frames, num_speakers) array
+            Binary segmentations.
+        file : AudioFile
+        frames : SlidingWindow
+
+        Returns
+        -------
+        hard_clusters : (num_chunks, num_speakers) array
+            Hard cluster assignment (hard_clusters[c, s] = k means that sth speaker
+            of cth chunk is assigned to kth cluster)
+        soft_clusters : (num_chunks, num_speakers, num_clusters) array
+            Soft cluster assignment (the higher soft_clusters[c, s, k], the most likely
+            the sth speaker of cth chunk belongs to kth cluster)
+        """
+
+        num_chunks, num_frames, num_speakers = segmentations.data.shape
+        window = segmentations.sliding_window
+
+        oracle_segmentations = oracle_segmentation(file, window, frames=frames)
+        #   shape: (num_chunks, num_frames, true_num_speakers)
+
+        file["oracle_segmentations"] = oracle_segmentations
+
+        _, oracle_num_frames, num_clusters = oracle_segmentations.data.shape
+
+        segmentations = segmentations.data[:, : min(num_frames, oracle_num_frames)]
+        oracle_segmentations = oracle_segmentations.data[
+            :, : min(num_frames, oracle_num_frames)
+        ]
+
+        hard_clusters = -2 * np.ones((num_chunks, num_speakers), dtype=np.int8)
+        soft_clusters = np.zeros((num_chunks, num_speakers, num_clusters))
+        for c, (segmentation, oracle) in enumerate(
+            zip(segmentations, oracle_segmentations)
+        ):
+            _, (permutation, *_) = permutate(oracle[np.newaxis], segmentation)
+            for j, i in enumerate(permutation):
+                if i is None:
+                    continue
+                hard_clusters[c, i] = j
+                soft_clusters[c, i, j] = 1.0
 
         return hard_clusters, soft_clusters
 
@@ -393,6 +466,7 @@ class SpectralClustering(ClusteringMixin, Pipeline):
         num_clusters: int = None,
         min_clusters: int = None,
         max_clusters: int = None,
+        **kwargs,
     ) -> np.ndarray:
         """Apply spectral clustering
 
@@ -655,6 +729,7 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         num_clusters: int = None,
         min_clusters: int = None,
         max_clusters: int = None,
+        **kwargs,
     ) -> np.ndarray:
         """
 
@@ -789,3 +864,4 @@ class Clustering(Enum):
     AgglomerativeClustering = AgglomerativeClustering
     SpectralClustering = SpectralClustering
     GaussianHiddenMarkovModel = GaussianHiddenMarkovModel
+    OracleClustering = OracleClustering

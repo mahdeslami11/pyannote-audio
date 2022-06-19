@@ -28,12 +28,13 @@ from typing import Any, Mapping, Optional, Text, Tuple, Union
 import networkx as nx
 import numpy as np
 import torch
-from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
+from pyannote.core import Annotation, Segment, SlidingWindow, SlidingWindowFeature
 from pyannote.metrics.diarization import DiarizationErrorRate
 from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
 from torch_audiomentations.utils.config import from_dict as augmentation_from_dict
 
 from pyannote.audio import Inference, Model
+from pyannote.audio.core.io import AudioFile
 from pyannote.audio.utils.permutation import mae_cost_func, permutate
 from pyannote.audio.utils.signal import Binarize, binarize
 
@@ -491,3 +492,77 @@ class SpeakerDiarizationMixin:
         while True:
             yield f"SPEAKER_{speaker:02d}"
             speaker += 1
+
+
+def oracle_segmentation(
+    file: AudioFile,
+    window: SlidingWindow,
+    frames: Union[SlidingWindow, float],
+    num_speakers: int = None,
+) -> SlidingWindowFeature:
+    """Oracle speaker segmentation
+
+    Simulates inference based on an (imaginary) oracle segmentation model:
+
+    >>> oracle = Model.from_pretrained("oracle")
+    >>> assert frames == oracle.introspection.frames
+    >>> inference = Inference(oracle, duration=window.duration, step=window.step, skip_aggregation=True)
+    >>> oracle_segmentation = inference(file)
+
+    Parameters
+    ----------
+    file : AudioFile
+        Audio file with "annotation" and "duration" key.
+    window : SlidingWindow
+        Sliding window used for inference (see above)
+    frames : SlidingWindow or float
+        Output resolution of the oracle model (see above)
+    num_speakers : int, optional
+        Override the number of speakers returned by the oracle segmentation model
+        Defaults to the actual number of speakers in the whole file
+
+    Returns
+    -------
+    oracle_segmentation : (num_chunks, num_frames, num_speakers) SlidingWindowFeature
+        Oracle segmentation.
+    """
+
+    duration: float = file["duration"]
+    reference: Annotation = file["annotation"]
+
+    if not isinstance(frames, SlidingWindow):
+        frames = SlidingWindow(start=0.0, step=frames, duration=frames)
+
+    labels = reference.labels()
+    actual_num_speakers = len(labels)
+    if num_speakers is None:
+        num_speakers = actual_num_speakers
+
+    if num_speakers > actual_num_speakers:
+        num_missing = num_speakers - actual_num_speakers
+        labels += [
+            f"FakeSpeakerForOracleSegmentationInference{i:d}"
+            for i in range(num_missing)
+        ]
+
+    window = SlidingWindow(start=0.0, duration=window.duration, step=window.step)
+
+    segmentations = []
+    for chunk in window(Segment(0.0, duration)):
+        chunk_segmentation: SlidingWindowFeature = reference.discretize(
+            chunk,
+            resolution=frames,
+            labels=labels,
+            duration=window.duration,
+        )
+
+        if num_speakers < actual_num_speakers:
+            # keep `num_speakers` most talkative speakers
+            most_talkative_index = np.argsort(-np.sum(chunk_segmentation, axis=0))[
+                :num_speakers
+            ]
+            chunk_segmentation = chunk_segmentation[:, most_talkative_index]
+
+        segmentations.append(chunk_segmentation)
+
+    return SlidingWindowFeature(np.float32(np.stack(segmentations)), window)
