@@ -91,6 +91,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
     Hyper-parameters
     ----------------
+    segmentation_onset : float
+    embedding_onset : float
+    clustering hyperparameters
 
     Usage
     -----
@@ -136,10 +139,18 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             batch_size=self.segmentation_batch_size,
         )
         self._frames: SlidingWindow = self._segmentation.model.introspection.frames
+        self.segmentation_onset = Uniform(0.1, 0.9)
 
-        self._embedding = PretrainedSpeakerEmbedding(self.embedding, device=emb_device)
+        if self.klustering == "OracleClustering":
+            metric = "not_applicable"
 
-        self._audio = Audio(sample_rate=self._embedding.sample_rate, mono=True)
+        else:
+            self._embedding = PretrainedSpeakerEmbedding(
+                self.embedding, device=emb_device
+            )
+            self._audio = Audio(sample_rate=self._embedding.sample_rate, mono=True)
+            metric = self._embedding.metric
+            self.embedding_onset = Uniform(0.1, 0.9)
 
         try:
             Klustering = Clustering[clustering]
@@ -148,23 +159,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
                 f'clustering must be one of [{", ".join(list(Clustering.__members__))}]'
             )
         self.clustering = Klustering.value(
-            metric=self._embedding.metric,
+            metric=metric,
             expects_num_clusters=self.expects_num_speakers,
         )
-
-        # hyper-parameters
-
-        self.segmentation_onset = Uniform(0.1, 0.9)
-        self.embedding_onset = Uniform(0.1, 0.9)
-
-        # self.soft_temperature = LogUniform(1e-2, 1e2)
-
-        # self.use_constrained_argmax = Categorical([True, False])
-
-        # hyper-parameters used for post-processing i.e. removing short speech turns
-        # or filling short gaps between speech turns of one speaker
-        self.min_duration_on = Uniform(0.0, 1.0)
-        self.min_duration_off = Uniform(0.0, 1.0)
 
     def classes(self):
         speaker = 0
@@ -478,27 +475,38 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         #   shape: (num_frames, 1)
         #   dtype: int
 
+        if self.klustering == "OracleClustering":
+            embedding_onset = self.segmentation_onset
+        else:
+            embedding_onset = self.embedding_onset
+
         # binarize segmentation
         binarized_segmentations: SlidingWindowFeature = binarize(
             segmentations,
-            onset=self.embedding_onset,
+            onset=embedding_onset,
             initial_state=False,
         )
 
         # keep track of inactive speakers
+        # FIXME: inactive speakers should be obtained from segmentation_onset
         inactive_speakers = np.sum(binarized_segmentations.data, axis=1) == 0
         #   shape: (num_chunks, num_speakers)
 
-        embeddings = self.get_embeddings(file, binarized_segmentations)
-        hook("embeddings", embeddings)
-        #   shape: (num_chunks, local_num_speakers, dimension)
+        if self.klustering == "OracleClustering":
+            embeddings = None
+        else:
+            embeddings = self.get_embeddings(file, binarized_segmentations)
+            hook("embeddings", embeddings)
+            #   shape: (num_chunks, local_num_speakers, dimension)
 
         hard_clusters, soft_clusters = self.clustering(
-            embeddings,
+            embeddings=embeddings,
             segmentations=binarized_segmentations,
             num_clusters=num_speakers,
             min_clusters=min_speakers,
             max_clusters=max_speakers,
+            file=file,  # <== for oracle clustering
+            frames=self._frames,  # <== for oracle clustering
         )
         #   hard_clusters: (num_chunks, num_speakers)
         #   soft_clusters: (num_chunks, num_speakers, num_clusters)
@@ -507,12 +515,14 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         hard_clusters = np.argmax(soft_clusters, axis=2)
         hard_clusters[inactive_speakers] = -2
         hook("diarization/hard_clusters/raw", hard_clusters)
-        discrete_diarization = self.reconstruct(segmentations, hard_clusters, count)
+        discrete_diarization = self.reconstruct(
+            segmentations, hard_clusters, count, hook=hook
+        )
         hook("diarization/discrete/raw", discrete_diarization)
         diarization = self.to_annotation(
             discrete_diarization,
-            min_duration_on=self.min_duration_on,
-            min_duration_off=self.min_duration_off,
+            min_duration_on=0.0,
+            min_duration_off=0.0,
         )
         diarization.uri = file["uri"]
         if "annotation" in file:
@@ -552,8 +562,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         # convert to continuous diarization
         diarization = self.to_annotation(
             discrete_diarization,
-            min_duration_on=self.min_duration_on,
-            min_duration_off=self.min_duration_off,
+            min_duration_on=0.0,
+            min_duration_off=0.0,
         )
 
         diarization.uri = file["uri"]
