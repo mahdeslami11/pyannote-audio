@@ -316,8 +316,9 @@ class SpeakerDiarizationMixin:
         count = Inference.aggregate(
             np.sum(trimmed, axis=-1, keepdims=True),
             frames=frames,
-            hamming=True,
+            hamming=False,
             missing=0.0,
+            skip_average=False,
         )
         count.data = np.rint(count.data).astype(np.uint8)
 
