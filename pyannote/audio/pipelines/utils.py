@@ -467,7 +467,7 @@ class SpeakerDiarizationMixin:
         activations = Inference.aggregate(
             segmentations,
             frames=count.sliding_window,
-            hamming=True,
+            hamming=False,
             missing=0.0,
             skip_average=True,
         )
