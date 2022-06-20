@@ -512,7 +512,6 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         #   soft_clusters: (num_chunks, num_speakers, num_clusters)
 
         # reconstruct discrete diarization from raw hard clusters
-        hard_clusters = np.argmax(soft_clusters, axis=2)
         hard_clusters[inactive_speakers] = -2
         hook("diarization/hard_clusters/raw", hard_clusters)
         discrete_diarization = self.reconstruct(
@@ -570,9 +569,14 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         diarization.uri = file["uri"]
 
+        # when reference is available, use it to map hypothesized speakers
+        # to reference speakers (this makes later error analysis easier
+        # but does not modify the actual output of the diarization pipeline)
         if "annotation" in file:
             return self.optimal_mapping(file["annotation"], diarization)
 
+        # when reference is not available, rename hypothesized speakers
+        # to human-readable SPEAKER_00, SPEAKER_01, ...
         return diarization.rename_labels(
             {
                 label: expected_label
