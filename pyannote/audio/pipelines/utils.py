@@ -463,12 +463,13 @@ class SpeakerDiarizationMixin:
             Discrete (0s and 1s) diarization.
         """
 
+        # TODO: investigate alternative aggregation
         activations = Inference.aggregate(
             segmentations,
             frames=count.sliding_window,
-            hamming=False,
+            hamming=True,
             missing=0.0,
-            skip_average=False,
+            skip_average=True,
         )
 
         _, num_speakers = activations.data.shape
