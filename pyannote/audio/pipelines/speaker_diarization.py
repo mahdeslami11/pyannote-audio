@@ -299,7 +299,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
                 if k == -2:
                     continue
 
-                # NOTE: can we do better than this max here?
+                # TODO: can we do better than this max here?
                 clustered_segmentations[c, :, k] = np.max(
                     segmentation[:, cluster == k], axis=1
                 )
@@ -513,22 +513,13 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         # reconstruct discrete diarization from raw hard clusters
         hard_clusters[inactive_speakers] = -2
-        hook("diarization/hard_clusters/raw", hard_clusters)
         discrete_diarization = self.reconstruct(
             segmentations,
             hard_clusters,
             count,
+            hook=hook,
         )
-        hook("diarization/discrete/raw", discrete_diarization)
-        diarization = self.to_annotation(
-            discrete_diarization,
-            min_duration_on=0.0,
-            min_duration_off=0.0,
-        )
-        diarization.uri = file["uri"]
-        if "annotation" in file:
-            diarization = self.optimal_mapping(file["annotation"], diarization)
-        hook("diarization/raw", diarization)
+        hook("discrete_diarization", discrete_diarization)
 
         # if False:
 
@@ -566,7 +557,6 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             min_duration_on=0.0,
             min_duration_off=0.0,
         )
-
         diarization.uri = file["uri"]
 
         # when reference is available, use it to map hypothesized speakers
