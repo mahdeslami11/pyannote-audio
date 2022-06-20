@@ -517,7 +517,6 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             segmentations,
             hard_clusters,
             count,
-            hook=hook,
         )
         hook("discrete_diarization", discrete_diarization)
 
