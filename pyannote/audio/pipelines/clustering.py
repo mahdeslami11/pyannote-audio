@@ -669,7 +669,9 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         self.n_trials = n_trials
 
         self.covariance_type = Categorical(["spherical", "diag", "full", "tied"])
-        self.threshold = Uniform(0.0, 2.0)
+
+        if not self.expects_num_clusters:
+            self.threshold = Uniform(0.0, 2.0)
 
     def get_training_sequence(
         self, embeddings: np.ndarray, segmentations: SlidingWindowFeature
