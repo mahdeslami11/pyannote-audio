@@ -725,7 +725,13 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         training_sequence = embeddings[range(num_chunks), speaker_idx]
         # (num_chunks, dimension)
 
-        chunk_idx = np.where(~np.any(np.isnan(training_sequence), axis=1))[0]
+        # remove chunks with one of the following property:
+        # * there is no active speaker in the center of the chunk
+        # * embedding extraction has failed for the most active speaker in the center of the chunk
+        center_is_non_speech = np.max(num_active_frames, axis=1) == 0.0
+        embedding_is_invalid = np.any(np.isnan(training_sequence), axis=1)
+        chunk_idx = np.where(~(embedding_is_invalid | center_is_non_speech))[0]
+
         # (num_chunks, )
 
         return (training_sequence[chunk_idx], chunk_idx, speaker_idx[chunk_idx])
@@ -793,12 +799,13 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         # TODO: try to infer max_clusters automatically by looking at the evolution of selection criterion
 
         # estimate num_clusters by fitting an HMM with an increasing number of states
-        debug = {"training_sequence": training_sequence, "hmm": dict()}
+
         if num_clusters is None:
 
             num_clusters = max_clusters
             for n_components in range(min_clusters, max_clusters + 1):
 
+                # TODO: check impact of n_iter on both performance and computation time
                 hmm = GaussianHMM(
                     n_components=n_components,
                     covariance_type=self.covariance_type,
@@ -807,12 +814,10 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
                     implementation="log",
                 ).fit(training_sequence)
 
-                debug["hmm"][n_components] = hmm
-
                 if n_components > 1:
+
                     # as soon as two states get too close to each other, stop adding states
                     min_state_dist = np.min(pdist(hmm.means_, metric="euclidean"))
-
                     if min_state_dist < self.threshold:
                         num_clusters = max(min_clusters, n_components - 1)
                         break
@@ -844,9 +849,6 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
                 best_log_likelihood = log_likelihood
                 best_hmm = hmm
 
-        debug["best_hmm"] = best_hmm
-        self.debug_ = debug
-
         # compute distance between embeddings and clusters
         e2k_distance = rearrange(
             cdist(
@@ -860,10 +862,11 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         )
         soft_clusters = 2 - e2k_distance
 
-        # NOTE: using decoding instead of distance-to-state actually degraded performance
-        # hard_clusters[chunk_idx, speaker_idx] = best_hmm.predict(training_sequence)
-
         hard_clusters = np.argmax(soft_clusters, axis=2)
+        hard_clusters[chunk_idx, speaker_idx] = best_hmm.predict(training_sequence)
+
+        # TODO: generate alternative test sequences that only differs from training_sequence
+        # in regions where there is overlap.
 
         return hard_clusters, soft_clusters
 
