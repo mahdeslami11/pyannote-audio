@@ -34,9 +34,9 @@ from functools import singledispatch
 from itertools import zip_longest
 from typing import Optional, Union
 
-import einops
 import numpy as np
 import scipy.signal
+from einops import rearrange
 from pyannote.core import Annotation, Segment, SlidingWindowFeature, Timeline
 from pyannote.core.utils.generators import pairwise
 
@@ -82,12 +82,12 @@ def binarize_ndarray(
     offset: Optional[float] = None,
     initial_state: Optional[Union[bool, np.ndarray]] = None,
 ):
-    """(Batch) hysteresis thresholding
+    """Hysteresis thresholding
 
     Parameters
     ----------
     scores : numpy.ndarray
-        (num_frames, num_classes)-shaped scores.
+        (num_classes, num_frames)-shaped scores.
     onset : float, optional
         Onset threshold. Defaults to 0.5.
     offset : float, optional
@@ -103,7 +103,7 @@ def binarize_ndarray(
 
     offset = offset or onset
 
-    batch_size, num_frames = scores.shape
+    num_classes, num_frames = scores.shape
 
     scores = np.nan_to_num(scores)
 
@@ -111,10 +111,10 @@ def binarize_ndarray(
         initial_state = scores[:, 0] >= 0.5 * (onset + offset)
 
     elif isinstance(initial_state, bool):
-        initial_state = initial_state * np.ones((batch_size,), dtype=bool)
+        initial_state = initial_state * np.ones((num_classes,), dtype=bool)
 
     elif isinstance(initial_state, np.ndarray):
-        assert initial_state.shape == (batch_size,)
+        assert initial_state.shape == (num_classes,)
         assert initial_state.dtype == bool
 
     initial_state = np.tile(initial_state, (num_frames, 1)).T
@@ -134,7 +134,7 @@ def binarize_ndarray(
     # points to the index of the previous well-defined frame
     same_as = np.cumsum(off_or_on, axis=1)
 
-    samples = np.tile(np.arange(batch_size), (num_frames, 1)).T
+    samples = np.tile(np.arange(num_classes), (num_frames, 1)).T
 
     return np.where(
         same_as, on[samples, well_defined_idx[samples, same_as - 1]], initial_state
@@ -172,19 +172,18 @@ def binarize_swf(
 
     if scores.data.ndim == 2:
         num_frames, num_classes = scores.data.shape
-        data = einops.rearrange(scores.data, "f k -> k f", f=num_frames, k=num_classes)
+        data = rearrange(scores.data, "f k -> k f", f=num_frames, k=num_classes)
         binarized = binarize(
             data, onset=onset, offset=offset, initial_state=initial_state
         )
         return SlidingWindowFeature(
-            1.0
-            * einops.rearrange(binarized, "k f -> f k", f=num_frames, k=num_classes),
+            1.0 * rearrange(binarized, "k f -> f k", f=num_frames, k=num_classes),
             scores.sliding_window,
         )
 
     elif scores.data.ndim == 3:
         num_chunks, num_frames, num_classes = scores.data.shape
-        data = einops.rearrange(
+        data = rearrange(
             scores.data, "c f k -> (c k) f", c=num_chunks, f=num_frames, k=num_classes
         )
         binarized = binarize(
@@ -192,7 +191,139 @@ def binarize_swf(
         )
         return SlidingWindowFeature(
             1.0
-            * einops.rearrange(
+            * rearrange(
+                binarized, "(c k) f -> c f k", c=num_chunks, f=num_frames, k=num_classes
+            ),
+            scores.sliding_window,
+        )
+
+    else:
+        raise ValueError(
+            "Shape of scores must be (num_chunks, num_frames, num_classes) or (num_frames, num_classes)."
+        )
+
+
+@singledispatch
+def multi_binarize(
+    scores,
+    main: float = 0.5,
+    left: Optional[float] = None,
+):
+    """Two-leves thresholding
+
+    Parameters
+    ----------
+    scores : numpy.ndarray or SlidingWindowFeature
+        (num_chunks, num_frames, num_classes)- or (num_frames, num_classes)-shaped scores.
+    main : float, optional
+        Threshold applied to class with maximum score. Defaults to 0.5.
+    left : float, optional
+        Threshold applied to other classes. Defaults to `main`.
+
+    Returns
+    -------
+    binarized : same as scores
+        Binarized scores with same shape and type as scores.
+
+    """
+    raise NotImplementedError(
+        "scores must be of type numpy.ndarray or SlidingWindowFeatures"
+    )
+
+
+@multi_binarize.register
+def multi_binarize_ndarray(
+    scores: np.ndarray,
+    main: float = 0.5,
+    left: Optional[float] = None,
+):
+    """Two-levels thresholding
+
+    Parameters
+    ----------
+    scores : numpy.ndarray
+        (num_classes, num_frames)-shaped scores.
+    main : float, optional
+        Threshold applied to class with maximum score. Defaults to 0.5.
+    left : float, optional
+        Threshold applied to other classes. Defaults to `main`.
+
+    Returns
+    -------
+    binarized : (num_classes, num_frames)-shaped array
+        Binarized scores.
+    """
+
+    num_classes, num_frames = scores.shape
+
+    left = left or main
+
+    indices = np.argsort(-scores, axis=0)
+    # (num_classes, num_frames)
+
+    sorted_scores = np.take_along_axis(scores, indices, axis=0)
+    # (num_classes, num_frames)
+
+    main_scores = sorted_scores[:1, :]
+    main_binarized = binarize_ndarray(main_scores, onset=main)
+    # (1, num_frames)
+
+    left_scores = sorted_scores[1:, :]
+    left_binarized = binarize_ndarray(left_scores, onset=left)
+    # (num_classes - 1, num_frames)
+
+    binarized = np.vstack([main_binarized, left_binarized])
+    # (num_classes, num_frames)
+
+    # TODO: handle case where left is active but not main
+    # should we force main to be active in that case?
+
+    return np.take_along_axis(binarized, np.argsort(indices, axis=0), axis=0)
+    # (num_classes, num_frames)
+
+
+@multi_binarize.register
+def multi_binarize_swf(
+    scores: SlidingWindowFeature,
+    main: float = 0.5,
+    left: Optional[float] = None,
+):
+
+    """Two-levels thresholding
+
+    Parameters
+    ----------
+    scores : SlidingWindowFeature
+        (num_chunks, num_frames, num_classes)- or (num_frames, num_classes)-shaped scores.
+    main : float, optional
+        Threshold applied to class with maximum score. Defaults to 0.5.
+    left : float, optional
+        Threshold applied to other classes. Defaults to `main`.
+
+    Returns
+    -------
+    binarized : same as scores
+        Binarized scores with same shape and type as scores.
+    """
+
+    if scores.data.ndim == 2:
+        num_frames, num_classes = scores.data.shape
+        data = rearrange(scores.data, "f k -> k f", f=num_frames, k=num_classes)
+        binarized = multi_binarize(data, main=main, left=left)
+        return SlidingWindowFeature(
+            1.0 * rearrange(binarized, "k f -> f k", f=num_frames, k=num_classes),
+            scores.sliding_window,
+        )
+
+    elif scores.data.ndim == 3:
+        num_chunks, num_frames, num_classes = scores.data.shape
+        data = rearrange(
+            scores.data, "c f k -> (c k) f", c=num_chunks, f=num_frames, k=num_classes
+        )
+        binarized = multi_binarize(data, main=main, left=left)
+        return SlidingWindowFeature(
+            1.0
+            * rearrange(
                 binarized, "(c k) f -> c f k", c=num_chunks, f=num_frames, k=num_classes
             ),
             scores.sliding_window,
