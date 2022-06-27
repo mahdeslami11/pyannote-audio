@@ -38,7 +38,7 @@ from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
 
 # from pyannote.pipeline.parameter import Uniform, Categorical
-from pyannote.pipeline.parameter import Uniform
+from pyannote.pipeline.parameter import ParamDict, Uniform
 
 from pyannote.audio import Audio, Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
@@ -50,7 +50,7 @@ from pyannote.audio.pipelines.utils import (
     get_devices,
     get_model,
 )
-from pyannote.audio.utils.signal import binarize
+from pyannote.audio.utils.signal import multi_binarize
 
 # try:
 #     import cvxpy as cv
@@ -139,7 +139,11 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             batch_size=self.segmentation_batch_size,
         )
         self._frames: SlidingWindow = self._segmentation.model.introspection.frames
-        self.segmentation_onset = Uniform(0.1, 0.9)
+
+        self.segmentation_onset = ParamDict(
+            main=Uniform(0.01, 0.99), left=Uniform(0.01, 0.99)
+        )
+        # self.segmentation_onset = Uniform(0.01, 0.99)
 
         if self.klustering == "OracleClustering":
             metric = "not_applicable"
@@ -150,7 +154,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             )
             self._audio = Audio(sample_rate=self._embedding.sample_rate, mono=True)
             metric = self._embedding.metric
-            self.embedding_onset = Uniform(0.1, 0.9)
+            # self.embedding_onset = Uniform(0.1, 0.9)
 
         try:
             Klustering = Clustering[clustering]
@@ -207,6 +211,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         -------
         embeddings : (num_chunks, num_speakers, dimension) array
         """
+
+        # TODO: extract both overlap aware and unaware embeddings
 
         def iter_waveform_and_mask():
             for chunk, masks in segmentations:
@@ -468,23 +474,22 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         # estimate frame-level number of instantaneous speakers
         count = self.speaker_count(
             segmentations,
-            onset=self.segmentation_onset,
             frames=self._frames,
+            **self.segmentation_onset,
         )
         hook("speaker_counting", count)
         #   shape: (num_frames, 1)
         #   dtype: int
 
-        if self.klustering == "OracleClustering":
-            embedding_onset = self.segmentation_onset
-        else:
-            embedding_onset = self.embedding_onset
+        # if self.klustering == "OracleClustering":
+        #     embedding_onset = self.segmentation_onset
+        # else:
+        #     embedding_onset = self.embedding_onset
 
         # binarize segmentation
-        binarized_segmentations: SlidingWindowFeature = binarize(
+        binarized_segmentations: SlidingWindowFeature = multi_binarize(
             segmentations,
-            onset=embedding_onset,
-            initial_state=False,
+            **self.segmentation_onset,
         )
 
         # keep track of inactive speakers
@@ -507,6 +512,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             max_clusters=max_speakers,
             file=file,  # <== for oracle clustering
             frames=self._frames,  # <== for oracle clustering
+            hook=hook,
         )
         #   hard_clusters: (num_chunks, num_speakers)
         #   soft_clusters: (num_chunks, num_speakers, num_clusters)
