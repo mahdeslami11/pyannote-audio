@@ -36,7 +36,7 @@ from torch_audiomentations.utils.config import from_dict as augmentation_from_di
 from pyannote.audio import Audio, Inference, Model
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.utils.permutation import mae_cost_func, permutate
-from pyannote.audio.utils.signal import Binarize, multi_binarize
+from pyannote.audio.utils.signal import Binarize, binarize
 
 PipelineModel = Union[Model, Text, Mapping]
 
@@ -280,8 +280,8 @@ class SpeakerDiarizationMixin:
     @staticmethod
     def speaker_count(
         segmentations: SlidingWindowFeature,
-        main: float = 0.5,
-        left: float = None,
+        onset: float = 0.5,
+        offset: float = None,
         warm_up: Tuple[float, float] = (0.1, 0.1),
         frames: SlidingWindow = None,
     ) -> SlidingWindowFeature:
@@ -291,10 +291,10 @@ class SpeakerDiarizationMixin:
         ----------
         segmentations : SlidingWindowFeature
             (num_chunks, num_frames, num_classes)-shaped scores.
-        main : float, optional
-            Threshold applied to speaker with maximum score. Defaults to 0.5.
-        left : float, optional
-            Threshold applied to other speakers. Defaults to `main`.
+        onset : float, optional
+           Onset threshold. Defaults to 0.5
+        offset : float, optional
+           Offset threshold. Defaults to `onset`.
         warm_up : (float, float) tuple, optional
             Left/right warm up ratio of chunk duration.
             Defaults to (0.1, 0.1), i.e. 10% on both sides.
@@ -309,8 +309,8 @@ class SpeakerDiarizationMixin:
             (num_frames, 1)-shaped instantaneous speaker count
         """
 
-        binarized: SlidingWindowFeature = multi_binarize(
-            segmentations, main=main, left=left
+        binarized: SlidingWindowFeature = binarize(
+            segmentations, onset=onset, offset=offset, initial_state=False
         )
         trimmed = Inference.trim(binarized, warm_up=warm_up)
         count = Inference.aggregate(
