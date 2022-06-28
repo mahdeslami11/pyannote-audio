@@ -849,6 +849,14 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
                 best_log_likelihood = log_likelihood
                 best_hmm = hmm
 
+        try:
+            prediction = best_hmm.predict(training_sequence)
+        except ValueError:
+            # ValueError: startprob_ must sum to 1 (got nan)
+            return np.zeros((num_chunks, num_speakers), dtype=np.int), np.zeros(
+                (num_chunks, num_speakers, 1)
+            )
+
         # compute distance between embeddings and clusters
         e2k_distance = rearrange(
             cdist(
@@ -864,6 +872,7 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
 
         hard_clusters = np.argmax(soft_clusters, axis=2)
         hard_clusters[chunk_idx, speaker_idx] = best_hmm.predict(training_sequence)
+        hard_clusters[chunk_idx, speaker_idx] = prediction
 
         # TODO: generate alternative test sequences that only differs from training_sequence
         # in regions where there is overlap.
