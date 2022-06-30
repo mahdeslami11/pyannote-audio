@@ -34,6 +34,7 @@ from pyannote.core import SlidingWindow, SlidingWindowFeature
 from pyannote.pipeline import Pipeline
 from pyannote.pipeline.parameter import Categorical, ParamDict, Uniform
 from scipy.cluster.hierarchy import fcluster, linkage
+from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist, pdist, squareform
 from spectralcluster import (
     AutoTune,
@@ -125,6 +126,21 @@ class ClusteringMixin:
         chunk_idx *= downsample_by
 
         return embeddings[chunk_idx, speaker_idx], chunk_idx, speaker_idx
+
+    def constrained_argmax(self, soft_clusters: np.ndarray) -> np.ndarray:
+
+        soft_clusters = np.nan_to_num(soft_clusters, nan=np.nanmin(soft_clusters))
+        num_chunks, num_speakers, num_clusters = soft_clusters.shape
+        # num_chunks, num_speakers, num_clusters
+
+        hard_clusters = -2 * np.ones((num_chunks, num_speakers), dtype=np.int8)
+
+        for c, cost in enumerate(soft_clusters):
+            speakers, clusters = linear_sum_assignment(cost, maximize=True)
+            for s, k in zip(speakers, clusters):
+                hard_clusters[c, s] = k
+
+        return hard_clusters
 
 
 class AgglomerativeClustering(ClusteringMixin, Pipeline):
@@ -663,7 +679,7 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         self,
         metric: str = "cosine",
         expects_num_clusters: bool = False,
-        n_trials: int = 5,
+        n_trials: int = 3,
     ):
         super().__init__()
 
@@ -736,6 +752,31 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
 
         return (training_sequence[chunk_idx], chunk_idx, speaker_idx[chunk_idx])
 
+    def fit_hmm(self, n_components, training_sequence):
+
+        best_log_likelihood = -np.inf
+        for random_state in range(self.n_trials):
+            hmm = GaussianHMM(
+                n_components=n_components,
+                covariance_type=self.covariance_type,
+                n_iter=100,
+                random_state=random_state,
+                implementation="log",
+                verbose=True,
+            )
+            hmm.fit(training_sequence)
+
+            try:
+                log_likelihood = hmm.score(training_sequence)
+            except ValueError:
+                log_likelihood = -np.inf
+
+            if log_likelihood >= best_log_likelihood:
+                best_log_likelihood = log_likelihood
+                best_hmm = hmm
+
+        return best_hmm
+
     def __call__(
         self,
         embeddings: np.ndarray,
@@ -805,14 +846,7 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
             num_clusters = max_clusters
             for n_components in range(min_clusters, max_clusters + 1):
 
-                # TODO: check impact of n_iter on both performance and computation time
-                hmm = GaussianHMM(
-                    n_components=n_components,
-                    covariance_type=self.covariance_type,
-                    n_iter=100,
-                    # random_state=random_state,
-                    implementation="log",
-                ).fit(training_sequence)
+                hmm = self.fit_hmm(n_components, training_sequence)
 
                 if n_components > 1:
 
@@ -829,39 +863,28 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
 
         # once num_clusters is estimated, fit the HMM several times
         # and keep the one that best fits the data
-        best_log_likelihood = -np.inf
-        for random_state in range(self.n_trials):
-            hmm = GaussianHMM(
-                n_components=num_clusters,
-                covariance_type=self.covariance_type,
-                n_iter=100,
-                random_state=random_state,
-                implementation="log",
-            )
-            hmm.fit(training_sequence)
-
-            try:
-                log_likelihood = hmm.score(training_sequence)
-            except ValueError:
-                log_likelihood = -np.inf
-
-            if log_likelihood >= best_log_likelihood:
-                best_log_likelihood = log_likelihood
-                best_hmm = hmm
+        hmm = self.fit_hmm(num_clusters, training_sequence)
 
         try:
-            prediction = best_hmm.predict(training_sequence)
+            prediction = hmm.predict(training_sequence)
         except ValueError:
             # ValueError: startprob_ must sum to 1 (got nan)
             return np.zeros((num_chunks, num_speakers), dtype=np.int), np.zeros(
                 (num_chunks, num_speakers, 1)
             )
 
+        centroids = np.vstack(
+            [
+                np.mean(training_sequence[prediction == k], axis=0)
+                for k in range(num_clusters)
+            ]
+        )
+
         # compute distance between embeddings and clusters
         e2k_distance = rearrange(
             cdist(
                 rearrange(embeddings, "c s d -> (c s) d"),
-                best_hmm.means_,
+                centroids,
                 metric="cosine",
             ),
             "(c s) k -> c s k",
@@ -870,9 +893,10 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         )
         soft_clusters = 2 - e2k_distance
 
-        hard_clusters = np.argmax(soft_clusters, axis=2)
-        hard_clusters[chunk_idx, speaker_idx] = best_hmm.predict(training_sequence)
-        hard_clusters[chunk_idx, speaker_idx] = prediction
+        hard_clusters = self.constrained_argmax(soft_clusters)
+
+        # hard_clusters = np.argmax(soft_clusters, axis=2)
+        # hard_clusters[chunk_idx, speaker_idx] = prediction
 
         # TODO: generate alternative test sequences that only differs from training_sequence
         # in regions where there is overlap.
