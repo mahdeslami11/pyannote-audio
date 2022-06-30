@@ -25,9 +25,11 @@
 
 import math
 from enum import Enum
+from itertools import combinations
 from typing import Tuple
 
 import numpy as np
+import pyannote.core.utils.distance
 from einops import rearrange
 from hmmlearn.hmm import GaussianHMM
 from pyannote.core import SlidingWindow, SlidingWindowFeature
@@ -52,7 +54,7 @@ from spectralcluster import (
 from pyannote.audio import Inference
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.pipelines.utils import oracle_segmentation
-from pyannote.audio.utils.permutation import permutate
+from pyannote.audio.utils.permutation import mae_cost_func, permutate
 
 
 class ClusteringMixin:
@@ -125,6 +127,116 @@ class ClusteringMixin:
         chunk_idx *= downsample_by
 
         return embeddings[chunk_idx, speaker_idx], chunk_idx, speaker_idx
+
+    @staticmethod
+    def constraints(segmentations: SlidingWindowFeature) -> np.ndarray:
+        """Compute must-link / cannot-link constraints
+
+        Any pair of (overlapping) chunks go through the process of finding the
+        optimal mapping of their respective speakers. Positve constraint between
+        speakers from two different chunks indicate that they were matched in
+        the process (and that they do have active frames in common).
+
+        Negative constraints between speakers either indicate that speakers are from
+        the same chunk (and hence should be considered two different speakers)
+        or that they were found to be different while propagating constraints:
+                            i=j & j≠k => i≠k
+
+        Parameters
+        ----------
+        segmentations : (num_chunks, num_frames, num_speakers)-shaped SlidingWindowFeature
+            Binary segmentations.
+
+        Returns
+        -------
+        constraints : (num_chunks * num_speakers, num_chunks * num_speakers)-shaped array
+            constraints[c * num_speakers + s, c' * num_speakers + s'] indicates the type
+            of constraints between sth speaker of cth chunk and s'th speaker of c'th chunk.
+            * 0 means no constraint
+            * 1 means must link
+            * -1 means cannot link
+        """
+
+        chunks = segmentations.sliding_window
+        num_chunks, num_frames, num_speakers = segmentations.data.shape
+        max_lookahead = math.floor(chunks.duration / chunks.step - 1)
+        lookahead = 2 * (max_lookahead,)
+
+        constraints = np.zeros(
+            (num_chunks * num_speakers, num_chunks * num_speakers), dtype=np.int8
+        )
+
+        # for each chunk
+        for C, (chunk, segmentation) in enumerate(segmentations):
+
+            # for each adjacent chunk
+            for c in range(
+                max(0, C - lookahead[0]), min(num_chunks, C + lookahead[1] + 1)
+            ):
+
+                # speakers from the same chunk
+                if c == C:
+
+                    for this, that in combinations(range(num_speakers), 2):
+
+                        # cannot link two speakers active during the same chunk
+                        if (
+                            np.sum(segmentation[:, this]) > 0
+                            and np.sum(segmentation[:, that]) > 0
+                        ):
+                            constraints[
+                                C * num_speakers + this, c * num_speakers + that
+                            ] = -1
+                            constraints[
+                                c * num_speakers + that, C * num_speakers + this
+                            ] = -1
+
+                        # TODO: investigate adding constraints only for overlapping speakers
+                        # if np.sum(segmentation[:, this] * segmentation[:, that]) > 0
+
+                # speakers from adjacent chunks
+                else:
+
+                    # extract temporal support common to both chunks
+                    shift = round((C - c) * num_frames * chunks.step / chunks.duration)
+
+                    if shift < 0:
+                        this_segmentations = segmentation[-shift:]
+                        that_segmentations = segmentations[c, : num_frames + shift]
+                    else:
+                        this_segmentations = segmentation[: num_frames - shift]
+                        that_segmentations = segmentations[c, shift:]
+
+                    # find the optimal bijective mapping between their respective speakers
+                    _, (permutation,) = permutate(
+                        this_segmentations[np.newaxis],
+                        that_segmentations,
+                        cost_func=mae_cost_func,
+                        return_cost=False,
+                    )
+
+                    for this, that in enumerate(permutation):
+
+                        # must link two speakers if they have active frames in common
+                        if (
+                            np.sum(
+                                this_segmentations[:, this]
+                                * that_segmentations[:, that]
+                            )
+                            > 0
+                        ):
+                            constraints[
+                                C * num_speakers + this, c * num_speakers + that
+                            ] = 1
+                            constraints[
+                                c * num_speakers + that, C * num_speakers + this
+                            ] = 1
+
+        # (cannot link) constraint propagation: i=j & j≠k => i≠k
+        propagated = constraints @ constraints
+        return np.where(
+            (constraints == 0) & (propagated == -1), propagated, constraints
+        )
 
 
 class AgglomerativeClustering(ClusteringMixin, Pipeline):
@@ -785,6 +897,18 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         )
         num_embeddings, _ = training_sequence.shape
 
+        constraints = self.constraints(segmentations)
+        # TODO add cannot link constraints based on very different embeddings?
+
+        constraints = squareform(
+            constraints[chunk_idx * num_speakers + speaker_idx, :][
+                :, chunk_idx * num_speakers + speaker_idx
+            ]
+        )
+
+        print(f"cannot-link constraints = {np.sum(constraints == -1)}")
+        print(f"must-link constraints = {np.sum(constraints == 1)}")
+
         num_clusters, min_clusters, max_clusters = self.set_num_clusters(
             num_embeddings,
             num_clusters=num_clusters,
@@ -802,25 +926,36 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
 
         if num_clusters is None:
 
+            best_criterion = 0.0
             num_clusters = max_clusters
             for n_components in range(min_clusters, max_clusters + 1):
 
-                # TODO: check impact of n_iter on both performance and computation time
                 hmm = GaussianHMM(
                     n_components=n_components,
                     covariance_type=self.covariance_type,
                     n_iter=100,
-                    # random_state=random_state,
                     implementation="log",
                 ).fit(training_sequence)
 
-                if n_components > 1:
+                prediction = hmm.predict(training_sequence)
+                same = pyannote.core.utils.distance.pdist(prediction, metric="equal")
 
-                    # as soon as two states get too close to each other, stop adding states
-                    min_state_dist = np.min(pdist(hmm.means_, metric="euclidean"))
-                    if min_state_dist < self.threshold:
-                        num_clusters = max(min_clusters, n_components - 1)
-                        break
+                ok_must_link = np.sum((constraints == 1) & same) / np.sum(
+                    constraints == 1
+                )
+                ok_cannot_link = np.sum((constraints == -1) & ~same) / np.sum(
+                    constraints == -1
+                )
+
+                criterion = np.sqrt(ok_must_link * ok_cannot_link)
+
+                print(
+                    f"{n_components=} {criterion=:.3f} {ok_must_link=:.3f} {ok_cannot_link=:.3f}"
+                )
+
+                if criterion > best_criterion:
+                    num_clusters = n_components
+                    best_criterion = criterion
 
         if num_clusters == 1:
             return np.zeros((num_chunks, num_speakers), dtype=np.int), np.zeros(
@@ -871,7 +1006,6 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         soft_clusters = 2 - e2k_distance
 
         hard_clusters = np.argmax(soft_clusters, axis=2)
-        hard_clusters[chunk_idx, speaker_idx] = best_hmm.predict(training_sequence)
         hard_clusters[chunk_idx, speaker_idx] = prediction
 
         # TODO: generate alternative test sequences that only differs from training_sequence
