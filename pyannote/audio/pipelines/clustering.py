@@ -56,7 +56,19 @@ from pyannote.audio.pipelines.utils import oracle_segmentation
 from pyannote.audio.utils.permutation import permutate
 
 
-class ClusteringMixin:
+class BaseClustering(Pipeline):
+    def __init__(
+        self,
+        metric: str = "cosine",
+        expects_num_clusters: bool = False,
+        constrained_assignment: bool = False,
+    ):
+
+        super().__init__()
+        self.metric = metric
+        self.expects_num_clusters = expects_num_clusters
+        self.constrained_assignment = constrained_assignment
+
     def set_num_clusters(
         self,
         num_embeddings: int,
@@ -142,130 +154,143 @@ class ClusteringMixin:
 
         return hard_clusters
 
+    # def constrained_argmax(
+    #     self, soft_clusters: np.ndarray, segmentations: SlidingWindowFeature
+    # ) -> np.ndarray:
+    #     """
 
-class AgglomerativeClustering(ClusteringMixin, Pipeline):
-    """Agglomerative clustering
+    #     Parameters
+    #     ----------
+    #     soft_clusters : (num_chunks, num_speakers, num_clusters)-shaped array
+    #     segmentations : SlidingWindowFeature
+    #         Binarized segmentation.
 
-    Parameters
-    ----------
-    metric : {"cosine", "euclidean", ...}, optional
-        Distance metric to use. Defaults to "cosine".
-    expects_num_clusters : bool, optional
-        Whether the number of clusters should be provided.
-        Defaults to False.
+    #     Returns
+    #     -------
+    #     hard_clusters : (num_chunks, num_speakers)-shaped array
+    #         Hard cluster assignment with
 
-    Hyper-parameters
-    ----------------
-    method : {"average", "centroid", "complete", "median", "single", "ward"}
-        Linkage method.
-    threshold : float in range [0.0, 2.0]
-        Clustering threshold. Only when `expects_num_clusters` is False.
+    #     """
 
-    Notes
-    -----
-    Embeddings are expected to be unit-normalized.
-    """
+    #     import cvxpy as cp
 
-    def __init__(self, metric: str = "cosine", expects_num_clusters: bool = False):
-        super().__init__()
+    #     num_chunks, num_speakers, num_clusters = soft_clusters.shape
+    #     hard_clusters = -2 * np.ones((num_chunks, num_speakers), dtype=np.int8)
 
-        self.metric = metric
+    #     for c, (scores, (chunk, segmentation)) in enumerate(
+    #         zip(soft_clusters, segmentations)
+    #     ):
 
-        self.expects_num_clusters = expects_num_clusters
-        if not self.expects_num_clusters:
-            self.threshold = Uniform(0.0, 2.0)  # assume unit-normalized embeddings
+    #         # scores : (num_speakers, num_clusters) array
+    #         # segmentation : (num_frames, num_speakers) array
 
-        self.method = Categorical(
-            ["average", "centroid", "complete", "median", "single", "ward", "weighted"]
-        )
+    #         assignment = cp.Variable(shape=(num_speakers, num_clusters), boolean=True)
+    #         objective = cp.Maximize(cp.sum(cp.multiply(assignment, scores)))
 
-    @staticmethod
-    def cluster(
+    #         one_cluster_per_speaker_constraints = [
+    #             cp.sum(assignment[i]) == 1 for i in range(num_speakers)
+    #         ]
+
+    #         # number of frames where both speakers are active
+    #         co_occurrence: np.ndarray = segmentation.T @ segmentation
+    #         np.fill_diagonal(co_occurrence, 0)
+    #         cannot_link = set(
+    #             tuple(sorted(x)) for x in zip(*np.where(co_occurrence > 0))
+    #         )
+    #         cannot_link_constraints = [
+    #             assignment[i] + assignment[j] <= 1 for i, j in cannot_link
+    #         ]
+
+    #         problem = cp.Problem(
+    #             objective, one_cluster_per_speaker_constraints + cannot_link_constraints
+    #         )
+    #         problem.solve()
+
+    #         if problem.status == "optimal":
+    #             hard_clusters[c] = np.argmax(assignment.value, axis=1)
+    #         else:
+    #             print(f"{co_occurrence=}")
+    #             hard_clusters[c] = np.argmax(scores, axis=1)
+
+    #     return hard_clusters
+
+    def assign_embeddings(
+        self,
         embeddings: np.ndarray,
-        min_clusters: int,
-        max_clusters: int,
-        num_clusters: int = None,
-        threshold: float = 1.0,
-        method="average",
-        metric="cosine",
-        **kwargs,
+        train_chunk_idx: np.ndarray,
+        train_speaker_idx: np.ndarray,
+        train_clusters: np.ndarray,
+        constrained: bool = False,
     ):
-        """
+        """Assign embeddings to the closest centroid
+
+        Cluster centroids are computed as the average of the train embeddings
+        previously assigned to them.
 
         Parameters
         ----------
-        embeddings : (num_embeddings, dimension) array
-            Embeddings
-        min_clusters : int
-            Minimum number of clusters
-        max_clusters : int
-            Maximum number of clusters
-        num_clusters : int, optional
-            Actual number of clusters. Default behavior is to estimate it based
-            on values provided for `min_clusters`,  `max_clusters`, and `threshold`.
-        threshold : float, optional
-            Clustering threshold. Not used when `num_clusters` is provided.
-        method : {"average", "centroid", "complete", "median", "single", "ward"}, optional
-            Linkage method.
-        metric : {"cosine", "euclidean", ...}, optional
-            Distance metric to use. Defaults to "cosine".
+        embeddings : (num_chunks, num_speakers, dimension)-shaped array
+            Complete set of embeddings.
+        train_chunk_idx : (num_embeddings,)-shaped array
+        train_speaker_idx : (num_embeddings,)-shaped array
+            Indices of subset of embeddings used for "training".
+        train_clusters : (num_embedding,)-shaped array
+            Clusters of the above subset
+        constrained : bool, optional
+            Use constrained_argmax, instead of (default) argmax.
 
         Returns
         -------
-        clusters : (num_embeddings, ) array
-            0-indexed cluster indices.
+        soft_clusters : (num_chunks, num_speakers, num_clusters)-shaped array
+        hard_clusters : (num_chunks, num_speakers)-shaped array
         """
 
-        num_embeddings, _ = embeddings.shape
-        if num_embeddings == 1:
-            return np.zeros((1,), dtype=np.uint8)
+        num_clusters = np.max(train_clusters) + 1
+        num_chunks, num_speakers, dimension = embeddings.shape
 
-        if metric == "cosine" and method in ["centroid", "median", "ward"]:
-            # unit-normalize embeddings to somehow make them "euclidean"
-            with np.errstate(divide="ignore", invalid="ignore"):
-                embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
-            dendrogram: np.ndarray = linkage(
-                embeddings, method=method, metric="euclidean"
-            )
+        train_embeddings = embeddings[train_chunk_idx, train_speaker_idx]
 
+        centroids = np.vstack(
+            [
+                np.mean(train_embeddings[train_clusters == k], axis=0)
+                for k in range(num_clusters)
+            ]
+        )
+
+        # compute distance between embeddings and clusters
+        e2k_distance = rearrange(
+            cdist(
+                rearrange(embeddings, "c s d -> (c s) d"),
+                centroids,
+                metric=self.metric,
+            ),
+            "(c s) k -> c s k",
+            c=num_chunks,
+            s=num_speakers,
+        )
+        soft_clusters = 2 - e2k_distance
+
+        # assign each embedding to the cluster with the most similar centroid
+        if constrained:
+            hard_clusters = self.constrained_argmax(soft_clusters)
         else:
-            dendrogram: np.ndarray = linkage(embeddings, method=method, metric=metric)
+            hard_clusters = np.argmax(soft_clusters, axis=2)
 
-        if num_clusters is None:
+        # TODO: add a flag to revert argmax for trainign subsey
+        # hard_clusters[train_chunk_idx, train_speaker_idx] = train_clusters
 
-            max_threshold: float = (
-                dendrogram[-min_clusters, 2]
-                if min_clusters < num_embeddings
-                else -np.inf
-            )
-            min_threshold: float = (
-                dendrogram[-max_clusters, 2]
-                if max_clusters < num_embeddings
-                else -np.inf
-            )
-
-            threshold = min(max(threshold, min_threshold), max_threshold)
-
-        else:
-
-            threshold = (
-                dendrogram[-num_clusters, 2]
-                if num_clusters < num_embeddings
-                else -np.inf
-            )
-
-        return fcluster(dendrogram, threshold, criterion="distance") - 1
+        return hard_clusters, soft_clusters
 
     def __call__(
         self,
-        embeddings: np.ndarray = None,
+        embeddings: np.ndarray,
         segmentations: SlidingWindowFeature = None,
         num_clusters: int = None,
         min_clusters: int = None,
         max_clusters: int = None,
         **kwargs,
     ) -> np.ndarray:
-        """Apply agglomerative clustering
+        """Apply HMM clustering
 
         Parameters
         ----------
@@ -292,13 +317,12 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
             the sth speaker of cth chunk belongs to kth cluster)
         """
 
-        num_chunks, num_speakers, dimension = embeddings.shape
-
-        valid_embeddings, chunk_idx, speaker_idx = self.filter_embeddings(
-            embeddings, segmentations=segmentations
+        train_embeddings, train_chunk_idx, train_speaker_idx = self.filter_embeddings(
+            embeddings,
+            segmentations=segmentations,
         )
 
-        num_embeddings, _ = valid_embeddings.shape
+        num_embeddings, _ = train_embeddings.shape
         num_clusters, min_clusters, max_clusters = self.set_num_clusters(
             num_embeddings,
             num_clusters=num_clusters,
@@ -306,42 +330,140 @@ class AgglomerativeClustering(ClusteringMixin, Pipeline):
             max_clusters=max_clusters,
         )
 
-        valid_clusters = self.cluster(
-            valid_embeddings,
-            min_clusters,
-            max_clusters,
-            num_clusters=num_clusters,
-            threshold=None if self.expects_num_clusters else self.threshold,
-            method=self.method,
-            metric=self.metric,
-        )
+        if max_clusters < 2:
+            train_clusters = np.zeros((num_embeddings,), dtype=np.int8)
+        else:
+            train_clusters = self.cluster(
+                train_embeddings,
+                min_clusters,
+                max_clusters,
+                num_clusters=num_clusters,
+            )
 
-        num_clusters = np.max(valid_clusters) + 1
-
-        centroids = np.vstack(
-            [
-                np.mean(valid_embeddings[valid_clusters == k], axis=0)
-                for k in range(num_clusters)
-            ]
+        hard_clusters, soft_clusters = self.assign_embeddings(
+            embeddings,
+            train_chunk_idx,
+            train_speaker_idx,
+            train_clusters,
+            constrained=self.constrained_assignment,
         )
-        e2k_distance = rearrange(
-            cdist(
-                rearrange(embeddings, "c s d -> (c s) d"),
-                centroids,
-                metric=self.metric,
-            ),
-            "(c s) k -> c s k",
-            c=num_chunks,
-            s=num_speakers,
-        )
-        soft_clusters = -e2k_distance
-        hard_clusters = np.argmax(soft_clusters, axis=2)
-        hard_clusters[chunk_idx, speaker_idx] = valid_clusters
 
         return hard_clusters, soft_clusters
 
 
-class OracleClustering(ClusteringMixin, Pipeline):
+class AgglomerativeClustering(BaseClustering):
+    """Agglomerative clustering
+
+    Parameters
+    ----------
+    metric : {"cosine", "euclidean", ...}, optional
+        Distance metric to use. Defaults to "cosine".
+    expects_num_clusters : bool, optional
+        Whether the number of clusters should be provided.
+        Defaults to False.
+
+    Hyper-parameters
+    ----------------
+    method : {"average", "centroid", "complete", "median", "single", "ward"}
+        Linkage method.
+    threshold : float in range [0.0, 2.0]
+        Clustering threshold. Only when `expects_num_clusters` is False.
+
+    Notes
+    -----
+    Embeddings are expected to be unit-normalized.
+    """
+
+    def __init__(
+        self,
+        metric: str = "cosine",
+        expects_num_clusters: bool = False,
+        constrained_assignment: bool = False,
+    ):
+
+        super().__init__(
+            metric=metric,
+            expects_num_clusters=expects_num_clusters,
+            constrained_assignment=constrained_assignment,
+        )
+
+        if not self.expects_num_clusters:
+            self.threshold = Uniform(0.0, 2.0)  # assume unit-normalized embeddings
+        self.method = Categorical(
+            ["average", "centroid", "complete", "median", "single", "ward", "weighted"]
+        )
+
+    def cluster(
+        self,
+        embeddings: np.ndarray,
+        min_clusters: int,
+        max_clusters: int,
+        num_clusters: int = None,
+    ):
+        """
+
+        Parameters
+        ----------
+        embeddings : (num_embeddings, dimension) array
+            Embeddings
+        min_clusters : int
+            Minimum number of clusters
+        max_clusters : int
+            Maximum number of clusters
+        num_clusters : int, optional
+            Actual number of clusters. Default behavior is to estimate it based
+            on values provided for `min_clusters`,  `max_clusters`, and `threshold`.
+
+        Returns
+        -------
+        clusters : (num_embeddings, ) array
+            0-indexed cluster indices.
+        """
+
+        num_embeddings, _ = embeddings.shape
+        if num_embeddings == 1:
+            return np.zeros((1,), dtype=np.uint8)
+
+        if self.metric == "cosine" and self.method in ["centroid", "median", "ward"]:
+            # unit-normalize embeddings to somehow make them "euclidean"
+            with np.errstate(divide="ignore", invalid="ignore"):
+                embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
+            dendrogram: np.ndarray = linkage(
+                embeddings, method=self.method, metric="euclidean"
+            )
+
+        else:
+            dendrogram: np.ndarray = linkage(
+                embeddings, method=self.method, metric=self.metric
+            )
+
+        if num_clusters is None:
+
+            max_threshold: float = (
+                dendrogram[-min_clusters, 2]
+                if min_clusters < num_embeddings
+                else -np.inf
+            )
+            min_threshold: float = (
+                dendrogram[-max_clusters, 2]
+                if max_clusters < num_embeddings
+                else -np.inf
+            )
+
+            threshold = min(max(self.threshold, min_threshold), max_threshold)
+
+        else:
+
+            threshold = (
+                dendrogram[-num_clusters, 2]
+                if num_clusters < num_embeddings
+                else -np.inf
+            )
+
+        return fcluster(dendrogram, threshold, criterion="distance") - 1
+
+
+class OracleClustering(BaseClustering):
     """Oracle clustering"""
 
     def __init__(self, metric: str = "cosine", expects_num_clusters: bool = False):
@@ -403,7 +525,7 @@ class OracleClustering(ClusteringMixin, Pipeline):
         return hard_clusters, soft_clusters
 
 
-class SpectralClustering(ClusteringMixin, Pipeline):
+class SpectralClustering(BaseClustering):
     """Spectral clustering
 
     Parameters
@@ -445,10 +567,18 @@ class SpectralClustering(ClusteringMixin, Pipeline):
     Embeddings are expected to be unit-normalized.
     """
 
-    def __init__(self, metric: str = "cosine", expects_num_clusters: bool = False):
-        super().__init__()
-        self.metric = metric
-        self.expects_num_clusters = expects_num_clusters
+    def __init__(
+        self,
+        metric: str = "cosine",
+        expects_num_clusters: bool = False,
+        constrained_assignment: bool = False,
+    ):
+
+        super().__init__(
+            metric=metric,
+            expects_num_clusters=expects_num_clusters,
+            constrained_assignment=constrained_assignment,
+        )
 
         self.laplacian = Categorical(
             ["Affinity", "Unnormalized", "RandomWalk", "GraphCut"]
@@ -483,62 +613,32 @@ class SpectralClustering(ClusteringMixin, Pipeline):
     def _affinity_function(self, embeddings: np.ndarray) -> np.ndarray:
         return squareform(1.0 - 0.5 * pdist(embeddings, metric=self.metric))
 
-    def __call__(
+    def cluster(
         self,
         embeddings: np.ndarray,
-        segmentations: SlidingWindowFeature = None,
+        min_clusters: int,
+        max_clusters: int,
         num_clusters: int = None,
-        min_clusters: int = None,
-        max_clusters: int = None,
-        **kwargs,
-    ) -> np.ndarray:
-        """Apply spectral clustering
+    ):
+        """
 
         Parameters
         ----------
-        embeddings : (num_chunks, num_speakers, dimension) array
-            Sequence of embeddings.
-        segmentations : (num_chunks, num_frames, num_speakers) array
-            Binary segmentations.
+        embeddings : (num_embeddings, dimension) array
+            Embeddings
+        min_clusters : int
+            Minimum number of clusters
+        max_clusters : int
+            Maximum number of clusters
         num_clusters : int, optional
-            Number of clusters, when known. Default behavior is to use
-            internal threshold hyper-parameter to decide on the number
-            of clusters.
-        min_clusters : int, optional
-            Minimum number of clusters. Has no effect when `num_clusters` is provided.
-        max_clusters : int, optional
-            Maximum number of clusters. Has no effect when `num_clusters` is provided.
+            Actual number of clusters. Default behavior is to estimate it based
+            on values provided for `min_clusters`,  `max_clusters`, and `threshold`.
 
         Returns
         -------
-        hard_clusters : (num_chunks, num_speakers) array
-            Hard cluster assignment (hard_clusters[c, s] = k means that sth speaker
-            of cth chunk is assigned to kth cluster)
-        soft_clusters : (num_chunks, num_speakers, num_clusters) array
-            Soft cluster assignment (the higher soft_clusters[c, s, k], the most likely
-            the sth speaker of cth chunk belongs to kth cluster)
+        clusters : (num_embeddings, ) array
+            0-indexed cluster indices.
         """
-
-        num_chunks, num_speakers, dimension = embeddings.shape
-
-        valid_embeddings, chunk_idx, speaker_idx = self.filter_embeddings(
-            embeddings, segmentations=segmentations
-        )
-
-        num_embeddings, _ = valid_embeddings.shape
-
-        # may happen because of downsampling
-        if num_embeddings < 2:
-            hard_clusters = np.zeros((num_chunks, num_speakers), dtype=np.int8)
-            soft_clusters = np.zeros((num_chunks, num_speakers, 1))
-            return hard_clusters, soft_clusters
-
-        num_clusters, min_clusters, max_clusters = self.set_num_clusters(
-            num_embeddings,
-            num_clusters=num_clusters,
-            min_clusters=min_clusters,
-            max_clusters=max_clusters,
-        )
 
         # Fallback options.
         fallback_options = FallbackOptions(
@@ -587,7 +687,7 @@ class SpectralClustering(ClusteringMixin, Pipeline):
             eigengap_type = (EigenGapType[self.eigengap],)
 
         # Clustering
-        valid_clusters = SpectralClusterer(
+        clusters = SpectralClusterer(
             min_clusters=min_clusters,
             max_clusters=max_clusters,
             refinement_options=refinement_options,
@@ -596,106 +696,70 @@ class SpectralClustering(ClusteringMixin, Pipeline):
             laplacian_type=laplacian_type,
             eigengap_type=eigengap_type,
             affinity_function=self._affinity_function,
-        ).predict(valid_embeddings)
+        ).predict(embeddings)
 
-        num_clusters = np.max(valid_clusters) + 1
+        # if not self.expects_num_clusters:
 
-        centroids = np.vstack(
-            [
-                np.mean(valid_embeddings[valid_clusters == k], axis=0)
-                for k in range(num_clusters)
-            ]
-        )
+        #     # post-process spectral clustering (SC) output to handle the known
+        #     # limitation that SC is not very good at handling one-cluster data
+        #     # SEE https://github.com/wq2012/SpectralCluster/issues/39
 
-        if not self.expects_num_clusters:
+        #     # compute the ratio of chunks with 1+ active speaker
+        #     # in which there are actually 2+ active  speakers.
+        #     # if this ratio is high enough, it might be a cue that
+        #     # there is only one cluster. therefore we postprocess the
+        #     # output of spectral clustering by applying an additional
+        #     # hierarchical agglomerative clustering step on the centroids
 
-            # post-process spectral clustering (SC) output to handle the known
-            # limitation that SC is not very good at handling one-cluster data
-            # SEE https://github.com/wq2012/SpectralCluster/issues/39
+        #     num_active_speaker = np.sum(np.any(segmentations.data > 0, axis=1), axis=1)
+        #     solo_speaker_ratio = np.sum(num_active_speaker == 1) / np.sum(
+        #         num_active_speaker > 0
+        #     )
 
-            # compute the ratio of chunks with 1+ active speaker
-            # in which there are actually 2+ active  speakers.
-            # if this ratio is high enough, it might be a cue that
-            # there is only one cluster. therefore we postprocess the
-            # output of spectral clustering by applying an additional
-            # hierarchical agglomerative clustering step on the centroids
+        #     if (
+        #         num_clusters > 1
+        #         and solo_speaker_ratio > self.solo_speaker_ratio_threshold
+        #     ):
 
-            num_active_speaker = np.sum(np.any(segmentations.data > 0, axis=1), axis=1)
-            solo_speaker_ratio = np.sum(num_active_speaker == 1) / np.sum(
-                num_active_speaker > 0
-            )
+        #         centroids_cluster = AgglomerativeClustering.cluster(
+        #             centroids,
+        #             min_clusters,
+        #             max_clusters,
+        #             num_clusters=num_clusters,
+        #             threshold=self.solo_speaker_hac_threshold,
+        #             method="average",
+        #             metric=self.metric,
+        #         )
 
-            if (
-                num_clusters > 1
-                and solo_speaker_ratio > self.solo_speaker_ratio_threshold
-            ):
+        #         valid_clusters = centroids_cluster[valid_clusters]
 
-                centroids_cluster = AgglomerativeClustering.cluster(
-                    centroids,
-                    min_clusters,
-                    max_clusters,
-                    num_clusters=num_clusters,
-                    threshold=self.solo_speaker_hac_threshold,
-                    method="average",
-                    metric=self.metric,
-                )
-
-                valid_clusters = centroids_cluster[valid_clusters]
-                num_clusters = np.max(valid_clusters) + 1
-                centroids = np.vstack(
-                    [
-                        np.mean(valid_embeddings[valid_clusters == k], axis=0)
-                        for k in range(num_clusters)
-                    ]
-                )
-
-        e2k_distance = rearrange(
-            cdist(
-                rearrange(embeddings, "c s d -> (c s) d"),
-                centroids,
-                metric=self.metric,
-            ),
-            "(c s) k -> c s k",
-            c=num_chunks,
-            s=num_speakers,
-        )
-        soft_clusters = -e2k_distance
-        hard_clusters = np.argmax(soft_clusters, axis=2)
-        hard_clusters[chunk_idx, speaker_idx] = valid_clusters
-
-        return hard_clusters, soft_clusters
+        return clusters
 
 
-class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
-    """Hidden Markov Model with Gaussian states
-
-    Parameters
-    ----------
-    n_trials :
-
-    """
+class HiddenMarkovModelClustering(BaseClustering):
+    """Hidden Markov Model with Gaussian states"""
 
     def __init__(
         self,
         metric: str = "cosine",
         expects_num_clusters: bool = False,
-        n_trials: int = 3,
+        constrained_assignment: bool = False,
     ):
-        super().__init__()
 
         if metric not in ["euclidean", "cosine"]:
             raise ValueError("`metric` must be one of {'cosine', 'euclidean'}")
 
-        self.metric = metric
-        self.expects_num_clusters = expects_num_clusters
-        self.n_trials = n_trials
+        super().__init__(
+            metric=metric,
+            expects_num_clusters=expects_num_clusters,
+            constrained_assignment=constrained_assignment,
+        )
 
         self.covariance_type = Categorical(["spherical", "diag", "full", "tied"])
-
         if not self.expects_num_clusters:
             self.threshold = Uniform(0.0, 2.0)
 
-    def get_training_sequence(
+    def filter_embeddings(
         self, embeddings: np.ndarray, segmentations: SlidingWindowFeature
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
@@ -709,7 +773,7 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
 
         Returns
         -------
-        training_sequence : (num_steps, dimension) array
+        train_embeddings : (num_steps, dimension) array
         chunk_idx : (num_steps, ) array
         speaker_idx : (num_steps, ) array
 
@@ -738,174 +802,90 @@ class GaussianHiddenMarkovModel(ClusteringMixin, Pipeline):
         speaker_idx = np.argmax(priors, axis=1)
         # (num_chunks, )
 
-        training_sequence = embeddings[range(num_chunks), speaker_idx]
+        # TODO: generate alternative sequences that only differs from train_embeddings
+        # in regions where there is overlap.
+
+        train_embeddings = embeddings[range(num_chunks), speaker_idx]
         # (num_chunks, dimension)
 
         # remove chunks with one of the following property:
         # * there is no active speaker in the center of the chunk
         # * embedding extraction has failed for the most active speaker in the center of the chunk
         center_is_non_speech = np.max(num_active_frames, axis=1) == 0.0
-        embedding_is_invalid = np.any(np.isnan(training_sequence), axis=1)
+        embedding_is_invalid = np.any(np.isnan(train_embeddings), axis=1)
         chunk_idx = np.where(~(embedding_is_invalid | center_is_non_speech))[0]
-
         # (num_chunks, )
 
-        return (training_sequence[chunk_idx], chunk_idx, speaker_idx[chunk_idx])
+        return (train_embeddings[chunk_idx], chunk_idx, speaker_idx[chunk_idx])
 
-    def fit_hmm(self, n_components, training_sequence):
+    def fit_hmm(self, n_components, train_embeddings):
 
-        best_log_likelihood = -np.inf
-        for random_state in range(self.n_trials):
-            hmm = GaussianHMM(
-                n_components=n_components,
-                covariance_type=self.covariance_type,
-                n_iter=100,
-                random_state=random_state,
-                implementation="log",
-                verbose=True,
-            )
-            hmm.fit(training_sequence)
+        hmm = GaussianHMM(
+            n_components=n_components,
+            covariance_type=self.covariance_type,
+            n_iter=100,
+            random_state=42,
+            implementation="log",
+            verbose=False,
+        )
+        hmm.fit(train_embeddings)
 
-            try:
-                log_likelihood = hmm.score(training_sequence)
-            except ValueError:
-                log_likelihood = -np.inf
+        return hmm
 
-            if log_likelihood >= best_log_likelihood:
-                best_log_likelihood = log_likelihood
-                best_hmm = hmm
-
-        return best_hmm
-
-    def __call__(
+    def cluster(
         self,
         embeddings: np.ndarray,
-        segmentations: SlidingWindowFeature = None,
+        min_clusters: int,
+        max_clusters: int,
         num_clusters: int = None,
-        min_clusters: int = None,
-        max_clusters: int = None,
-        **kwargs,
-    ) -> np.ndarray:
-        """
+    ):
 
-        Parameters
-        ----------
-        embeddings : (num_chunks, num_speakers, dimension) array
-            Sequence of embeddings.
-        segmentations : (num_chunks, num_frames, num_speakers) array
-            Binary segmentations.
-        num_clusters : int, optional
-            Number of clusters, when known. Default behavior is to use
-            internal threshold hyper-parameter to decide on the number
-            of clusters.
-        min_clusters : int, optional
-            Minimum number of clusters. Has no effect when `num_clusters` is provided.
-        max_clusters : int, optional
-            Maximum number of clusters. Has no effect when `num_clusters` is provided.
-
-        Returns
-        -------
-        hard_clusters : (num_chunks, num_speakers) array
-            Hard cluster assignment (hard_clusters[c, s] = k means that sth speaker
-            of cth chunk is assigned to kth cluster)
-        soft_clusters : (num_chunks, num_speakers, num_clusters) array
-            Soft cluster assignment (the higher soft_clusters[c, s, k], the most likely
-            the sth speaker of cth chunk belongs to kth cluster)
-        """
-
-        num_chunks, num_speakers, dimension = embeddings.shape
+        # FIXME
+        if max_clusters == len(embeddings):
+            max_clusters = 20
 
         if self.metric == "cosine":
             # unit-normalize embeddings to somehow make them "euclidean"
             with np.errstate(divide="ignore", invalid="ignore"):
                 embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
 
-        training_sequence, chunk_idx, speaker_idx = self.get_training_sequence(
-            embeddings,
-            segmentations,
-        )
-        num_embeddings, _ = training_sequence.shape
-
-        num_clusters, min_clusters, max_clusters = self.set_num_clusters(
-            num_embeddings,
-            num_clusters=num_clusters,
-            min_clusters=min_clusters,
-            max_clusters=max_clusters,
-        )
-
-        # FIXME
-        if max_clusters == num_embeddings:
-            max_clusters = 20
-
-        # TODO: try to infer max_clusters automatically by looking at the evolution of selection criterion
-
-        # estimate num_clusters by fitting an HMM with an increasing number of states
-
         if num_clusters is None:
 
             num_clusters = max_clusters
             for n_components in range(min_clusters, max_clusters + 1):
 
-                hmm = self.fit_hmm(n_components, training_sequence)
+                hmm = self.fit_hmm(n_components, embeddings)
 
                 if n_components > 1:
 
+                    # THIS IS A TERRIBLE CRITERION THAT NEEDS TO BE FIXED
+                    print(pdist(hmm.means_, metric="euclidean"))
+
                     # as soon as two states get too close to each other, stop adding states
                     min_state_dist = np.min(pdist(hmm.means_, metric="euclidean"))
+                    print(f"{n_components=} {min_state_dist=}")
                     if min_state_dist < self.threshold:
                         num_clusters = max(min_clusters, n_components - 1)
                         break
 
         if num_clusters == 1:
-            return np.zeros((num_chunks, num_speakers), dtype=np.int), np.zeros(
-                (num_chunks, num_speakers, 1)
-            )
+            return np.zeros((len(embeddings),), dtype=np.int8)
 
         # once num_clusters is estimated, fit the HMM several times
         # and keep the one that best fits the data
-        hmm = self.fit_hmm(num_clusters, training_sequence)
+        hmm = self.fit_hmm(num_clusters, embeddings)
 
         try:
-            prediction = hmm.predict(training_sequence)
+            train_clusters = hmm.predict(embeddings)
         except ValueError:
             # ValueError: startprob_ must sum to 1 (got nan)
-            return np.zeros((num_chunks, num_speakers), dtype=np.int), np.zeros(
-                (num_chunks, num_speakers, 1)
-            )
+            train_clusters = np.zeros((len(embeddings),), dtype=np.int8)
 
-        centroids = np.vstack(
-            [
-                np.mean(training_sequence[prediction == k], axis=0)
-                for k in range(num_clusters)
-            ]
-        )
-
-        # compute distance between embeddings and clusters
-        e2k_distance = rearrange(
-            cdist(
-                rearrange(embeddings, "c s d -> (c s) d"),
-                centroids,
-                metric="cosine",
-            ),
-            "(c s) k -> c s k",
-            c=num_chunks,
-            s=num_speakers,
-        )
-        soft_clusters = 2 - e2k_distance
-
-        hard_clusters = self.constrained_argmax(soft_clusters)
-
-        # hard_clusters = np.argmax(soft_clusters, axis=2)
-        # hard_clusters[chunk_idx, speaker_idx] = prediction
-
-        # TODO: generate alternative test sequences that only differs from training_sequence
-        # in regions where there is overlap.
-
-        return hard_clusters, soft_clusters
+        return train_clusters
 
 
 class Clustering(Enum):
     AgglomerativeClustering = AgglomerativeClustering
     SpectralClustering = SpectralClustering
-    GaussianHiddenMarkovModel = GaussianHiddenMarkovModel
+    HiddenMarkovModelClustering = HiddenMarkovModelClustering
     OracleClustering = OracleClustering

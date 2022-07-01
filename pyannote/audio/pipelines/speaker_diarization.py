@@ -89,7 +89,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         Defaults (False) to use the whole speech.
     clustering : str, optional
         Clustering algorithm. See pyannote.audio.pipelines.clustering.Clustering
-        for available options. Defaults to "GaussianHiddenMarkovModel".
+        for available options. Defaults to "HiddenMarkovModelClustering".
     expects_num_speakers : bool, optional
         Defaults to False.
 
@@ -116,7 +116,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         embedding: PipelineModel = "pyannote/embedding",
         embedding_exclude_overlap: bool = False,
         embedding_batch_size: int = 32,
-        clustering: str = "GaussianHiddenMarkovModel",
+        clustering: str = "HiddenMarkovModelClustering",
         expects_num_speakers: bool = False,
     ):
 
@@ -359,96 +359,6 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         )
 
         return self.to_diarization(clustered_segmentations, count)
-
-    # def soft_stitching(
-    #     self, soft_clusters: np.ndarray, stitching_graph: nx.Graph
-    # ) -> np.ndarray:
-    #     """WORK IN PROGRESS
-
-    #     Parameters
-    #     ----------
-    #     soft_clusters : (num_chunks, num_speakers, num_clusters)-shaped array
-    #     stitiching_graph : nx.Graph
-
-    #     Returns
-    #     -------
-    #     smoothed_soft_clusters : (num_chunks, num_speakers, num_clusters)-shaped array
-    #     """
-
-    #     num_chunks, num_speakers, num_clusters = soft_clusters.shape
-
-    #     stitchable = np.zeros((num_chunks, num_speakers, num_chunks, num_speakers))
-    #     for (c, s), (c_, s_), num_matching_frames in stitching_graph.edges(data="cost"):
-    #         if c == c_:
-    #             continue
-
-    #         stitchable[c, s, c_, s_] = num_matching_frames
-    #         stitchable[c_, s_, c, s] = num_matching_frames
-
-    #     smoothed_soft_clusters = np.einsum(
-    #         "ijkl,klm->ijm", stitchable, np.nan_to_num(soft_clusters, nan=0.0)
-    #     ) / (np.einsum("ijkl->ij", stitchable)[:, :, None] + 1e-8)
-    #     return smoothed_soft_clusters
-
-    # def constrained_argmax(
-    #     self, soft_clusters: np.ndarray, segmentations: SlidingWindowFeature
-    # ) -> np.ndarray:
-    #     """
-
-    #     Parameters
-    #     ----------
-    #     soft_clusters : (num_chunks, num_speakers, num_clusters)-shaped array
-    #     segmentations : SlidingWindowFeature
-    #         Binarized segmentation.
-
-    #     Returns
-    #     -------
-    #     hard_clusters : (num_chunks, num_speakers)-shaped array
-    #         Hard cluster assignment with
-
-    #     """
-
-    #     import cvxpy as cp
-
-    #     num_chunks, num_speakers, num_clusters = soft_clusters.shape
-    #     hard_clusters = -2 * np.ones((num_chunks, num_speakers), dtype=np.int8)
-
-    #     for c, (scores, (chunk, segmentation)) in enumerate(
-    #         zip(soft_clusters, segmentations)
-    #     ):
-
-    #         # scores : (num_speakers, num_clusters) array
-    #         # segmentation : (num_frames, num_speakers) array
-
-    #         assignment = cp.Variable(shape=(num_speakers, num_clusters), boolean=True)
-    #         objective = cp.Maximize(cp.sum(cp.multiply(assignment, scores)))
-
-    #         one_cluster_per_speaker_constraints = [
-    #             cp.sum(assignment[i]) == 1 for i in range(num_speakers)
-    #         ]
-
-    #         # number of frames where both speakers are active
-    #         co_occurrence: np.ndarray = segmentation.T @ segmentation
-    #         np.fill_diagonal(co_occurrence, 0)
-    #         cannot_link = set(
-    #             tuple(sorted(x)) for x in zip(*np.where(co_occurrence > 0))
-    #         )
-    #         cannot_link_constraints = [
-    #             assignment[i] + assignment[j] <= 1 for i, j in cannot_link
-    #         ]
-
-    #         problem = cp.Problem(
-    #             objective, one_cluster_per_speaker_constraints + cannot_link_constraints
-    #         )
-    #         problem.solve()
-
-    #         if problem.status == "optimal":
-    #             hard_clusters[c] = np.argmax(assignment.value, axis=1)
-    #         else:
-    #             print(f"{co_occurrence=}")
-    #             hard_clusters[c] = np.argmax(scores, axis=1)
-
-    #     return hard_clusters
 
     def apply(
         self,
