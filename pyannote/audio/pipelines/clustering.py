@@ -28,6 +28,7 @@ from enum import Enum
 from typing import Tuple
 
 import numpy as np
+import pyannote.core.utils.distance
 from einops import rearrange
 from hmmlearn.hmm import GaussianHMM
 from pyannote.core import SlidingWindow, SlidingWindowFeature
@@ -36,6 +37,7 @@ from pyannote.pipeline.parameter import Categorical, ParamDict, Uniform
 from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist, pdist, squareform
+from sklearn.mixture import GaussianMixture
 from spectralcluster import (
     AutoTune,
     EigenGapType,
@@ -53,6 +55,7 @@ from spectralcluster import (
 from pyannote.audio import Inference
 from pyannote.audio.core.io import AudioFile
 from pyannote.audio.pipelines.utils import oracle_segmentation
+from pyannote.audio.pipelines.utils.constraint import SegmentationConstraints
 from pyannote.audio.utils.permutation import permutate
 
 
@@ -276,7 +279,7 @@ class BaseClustering(Pipeline):
         else:
             hard_clusters = np.argmax(soft_clusters, axis=2)
 
-        # TODO: add a flag to revert argmax for trainign subsey
+        # TODO: add a flag to revert argmax for training subset
         # hard_clusters[train_chunk_idx, train_speaker_idx] = train_clusters
 
         return hard_clusters, soft_clusters
@@ -288,6 +291,7 @@ class BaseClustering(Pipeline):
         num_clusters: int = None,
         min_clusters: int = None,
         max_clusters: int = None,
+        constraints: SegmentationConstraints = None,
         **kwargs,
     ) -> np.ndarray:
         """Apply HMM clustering
@@ -317,6 +321,9 @@ class BaseClustering(Pipeline):
             the sth speaker of cth chunk belongs to kth cluster)
         """
 
+        print(f"must = {np.sum(constraints > 0)}")
+        print(f"cannot = {np.sum(constraints < 0)}")
+
         train_embeddings, train_chunk_idx, train_speaker_idx = self.filter_embeddings(
             embeddings,
             segmentations=segmentations,
@@ -333,11 +340,17 @@ class BaseClustering(Pipeline):
         if max_clusters < 2:
             train_clusters = np.zeros((num_embeddings,), dtype=np.int8)
         else:
+
+            _, _, num_speakers = segmentations.data.shape
+            idx = train_chunk_idx * num_speakers + train_speaker_idx
+            constraints = squareform(squareform(constraints)[idx][:, idx])
+
             train_clusters = self.cluster(
                 train_embeddings,
                 min_clusters,
                 max_clusters,
                 num_clusters=num_clusters,
+                constraints=constraints,
             )
 
         hard_clusters, soft_clusters = self.assign_embeddings(
@@ -349,6 +362,85 @@ class BaseClustering(Pipeline):
         )
 
         return hard_clusters, soft_clusters
+
+
+class GaussianMixtureClustering(BaseClustering):
+    def __init__(
+        self,
+        metric: str = "cosine",
+        expects_num_clusters: bool = False,
+        constrained_assignment: bool = False,
+    ):
+
+        if metric not in ["euclidean", "cosine"]:
+            raise ValueError("`metric` must be one of {'cosine', 'euclidean'}")
+
+        super().__init__(
+            metric=metric,
+            expects_num_clusters=expects_num_clusters,
+            constrained_assignment=constrained_assignment,
+        )
+
+        self.covariance_type = Categorical(["spherical", "diag", "full", "tied"])
+        if not self.expects_num_clusters:
+            self.threshold = Uniform(0.0, 2.0)
+
+    def cluster(
+        self,
+        embeddings: np.ndarray,
+        min_clusters: int,
+        max_clusters: int,
+        num_clusters: int = None,
+    ):
+
+        # FIXME
+        if max_clusters == len(embeddings):
+            max_clusters = 20
+
+        if self.metric == "cosine":
+            # unit-normalize embeddings to somehow make them "euclidean"
+            with np.errstate(divide="ignore", invalid="ignore"):
+                embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
+
+        if num_clusters is None:
+
+            num_clusters = max_clusters
+            for n_components in range(min_clusters, max_clusters + 1):
+
+                gmm = GaussianMixture(
+                    n_components=n_components, covariance_type=self.covariance_type
+                )
+                gmm.fit(embeddings)
+
+                bic = gmm.bic(embeddings)
+                print(f"{n_components=} {bic=:.1f}")
+
+                if n_components > 1:
+
+                    # print(pdist(gmm.means_, metric="euclidean"))
+
+                    # as soon as two states get too close to each other, stop adding states
+                    min_state_dist = np.min(pdist(gmm.means_, metric="euclidean"))
+                    print(f"{n_components=} {min_state_dist=}")
+                    if min_state_dist < self.threshold:
+                        num_clusters = max(min_clusters, n_components - 1)
+                        break
+
+        if num_clusters == 1:
+            return np.zeros((len(embeddings),), dtype=np.int8)
+
+        gmm = GaussianMixture(
+            n_components=num_clusters, covariance_type=self.covariance_type
+        )
+        gmm.fit(embeddings)
+
+        try:
+            train_clusters = gmm.predict(embeddings)
+        except ValueError:
+            # ValueError: startprob_ must sum to 1 (got nan)
+            train_clusters = np.zeros((len(embeddings),), dtype=np.int8)
+
+        return train_clusters
 
 
 class AgglomerativeClustering(BaseClustering):
@@ -399,6 +491,8 @@ class AgglomerativeClustering(BaseClustering):
         min_clusters: int,
         max_clusters: int,
         num_clusters: int = None,
+        cannot_link: np.ndarray = None,
+        must_link: np.ndarray = None,
     ):
         """
 
@@ -472,6 +566,7 @@ class OracleClustering(BaseClustering):
     def __call__(
         self,
         segmentations: SlidingWindowFeature = None,
+        constraints: np.ndarray = None,
         file: AudioFile = None,
         frames: SlidingWindow = None,
         **kwargs,
@@ -521,6 +616,24 @@ class OracleClustering(BaseClustering):
                     continue
                 hard_clusters[c, i] = j
                 soft_clusters[c, i, j] = 1.0
+
+        # when constraints is provided, report their quality
+        if constraints is not None:
+            must_link = constraints > 0
+            num_must_link = np.sum(must_link)
+            cannot_link = constraints < 0
+            num_cannot_link = np.sum(cannot_link)
+            same_cluster = pyannote.core.utils.distance.pdist(
+                rearrange(hard_clusters, "c s -> (c s)"), metric="equal"
+            )
+            must_link_ratio = np.sum(must_link[same_cluster]) / np.sum(must_link)
+            cannot_link_ratio = np.sum(cannot_link[~same_cluster]) / np.sum(cannot_link)
+
+            criterion = math.sqrt(must_link_ratio * cannot_link_ratio)
+
+            print(
+                f"{num_must_link=} {num_cannot_link=} {must_link_ratio=:.2f} {cannot_link_ratio=:.2f} {criterion=:.2f}"
+            )
 
         return hard_clusters, soft_clusters
 
@@ -803,7 +916,7 @@ class HiddenMarkovModelClustering(BaseClustering):
         # (num_chunks, )
 
         # TODO: generate alternative sequences that only differs from train_embeddings
-        # in regions where there is overlap.
+        # in regions where there is overlap
 
         train_embeddings = embeddings[range(num_chunks), speaker_idx]
         # (num_chunks, dimension)
@@ -838,7 +951,14 @@ class HiddenMarkovModelClustering(BaseClustering):
         min_clusters: int,
         max_clusters: int,
         num_clusters: int = None,
+        constraints: np.ndarray = None,
     ):
+
+        must_link = constraints > 0
+        cannot_link = constraints < 0
+
+        print(f"must = {np.sum(must_link)}")
+        print(f"cannot = {np.sum(cannot_link)}")
 
         # FIXME
         if max_clusters == len(embeddings):
@@ -855,15 +975,31 @@ class HiddenMarkovModelClustering(BaseClustering):
             for n_components in range(min_clusters, max_clusters + 1):
 
                 hmm = self.fit_hmm(n_components, embeddings)
+                train_clusters = hmm.predict(embeddings)
+
+                same_cluster = pyannote.core.utils.distance.pdist(
+                    train_clusters, metric="equal"
+                )
+
+                must_link_ratio = np.sum(must_link[same_cluster]) / np.sum(must_link)
+                cannot_link_ratio = np.sum(cannot_link[~same_cluster]) / np.sum(
+                    cannot_link
+                )
+
+                criterion = math.sqrt(must_link_ratio * cannot_link_ratio)
+
+                print(
+                    f"{must_link_ratio=:.2f} {cannot_link_ratio=:.2f} {criterion=:.2f}"
+                )
 
                 if n_components > 1:
 
                     # THIS IS A TERRIBLE CRITERION THAT NEEDS TO BE FIXED
-                    print(pdist(hmm.means_, metric="euclidean"))
+                    # print(pdist(hmm.means_, metric="euclidean"))
 
                     # as soon as two states get too close to each other, stop adding states
                     min_state_dist = np.min(pdist(hmm.means_, metric="euclidean"))
-                    print(f"{n_components=} {min_state_dist=}")
+                    # print(f"{n_components=} {min_state_dist=}")
                     if min_state_dist < self.threshold:
                         num_clusters = max(min_clusters, n_components - 1)
                         break
@@ -888,4 +1024,5 @@ class Clustering(Enum):
     AgglomerativeClustering = AgglomerativeClustering
     SpectralClustering = SpectralClustering
     HiddenMarkovModelClustering = HiddenMarkovModelClustering
+    GaussianMixtureClustering = GaussianMixtureClustering
     OracleClustering = OracleClustering

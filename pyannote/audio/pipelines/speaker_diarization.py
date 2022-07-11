@@ -22,20 +22,20 @@
 
 """Speaker diarization pipelines"""
 
-import itertools
 import math
+import random
 import warnings
-from typing import Callable, Optional
+from itertools import combinations, zip_longest
+from typing import Callable, List, Optional, Tuple
 
-# import networkx as nx
+import networkx as nx
 import numpy as np
 
 # import scipy.special
 import torch
 from einops import rearrange
-from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
-
-# from pyannote.core import Segment
+from pyannote.core import Annotation, Segment, SlidingWindow, SlidingWindowFeature
+from pyannote.core.utils.distance import to_condensed
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
 
 # from pyannote.pipeline.parameter import Uniform, Categorical
@@ -47,6 +47,7 @@ from pyannote.audio.pipelines.clustering import Clustering
 from pyannote.audio.pipelines.speaker_verification import PretrainedSpeakerEmbedding
 from pyannote.audio.pipelines.utils import (
     PipelineModel,
+    SegmentationConstraints,
     SpeakerDiarizationMixin,
     get_devices,
     get_model,
@@ -64,7 +65,7 @@ def batchify(iterable, batch_size: int = 32, fillvalue=None):
     """Batchify iterable"""
     # batchify('ABCDEFG', 3) --> ['A', 'B', 'C']  ['D', 'E', 'F']  [G, ]
     args = [iter(iterable)] * batch_size
-    return itertools.zip_longest(*args, fillvalue=fillvalue)
+    return zip_longest(*args, fillvalue=fillvalue)
 
 
 class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
@@ -92,7 +93,6 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         for available options. Defaults to "HiddenMarkovModelClustering".
     expects_num_speakers : bool, optional
         Defaults to False.
-
 
 
     Hyper-parameters
@@ -135,13 +135,13 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         seg_device, emb_device = get_devices(needs=2)
 
-        model: Model = get_model(segmentation)
-        model.to(seg_device)
+        self._model: Model = get_model(segmentation)
+        self._model.to(seg_device)
 
         self._segmentation = Inference(
-            model,
-            duration=model.specifications.duration,
-            step=self.segmentation_step * model.specifications.duration,
+            self._model,
+            duration=self._model.specifications.duration,
+            step=self.segmentation_step * self._model.specifications.duration,
             skip_aggregation=True,
             batch_size=self.segmentation_batch_size,
         )
@@ -169,6 +169,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             expects_num_clusters=self.expects_num_speakers,
         )
 
+        self.constraint_threshold = Uniform(0.0, 0.1)
+
     def classes(self):
         speaker = 0
         while True:
@@ -189,6 +191,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         Returns
         -------
         segmentations : (num_chunks, num_frames, num_speakers) SlidingWindowFeature
+
         """
         if self.training:
             if self.CACHED_SEGMENTATION in file:
@@ -200,6 +203,196 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             segmentations: SlidingWindowFeature = self._segmentation(file)
 
         return segmentations
+
+    def get_constraints(
+        self, file, binary_segmentations: SlidingWindowFeature
+    ) -> nx.Graph:
+        """
+
+        Parameters
+        ----------
+        file : AudioFile
+        binary_segmentations : (num_chunks, num_frames, num_speakers)-shaped SlidingWindowFeature
+            Binary segmentation.
+
+        Returns
+        -------
+        """
+
+        # initial set of (good enough) constraints
+        constraints = SegmentationConstraints.from_segmentation(
+            binary_segmentations, identifier="original", cannot=True, must=True
+        )
+        constraints.remove_constraints(
+            lambda n1, n2, data: data.get("permutation_cost", 0.0)
+            > self.constraint_threshold
+        )
+        # TODO: should we propagate here?
+
+        # initialize inference with half-overlapping chunks
+        duration = self._model.specifications.duration
+        segmentation = Inference(
+            self._model,
+            duration=duration,
+            step=0.5 * duration,
+            skip_aggregation=True,
+            batch_size=self.segmentation_batch_size,
+        )
+
+        audio: Audio = self._model.audio
+        file_duration: float = audio.get_duration(file)
+
+        # generate sequence of non-overlapping chunks covering the whole file
+        non_overlapping_chunks = SlidingWindow(
+            start=0.0, duration=duration, step=duration
+        )
+        shuffling: List[Tuple[int, Segment]] = list(
+            enumerate(non_overlapping_chunks(Segment(0, file_duration)))
+        )
+        # [(0, Segment(0, 5)), [1, Segment(5, 10), ...]] if duration == 5.
+
+        for k in range(5):
+
+            # shuffle non-overlapping chunks and keep track of order
+            random.shuffle(shuffling)
+            shuffled_indices, shuffled_chunks = zip(*shuffling)
+
+            # map chunks of the shuffled audio to correspond chunk in the original audio
+            half_overlapping_chunks = SlidingWindow(
+                start=0.0, duration=duration, step=0.5 * duration
+            )
+            mapping = {
+                non_overlapping_chunks[i]: half_overlapping_chunks[2 * j]
+                for i, j in enumerate(shuffled_indices)
+            }
+
+            # build shuffled audio (as the concatenation of shuffled non-overlapping chunks)
+            shuffled_waveform = torch.hstack(
+                [
+                    audio.crop(file, chunk, duration=duration)[0]
+                    for chunk in shuffled_chunks
+                ]
+            )
+
+            # apply segmentation on shuffled audio with half-overlapping chunks
+            shuffled_segmentations = binarize(
+                segmentation(
+                    {"waveform": shuffled_waveform, "sample_rate": audio.sample_rate}
+                ),
+                onset=self.segmentation_onset,
+            )
+
+            # gather (good enough) must link constraints
+            shuffled_constraints = SegmentationConstraints.from_segmentation(
+                shuffled_segmentations,
+                identifier=f"shuffled_#{k + 1:02d}",
+                cannot=False,
+                must=True,
+            )
+            shuffled_constraints.remove_constraints(
+                lambda n1, n2, data: data.get("permutation_cost", 0.0)
+                > self.constraint_threshold
+            )
+
+            # # propagate "cannot-link" constraints
+            shuffled_constraints.propagate(cannot=False, must=True)
+            # # TODO: investigate propagation of "must-link" constraints
+
+            # remove nodes that do not exist in the original segmentation
+            shuffled_constraints.remove_nodes_from(
+                list(
+                    filter(
+                        lambda node: node[0] not in mapping,
+                        shuffled_constraints.nodes(),
+                    )
+                )
+            )
+
+            # back to the original time reference
+            unshuffled_constraints = nx.relabel_nodes(
+                shuffled_constraints,
+                {
+                    (chunk, speaker_idx): (mapping[chunk], speaker_idx)
+                    for chunk, speaker_idx in shuffled_constraints.nodes()
+                },
+                copy=True,
+            )
+
+            constraints = constraints.augment(unshuffled_constraints, copy=False)
+
+        constraints = constraints.propagate(cannot=True, must=True, copy=False)
+
+        # rename (chunk, speaker_idx) to (chunk_idx, speaker_idx)
+        chunks = binary_segmentations.sliding_window
+        num_chunks, _, num_speakers = binary_segmentations.data.shape
+        mapping = {
+            (chunk, speaker_idx): (
+                round((chunk.start - chunks.start) / chunks.step),
+                speaker_idx,
+            )
+            for chunk, speaker_idx in constraints.nodes()
+        }
+        nx.relabel_nodes(constraints, mapping, copy=False)
+
+        n = num_chunks * num_speakers
+        matrix = np.zeros((to_condensed(n, n, n - 1),), dtype=np.int8)
+        for (c, s), (C, S), link in constraints.edges(data="link"):
+
+            # TODO: fix this at the source...
+            if (c, s) == (C, S):
+                continue
+
+            matrix[to_condensed(n, c * num_speakers + s, C * num_speakers + S)] = (
+                1 if link == "must" else -1
+            )
+
+        return matrix
+
+    def constraint_to_matrix(
+        self,
+        constraints: List[List[Tuple[Segment, int]]],
+        binary_segmentations: SlidingWindowFeature,
+    ) -> np.ndarray:
+        """Convert constraint to condensed boolean matrix
+
+        Parameters
+        ----------
+        constraints : list of list of (chunk, speaker_idx) tuple
+            List of must link or cannot link constraints.
+        segmentations : (num_chunks, num_frames, num_speakers)-shaped SlidingWindowFeature
+            Binary segmentation
+
+        Returns
+        -------
+        matrix :
+            Condensed (à la pdist) constraint matrix.
+
+        """
+
+        num_chunks, _, num_speakers = binary_segmentations.data.shape
+        chunks = binary_segmentations.sliding_window
+
+        n = num_chunks * num_speakers
+        matrix = np.zeros((to_condensed(n, n, n - 1),), dtype=bool)
+
+        for constraint in constraints:
+            for (chunk, speaker_idx), (other_chunk, other_speaker_idx) in combinations(
+                constraint, r=2
+            ):
+                chunk_idx = round((chunk.start - chunks.start) / chunks.step)
+                other_chunk_idx = round(
+                    (other_chunk.start - chunks.start) / chunks.step
+                )
+
+                matrix[
+                    to_condensed(
+                        n,
+                        chunk_idx * num_speakers + speaker_idx,
+                        other_chunk_idx * num_speakers + other_speaker_idx,
+                    )
+                ] = True
+
+        return matrix
 
     def get_embeddings(
         self,
@@ -436,18 +629,24 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         #   dtype: int
 
         # binarize segmentation
-        binarized_segmentations: SlidingWindowFeature = binarize(
+        binary_segmentations: SlidingWindowFeature = binarize(
             segmentations,
             onset=self.segmentation_onset,
             initial_state=False,
         )
+
+        # derive {cannot-link, must-link} constraints from binary segmentation
+
+        constraints = self.get_constraints(file, binary_segmentations)
+
+        hook("constraints", constraints)
 
         if self.klustering == "OracleClustering":
             embeddings = None
         else:
             embeddings = self.get_embeddings(
                 file,
-                binarized_segmentations,
+                binary_segmentations,
                 exclude_overlap=self.embedding_exclude_overlap,
             )
             hook("embeddings", embeddings)
@@ -455,10 +654,13 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         hard_clusters, soft_clusters = self.clustering(
             embeddings=embeddings,
-            segmentations=binarized_segmentations,
+            segmentations=binary_segmentations,
             num_clusters=num_speakers,
             min_clusters=min_speakers,
             max_clusters=max_speakers,
+            constraints=constraints,
+            # cannot_link=cannot_link,
+            # must_link=must_link,
             file=file,  # <== for oracle clustering
             frames=self._frames,  # <== for oracle clustering
         )
@@ -468,10 +670,12 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         # reconstruct discrete diarization from raw hard clusters
 
         # keep track of inactive speakers
-        inactive_speakers = np.sum(binarized_segmentations.data, axis=1) == 0
+        inactive_speakers = np.sum(binary_segmentations.data, axis=1) == 0
         #   shape: (num_chunks, num_speakers)
 
         hard_clusters[inactive_speakers] = -2
+        hook("hard_clusters", hard_clusters)
+
         discrete_diarization = self.reconstruct(
             segmentations,
             hard_clusters,
@@ -489,7 +693,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         #     hook("soft_clusters/after_softmax", soft_clusters)
 
         #     # compute stitching graph based on binarized segmentation
-        #     stitching_graph = self.get_stitching_graph(binarized_segmentations)
+        #     stitching_graph = self.get_stitching_graph(binary_segmentations)
 
         #     # smooth soft cluster assignment using stitching graph
         #     soft_clusters = self.soft_stitching(soft_clusters, stitching_graph)
@@ -502,7 +706,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         # if self.use_constrained_argmax:
         #     hard_clusters = self.constrained_argmax(
-        #         soft_clusters, binarized_segmentations
+        #         soft_clusters, binary_segmentations
         #     )
         #     hard_clusters[inactive_speakers] = -2
         #     hook("diarization/hard_clusters/constrained", hard_clusters)
