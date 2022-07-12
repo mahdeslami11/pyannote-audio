@@ -23,7 +23,8 @@
 """Clustering pipelines"""
 
 
-import math
+import random
+import warnings
 from enum import Enum
 from typing import Tuple
 
@@ -35,11 +36,10 @@ from pyannote.pipeline import Pipeline
 from pyannote.pipeline.parameter import Categorical, ParamDict, Uniform
 from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.optimize import linear_sum_assignment
-from scipy.spatial.distance import cdist, pdist, squareform
+from scipy.spatial.distance import cdist, pdist
 from spectralcluster import (
     AutoTune,
     EigenGapType,
-    FallbackClustererType,
     FallbackOptions,
     LaplacianType,
     RefinementName,
@@ -60,12 +60,14 @@ class BaseClustering(Pipeline):
     def __init__(
         self,
         metric: str = "cosine",
+        max_num_embeddings: int = 1000,
         expects_num_clusters: bool = False,
         constrained_assignment: bool = False,
     ):
 
         super().__init__()
         self.metric = metric
+        self.max_num_embeddings = max_num_embeddings
         self.expects_num_clusters = expects_num_clusters
         self.constrained_assignment = constrained_assignment
 
@@ -100,7 +102,6 @@ class BaseClustering(Pipeline):
         self,
         embeddings: np.ndarray,
         segmentations: SlidingWindowFeature = None,
-        target_overlap_ratio: float = 0.5,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Filter NaN embeddings and downsample embeddings
 
@@ -110,8 +111,6 @@ class BaseClustering(Pipeline):
             Sequence of embeddings.
         segmentations : (num_chunks, num_frames, num_speakers) array
             Binary segmentations.
-        target_overlap_ratio : float, optional
-            Defaults to 0.5
 
         Returns
         -------
@@ -120,22 +119,16 @@ class BaseClustering(Pipeline):
         speaker_idx : (num_embeddings, ) array
         """
 
-        if target_overlap_ratio is None:
-            downsample_by = 1
-        else:
-            downsample_by = max(
-                1,
-                math.floor(
-                    target_overlap_ratio
-                    * segmentations.sliding_window.duration
-                    / segmentations.sliding_window.step
-                ),
-            )
+        chunk_idx, speaker_idx = np.where(~np.any(np.isnan(embeddings), axis=2))
 
-        chunk_idx, speaker_idx = np.where(
-            ~np.any(np.isnan(embeddings[::downsample_by]), axis=2)
-        )
-        chunk_idx *= downsample_by
+        # sample max_num_embeddings embeddings
+        num_embeddings = len(chunk_idx)
+        if num_embeddings > self.max_num_embeddings:
+            indices = list(range(num_embeddings))
+            random.shuffle(indices)
+            indices = sorted(indices[: self.max_num_embeddings])
+            chunk_idx = chunk_idx[indices]
+            speaker_idx = speaker_idx[indices]
 
         return embeddings[chunk_idx, speaker_idx], chunk_idx, speaker_idx
 
@@ -377,12 +370,14 @@ class AgglomerativeClustering(BaseClustering):
     def __init__(
         self,
         metric: str = "cosine",
+        max_num_embeddings: int = 1000,
         expects_num_clusters: bool = False,
         constrained_assignment: bool = False,
     ):
 
         super().__init__(
             metric=metric,
+            max_num_embeddings=max_num_embeddings,
             expects_num_clusters=expects_num_clusters,
             constrained_assignment=constrained_assignment,
         )
@@ -532,6 +527,7 @@ class SpectralClustering(BaseClustering):
     ----------
     metric : {"cosine", "euclidean", ...}, optional
         Distance metric to use. Defaults to "cosine".
+        Only "cosine" is currenty supported.
     expects_num_clusters : bool, optional
         Whether the number of clusters should be provided.
         Defaults to False.
@@ -542,25 +538,21 @@ class SpectralClustering(BaseClustering):
         Laplacian to use.
     eigengap : {"Ratio", "NormalizedDiff"}
         Eigengap approach to use.
-    spectral_min_embeddings : int
-        Fallback to agglomerative clustering when clustering less than that
-        many embeddings.
-    refinement_sequence : str
-        Sequence of refinement operations (e.g. "CGTSDN").
-        Each character represents one operation ("C" for CropDiagonal, "G" for GaussianBlur,
-        "T" for RowWiseThreshold, "S" for Symmetrize, "D" for Diffuse, and "N" for RowWiseNormalize.
-        Use empty string to not use any refinement.
-    gaussian_blur_sigma : float
-        Sigma value for the Gaussian blur operation
+    refinement : dict
+        Sequence of refinement operations
+    refinement["CropDiagonal"] : boolean
+    refinement["Symmetrize"] : boolean
+    refinement["Diffuse"] : boolean
+    refinement["RowWiseNormalized"] : boolean
     symmetrize_type : {"Max", "Average"}
-        How to symmetrize the matrix
+        How to symmetrize the matrix (when refinement["Symmetrize"] is True)
+    thresholding_type : {"RowMax", "Percentile"}
+        Type of thresholding operation.
     thresholding_with_binarization : boolean
         Set values larger than the threshold to 1.
     thresholding_preserve_diagonal : boolean
         In the row wise thresholding operation, set diagonals of the
         affinity matrix to 0 at the beginning, and back to 1 in the end
-    thresholding_type : {"RowMax", "Percentile"}
-        Type of thresholding operation.
 
     Notes
     -----
@@ -570,12 +562,19 @@ class SpectralClustering(BaseClustering):
     def __init__(
         self,
         metric: str = "cosine",
+        max_num_embeddings: int = 1000,
         expects_num_clusters: bool = False,
         constrained_assignment: bool = False,
     ):
 
+        if metric != "cosine":
+            raise ValueError(
+                f"Only 'cosine' metric is currently supported in by spectral clustering (you passed {metric=})"
+            )
+
         super().__init__(
             metric=metric,
+            max_num_embeddings=max_num_embeddings,
             expects_num_clusters=expects_num_clusters,
             constrained_assignment=constrained_assignment,
         )
@@ -584,10 +583,13 @@ class SpectralClustering(BaseClustering):
             ["Affinity", "Unnormalized", "RandomWalk", "GraphCut"]
         )
 
-        # Hyperparameters for refinement operations
+        # define sequence of refinement operations
         self.refinement = ParamDict(
             CropDiagonal=Categorical([True, False]),
+            # gaussian blur does not make sense here because
+            # embeddings are not ordered chronologically
             GaussianBlur=False,
+            # row-wise threshold is needed by "autotune"
             RowWiseThreshold=True,
             Symmetrize=Categorical([True, False]),
             Diffuse=Categorical([True, False]),
@@ -595,30 +597,24 @@ class SpectralClustering(BaseClustering):
         )
 
         self.symmetrize_type = Categorical(["Max", "Average"])
+
+        # for row-wise thresholding
         self.thresholding_type = Categorical(["RowMax", "Percentile"])
         self.thresholding_with_binarization = Categorical([True, False])
         self.thresholding_preserve_diagonal = Categorical([True, False])
 
         if not self.expects_num_clusters:
+            # related: https://github.com/wq2012/SpectralCluster/issues/39
+            self.single_cluster_affinity_threshold = Uniform(0.0, 1.0)
+            # needed by "autotune" (when number of clusters is not provided)
             self.eigengap = Categorical(["Ratio", "NormalizedDiff"])
-
-            # HACK https://github.com/wq2012/SpectralCluster/issues/39
-            # proportion of chunks with 1+ speaker that have 2+ speakers
-            # according to the local segmentation model
-            # (should be high for one-speaker audio but can also be high
-            # for very audio with one dominant speaker)
-            self.solo_speaker_ratio_threshold = Uniform(0.0, 1.0)
-            self.solo_speaker_hac_threshold = Uniform(0.0, 1.0)
-
-    def _affinity_function(self, embeddings: np.ndarray) -> np.ndarray:
-        return squareform(1.0 - 0.5 * pdist(embeddings, metric=self.metric))
 
     def cluster(
         self,
         embeddings: np.ndarray,
         min_clusters: int,
         max_clusters: int,
-        num_clusters: int = None,
+        **kwargs,
     ):
         """
 
@@ -630,9 +626,6 @@ class SpectralClustering(BaseClustering):
             Minimum number of clusters
         max_clusters : int
             Maximum number of clusters
-        num_clusters : int, optional
-            Actual number of clusters. Default behavior is to estimate it based
-            on values provided for `min_clusters`,  `max_clusters`, and `threshold`.
 
         Returns
         -------
@@ -640,20 +633,19 @@ class SpectralClustering(BaseClustering):
             0-indexed cluster indices.
         """
 
+        # see https://github.com/wq2012/SpectralCluster/issues/40
+        num_embeddings, _ = embeddings.shape
+        if num_embeddings < 20:
+            warnings.warn(
+                f"Not enough embeddings ({num_embeddings}) to perform reliable spectral clustering."
+            )
+            return np.zeros((num_embeddings,), dtype=np.int8)
+
         # Fallback options.
         fallback_options = FallbackOptions(
-            # TODO: remove SingleClusterCondition completely
-            # HACK: deactivate single_cluster_condition by using AffinityGmmBic
-            # but keeping the (all one) affinity diagonal
-            single_cluster_condition=SingleClusterCondition.AffinityGmmBic,
-            single_cluster_affinity_diagonal_offset=0,
-            single_cluster_affinity_threshold=0.75,  # not used with AffinityGmmBic
-            # HACK: hardcode spectral_min_embeddings to 5 to (almost) never
-            # use the fallback clusterer.
-            spectral_min_embeddings=5,
-            fallback_clusterer_type=FallbackClustererType.Naive,
-            naive_threshold=0.5,  # not used unless num_embeddings < 5
-            naive_adaptation_threshold=None,  # not used unless num_embeddings < 5
+            # see https://github.com/wq2012/SpectralCluster/issues/39
+            single_cluster_condition=SingleClusterCondition.AllAffinity,
+            single_cluster_affinity_threshold=self.single_cluster_affinity_threshold,
         )
 
         # Refinements
@@ -662,7 +654,6 @@ class SpectralClustering(BaseClustering):
         ]
         refinement_options = RefinementOptions(
             refinement_sequence=refinement_sequence,
-            gaussian_blur_sigma=0.0,
             thresholding_soft_multiplier=0.01,
             thresholding_type=ThresholdType[self.thresholding_type],
             thresholding_with_binarization=self.thresholding_with_binarization,
@@ -684,7 +675,7 @@ class SpectralClustering(BaseClustering):
                 init_search_step=0.05,
                 search_level=1,
             )
-            eigengap_type = (EigenGapType[self.eigengap],)
+            eigengap_type = EigenGapType[self.eigengap]
 
         # Clustering
         clusters = SpectralClusterer(
@@ -695,43 +686,7 @@ class SpectralClustering(BaseClustering):
             fallback_options=fallback_options,
             laplacian_type=laplacian_type,
             eigengap_type=eigengap_type,
-            affinity_function=self._affinity_function,
         ).predict(embeddings)
-
-        # if not self.expects_num_clusters:
-
-        #     # post-process spectral clustering (SC) output to handle the known
-        #     # limitation that SC is not very good at handling one-cluster data
-        #     # SEE https://github.com/wq2012/SpectralCluster/issues/39
-
-        #     # compute the ratio of chunks with 1+ active speaker
-        #     # in which there are actually 2+ active  speakers.
-        #     # if this ratio is high enough, it might be a cue that
-        #     # there is only one cluster. therefore we postprocess the
-        #     # output of spectral clustering by applying an additional
-        #     # hierarchical agglomerative clustering step on the centroids
-
-        #     num_active_speaker = np.sum(np.any(segmentations.data > 0, axis=1), axis=1)
-        #     solo_speaker_ratio = np.sum(num_active_speaker == 1) / np.sum(
-        #         num_active_speaker > 0
-        #     )
-
-        #     if (
-        #         num_clusters > 1
-        #         and solo_speaker_ratio > self.solo_speaker_ratio_threshold
-        #     ):
-
-        #         centroids_cluster = AgglomerativeClustering.cluster(
-        #             centroids,
-        #             min_clusters,
-        #             max_clusters,
-        #             num_clusters=num_clusters,
-        #             threshold=self.solo_speaker_hac_threshold,
-        #             method="average",
-        #             metric=self.metric,
-        #         )
-
-        #         valid_clusters = centroids_cluster[valid_clusters]
 
         return clusters
 
