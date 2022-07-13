@@ -25,6 +25,7 @@
 import itertools
 import math
 import warnings
+from collections import Counter
 from typing import Callable, Optional
 
 # import networkx as nx
@@ -147,6 +148,10 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         )
         self._frames: SlidingWindow = self._segmentation.model.introspection.frames
         self.segmentation_onset = Uniform(0.1, 0.9)
+
+        # TODO: tune these hyper-parameters
+        self.single_speaker_ratio_in_chunk = 0.9
+        self.single_speaker_ratio_in_frame = 0.999
 
         if self.klustering == "OracleClustering":
             metric = "not_applicable"
@@ -441,6 +446,31 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             onset=self.segmentation_onset,
             initial_state=False,
         )
+
+        # heuristic to detect single speaker conversations
+        # TODO: do better than this heuristic
+        if num_speakers is None and min_speakers < 2:
+
+            num_speakers_in_chunk = Counter(
+                np.sum(np.max(binarized_segmentations.data, axis=1), axis=-1)
+            )
+            num_speakers_in_frame = Counter(count.data.squeeze())
+
+            single_speaker_ratio_in_chunk = num_speakers_in_chunk.get(1, 0.0) / sum(
+                count for num, count in num_speakers_in_chunk.items() if num > 0
+            )
+            single_speaker_ratio_in_frames = num_speakers_in_frame.get(1, 0.0) / sum(
+                count for num, count in num_speakers_in_frame.items() if num > 0
+            )
+
+            if (
+                single_speaker_ratio_in_chunk > self.single_speaker_ratio_in_chunk
+                and single_speaker_ratio_in_frames > self.single_speaker_ratio_in_frame
+            ):
+                min_speakers = max_speakers = num_speakers = 1
+
+            else:
+                min_speakers = 2
 
         if self.klustering == "OracleClustering":
             embeddings = None
