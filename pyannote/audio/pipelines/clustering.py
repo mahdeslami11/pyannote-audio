@@ -40,11 +40,9 @@ from scipy.spatial.distance import cdist, pdist
 from spectralcluster import (
     AutoTune,
     EigenGapType,
-    FallbackOptions,
     LaplacianType,
     RefinementName,
     RefinementOptions,
-    SingleClusterCondition,
     SpectralClusterer,
     SymmetrizeType,
     ThresholdType,
@@ -604,9 +602,6 @@ class SpectralClustering(BaseClustering):
         self.thresholding_preserve_diagonal = Categorical([True, False])
 
         if not self.expects_num_clusters:
-            # related: https://github.com/wq2012/SpectralCluster/issues/39
-            self.single_cluster_affinity_threshold = Uniform(0.0, 1.0)
-            # needed by "autotune" (when number of clusters is not provided)
             self.eigengap = Categorical(["Ratio", "NormalizedDiff"])
 
     def cluster(
@@ -640,13 +635,6 @@ class SpectralClustering(BaseClustering):
                 f"Not enough embeddings ({num_embeddings}) to perform reliable spectral clustering."
             )
             return np.zeros((num_embeddings,), dtype=np.int8)
-
-        # Fallback options.
-        fallback_options = FallbackOptions(
-            # see https://github.com/wq2012/SpectralCluster/issues/39
-            single_cluster_condition=SingleClusterCondition.AllAffinity,
-            single_cluster_affinity_threshold=self.single_cluster_affinity_threshold,
-        )
 
         # Refinements
         refinement_sequence = [
@@ -683,7 +671,6 @@ class SpectralClustering(BaseClustering):
             max_clusters=max_clusters,
             refinement_options=refinement_options,
             autotune=autotune,
-            fallback_options=fallback_options,
             laplacian_type=laplacian_type,
             eigengap_type=eigengap_type,
         ).predict(embeddings)
@@ -795,46 +782,49 @@ class HiddenMarkovModelClustering(BaseClustering):
         num_clusters: int = None,
     ):
 
+        num_embeddings = len(embeddings)
+
         # FIXME
-        if max_clusters == len(embeddings):
+        if max_clusters == num_embeddings:
             max_clusters = 20
 
         if self.metric == "cosine":
             # unit-normalize embeddings to somehow make them "euclidean"
             with np.errstate(divide="ignore", invalid="ignore"):
-                embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
+                euclidean_embeddings = embeddings / np.linalg.norm(
+                    embeddings, axis=-1, keepdims=True
+                )
+        elif self.metric == "euclidean":
+            euclidean_embeddings = embeddings
 
         if num_clusters is None:
 
             num_clusters = max_clusters
             for n_components in range(min_clusters, max_clusters + 1):
 
-                hmm = self.fit_hmm(n_components, embeddings)
+                hmm = self.fit_hmm(n_components, euclidean_embeddings)
 
                 if n_components > 1:
 
                     # THIS IS A TERRIBLE CRITERION THAT NEEDS TO BE FIXED
-                    print(pdist(hmm.means_, metric="euclidean"))
-
                     # as soon as two states get too close to each other, stop adding states
                     min_state_dist = np.min(pdist(hmm.means_, metric="euclidean"))
-                    print(f"{n_components=} {min_state_dist=}")
                     if min_state_dist < self.threshold:
                         num_clusters = max(min_clusters, n_components - 1)
                         break
 
         if num_clusters == 1:
-            return np.zeros((len(embeddings),), dtype=np.int8)
+            return np.zeros((num_embeddings,), dtype=np.int8)
 
         # once num_clusters is estimated, fit the HMM several times
         # and keep the one that best fits the data
-        hmm = self.fit_hmm(num_clusters, embeddings)
+        hmm = self.fit_hmm(num_clusters, euclidean_embeddings)
 
         try:
-            train_clusters = hmm.predict(embeddings)
+            train_clusters = hmm.predict(euclidean_embeddings)
         except ValueError:
             # ValueError: startprob_ must sum to 1 (got nan)
-            train_clusters = np.zeros((len(embeddings),), dtype=np.int8)
+            train_clusters = np.zeros((num_embeddings,), dtype=np.int8)
 
         return train_clusters
 
