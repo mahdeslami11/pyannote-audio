@@ -115,10 +115,31 @@ for audio, reference in evaluation_set:  # pseudo-code
 der = abs(metric)
 ```
 
+## Citations
+
+If you use `pyannote.audio` please use the following citations:
+
+```bibtex
+@inproceedings{Bredin2020,
+  Title = {{pyannote.audio: neural building blocks for speaker diarization}},
+  Author = {{Bredin}, Herv{\'e} and {Yin}, Ruiqing and {Coria}, Juan Manuel and {Gelly}, Gregory and {Korshunov}, Pavel and {Lavechin}, Marvin and {Fustes}, Diego and {Titeux}, Hadrien and {Bouaziz}, Wassim and {Gill}, Marie-Philippe},
+  Booktitle = {ICASSP 2020, IEEE International Conference on Acoustics, Speech, and Signal Processing},
+  Year = {2020},
+}
+```
+
+```bibtex
+@inproceedings{Bredin2021,
+  Title = {{End-to-end speaker segmentation for overlap-aware resegmentation}},
+  Author = {{Bredin}, Herv{\'e} and {Laurent}, Antoine},
+  Booktitle = {Proc. Interspeech 2021},
+  Year = {2021},
+}
+```
+
 ## Support
 
 For commercial enquiries and scientific consulting, please contact [me](mailto:herve@niderb.fr).
-
 
 ## Development
 
