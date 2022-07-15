@@ -74,6 +74,12 @@ pip install https://github.com/pyannote/pyannote-audio/archive/develop.zip
 
 ## Frequently asked questions
 
+#### How does one capitalize and pronounce the name of this awesome library?
+
+📝 Written in lower case: `pyannote.audio` (or `pyannote` if you are lazy).  Not `PyAnnote` nor `PyAnnotate` (*sic*).    
+📢 [Pronounced](https://www.howtopronounce.com/french/pianote) like the french verb *pianoter*.  *pi* like in **pi**ano, not *py* like in **py**thon.   
+🎹 *pianoter* means *to play the piano* (hence the logo 🤯).
+
 #### **[Pretrained pipelines](https://huggingface.co/models?other=pyannote-audio-pipeline) do not produce good results on my data. What can I do?**
 
 1. [Annotate](https://github.com/pyannote/pyannote-audio/blob/develop/tutorials/prodigy.md) dozens of conversations manually and separate them into development and test subsets in [`pyannote.database`](https://github.com/pyannote/pyannote-database#speaker-diarization).
