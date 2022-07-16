@@ -39,7 +39,7 @@ from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
 
 # from pyannote.pipeline.parameter import Uniform, Categorical
-from pyannote.pipeline.parameter import LogUniform, Uniform
+from pyannote.pipeline.parameter import LogUniform, ParamDict, Uniform
 
 from pyannote.audio import Audio, Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
@@ -149,8 +149,10 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         self.segmentation_onset = Uniform(0.1, 0.9)
 
         # hyper-parameters used to detect monologue
-        self.multi_speaker_chunk_ratio = LogUniform(1e-3, 0.5)
-        self.multi_speaker_frame_ratio = LogUniform(1e-6, 1e-1)
+        self.multi_speaker = ParamDict(
+            chunk_ratio=LogUniform(1e-3, 0.5),
+            frame_ratio=LogUniform(1e-6, 1e-1),
+        )
 
         if self.klustering == "OracleClustering":
             metric = "not_applicable"
@@ -481,8 +483,10 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
                 count for num, count in num_speakers_in_frame.items() if num > 0
             )
 
-            if (single_speaker_chunk_ratio > 1.0 - self.multi_speaker_chunk_ratio) and (
-                single_speaker_frame_ratio > 1.0 - self.multi_speaker_frame_ratio
+            if (
+                single_speaker_chunk_ratio > 1.0 - self.multi_speaker["chunk_ratio"]
+            ) and (
+                single_speaker_frame_ratio > 1.0 - self.multi_speaker["frame_ratio"]
             ):
                 min_speakers = max_speakers = num_speakers = 1
                 # TODO: replace by logger
