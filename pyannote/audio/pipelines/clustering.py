@@ -236,6 +236,8 @@ class BaseClustering(Pipeline):
         hard_clusters : (num_chunks, num_speakers)-shaped array
         """
 
+        # TODO: option to add a new (dummy) cluster in case num_clusters < max(frame_speaker_count)
+
         num_clusters = np.max(train_clusters) + 1
         num_chunks, num_speakers, dimension = embeddings.shape
 
@@ -267,7 +269,7 @@ class BaseClustering(Pipeline):
         else:
             hard_clusters = np.argmax(soft_clusters, axis=2)
 
-        # TODO: add a flag to revert argmax for trainign subsey
+        # TODO: add a flag to revert argmax for trainign subset
         # hard_clusters[train_chunk_idx, train_speaker_idx] = train_clusters
 
         return hard_clusters, soft_clusters
@@ -322,6 +324,7 @@ class BaseClustering(Pipeline):
         )
 
         if max_clusters < 2:
+            # do NOT apply clustering when min_clusters = max_clusters = 1
             train_clusters = np.zeros((num_embeddings,), dtype=np.int8)
         else:
             train_clusters = self.cluster(
@@ -784,9 +787,8 @@ class HiddenMarkovModelClustering(BaseClustering):
 
         num_embeddings = len(embeddings)
 
-        # FIXME
-        if max_clusters == num_embeddings:
-            max_clusters = 20
+        if min_clusters < 2:
+            return np.zeros((num_embeddings,), dtype=np.int8)
 
         if self.metric == "cosine":
             # unit-normalize embeddings to somehow make them "euclidean"
@@ -799,19 +801,52 @@ class HiddenMarkovModelClustering(BaseClustering):
 
         if num_clusters is None:
 
-            num_clusters = max_clusters
+            history = [
+                -np.inf,
+            ]
+
+            patience = min(3, max_clusters - min_clusters)
+
+            num_clusters = min_clusters - 1
+            best_criterion = -np.inf
+
             for n_components in range(min_clusters, max_clusters + 1):
 
                 hmm = self.fit_hmm(n_components, euclidean_embeddings)
+                train_clusters = hmm.predict(euclidean_embeddings)
 
-                if n_components > 1:
+                # compute distance between centroids
+                centroids = np.vstack(
+                    [
+                        np.mean(embeddings[train_clusters == k], axis=0)
+                        for k in range(n_components)
+                    ]
+                )
+                centroids_pdist = pdist(centroids, metric=self.metric)
+                current_criterion = np.min(centroids_pdist)
 
-                    # THIS IS A TERRIBLE CRITERION THAT NEEDS TO BE FIXED
-                    # as soon as two states get too close to each other, stop adding states
-                    min_state_dist = np.min(pdist(hmm.means_, metric="euclidean"))
-                    if min_state_dist < self.threshold:
-                        num_clusters = max(min_clusters, n_components - 1)
-                        break
+                # print(f"{n_components=} {current_criterion:.3f}")
+
+                # stop adding states when distance between two closest states
+                #  * no longer increases
+                #  * no longer goes above {threshold}
+
+                # final number of states is the last one for which the criterion
+                # goes above {threshold}.
+
+                # THIS IS A TERRIBLE CRITERION THAT NEEDS TO BE FIXED
+                best_criterion = max(history)
+                increasing = current_criterion > best_criterion
+                big_enough = current_criterion > self.threshold
+                if increasing or big_enough:
+                    num_clusters = n_components
+                    best_criterion = max(best_criterion, current_criterion)
+                elif n_components == num_clusters + patience:
+                    break
+
+                history.append(current_criterion)
+
+            # print(f"{num_clusters=}")
 
         if num_clusters == 1:
             return np.zeros((num_embeddings,), dtype=np.int8)
