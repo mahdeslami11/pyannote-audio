@@ -325,14 +325,17 @@ class BaseClustering(Pipeline):
 
         if max_clusters < 2:
             # do NOT apply clustering when min_clusters = max_clusters = 1
-            train_clusters = np.zeros((num_embeddings,), dtype=np.int8)
-        else:
-            train_clusters = self.cluster(
-                train_embeddings,
-                min_clusters,
-                max_clusters,
-                num_clusters=num_clusters,
-            )
+            num_chunks, num_speakers, _ = embeddings.shape
+            hard_clusters = np.zeros((num_chunks, num_speakers), dtype=np.int8)
+            soft_clusters = np.ones((num_chunks, num_speakers, 1))
+            return hard_clusters, soft_clusters
+
+        train_clusters = self.cluster(
+            train_embeddings,
+            min_clusters,
+            max_clusters,
+            num_clusters=num_clusters,
+        )
 
         hard_clusters, soft_clusters = self.assign_embeddings(
             embeddings,
