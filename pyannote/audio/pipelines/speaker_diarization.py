@@ -24,7 +24,6 @@
 
 import itertools
 import math
-import warnings
 from collections import Counter
 from typing import Callable, Optional
 
@@ -182,7 +181,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
     @property
     def CACHED_SEGMENTATION(self):
-        return "cache/segmentation"
+        return "training_cache/segmentation"
 
     def get_segmentations(self, file) -> SlidingWindowFeature:
         """Apply segmentation model
@@ -227,6 +226,16 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         -------
         embeddings : (num_chunks, num_speakers, dimension) array
         """
+
+        # use cached embeddings when available
+        if self.training:
+            cache = file.get("training_cache/embeddings", dict())
+            if (
+                cache.get("segmentation_onset", None) == self.segmentation_onset
+                and cache.get("embedding_exclude_overlap", None)
+                == self.embedding_exclude_overlap
+            ):
+                return cache["embeddings"]
 
         duration = binary_segmentations.sliding_window.duration
         num_chunks, num_frames, _ = binary_segmentations.data.shape
@@ -312,7 +321,16 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         embedding_batches = np.vstack(embedding_batches)
 
-        return rearrange(embedding_batches, "(c s) d -> c s d", c=num_chunks)
+        embeddings = rearrange(embedding_batches, "(c s) d -> c s d", c=num_chunks)
+
+        if self.training:
+            file["training_cache/embeddings"] = {
+                "segmentation_onset": self.segmentation_onset,
+                "embedding_exclude_overlap": self.embedding_exclude_overlap,
+                "embeddings": embeddings,
+            }
+
+        return embeddings
 
     def reconstruct(
         self,
@@ -414,7 +432,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
                 num_speakers = len(file["annotation"].labels())
 
                 if not self.training:
-                    warnings.warn(
+                    print(
                         f"This pipeline expects the number of speakers (num_speakers) to be given. "
                         f"It has been automatically set to {num_speakers:d} based on reference annotation. "
                     )
@@ -467,7 +485,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
                 single_speaker_frame_ratio > 1.0 - self.multi_speaker_frame_ratio
             ):
                 min_speakers = max_speakers = num_speakers = 1
-                warnings.warn(
+                # TODO: replace by logger
+                print(
                     "Segmentation-based heuristic has detected a monologue: embedding-based clustering "
                     "will not be applied. Prefer using `min_speakers > 1` when you know that there are "
                     "several speakers in the audio file."
@@ -479,6 +498,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         if self.klustering == "OracleClustering":
             embeddings = None
         else:
+
             embeddings = self.get_embeddings(
                 file,
                 binarized_segmentations,
