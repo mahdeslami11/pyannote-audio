@@ -467,6 +467,11 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
                 single_speaker_frame_ratio > 1.0 - self.multi_speaker_frame_ratio
             ):
                 min_speakers = max_speakers = num_speakers = 1
+                warnings.warn(
+                    "Segmentation-based heuristic has detected a monologue: embedding-based clustering "
+                    "will not be applied. Prefer using `min_speakers > 1` when you know that there are "
+                    "several speakers in the audio file."
+                )
 
             else:
                 min_speakers = 2
