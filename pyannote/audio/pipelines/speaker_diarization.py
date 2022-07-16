@@ -229,8 +229,13 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         embeddings : (num_chunks, num_speakers, dimension) array
         """
 
-        # use cached embeddings when available
+        # when optimizing the hyper-parameters of this pipeline with frozen "segmentation_onset",
+        # one can reuse the embeddings from the first trial, bringing a massive speed up to
+        # the optimization process (and hence allowing to use a larger search space).
         if self.training:
+
+            # we only re-use embeddings if they were extracted based on the same value of the
+            # "segmentation_onset" hyperparameter and "embedding_exclude_overlap" parameter.
             cache = file.get("training_cache/embeddings", dict())
             if (
                 cache.get("segmentation_onset", None) == self.segmentation_onset
@@ -325,6 +330,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         embeddings = rearrange(embedding_batches, "(c s) d -> c s d", c=num_chunks)
 
+        # caching embeddings for subsequent trials
+        # (see comments at the top of this method for more details)
         if self.training:
             file["training_cache/embeddings"] = {
                 "segmentation_onset": self.segmentation_onset,
