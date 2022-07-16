@@ -787,6 +787,9 @@ class HiddenMarkovModelClustering(BaseClustering):
 
         num_embeddings = len(embeddings)
 
+        # FIXME
+        max_clusters = 20
+
         if min_clusters < 2:
             return np.zeros((num_embeddings,), dtype=np.int8)
 
