@@ -149,7 +149,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         self.segmentation_onset = Uniform(0.1, 0.9)
 
         # hyper-parameters used to detect monologue
-        self.multi_speaker = ParamDict(
+        self.single_speaker_detection = ParamDict(
             chunk_ratio=LogUniform(1e-3, 0.5),
             frame_ratio=LogUniform(1e-6, 1e-1),
         )
@@ -484,9 +484,11 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             )
 
             if (
-                single_speaker_chunk_ratio > 1.0 - self.multi_speaker["chunk_ratio"]
+                single_speaker_chunk_ratio
+                > 1.0 - self.single_speaker_detection["chunk_ratio"]
             ) and (
-                single_speaker_frame_ratio > 1.0 - self.multi_speaker["frame_ratio"]
+                single_speaker_frame_ratio
+                > 1.0 - self.single_speaker_detection["frame_ratio"]
             ):
                 min_speakers = max_speakers = num_speakers = 1
                 # TODO: replace by logger
