@@ -40,7 +40,7 @@ from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
 
 # from pyannote.pipeline.parameter import Uniform, Categorical
-from pyannote.pipeline.parameter import Uniform
+from pyannote.pipeline.parameter import LogUniform, Uniform
 
 from pyannote.audio import Audio, Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
@@ -149,9 +149,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         self._frames: SlidingWindow = self._segmentation.model.introspection.frames
         self.segmentation_onset = Uniform(0.1, 0.9)
 
-        # TODO: tune these hyper-parameters
-        self.single_speaker_ratio_in_chunk = 0.9
-        self.single_speaker_ratio_in_frame = 0.999
+        # hyper-parameters used to detect monologue
+        self.multi_speaker_chunk_ratio = LogUniform(1e-3, 0.5)
+        self.multi_speaker_frame_ratio = LogUniform(1e-6, 1e-1)
 
         if self.klustering == "OracleClustering":
             metric = "not_applicable"
@@ -456,16 +456,15 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             )
             num_speakers_in_frame = Counter(count.data.squeeze())
 
-            single_speaker_ratio_in_chunk = num_speakers_in_chunk.get(1, 0.0) / sum(
+            single_speaker_chunk_ratio = num_speakers_in_chunk.get(1, 0.0) / sum(
                 count for num, count in num_speakers_in_chunk.items() if num > 0
             )
-            single_speaker_ratio_in_frames = num_speakers_in_frame.get(1, 0.0) / sum(
+            single_speaker_frame_ratio = num_speakers_in_frame.get(1, 0.0) / sum(
                 count for num, count in num_speakers_in_frame.items() if num > 0
             )
 
-            if (
-                single_speaker_ratio_in_chunk > self.single_speaker_ratio_in_chunk
-                and single_speaker_ratio_in_frames > self.single_speaker_ratio_in_frame
+            if (single_speaker_chunk_ratio > 1.0 - self.multi_speaker_chunk_ratio) and (
+                single_speaker_frame_ratio > 1.0 - self.multi_speaker_frame_ratio
             ):
                 min_speakers = max_speakers = num_speakers = 1
 
