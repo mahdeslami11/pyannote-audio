@@ -27,18 +27,11 @@ import math
 from collections import Counter
 from typing import Callable, Optional
 
-# import networkx as nx
 import numpy as np
-
-# import scipy.special
 import torch
 from einops import rearrange
 from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
-
-# from pyannote.core import Segment
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
-
-# from pyannote.pipeline.parameter import Uniform, Categorical
 from pyannote.pipeline.parameter import LogUniform, ParamDict, Uniform
 
 from pyannote.audio import Audio, Inference, Model, Pipeline
@@ -149,10 +142,11 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         self.segmentation_onset = Uniform(0.1, 0.9)
 
         # hyper-parameters used to detect monologue
-        self.single_speaker_detection = ParamDict(
-            chunk_ratio=LogUniform(1e-3, 0.5),
-            frame_ratio=LogUniform(1e-6, 1e-1),
-        )
+        if not self.clustering.supports_single_cluster:
+            self.single_speaker_detection = ParamDict(
+                chunk_ratio=LogUniform(1e-3, 0.5),
+                frame_ratio=LogUniform(1e-6, 1e-1),
+            )
 
         if self.klustering == "OracleClustering":
             metric = "not_applicable"
@@ -476,7 +470,11 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         # heuristic to detect single speaker conversations
         # TODO: do better than this heuristic
-        if num_speakers is None and min_speakers < 2:
+        if (
+            num_speakers is None
+            and min_speakers < 2
+            and not self.clustering.supports_single_cluster
+        ):
 
             num_speakers_in_chunk = Counter(
                 np.sum(np.max(binarized_segmentations.data, axis=1), axis=-1)
