@@ -55,10 +55,6 @@ from pyannote.audio.utils.permutation import permutate
 
 
 class BaseClustering(Pipeline):
-
-    # whether the clustering algorithm handles mono-cluster
-    supports_single_cluster = True
-
     def __init__(
         self,
         metric: str = "cosine",
@@ -287,7 +283,7 @@ class BaseClustering(Pipeline):
         max_clusters: int = None,
         **kwargs,
     ) -> np.ndarray:
-        """Apply clustering
+        """Apply HMM clustering
 
         Parameters
         ----------
@@ -374,8 +370,6 @@ class AgglomerativeClustering(BaseClustering):
     -----
     Embeddings are expected to be unit-normalized.
     """
-
-    supports_single_cluster = True
 
     def __init__(
         self,
@@ -470,8 +464,6 @@ class AgglomerativeClustering(BaseClustering):
 
 class OracleClustering(BaseClustering):
     """Oracle clustering"""
-
-    supports_single_cluster = True
 
     def __init__(self, metric: str = "cosine", expects_num_clusters: bool = False):
         super().__init__()
@@ -570,8 +562,6 @@ class SpectralClustering(BaseClustering):
     -----
     Embeddings are expected to be unit-normalized.
     """
-
-    supports_single_cluster = False
 
     def __init__(
         self,
@@ -697,8 +687,6 @@ class SpectralClustering(BaseClustering):
 class HiddenMarkovModelClustering(BaseClustering):
     """Hidden Markov Model with Gaussian states"""
 
-    supports_single_cluster = True
-
     def __init__(
         self,
         metric: str = "cosine",
@@ -800,12 +788,13 @@ class HiddenMarkovModelClustering(BaseClustering):
         num_clusters: int = None,
     ):
 
-        # TODO handle mono-cluster in here
-
         num_embeddings = len(embeddings)
 
         # FIXME
         max_clusters = 20
+
+        if min_clusters < 2:
+            return np.zeros((num_embeddings,), dtype=np.int8)
 
         if self.metric == "cosine":
             # unit-normalize embeddings to somehow make them "euclidean"
@@ -818,17 +807,21 @@ class HiddenMarkovModelClustering(BaseClustering):
 
         if num_clusters is None:
 
+            history = [
+                -np.inf,
+            ]
+
             patience = min(3, max_clusters - min_clusters)
 
-            num_clusters = min_clusters
-            history = [-np.inf]
+            num_clusters = min_clusters - 1
+            best_criterion = -np.inf
 
-            for n_components in range(max(min_clusters, 2), max_clusters + 1):
+            for n_components in range(min_clusters, max_clusters + 1):
 
                 hmm = self.fit_hmm(n_components, euclidean_embeddings)
+                train_clusters = hmm.predict(euclidean_embeddings)
 
                 # compute distance between centroids
-                train_clusters = hmm.predict(euclidean_embeddings)
                 centroids = np.vstack(
                     [
                         np.mean(embeddings[train_clusters == k], axis=0)
@@ -861,9 +854,7 @@ class HiddenMarkovModelClustering(BaseClustering):
 
             # print(f"{num_clusters=}")
 
-        # corner case where min_clusters = 1, best criterion was achieved for num_clusters = 2,
-        # and yet never went above target threshold.
-        if min_clusters == 1 and num_clusters == 2 and max(history) < self.threshold:
+        if num_clusters == 1:
             return np.zeros((num_embeddings,), dtype=np.int8)
 
         # once num_clusters is estimated, fit the HMM several times
