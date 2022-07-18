@@ -141,6 +141,13 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         self._frames: SlidingWindow = self._segmentation.model.introspection.frames
         self.segmentation_onset = Uniform(0.1, 0.9)
 
+        # hyper-parameters used to detect monologue
+        if not self.clustering.supports_single_cluster:
+            self.single_speaker_detection = ParamDict(
+                chunk_ratio=LogUniform(1e-3, 0.5),
+                frame_ratio=LogUniform(1e-6, 1e-1),
+            )
+
         if self.klustering == "OracleClustering":
             metric = "not_applicable"
 
@@ -161,13 +168,6 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             metric=metric,
             expects_num_clusters=self.expects_num_speakers,
         )
-
-        # hyper-parameters used to detect monologue
-        if not self.clustering.supports_single_cluster:
-            self.single_speaker_detection = ParamDict(
-                chunk_ratio=LogUniform(1e-3, 0.5),
-                frame_ratio=LogUniform(1e-6, 1e-1),
-            )
 
     def classes(self):
         speaker = 0
