@@ -150,8 +150,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         # hyper-parameters used to detect monologue
         self.single_speaker_detection = ParamDict(
-            chunk_ratio=LogUniform(1e-3, 0.5),
-            frame_ratio=LogUniform(1e-6, 1e-1),
+            chunk_ratio=Uniform(0.0, 0.1),
+            frame_ratio=LogUniform(1e-6, 1e-3),
         )
 
         if self.klustering == "OracleClustering":
