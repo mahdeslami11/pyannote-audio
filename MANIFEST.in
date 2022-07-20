@@ -1,2 +1,4 @@
-include versioneer.py
-include pyannote/audio/_version.py
+recursive-include pyannote *.py
+recursive-include pyannote *.yaml
+global-exclude *.pyc
+global-exclude __pycache__

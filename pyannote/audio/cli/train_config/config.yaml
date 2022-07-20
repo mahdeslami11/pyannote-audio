@@ -1,0 +1,9 @@
+protocol: ???
+
+defaults:
+  - task: SpeakerSegmentation
+  - model: PyanNet
+  - optimizer: Adam
+  - scheduler: CosineAnnealingWarmRestarts
+  - trainer: default
+  - hydra: default

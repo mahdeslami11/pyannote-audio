@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # encoding: utf-8
-
+#
 # The MIT License (MIT)
-
-# Copyright (c) 2016-2018 CNRS
-
+#
+# Copyright (c) 2016-2021 CNRS
+#
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
 # in the Software without restriction, including without limitation the rights
@@ -30,116 +30,199 @@
 # Signal processing
 """
 
+from functools import singledispatch
+from itertools import zip_longest
+from typing import Optional, Union
 
+import einops
 import numpy as np
 import scipy.signal
-from pyannote.core import Segment, Timeline
+from pyannote.core import Annotation, Segment, SlidingWindowFeature, Timeline
 from pyannote.core.utils.generators import pairwise
-from sklearn.mixture import GaussianMixture
-from pyannote.core.utils.numpy import one_hot_decoding
 
 
-class Peak(object):
-    """Peak detection
+@singledispatch
+def binarize(
+    scores,
+    onset: float = 0.5,
+    offset: Optional[float] = None,
+    initial_state: Optional[Union[bool, np.ndarray]] = None,
+):
+    """(Batch) hysteresis thresholding
 
     Parameters
     ----------
-    alpha : float, optional
-        Adaptative threshold coefficient. Defaults to 0.5
-    scale : {'absolute', 'relative', 'percentile'}
-        Set to 'relative' to make onset/offset relative to min/max.
-        Set to 'percentile' to make them relative 1% and 99% percentiles.
-        Defaults to 'absolute'.
-    min_duration : float, optional
-        Defaults to 1 second.
-    log_scale : bool, optional
-        Set to True to indicate that binarized scores are log scaled.
-        Defaults to False.
+    scores : numpy.ndarray or SlidingWindowFeature
+        (num_chunks, num_frames, num_classes)- or (num_frames, num_classes)-shaped scores.
+    onset : float, optional
+        Onset threshold. Defaults to 0.5.
+    offset : float, optional
+        Offset threshold. Defaults to `onset`.
+    initial_state : np.ndarray or bool, optional
+        Initial state.
+
+    Returns
+    -------
+    binarized : same as scores
+        Binarized scores with same shape and type as scores.
+
+    Reference
+    ---------
+    https://stackoverflow.com/questions/23289976/how-to-find-zero-crossings-with-hysteresis
+    """
+    raise NotImplementedError(
+        "scores must be of type numpy.ndarray or SlidingWindowFeatures"
+    )
+
+
+@binarize.register
+def binarize_ndarray(
+    scores: np.ndarray,
+    onset: float = 0.5,
+    offset: Optional[float] = None,
+    initial_state: Optional[Union[bool, np.ndarray]] = None,
+):
+    """(Batch) hysteresis thresholding
+
+    Parameters
+    ----------
+    scores : numpy.ndarray
+        (num_frames, num_classes)-shaped scores.
+    onset : float, optional
+        Onset threshold. Defaults to 0.5.
+    offset : float, optional
+        Offset threshold. Defaults to `onset`.
+    initial_state : np.ndarray or bool, optional
+        Initial state.
+
+    Returns
+    -------
+    binarized : same as scores
+        Binarized scores with same shape and type as scores.
+    """
+
+    offset = offset or onset
+
+    batch_size, num_frames = scores.shape
+
+    scores = np.nan_to_num(scores)
+
+    if initial_state is None:
+        initial_state = scores[:, 0] >= 0.5 * (onset + offset)
+
+    elif isinstance(initial_state, bool):
+        initial_state = initial_state * np.ones((batch_size,), dtype=bool)
+
+    elif isinstance(initial_state, np.ndarray):
+        assert initial_state.shape == (batch_size,)
+        assert initial_state.dtype == bool
+
+    initial_state = np.tile(initial_state, (num_frames, 1)).T
+
+    on = scores > onset
+    off_or_on = (scores < offset) | on
+
+    # indices of frames for which the on/off state is well-defined
+    well_defined_idx = np.array(
+        list(zip_longest(*[np.nonzero(oon)[0] for oon in off_or_on], fillvalue=-1))
+    ).T
+
+    # corner case where well_defined_idx is empty
+    if not well_defined_idx.size:
+        return np.zeros_like(scores, dtype=bool) | initial_state
+
+    # points to the index of the previous well-defined frame
+    same_as = np.cumsum(off_or_on, axis=1)
+
+    samples = np.tile(np.arange(batch_size), (num_frames, 1)).T
+
+    return np.where(
+        same_as, on[samples, well_defined_idx[samples, same_as - 1]], initial_state
+    )
+
+
+@binarize.register
+def binarize_swf(
+    scores: SlidingWindowFeature,
+    onset: float = 0.5,
+    offset: Optional[float] = None,
+    initial_state: Optional[bool] = None,
+):
+    """(Batch) hysteresis thresholding
+
+    Parameters
+    ----------
+    scores : SlidingWindowFeature
+        (num_chunks, num_frames, num_classes)- or (num_frames, num_classes)-shaped scores.
+    onset : float, optional
+        Onset threshold. Defaults to 0.5.
+    offset : float, optional
+        Offset threshold. Defaults to `onset`.
+    initial_state : np.ndarray or bool, optional
+        Initial state.
+
+    Returns
+    -------
+    binarized : same as scores
+        Binarized scores with same shape and type as scores.
 
     """
 
-    def __init__(self, alpha=0.5, min_duration=1.0, scale="absolute", log_scale=False):
-        super(Peak, self).__init__()
-        self.alpha = alpha
-        self.scale = scale
-        self.min_duration = min_duration
-        self.log_scale = log_scale
+    offset = offset or onset
 
-    def apply(self, predictions, dimension=0):
-        """Peak detection
+    if scores.data.ndim == 2:
+        num_frames, num_classes = scores.data.shape
+        data = einops.rearrange(scores.data, "f k -> k f", f=num_frames, k=num_classes)
+        binarized = binarize(
+            data, onset=onset, offset=offset, initial_state=initial_state
+        )
+        return SlidingWindowFeature(
+            1.0
+            * einops.rearrange(binarized, "k f -> f k", f=num_frames, k=num_classes),
+            scores.sliding_window,
+        )
 
-        Parameter
-        ---------
-        predictions : SlidingWindowFeature
-            Predictions returned by segmentation approaches.
+    elif scores.data.ndim == 3:
+        num_chunks, num_frames, num_classes = scores.data.shape
+        data = einops.rearrange(
+            scores.data, "c f k -> (c k) f", c=num_chunks, f=num_frames, k=num_classes
+        )
+        binarized = binarize(
+            data, onset=onset, offset=offset, initial_state=initial_state
+        )
+        return SlidingWindowFeature(
+            1.0
+            * einops.rearrange(
+                binarized, "(c k) f -> c f k", c=num_chunks, f=num_frames, k=num_classes
+            ),
+            scores.sliding_window,
+        )
 
-        Returns
-        -------
-        segmentation : Timeline
-            Partition.
-        """
-
-        if len(predictions.data.shape) == 1:
-            y = predictions.data
-        elif predictions.data.shape[1] == 1:
-            y = predictions.data[:, 0]
-        else:
-            y = predictions.data[:, dimension]
-
-        if self.log_scale:
-            y = np.exp(y)
-
-        sw = predictions.sliding_window
-
-        precision = sw.step
-        order = max(1, int(np.rint(self.min_duration / precision)))
-        indices = scipy.signal.argrelmax(y, order=order)[0]
-
-        if self.scale == "absolute":
-            mini = 0
-            maxi = 1
-
-        elif self.scale == "relative":
-            mini = np.nanmin(y)
-            maxi = np.nanmax(y)
-
-        elif self.scale == "percentile":
-            mini = np.nanpercentile(y, 1)
-            maxi = np.nanpercentile(y, 99)
-
-        threshold = mini + self.alpha * (maxi - mini)
-
-        peak_time = np.array([sw[i].middle for i in indices if y[i] > threshold])
-
-        n_windows = len(y)
-        start_time = sw[0].start
-        end_time = sw[n_windows].end
-
-        boundaries = np.hstack([[start_time], peak_time, [end_time]])
-        segmentation = Timeline()
-        for i, (start, end) in enumerate(pairwise(boundaries)):
-            segment = Segment(start, end)
-            segmentation.add(segment)
-
-        return segmentation
+    else:
+        raise ValueError(
+            "Shape of scores must be (num_chunks, num_frames, num_classes) or (num_frames, num_classes)."
+        )
 
 
-class Binarize(object):
-    """Binarize predictions using onset/offset thresholding
+class Binarize:
+    """Binarize detection scores using hysteresis thresholding
 
     Parameters
     ----------
     onset : float, optional
-        Relative onset threshold. Defaults to 0.5.
+        Onset threshold. Defaults to 0.5.
     offset : float, optional
-        Relative offset threshold. Defaults to 0.5.
-    scale : {'absolute', 'relative', 'percentile'}
-        Set to 'relative' to make onset/offset relative to min/max.
-        Set to 'percentile' to make them relative 1% and 99% percentiles.
-        Defaults to 'absolute'.
-    log_scale : bool, optional
-        Set to True to indicate that binarized scores are log scaled.
-        Will apply exponential first. Defaults to False.
+        Offset threshold. Defaults to `onset`.
+    min_duration_on : float, optional
+        Remove active regions shorter than that many seconds. Defaults to 0s.
+    min_duration_off : float, optional
+        Fill inactive regions shorter than that many seconds. Defaults to 0s.
+    pad_onset : float, optional
+        Extend active regions by moving their start time by that many seconds.
+        Defaults to 0s.
+    pad_offset : float, optional
+        Extend active regions by moving their end time by that many seconds.
+        Defaults to 0s.
 
     Reference
     ---------
@@ -149,22 +232,18 @@ class Binarize(object):
 
     def __init__(
         self,
-        onset=0.5,
-        offset=0.5,
-        scale="absolute",
-        log_scale=False,
-        pad_onset=0.0,
-        pad_offset=0.0,
-        min_duration_on=0.0,
-        min_duration_off=0.0,
+        onset: float = 0.5,
+        offset: Optional[float] = None,
+        min_duration_on: float = 0.0,
+        min_duration_off: float = 0.0,
+        pad_onset: float = 0.0,
+        pad_offset: float = 0.0,
     ):
 
-        super(Binarize, self).__init__()
+        super().__init__()
 
         self.onset = onset
-        self.offset = offset
-        self.scale = scale
-        self.log_scale = log_scale
+        self.offset = offset or onset
 
         self.pad_onset = pad_onset
         self.pad_offset = pad_offset
@@ -172,182 +251,124 @@ class Binarize(object):
         self.min_duration_on = min_duration_on
         self.min_duration_off = min_duration_off
 
-    def apply(self, predictions, dimension=0):
-        """
+    def __call__(self, scores: SlidingWindowFeature) -> Annotation:
+        """Binarize detection scores
+
         Parameters
         ----------
-        predictions : SlidingWindowFeature
-            Must be mono-dimensional
-        dimension : int, optional
-            Which dimension to process
+        scores : SlidingWindowFeature
+            Detection scores.
+
+        Returns
+        -------
+        active : Annotation
+            Binarized scores.
         """
 
-        if len(predictions.data.shape) == 1:
-            data = predictions.data
-        elif predictions.data.shape[1] == 1:
-            data = predictions.data[:, 0]
-        else:
-            data = predictions.data[:, dimension]
+        num_frames, num_classes = scores.data.shape
+        frames = scores.sliding_window
+        timestamps = [frames[i].middle for i in range(num_frames)]
 
-        if self.log_scale:
-            data = np.exp(data)
+        # annotation meant to store 'active' regions
+        active = Annotation()
 
-        n_samples = predictions.getNumber()
-        window = predictions.sliding_window
-        timestamps = [window[i].middle for i in range(n_samples)]
+        for k, k_scores in enumerate(scores.data.T):
 
-        # initial state
-        start = timestamps[0]
-        label = data[0] > self.onset
+            label = k if scores.labels is None else scores.labels[k]
 
-        if self.scale == "absolute":
-            mini = 0
-            maxi = 1
+            # initial state
+            start = timestamps[0]
+            is_active = k_scores[0] > self.onset
 
-        elif self.scale == "relative":
-            mini = np.nanmin(data)
-            maxi = np.nanmax(data)
+            for t, y in zip(timestamps[1:], k_scores[1:]):
 
-        elif self.scale == "percentile":
-            mini = np.nanpercentile(data, 1)
-            maxi = np.nanpercentile(data, 99)
+                # currently active
+                if is_active:
+                    # switching from active to inactive
+                    if y < self.offset:
+                        region = Segment(start - self.pad_onset, t + self.pad_offset)
+                        active[region, k] = label
+                        start = t
+                        is_active = False
 
-        onset = mini + self.onset * (maxi - mini)
-        offset = mini + self.offset * (maxi - mini)
+                # currently inactive
+                else:
+                    # switching from inactive to active
+                    if y > self.onset:
+                        start = t
+                        is_active = True
 
-        # timeline meant to store 'active' segments
-        active = Timeline()
+            # if active at the end, add final region
+            if is_active:
+                region = Segment(start - self.pad_onset, t + self.pad_offset)
+                active[region, k] = label
 
-        for t, y in zip(timestamps[1:], data[1:]):
+        # because of padding, some active regions might be overlapping: merge them.
+        # also: fill same speaker gaps shorter than min_duration_off
+        if self.pad_offset > 0.0 or self.pad_onset > 0.0 or self.min_duration_off > 0.0:
+            active = active.support(collar=self.min_duration_off)
 
-            # currently active
-            if label:
-                # switching from active to inactive
-                if y < offset:
-                    segment = Segment(start - self.pad_onset, t + self.pad_offset)
-                    active.add(segment)
-                    start = t
-                    label = False
-
-            # currently inactive
-            else:
-                # switching from inactive to active
-                if y > onset:
-                    start = t
-                    label = True
-
-        # if active at the end, add final segment
-        if label:
-            segment = Segment(start - self.pad_onset, t + self.pad_offset)
-            active.add(segment)
-
-        # because of padding, some 'active' segments might be overlapping
-        # therefore, we merge those overlapping segments
-        active = active.support()
-
-        # remove short 'active' segments
-        active = Timeline([s for s in active if s.duration > self.min_duration_on])
-
-        # fill short 'inactive' segments
-        inactive = active.gaps()
-        for s in inactive:
-            if s.duration < self.min_duration_off:
-                active.add(s)
-        active = active.support()
+        # remove tracks shorter than min_duration_on
+        if self.min_duration_on > 0:
+            for segment, track in list(active.itertracks()):
+                if segment.duration < self.min_duration_on:
+                    del active[segment, track]
 
         return active
 
 
-class GMMResegmentation(object):
-    """
+class Peak:
+    """Peak detection
+
     Parameters
     ----------
-    n_components : int, optional
-        Number of Gaussian components of the GMMs. Defaults to 128.
-    n_iter : int, optional
-        Number of EM iterations to train the models. Defaults to 10.
-    window : float, optional
-        Duration of the smoothing window. Defaults to 1 second.
-
-    Note
-    ----
-    Recommended feature extraction is to use LibrosaMFCC with 19 static MFCCs
-    (no energy nor zero-coefficient)
-    >>> feature_extraction = LibrosaMFCC(duration=0.025, step=0.01,
-                                         e=False, De=False, DDe=False,
-                                         coefs=19, D=False, DD=False,
-                                         fmin=0.0, fmax=None, n_mels=40)
-
-    TODO: add option to also resegment speech/non-speech
-
+    alpha : float, optional
+        Peak threshold. Defaults to 0.5
+    min_duration : float, optional
+        Minimum elapsed time between two consecutive peaks. Defaults to 1 second.
     """
 
-    def __init__(self, n_components=128, n_iter=10, window=1.0):
-        super().__init__()
-        self.n_components = n_components
-        self.n_iter = n_iter
-        self.window = window
+    def __init__(
+        self,
+        alpha: float = 0.5,
+        min_duration: float = 1.0,
+    ):
+        super(Peak, self).__init__()
+        self.alpha = alpha
+        self.min_duration = min_duration
 
-    def apply(self, annotation, features):
-        """
+    def __call__(self, scores: SlidingWindowFeature):
+        """Peak detection
 
-        Parameters
-        ----------
-        annotation : `pyannote.core.Annotation`
-            Original annotation to be resegmented.
-        features : `SlidingWindowFeature`
-            Features
+        Parameter
+        ---------
+        scores : SlidingWindowFeature
+            Detection scores.
 
         Returns
         -------
-        hypothesis : `pyannote.core.Annotation`
-            Resegmented annotation.
-
+        segmentation : Timeline
+            Partition.
         """
 
-        sliding_window = features.sliding_window
-        window = np.ones((1, sliding_window.samples(self.window)))
+        if scores.dimension != 1:
+            raise ValueError("Peak expects one-dimensional scores.")
 
-        log_probs = []
-        labels = annotation.labels()
+        num_frames = len(scores)
+        frames = scores.sliding_window
 
-        # FIXME: embarrasingly parallel
-        for label in labels:
+        precision = frames.step
+        order = max(1, int(np.rint(self.min_duration / precision)))
+        indices = scipy.signal.argrelmax(scores[:], order=order)[0]
 
-            # gather all features for current label
-            span = annotation.label_timeline(label)
-            data = features.crop(span, mode="center")
+        peak_time = np.array(
+            [frames[i].middle for i in indices if scores[i] > self.alpha]
+        )
+        boundaries = np.hstack([[frames[0].start], peak_time, [frames[num_frames].end]])
 
-            # train a GMM
-            gmm = GaussianMixture(
-                n_components=self.n_components,
-                covariance_type="diag",
-                tol=0.001,
-                reg_covar=1e-06,
-                max_iter=self.n_iter,
-                n_init=1,
-                init_params="kmeans",
-                weights_init=None,
-                means_init=None,
-                precisions_init=None,
-                random_state=None,
-                warm_start=False,
-                verbose=0,
-                verbose_interval=10,
-            ).fit(data)
+        segmentation = Timeline()
+        for i, (start, end) in enumerate(pairwise(boundaries)):
+            segment = Segment(start, end)
+            segmentation.add(segment)
 
-            # compute log-probability across the whole file
-            log_prob = gmm.score_samples(features.data)
-            log_probs.append(log_prob)
-
-        # smooth log-probability using a sliding window
-        log_probs = scipy.signal.convolve(np.vstack(log_probs), window, mode="same")
-
-        # assign each frame to the most likely label
-        y = np.argmax(log_probs, axis=0)
-
-        # reconstruct the annotation
-        hypothesis = one_hot_decoding(y, sliding_window, labels=labels)
-
-        # remove original non-speech regions
-        return hypothesis.crop(annotation.get_timeline().support())
+        return segmentation
