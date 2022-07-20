@@ -2,7 +2,7 @@
 Changelog
 #########
 
-Version 2.0 (2022-07-20)
+Version 2.0.1 (2022-07-20)
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
   - BREAKING: complete rewrite

@@ -29,7 +29,7 @@ for turn, _, speaker in diarization.itertracks(yield_label=True):
 
 ## What's new in `pyannote.audio` 2.0
 
-For version 2.0 of `pyannote.audio`, [I](https://herve.niderb.fr) decided to rewrite almost everything from scratch.
+For version 2.x of `pyannote.audio`, [I](https://herve.niderb.fr) decided to rewrite almost everything from scratch.
 Highlights of this release are:
 
 - :exploding_head: much better performance (see [Benchmark](#benchmark))
@@ -51,7 +51,7 @@ conda activate pyannote
 # (see https://pytorch.org/get-started/previous-versions/#v1110)
 conda install pytorch==1.11.0 torchvision==0.12.0 torchaudio==0.11.0 -c pytorch
 
-pip install pyannote.audio==2.0
+pip install pyannote.audio
 ```
 
 ## Documentation
