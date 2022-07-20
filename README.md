@@ -46,9 +46,12 @@ Only Python 3.8+ is officially supported (though it might work with Python 3.7)
 ```bash
 conda create -n pyannote python=3.8
 conda activate pyannote
-# Pytorch 1.11 is required for speechbrain compatibility. See https://pytorch.org/get-started/previous-versions/#v1110
+
+# pytorch 1.11 is required for speechbrain compatibility
+# (see https://pytorch.org/get-started/previous-versions/#v1110)
 conda install pytorch==1.11.0 torchvision==0.12.0 torchaudio==0.11.0 -c pytorch
-pip install https://github.com/pyannote/pyannote-audio/archive/develop.zip
+
+pip install pyannote.audio==2.0
 ```
 
 ## Documentation
@@ -76,8 +79,8 @@ pip install https://github.com/pyannote/pyannote-audio/archive/develop.zip
 
 #### How does one capitalize and pronounce the name of this awesome library?
 
-📝 Written in lower case: `pyannote.audio` (or `pyannote` if you are lazy).  Not `PyAnnote` nor `PyAnnotate` (*sic*).    
-📢 [Pronounced](https://www.howtopronounce.com/french/pianote) like the french verb *pianoter*.  *pi* like in **pi**ano, not *py* like in **py**thon.   
+📝 Written in lower case: `pyannote.audio` (or `pyannote` if you are lazy).  Not `PyAnnote` nor `PyAnnotate` (*sic*).
+📢 [Pronounced](https://www.howtopronounce.com/french/pianote) like the french verb *pianoter*.  *pi* like in **pi**ano, not *py* like in **py**thon.
 🎹 *pianoter* means *to play the piano* (hence the logo 🤯).
 
 #### **[Pretrained pipelines](https://huggingface.co/models?other=pyannote-audio-pipeline) do not produce good results on my data. What can I do?**
