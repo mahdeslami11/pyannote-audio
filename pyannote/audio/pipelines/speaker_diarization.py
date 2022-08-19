@@ -22,6 +22,7 @@
 
 """Speaker diarization pipelines"""
 
+import functools
 import itertools
 import math
 from typing import Callable, Optional
@@ -43,6 +44,7 @@ from pyannote.audio.pipelines.utils import (
     get_devices,
     get_model,
 )
+from pyannote.audio.pipelines.utils.oracle import oracle_segmentation
 from pyannote.audio.utils.signal import binarize
 
 
@@ -65,6 +67,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         The segmentation model is applied on a window sliding over the whole audio file.
         `segmentation_step` controls the step of this window, provided as a ratio of its
         duration. Defaults to 0.1 (i.e. 90% overlap between two consecuive windows).
+    segmentation_oracle: bool, optional
+        Simulate perfect segmentation with the same specifications as `segmentation`.
+        This includes chunk duration, frame resolution, and output number of speakers.
     embedding : Model, str, or dict, optional
         Pretrained embedding model. Defaults to "pyannote/embedding@2022.07".
         See pyannote.audio.pipelines.utils.get_model for supported format.
@@ -92,6 +97,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         self,
         segmentation: PipelineModel = "pyannote/segmentation@2022.07",
         segmentation_step: float = 0.1,
+        segmentation_oracle: bool = False,
         embedding: PipelineModel = "speechbrain/spkrec-ecapa-voxceleb@5c0be3875fda05e81f3c004ed8c7c06be308de1e",
         embedding_exclude_overlap: bool = False,
         clustering: str = "HiddenMarkovModelClustering",
@@ -104,6 +110,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         self.segmentation = segmentation
         self.segmentation_batch_size = segmentation_batch_size
         self.segmentation_step = segmentation_step
+        self.segmentation_oracle = segmentation_oracle
 
         self.embedding = embedding
         self.embedding_batch_size = embedding_batch_size
@@ -124,7 +131,27 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             batch_size=self.segmentation_batch_size,
         )
         self._frames: SlidingWindow = self._segmentation.model.introspection.frames
-        self.segmentation_onset = Uniform(0.1, 0.9)
+
+        if self.segmentation_oracle:
+            # replace segmentation model/inference by its oracle version
+
+            window = SlidingWindow(
+                start=0.0,
+                duration=model.specifications.duration,
+                step=self.segmentation_step * model.specifications.duration,
+            )
+
+            self._segmentation = functools.partial(
+                oracle_segmentation,
+                window,
+                frames=self._frames,
+                num_speakers=len(model.specifications.classes),
+            )
+
+            self.segmentation_onset = 0.5
+
+        else:
+            self.segmentation_onset = Uniform(0.1, 0.9)
 
         if self.klustering == "OracleClustering":
             metric = "not_applicable"
