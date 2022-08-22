@@ -36,6 +36,15 @@ from pyannote.pipeline.parameter import Categorical, LogUniform, ParamDict, Unif
 from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist, pdist
+from spectralcluster import (
+    AutoTune,
+    EigenGapType,
+    LaplacianType,
+    RefinementName,
+    RefinementOptions,
+    SpectralClusterer,
+    ThresholdType,
+)
 
 from pyannote.audio import Inference
 from pyannote.audio.core.io import AudioFile
@@ -649,7 +658,135 @@ class HiddenMarkovModelClustering(BaseClustering):
         return train_clusters
 
 
+class SpectralClustering(BaseClustering):
+    """Spectral clustering"""
+
+    def __init__(
+        self,
+        metric: str = "cosine",
+        constrained_assignment: bool = False,
+    ):
+
+        if metric not in ["cosine"]:
+            raise ValueError("`metric` must be 'cosine'.")
+
+        super().__init__(
+            metric=metric,
+            constrained_assignment=constrained_assignment,
+        )
+
+        self.single_cluster_detection = ParamDict(
+            quantile=LogUniform(1e-3, 1e-1),
+            threshold=Uniform(0.0, 2.0),
+        )
+
+        self.gaussian_blur_sigma = Uniform(0.0, 5.0)
+        self.thresholding_type = Categorical(["RowMax", "Percentile"])
+
+    def filter_embeddings(
+        self, embeddings: np.ndarray, segmentations: SlidingWindowFeature
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+
+        Parameters
+        ----------
+        embeddings : (num_chunks, num_speakers, dimension) array
+            Sequence of embeddings.
+        segmentations : (num_chunks, num_frames, num_speakers) array
+            Binary segmentations.
+
+        Returns
+        -------
+        train_embeddings : (num_steps, dimension) array
+        chunk_idx : (num_steps, ) array
+        speaker_idx : (num_steps, ) array
+
+        """
+
+        num_chunks, _, _ = embeddings.shape
+
+        # focus on center of each chunk
+        duration = segmentations.sliding_window.duration
+        step = segmentations.sliding_window.step
+
+        ratio = 0.5 * (duration - step) / duration
+        center_segmentations = Inference.trim(segmentations, warm_up=(ratio, ratio))
+        #   shape: num_chunks, num_center_frames, num_speakers
+
+        # number of frames during which speakers are active
+        # in the center of the chunk
+        num_active_frames: np.ndarray = np.sum(center_segmentations.data, axis=1)
+        #   shape: (num_chunks, num_speakers)
+
+        priors = num_active_frames / (
+            np.sum(num_active_frames, axis=1, keepdims=True) + 1e-8
+        )
+        #   shape: (num_chunks, local_num_speakers)
+
+        speaker_idx = np.argmax(priors, axis=1)
+        # (num_chunks, )
+
+        # TODO: generate alternative sequences that only differs from train_embeddings
+        # in regions where there is overlap.
+
+        train_embeddings = embeddings[range(num_chunks), speaker_idx]
+        # (num_chunks, dimension)
+
+        # remove chunks with one of the following property:
+        # * there is no active speaker in the center of the chunk
+        # * embedding extraction has failed for the most active speaker in the center of the chunk
+        center_is_non_speech = np.max(num_active_frames, axis=1) == 0.0
+        embedding_is_invalid = np.any(np.isnan(train_embeddings), axis=1)
+        chunk_idx = np.where(~(embedding_is_invalid | center_is_non_speech))[0]
+        # (num_chunks, )
+
+        return (train_embeddings[chunk_idx], chunk_idx, speaker_idx[chunk_idx])
+
+    def cluster(
+        self,
+        embeddings: np.ndarray,
+        min_clusters: int,
+        max_clusters: int,
+        num_clusters: int = None,
+    ):
+
+        # source: https://arxiv.org/abs/2206.02432
+        laplacian_type = LaplacianType.Affinity
+        eigengap_type = EigenGapType.Ratio
+
+        # we could make p_percentile_max slightly larger and init_search_step slightly smaller
+        # to search for more steps (while sacrificing the efficiency).
+        # source: https://github.com/pyannote/pyannote-audio/pull/995#issuecomment-1142327821
+        autotune = AutoTune(
+            p_percentile_min=0.40,
+            p_percentile_max=0.95,
+            init_search_step=0.05,
+            search_level=1,
+        )
+
+        refinement_options = RefinementOptions(
+            refinement_sequence=[
+                RefinementName.GaussianBlur,
+                RefinementName.RowWiseThreshold,
+            ],
+            gaussian_blur_sigma=self.gaussian_blur_sigma,
+            thresholding_type=ThresholdType[self.thresholding_type],
+        )
+
+        clusterer = SpectralClusterer(
+            min_clusters=min_clusters,
+            max_clusters=max_clusters,
+            laplacian_type=laplacian_type,
+            eigengap_type=eigengap_type,
+            autotune=autotune,
+            refinement_options=refinement_options,
+        )
+
+        return clusterer.predict(embeddings)
+
+
 class Clustering(Enum):
     AgglomerativeClustering = AgglomerativeClustering
     HiddenMarkovModelClustering = HiddenMarkovModelClustering
+    SpectralClustering = SpectralClustering
     OracleClustering = OracleClustering
