@@ -31,7 +31,7 @@ import torch
 from einops import rearrange
 from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
-from pyannote.pipeline.parameter import Uniform
+from pyannote.pipeline.parameter import ParamDict, Uniform
 
 from pyannote.audio import Audio, Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
@@ -78,6 +78,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         Batch size used for speaker segmentation. Defaults to 32.
     embedding_batch_size : int, optional
         Batch size used for speaker embedding. Defaults to 32.
+    benchmark_mode : bool, optional
+        Add extra hyper-parameters to glean a few extra points. Defaults to False.
 
     Usage
     -----
@@ -97,13 +99,15 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         clustering: str = "HiddenMarkovModelClustering",
         embedding_batch_size: int = 32,
         segmentation_batch_size: int = 32,
+        benchmark_mode: bool = False,
     ):
 
         super().__init__()
 
-        self.segmentation = segmentation
+        self.segmentation_model = segmentation
         self.segmentation_batch_size = segmentation_batch_size
         self.segmentation_step = segmentation_step
+        self.benchmark_mode = benchmark_mode
 
         self.embedding = embedding
         self.embedding_batch_size = embedding_batch_size
@@ -113,7 +117,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
 
         seg_device, emb_device = get_devices(needs=2)
 
-        model: Model = get_model(segmentation)
+        model: Model = get_model(self.segmentation_model)
         model.to(seg_device)
 
         self._segmentation = Inference(
@@ -124,7 +128,16 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             batch_size=self.segmentation_batch_size,
         )
         self._frames: SlidingWindow = self._segmentation.model.introspection.frames
-        self.segmentation_onset = Uniform(0.1, 0.9)
+
+        if self.benchmark_mode:
+            self.segmentation = ParamDict(
+                onset=Uniform(0.1, 0.9),
+                offset=Uniform(0.1, 0.9),
+                min_duration_on=Uniform(0.0, 0.5),
+                min_duration_off=Uniform(0.0, 0.5),
+            )
+        else:
+            self.segmentation = ParamDict(onset=Uniform(0.1, 0.9))
 
         if self.klustering == "OracleClustering":
             metric = "not_applicable"
@@ -147,15 +160,18 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
     def default_parameters(self):
 
         if (
-            self.segmentation == "pyannote/segmentation@2022.07"
+            self.segmentation_model == "pyannote/segmentation@2022.07"
             and self.segmentation_step == 0.1
+            and self.benchmark_mode == False
             and self.embedding
             == "speechbrain/spkrec-ecapa-voxceleb@5c0be3875fda05e81f3c004ed8c7c06be308de1e"
             and self.embedding_exclude_overlap == True
             and self.clustering == "HiddenMarkovModelClustering"
         ):
             return {
-                "segmentation_onset": 0.58,
+                "segmentation": {
+                    "onset": 0.58,
+                },
                 "clustering": {
                     "single_cluster_detection": {
                         "quantile": 0.05,
@@ -222,16 +238,18 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         embeddings : (num_chunks, num_speakers, dimension) array
         """
 
-        # when optimizing the hyper-parameters of this pipeline with frozen "segmentation_onset",
+        # when optimizing the hyper-parameters of this pipeline with frozen segmentation.{onset|offset},
         # one can reuse the embeddings from the first trial, bringing a massive speed up to
         # the optimization process (and hence allowing to use a larger search space).
         if self.training:
 
             # we only re-use embeddings if they were extracted based on the same value of the
-            # "segmentation_onset" hyperparameter and "embedding_exclude_overlap" parameter.
+            # segmentation.{onset|offset} hyperparameters and "embedding_exclude_overlap" parameter.
             cache = file.get("training_cache/embeddings", dict())
             if (
-                cache.get("segmentation_onset", None) == self.segmentation_onset
+                cache.get("segmentation.onset", None) == self.segmentation["onset"]
+                and cache.get("segmentation.offset", None)
+                == self.segmentation.get("offset", None)
                 and cache.get("embedding_exclude_overlap", None)
                 == self.embedding_exclude_overlap
             ):
@@ -327,7 +345,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         # (see comments at the top of this method for more details)
         if self.training:
             file["training_cache/embeddings"] = {
-                "segmentation_onset": self.segmentation_onset,
+                "segmentation.onset": self.segmentation["onset"],
+                "segmentation.offset": self.segmentation.get("offset", None),
                 "embedding_exclude_overlap": self.embedding_exclude_overlap,
                 "embeddings": embeddings,
             }
@@ -431,7 +450,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         # estimate frame-level number of instantaneous speakers
         count = self.speaker_count(
             segmentations,
-            onset=self.segmentation_onset,
+            onset=self.segmentation["onset"],
+            offset=self.segmentation.get("offset", None),
             frames=self._frames,
         )
         hook("speaker_counting", count)
@@ -441,7 +461,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         # binarize segmentation
         binarized_segmentations: SlidingWindowFeature = binarize(
             segmentations,
-            onset=self.segmentation_onset,
+            onset=self.segmentation["onset"],
+            offset=self.segmentation.get("offset", None),
             initial_state=False,
         )
 
@@ -485,8 +506,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         # convert to continuous diarization
         diarization = self.to_annotation(
             discrete_diarization,
-            min_duration_on=0.0,
-            min_duration_off=0.0,
+            min_duration_on=self.segmentation.get("min_duration_on", 0.0),
+            min_duration_off=self.segmentation.get("min_duration_off", 0.0),
         )
         diarization.uri = file["uri"]
 
