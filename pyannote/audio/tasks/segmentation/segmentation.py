@@ -25,6 +25,7 @@ from typing import Dict, Optional, Sequence, Text, Tuple, Union
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from pyannote.core import SlidingWindow
 from pyannote.database import Protocol
 from torch_audiomentations.core.transforms_interface import BaseWaveformTransform
@@ -84,6 +85,8 @@ class Segmentation(SegmentationTaskMixin, Task):
         Permutation-invariant segmentation loss. Defaults to "bce".
     vad_loss : {"bce", "mse"}, optional
         Add voice activity detection loss.
+    cnt_loss : {"mse"}, optional
+        Add speaker counting loss.
     metric : optional
         Validation metric(s). Can be anything supported by torchmetrics.MetricCollection.
         Defaults to AUROC (area under the ROC curve).
@@ -109,6 +112,7 @@ class Segmentation(SegmentationTaskMixin, Task):
         augmentation: BaseWaveformTransform = None,
         loss: Literal["bce", "mse"] = "bce",
         vad_loss: Literal["bce", "mse"] = None,
+        cnt_loss: Literal["mse"] = None,
         metric: Union[Metric, Sequence[Metric], Dict[str, Metric]] = None,
     ):
 
@@ -131,6 +135,7 @@ class Segmentation(SegmentationTaskMixin, Task):
             raise ValueError("'loss' must be one of {'bce', 'mse'}.")
         self.loss = loss
         self.vad_loss = vad_loss
+        self.cnt_loss = cnt_loss
 
     def setup(self, stage: Optional[str] = None):
 
@@ -288,6 +293,41 @@ class Segmentation(SegmentationTaskMixin, Task):
 
         return loss
 
+    def speaker_counting_loss(
+        self,
+        permutated_prediction: torch.Tensor,
+        target: torch.Tensor,
+    ) -> torch.Tensor:
+        """Speaker counting loss
+
+        Parameters
+        ----------
+        permutated_prediction : (batch_size, num_frames, num_classes) torch.Tensor
+            Speaker activity predictions.
+        target : (batch_size, num_frames, num_speakers) torch.Tensor
+            Speaker activity.
+
+        Returns
+        -------
+        cnt_loss : torch.Tensor
+            Speaker counting loss.
+        """
+
+        cnt_prediction = torch.sum(
+            torch.max(permutated_prediction, dim=1, keepdim=False)[0], axis=1
+        )
+        # (batch_size, )
+
+        cnt_target = torch.sum(
+            torch.max(target.float(), dim=1, keepdim=False)[0], axis=1
+        )
+        # (batch_size, )
+
+        if self.cnt_loss == "mse":
+            loss = F.mse_loss(cnt_prediction, cnt_target, reduction="mean")
+
+        return loss
+
     def training_step(self, batch, batch_idx: int):
         """Compute permutation-invariant binary cross-entropy
 
@@ -382,7 +422,22 @@ class Segmentation(SegmentationTaskMixin, Task):
                 logger=True,
             )
 
-        loss = seg_loss + vad_loss
+        if self.cnt_loss is None:
+            cnt_loss = 0.0
+
+        else:
+            cnt_loss = self.speaker_counting_loss(permutated_prediction, target)
+
+            self.model.log(
+                f"{self.logging_prefix}TrainCNTLoss",
+                cnt_loss,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=False,
+                logger=True,
+            )
+
+        loss = seg_loss + vad_loss + cnt_loss
 
         self.model.log(
             f"{self.logging_prefix}TrainLoss",

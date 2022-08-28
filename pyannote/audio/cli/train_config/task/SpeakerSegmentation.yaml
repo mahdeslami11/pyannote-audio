@@ -9,3 +9,4 @@ num_workers: null
 pin_memory: False
 loss: "bce"
 vad_loss: "bce"
+cnt_loss: null
