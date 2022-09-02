@@ -27,6 +27,7 @@ import random
 from enum import Enum
 from typing import Tuple
 
+import kneed
 import numpy as np
 from einops import rearrange
 from hmmlearn.hmm import GaussianHMM
@@ -422,6 +423,138 @@ class AgglomerativeClustering(BaseClustering):
         return clusters
 
 
+class KneedleAgglomerativeClustering(BaseClustering):
+    """Agglomerative clustering based on Kneedle threshold
+
+    Parameters
+    ----------
+    metric : {"cosine", "euclidean", ...}, optional
+        Distance metric to use. Defaults to "cosine".
+
+    Hyper-parameters
+    ----------------
+    method : {"average", "centroid", "complete", "median", "single", "ward"}
+        Linkage method.
+    sensitivity : float in range [0.1, 10.0]
+        Kneedle sensitivity
+    min_cluster_size : int in range [1, 20]
+        Minimum cluster size
+    """
+
+    def __init__(
+        self,
+        metric: str = "cosine",
+        max_num_embeddings: int = 1000,
+        constrained_assignment: bool = False,
+    ):
+
+        super().__init__(
+            metric=metric,
+            max_num_embeddings=max_num_embeddings,
+            constrained_assignment=constrained_assignment,
+        )
+
+        self.method = Categorical(
+            ["average", "centroid", "complete", "median", "single", "ward", "weighted"]
+        )
+        self.sensitivity = LogUniform(0.1, 10)
+
+        # minimum cluster size
+        self.min_cluster_size = Integer(1, 20)
+
+    def cluster(
+        self,
+        embeddings: np.ndarray,
+        min_clusters: int,
+        max_clusters: int,
+        num_clusters: int = None,
+    ):
+        """
+
+        Parameters
+        ----------
+        embeddings : (num_embeddings, dimension) array
+            Embeddings
+        min_clusters : int
+            Minimum number of clusters
+        max_clusters : int
+            Maximum number of clusters
+        num_clusters : int, optional
+            Actual number of clusters. Default behavior is to estimate it based
+            on values provided for `min_clusters`,  `max_clusters`, and `threshold`.
+
+        Returns
+        -------
+        clusters : (num_embeddings, ) array
+            0-indexed cluster indices.
+        """
+
+        num_embeddings, _ = embeddings.shape
+        if num_embeddings == 1:
+            return np.zeros((1,), dtype=np.uint8)
+
+        if self.metric == "cosine" and self.method in ["centroid", "median", "ward"]:
+            # unit-normalize embeddings to somehow make them "euclidean"
+            with np.errstate(divide="ignore", invalid="ignore"):
+                embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
+            dendrogram: np.ndarray = linkage(
+                embeddings, method=self.method, metric="euclidean"
+            )
+
+        else:
+            dendrogram: np.ndarray = linkage(
+                embeddings, method=self.method, metric=self.metric
+            )
+
+        kneedle = kneed.KneeLocator(
+            np.arange(0, num_embeddings - 1),
+            dendrogram[:, 2],
+            S=self.sensitivity,
+            curve="convex",
+            direction="increasing",
+        )
+        threshold = kneedle.knee_y
+
+        clusters = fcluster(dendrogram, threshold, criterion="distance") - 1
+
+        # split clusters into two categories based on their number of items:
+        # large clusters vs. small clusters
+        cluster_unique, cluster_counts = np.unique(
+            clusters,
+            return_counts=True,
+        )
+
+        large_clusters = cluster_unique[cluster_counts >= self.min_cluster_size]
+        if large_clusters.size == 0:
+            clusters[:] = 0
+            return clusters
+
+        small_clusters = cluster_unique[cluster_counts < self.min_cluster_size]
+        if small_clusters.size == 0:
+            return clusters
+
+        # re-assign each small cluster to the most similar large cluster
+        large_centroids = np.vstack(
+            [
+                np.mean(embeddings[clusters == large_k], axis=0)
+                for large_k in large_clusters
+            ]
+        )
+        small_centroids = np.vstack(
+            [
+                np.mean(embeddings[clusters == small_k], axis=0)
+                for small_k in small_clusters
+            ]
+        )
+        centroids_cdist = cdist(large_centroids, small_centroids, metric=self.metric)
+        for small_k, large_k in enumerate(np.argmin(centroids_cdist, axis=0)):
+            clusters[clusters == small_clusters[small_k]] = large_clusters[large_k]
+
+        # re-number clusters from 0 to num_large_clusters
+        _, clusters = np.unique(clusters, return_inverse=True)
+        return clusters
+
+
 class OracleClustering(BaseClustering):
     """Oracle clustering"""
 
@@ -697,5 +830,6 @@ class HiddenMarkovModelClustering(BaseClustering):
 
 class Clustering(Enum):
     AgglomerativeClustering = AgglomerativeClustering
+    KneedleAgglomerativeClustering = KneedleAgglomerativeClustering
     HiddenMarkovModelClustering = HiddenMarkovModelClustering
     OracleClustering = OracleClustering
