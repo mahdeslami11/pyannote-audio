@@ -69,6 +69,10 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         The segmentation model is applied on a window sliding over the whole audio file.
         `segmentation_step` controls the step of this window, provided as a ratio of its
         duration. Defaults to 0.1 (i.e. 90% overlap between two consecuive windows).
+    segmentation_warmup: float, optional
+        Use that many seconds on the left- and rightmost parts of each chunk to warm up
+        the segmentation model. While the model does process those left- and right-most
+        parts, only the remaining central part of each chunk is used. Defaults 0.0s.
     embedding : Model, str, or dict, optional
         Pretrained embedding model. Defaults to "pyannote/embedding@2022.07".
         See pyannote.audio.pipelines.utils.get_model for supported format.
@@ -101,6 +105,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         segmentation: PipelineModel = "pyannote/segmentation@2022.07",
         segmentation_duration: float = None,
         segmentation_step: float = 0.1,
+        segmentation_warmup: float = 0.0,
         embedding: PipelineModel = "speechbrain/spkrec-ecapa-voxceleb@5c0be3875fda05e81f3c004ed8c7c06be308de1e",
         embedding_exclude_overlap: bool = False,
         clustering: str = "HiddenMarkovModelClustering",
@@ -119,6 +124,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             segmentation_duration or model.specifications.duration
         )
         self.segmentation_step = segmentation_step
+        self.segmentation_warmup = segmentation_warmup
 
         self.embedding = embedding
         self.embedding_batch_size = embedding_batch_size
@@ -166,6 +172,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             self.segmentation == "pyannote/segmentation@2022.07"
             and self.segmentation_duration == 5.0
             and self.segmentation_step == 0.1
+            and self.segmentation_warmup == 0.0
             and self.embedding
             == "speechbrain/spkrec-ecapa-voxceleb@5c0be3875fda05e81f3c004ed8c7c06be308de1e"
             and self.embedding_exclude_overlap == True
@@ -245,13 +252,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         if self.training:
 
             # we only re-use embeddings if they were extracted based on the same value of the
-            # "segmentation_onset" hyperparameter and "embedding_exclude_overlap" parameter.
+            # "segmentation_onset" hyperparameter
             cache = file.get("training_cache/embeddings", dict())
-            if (
-                cache.get("segmentation_onset", None) == self.segmentation_onset
-                and cache.get("embedding_exclude_overlap", None)
-                == self.embedding_exclude_overlap
-            ):
+            if cache.get("segmentation_onset", None) == self.segmentation_onset:
                 return cache["embeddings"]
 
         duration = binary_segmentations.sliding_window.duration
@@ -345,7 +348,6 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         if self.training:
             file["training_cache/embeddings"] = {
                 "segmentation_onset": self.segmentation_onset,
-                "embedding_exclude_overlap": self.embedding_exclude_overlap,
                 "embeddings": embeddings,
             }
 
@@ -444,6 +446,12 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         segmentations = self.get_segmentations(file)
         hook("segmentation", segmentations)
         #   shape: (num_chunks, num_frames, local_num_speakers)
+
+        # trim warm-up regions
+        segmentations = Inference.trim(
+            segmentations,
+            warm_up=(self.segmentation_warmup / self.segmentation_duration,) * 2,
+        )
 
         # estimate frame-level number of instantaneous speakers
         count = self.speaker_count(
