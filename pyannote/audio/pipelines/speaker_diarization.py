@@ -86,6 +86,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         Optimize for a variant of diarization error rate.
         Defaults to {"collar": 0.0, "skip_overlap": False}. This is used in `get_metric`
         when instantiating the metric: GreedyDiarizationErrorRate(**der_variant).
+    dump_to : str, optional
+        When provided dump segmentation and embedding to disk
+        (e.g. /path/to/dump/{uri}.{artefact}.npy)
 
     Usage
     -----
@@ -107,9 +110,12 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         embedding_batch_size: int = 32,
         segmentation_batch_size: int = 32,
         der_variant: dict = None,
+        dump_to: str = None,
     ):
 
         super().__init__()
+
+        self.dump_to = dump_to
 
         self.segmentation = segmentation
         model: Model = get_model(segmentation)
@@ -473,6 +479,12 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             )
             hook("embeddings", embeddings)
             #   shape: (num_chunks, local_num_speakers, dimension)
+
+        if self.dump_to is not None:
+            dump_to = self.dump_to.format(uri=file["uri"], artefact="embedding")
+            np.save(dump_to, embeddings)
+            dump_to = self.dump_to.format(uri=file["uri"], artefact="segmentation")
+            np.save(dump_to, binarized_segmentations.data)
 
         hard_clusters, _ = self.clustering(
             embeddings=embeddings,
