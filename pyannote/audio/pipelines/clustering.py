@@ -450,6 +450,9 @@ class DBSCANClustering(BaseClustering):
         )
         num_clusters = np.max(clusters) + 1
 
+        if num_clusters < 1:
+            return np.zeros((num_embeddings,), dtype=np.uint8)
+
         # assign noisy samples to closest centroid
         centroids = np.vstack(
             [np.mean(embeddings[clusters == k], axis=0) for k in range(num_clusters)]
