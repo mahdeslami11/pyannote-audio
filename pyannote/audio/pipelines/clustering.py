@@ -56,6 +56,8 @@ try:
 except ImportError:
     FINCH_IS_AVAILABLE = False
 
+from sklearn.cluster import DBSCAN
+
 
 class BaseClustering(Pipeline):
     def __init__(
@@ -379,6 +381,82 @@ class FINCHClustering(BaseClustering):
         clusters = -clusters
         for i, k in enumerate(klusters):
             clusters[clusters == -i] = k
+
+        # TODO: handle min/max/num_clusters
+        # TODO: handle min_cluster_size
+
+        return clusters
+
+
+class DBSCANClustering(BaseClustering):
+    """DBSCAN clustering
+
+    Parameters
+    ----------
+    metric : {"cosine", "euclidean", ...}, optional
+        Distance metric to use. Defaults to "cosine".
+
+    """
+
+    def __init__(
+        self,
+        metric: str = "cosine",
+        max_num_embeddings: int = np.inf,
+        constrained_assignment: bool = False,
+    ):
+
+        super().__init__(
+            metric=metric,
+            max_num_embeddings=max_num_embeddings,
+            constrained_assignment=constrained_assignment,
+        )
+
+        self.threshold = Uniform(0.0, 2.0)  # assume unit-normalized embeddings
+
+    def cluster(
+        self,
+        embeddings: np.ndarray,
+        min_clusters: int,
+        max_clusters: int,
+        num_clusters: int = None,
+    ):
+        """
+
+        Parameters
+        ----------
+        embeddings : (num_embeddings, dimension) array
+            Embeddings
+        min_clusters : int
+            Minimum number of clusters
+        max_clusters : int
+            Maximum number of clusters
+        num_clusters : int, optional
+            Actual number of clusters. Default behavior is to estimate it based
+            on values provided for `min_clusters`,  `max_clusters`, and `threshold`.
+
+        Returns
+        -------
+        clusters : (num_embeddings, ) array
+            0-indexed cluster indices.
+        """
+
+        num_embeddings, _ = embeddings.shape
+        if num_embeddings == 1:
+            return np.zeros((1,), dtype=np.uint8)
+
+        # apply DBSCAN clustering
+        clusters = (
+            DBSCAN(eps=self.threshold, metric=self.metric).fit(embeddings).labels_
+        )
+        num_clusters = np.max(clusters) + 1
+
+        # assign noisy samples to closest centroid
+        centroids = np.vstack(
+            [np.mean(embeddings[clusters == k], axis=0) for k in range(num_clusters)]
+        )
+        noisy_dist = cdist(centroids, embeddings[clusters == -1], metric=self.metric)
+
+        clusters[clusters == -1] = np.argmin(noisy_dist, axis=0)
 
         # TODO: handle min/max/num_clusters
         # TODO: handle min_cluster_size
@@ -805,6 +883,7 @@ class HiddenMarkovModelClustering(BaseClustering):
 
 class Clustering(Enum):
     AgglomerativeClustering = AgglomerativeClustering
+    DBSCANClustering = DBSCANClustering
     FINCHClustering = FINCHClustering
     HiddenMarkovModelClustering = HiddenMarkovModelClustering
     OracleClustering = OracleClustering
