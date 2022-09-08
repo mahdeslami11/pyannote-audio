@@ -835,7 +835,10 @@ class SpectralClustering(BaseClustering):
         )
 
         self.gaussian_blur_sigma = Uniform(0.0, 5.0)
-        self.thresholding_type = Categorical(["RowMax", "Percentile"])
+        self.thresholding = Categorical(["RowMax", "Percentile"])
+        self.laplacian = Categorical(
+            ["Affinity", "Unnormalized", "RandomWalk", "GraphCut"]
+        )
 
     def filter_embeddings(
         self, embeddings: np.ndarray, segmentations: SlidingWindowFeature
@@ -904,10 +907,6 @@ class SpectralClustering(BaseClustering):
         num_clusters: int = None,
     ):
 
-        # source: https://arxiv.org/abs/2206.02432
-        laplacian_type = LaplacianType.Affinity
-        eigengap_type = EigenGapType.Ratio
-
         # we could make p_percentile_max slightly larger and init_search_step slightly smaller
         # to search for more steps (while sacrificing the efficiency).
         # source: https://github.com/pyannote/pyannote-audio/pull/995#issuecomment-1142327821
@@ -924,14 +923,14 @@ class SpectralClustering(BaseClustering):
                 RefinementName.RowWiseThreshold,
             ],
             gaussian_blur_sigma=self.gaussian_blur_sigma,
-            thresholding_type=ThresholdType[self.thresholding_type],
+            thresholding_type=ThresholdType[self.thresholding],
         )
 
         clusterer = SpectralClusterer(
             min_clusters=min_clusters,
             max_clusters=max_clusters,
-            laplacian_type=laplacian_type,
-            eigengap_type=eigengap_type,
+            laplacian_type=LaplacianType[self.laplacian],
+            eigengap_type=EigenGapType.Ratio,
             autotune=autotune,
             refinement_options=refinement_options,
         )
