@@ -390,6 +390,7 @@ class FINCHClustering(BaseClustering):
         return clusters
 
 
+
 class WIPClustering(BaseClustering):
     def __init__(
         self,
@@ -564,7 +565,6 @@ class WIPClustering(BaseClustering):
         # re-number clusters from 0 to num_large_clusters
         _, clusters = np.unique(clusters, return_inverse=True)
         return clusters
-
 
 class AgglomerativeClustering(BaseClustering):
     """Agglomerative clustering
