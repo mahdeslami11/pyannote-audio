@@ -31,6 +31,7 @@ import numpy as np
 from einops import rearrange
 from hmmlearn.hmm import GaussianHMM
 from pyannote.core import SlidingWindow, SlidingWindowFeature
+from pyannote.core.utils.distance import pdist
 from pyannote.pipeline import Pipeline
 from pyannote.pipeline.parameter import (
     Categorical,
@@ -41,7 +42,8 @@ from pyannote.pipeline.parameter import (
 )
 from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.optimize import linear_sum_assignment
-from scipy.spatial.distance import cdist, pdist
+from scipy.signal import argrelmax, argrelmin
+from scipy.spatial.distance import cdist
 
 from pyannote.audio import Inference
 from pyannote.audio.core.io import AudioFile
@@ -273,6 +275,7 @@ class BaseClustering(Pipeline):
             min_clusters,
             max_clusters,
             num_clusters=num_clusters,
+            cannot_link=pdist(train_chunk_idx, metric="equal"),
         )
 
         hard_clusters, soft_clusters = self.assign_embeddings(
@@ -324,6 +327,7 @@ class FINCHClustering(BaseClustering):
         min_clusters: int,
         max_clusters: int,
         num_clusters: int = None,
+        **kwargs,
     ):
         """
 
@@ -386,6 +390,179 @@ class FINCHClustering(BaseClustering):
         return clusters
 
 
+class WIPClustering(BaseClustering):
+    def __init__(
+        self,
+        metric: str = "cosine",
+        max_num_embeddings: int = np.inf,
+        constrained_assignment: bool = False,
+    ):
+
+        assert metric in ["cosine", "euclidean"]
+
+        super().__init__(
+            metric=metric,
+            max_num_embeddings=max_num_embeddings,
+            constrained_assignment=constrained_assignment,
+        )
+        self.fallback_threshold = Uniform(0.6, 0.8)
+        self.threshold_upperbound = Uniform(0.8, 1.0)
+        self.min_cluster_size = Integer(1, 20)
+
+        # TODO: make it an hyper-parameter? Or does it depend on {num|min|max}_clusters?
+        self.num_largest_increase = 20
+        self.epsilon = 1e-6
+
+    def cluster(
+        self,
+        embeddings: np.ndarray,
+        min_clusters: int,
+        max_clusters: int,
+        num_clusters: int = None,
+        cannot_link: np.ndarray = None,
+    ):
+
+        num_embeddings, _ = embeddings.shape
+        if num_embeddings == 1:
+            return np.zeros((1,), dtype=np.uint8)
+
+        if self.metric == "cosine":
+            # unit-normalize embeddings to somehow make them "euclidean"
+            with np.errstate(divide="ignore", invalid="ignore"):
+                embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
+
+        # STEP #0: run agglomerative clustering all the way up to one big cluster
+        dendrogram: np.ndarray = linkage(
+            embeddings, method="centroid", metric="euclidean"
+        )
+        num_iterations = len(dendrogram)
+
+        # STEP #1: find iterations that result in the largest increase in cluster size
+        # as they are the most likely to result either in a strong increase of cluster
+        # coverage (good iteration) or as strong decrease in cluster purity (bad iteration)
+
+        # cluster_size_increase[i] stores how much each ith clustering iteration
+        # increases the size of the involved two clusters
+        cluster_size_increase = np.zeros((num_iterations,), dtype=np.uint8)
+
+        # initialize cluster size to 1
+        cluster_size = np.ones((num_embeddings + num_iterations,), dtype=np.uint8)
+
+        for i, iteration in enumerate(dendrogram):
+
+            # indices of clusters merged during this iteration
+            cluster1_idx, cluster2_idx = int(iteration[0]), int(iteration[1])
+
+            # keep track of size of intermediate cluster
+            cluster_size[i + num_embeddings] = iteration[3]
+
+            # compute cluster size increase (= the size of the smallest of the
+            # two clusters that are merged duration this iteration)
+            cluster_size_increase[i] = min(
+                cluster_size[cluster1_idx - num_embeddings],
+                cluster_size[cluster2_idx - num_embeddings],
+            )
+
+        # find indices of `self.num_largest_increase` iterations that result in largest cluster size increase
+        cluster_size_increase_indices = argrelmax(cluster_size_increase, order=1)[0]
+        cluster_size_increase_indices = np.sort(
+            cluster_size_increase_indices[
+                np.argpartition(
+                    -cluster_size_increase[cluster_size_increase_indices],
+                    self.num_largest_increase,
+                )
+            ][: self.num_largest_increase]
+        )
+
+        # STEP #2: among this subset of iterations, we focus on "good" ones by looking
+        # at the evolution of the dendrogram threshold around them. If they happen to
+        # lead to a decrease of the subsequent threshold, it probably means that the
+        # estimation of the centroids got better (hence the iteration was a good "one").
+
+        local_threshold_maximum = argrelmax(dendrogram[:, 2])[0]
+        local_threshold_minimum = argrelmin(dendrogram[:, 2])[0]
+        if len(local_threshold_minimum) < len(local_threshold_maximum):
+            local_threshold_maximum = local_threshold_maximum[:-1]
+
+        centroid_improvement_indices = [
+            idx
+            for idx in cluster_size_increase_indices
+            if np.any(
+                (idx >= local_threshold_maximum) * (idx <= local_threshold_minimum)
+            )
+        ]
+
+        # STEP #3: among this shortlist of iterations, we find the first one that result
+        # in an increase of broken "cannot link" constraints and use a threshold just
+        # slightly smaller.
+
+        breaking_constraints_indices = []
+        for idx in centroid_improvement_indices:
+            clusters = fcluster(
+                dendrogram, dendrogram[idx, 2] - self.epsilon, criterion="distance"
+            )
+            num_broken_constraints_before = np.sum(
+                pdist(clusters, metric="equal") * cannot_link
+            )
+
+            clusters = fcluster(dendrogram, dendrogram[idx, 2], criterion="distance")
+            num_broken_constraints_after = np.sum(
+                pdist(clusters, metric="equal") * cannot_link
+            )
+
+            if num_broken_constraints_after > num_broken_constraints_before:
+                breaking_constraints_indices.append(idx)
+
+        if breaking_constraints_indices:
+            selected_iteration = dendrogram[breaking_constraints_indices[0]]
+            selected_threshold = min(
+                self.threshold_upperbound, selected_iteration[2] - self.epsilon
+            )
+        else:
+            selected_threshold = self.fallback_threshold
+
+        # STEP #4: apply selected threshold and postprocess small clusters
+
+        clusters = fcluster(dendrogram, selected_threshold, criterion="distance") - 1
+
+        # split clusters into two categories based on their number of items:
+        # large clusters vs. small clusters
+        cluster_unique, cluster_counts = np.unique(
+            clusters,
+            return_counts=True,
+        )
+
+        large_clusters = cluster_unique[cluster_counts >= self.min_cluster_size]
+        if large_clusters.size == 0:
+            clusters[:] = 0
+            return clusters
+
+        small_clusters = cluster_unique[cluster_counts < self.min_cluster_size]
+        if small_clusters.size == 0:
+            return clusters
+
+        # re-assign each small cluster to the most similar large cluster
+        large_centroids = np.vstack(
+            [
+                np.mean(embeddings[clusters == large_k], axis=0)
+                for large_k in large_clusters
+            ]
+        )
+        small_centroids = np.vstack(
+            [
+                np.mean(embeddings[clusters == small_k], axis=0)
+                for small_k in small_clusters
+            ]
+        )
+        centroids_cdist = cdist(large_centroids, small_centroids, metric=self.metric)
+        for small_k, large_k in enumerate(np.argmin(centroids_cdist, axis=0)):
+            clusters[clusters == small_clusters[small_k]] = large_clusters[large_k]
+
+        # re-number clusters from 0 to num_large_clusters
+        _, clusters = np.unique(clusters, return_inverse=True)
+        return clusters
+
+
 class AgglomerativeClustering(BaseClustering):
     """Agglomerative clustering
 
@@ -429,6 +606,7 @@ class AgglomerativeClustering(BaseClustering):
         min_clusters: int,
         max_clusters: int,
         num_clusters: int = None,
+        **kwargs,
     ):
         """
 
@@ -693,6 +871,7 @@ class HiddenMarkovModelClustering(BaseClustering):
         min_clusters: int,
         max_clusters: int,
         num_clusters: int = None,
+        **kwargs,
     ):
 
         num_embeddings = len(embeddings)
@@ -805,6 +984,7 @@ class HiddenMarkovModelClustering(BaseClustering):
 
 class Clustering(Enum):
     AgglomerativeClustering = AgglomerativeClustering
+    WIPClustering = WIPClustering
     FINCHClustering = FINCHClustering
     HiddenMarkovModelClustering = HiddenMarkovModelClustering
     OracleClustering = OracleClustering
