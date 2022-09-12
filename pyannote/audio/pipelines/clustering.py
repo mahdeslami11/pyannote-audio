@@ -390,7 +390,6 @@ class FINCHClustering(BaseClustering):
         return clusters
 
 
-
 class WIPClustering(BaseClustering):
     def __init__(
         self,
@@ -466,8 +465,11 @@ class WIPClustering(BaseClustering):
 
         # find indices of `self.num_largest_increase` iterations that result in largest cluster size increase
         cluster_size_increase_indices = argrelmax(cluster_size_increase, order=1)[0]
-        num_largest_increase = max(
-            1, min(len(cluster_size_increase_indices) / 2, self.num_largest_increase)
+        num_largest_increase = int(
+            max(
+                1,
+                min(len(cluster_size_increase_indices) / 2, self.num_largest_increase),
+            )
         )
         cluster_size_increase_indices = np.sort(
             cluster_size_increase_indices[
@@ -565,6 +567,7 @@ class WIPClustering(BaseClustering):
         # re-number clusters from 0 to num_large_clusters
         _, clusters = np.unique(clusters, return_inverse=True)
         return clusters
+
 
 class AgglomerativeClustering(BaseClustering):
     """Agglomerative clustering
