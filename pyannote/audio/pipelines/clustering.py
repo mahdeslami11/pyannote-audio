@@ -465,13 +465,16 @@ class WIPClustering(BaseClustering):
 
         # find indices of `self.num_largest_increase` iterations that result in largest cluster size increase
         cluster_size_increase_indices = argrelmax(cluster_size_increase, order=1)[0]
+        num_largest_increase = max(
+            1, min(len(cluster_size_increase_indices) / 2, self.num_largest_increase)
+        )
         cluster_size_increase_indices = np.sort(
             cluster_size_increase_indices[
                 np.argpartition(
                     -cluster_size_increase[cluster_size_increase_indices],
-                    self.num_largest_increase,
+                    num_largest_increase,
                 )
-            ][: self.num_largest_increase]
+            ][:num_largest_increase]
         )
 
         # STEP #2: among this subset of iterations, we focus on "good" ones by looking
