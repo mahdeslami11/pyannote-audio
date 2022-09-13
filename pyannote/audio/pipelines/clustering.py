@@ -412,29 +412,10 @@ class WIPClustering(BaseClustering):
         # TODO: make it an hyper-parameter? Or does it depend on {num|min|max}_clusters?
         self.num_largest_increase = 20
 
-    def cluster(
-        self,
-        embeddings: np.ndarray,
-        min_clusters: int,
-        max_clusters: int,
-        num_clusters: int = None,
-        cannot_link: np.ndarray = None,
-    ):
+    def adapt_threshold(self, dendrogram: np.ndarray, cannot_link: np.ndarray):
 
-        num_embeddings, _ = embeddings.shape
-        if num_embeddings == 1:
-            return np.zeros((1,), dtype=np.uint8)
-
-        if self.metric == "cosine":
-            # unit-normalize embeddings to somehow make them "euclidean"
-            with np.errstate(divide="ignore", invalid="ignore"):
-                embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
-
-        # STEP #0: run agglomerative clustering all the way up to one big cluster
-        dendrogram: np.ndarray = linkage(
-            embeddings, method="centroid", metric="euclidean"
-        )
         num_iterations = len(dendrogram)
+        num_embeddings = num_iterations + 1
 
         # STEP #1: find iterations that result in the largest increase in cluster size
         # as they are the most likely to result either in a strong increase of cluster
@@ -467,12 +448,19 @@ class WIPClustering(BaseClustering):
 
         # find indices of `self.num_largest_increase` iterations that result in largest cluster size increase
         cluster_size_increase_indices = argrelmax(cluster_size_increase, order=1)[0]
+
         num_largest_increase = int(
             max(
                 1,
                 min(len(cluster_size_increase_indices) / 2, self.num_largest_increase),
             )
         )
+
+        # corner case when there is only one relmax
+        # TODO: check whether there might not be a smarter solution
+        if num_largest_increase == 1:
+            return self.fallback_threshold
+
         cluster_size_increase_indices = np.sort(
             cluster_size_increase_indices[
                 np.argpartition(
@@ -528,13 +516,38 @@ class WIPClustering(BaseClustering):
         if breaking_constraints_indices:
             # choose iteration just before the first one that break constraints
             selected_iteration = dendrogram[breaking_constraints_indices[0] - 1]
-            selected_threshold = min(self.threshold_upperbound, selected_iteration[2])
-        else:
+            return min(self.threshold_upperbound, selected_iteration[2])
+
             # or use fallback threshold when no iteration break constraints
-            selected_threshold = self.fallback_threshold
+        return self.fallback_threshold
 
-        # STEP #4: apply selected threshold and postprocess small clusters
+    def cluster(
+        self,
+        embeddings: np.ndarray,
+        min_clusters: int,
+        max_clusters: int,
+        num_clusters: int = None,
+        cannot_link: np.ndarray = None,
+    ):
 
+        num_embeddings, _ = embeddings.shape
+        if num_embeddings == 1:
+            return np.zeros((1,), dtype=np.uint8)
+
+        if self.metric == "cosine":
+            # unit-normalize embeddings to somehow make them "euclidean"
+            with np.errstate(divide="ignore", invalid="ignore"):
+                embeddings /= np.linalg.norm(embeddings, axis=-1, keepdims=True)
+
+        # run agglomerative clustering all the way up to one big cluster
+        dendrogram: np.ndarray = linkage(
+            embeddings, method="centroid", metric="euclidean"
+        )
+
+        # self-adapt threshold, given cannot-link constraints
+        selected_threshold = self.adapt_threshold(dendrogram, cannot_link)
+
+        # apply selected threshold and postprocess small clusters
         clusters = fcluster(dendrogram, selected_threshold, criterion="distance") - 1
 
         # split clusters into two categories based on their number of items:
