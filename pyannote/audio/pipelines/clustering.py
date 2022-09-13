@@ -412,16 +412,23 @@ class WIPClustering(BaseClustering):
             max=Uniform(0.0, 2.0),
         )
 
-        self.meet_half_way = Categorical([True, False])
         self.min_cluster_size = Integer(1, 20)
 
         # TODO: make it an hyper-parameter? Or does it depend on {num|min|max}_clusters?
         self.num_largest_increase = 20
 
-    def adapt_threshold(self, dendrogram: np.ndarray, cannot_link: np.ndarray):
+    def adapt_threshold(self, dendrogram: np.ndarray, cannot_link: np.ndarray) -> int:
+        """
+        Returns adaptive clustering iteration index
+        """
 
-        if self.threshold.min > self.threshold.max:
-            return self.threshold.default
+        # find clustering iteration that is closest to default/min/max threshold
+        default_iteration = np.argmin(np.abs(dendrogram[:, 2] - self.threshold.default))
+        min_iteration = np.argmin(np.abs(dendrogram[:, 2] - self.threshold.min))
+        max_iteration = np.argmin(np.abs(dendrogram[:, 2] - self.threshold.max))
+
+        if min_iteration > max_iteration:
+            return default_iteration
 
         num_iterations = len(dendrogram)
         num_embeddings = num_iterations + 1
@@ -468,7 +475,7 @@ class WIPClustering(BaseClustering):
         # corner case when there is only one relmax
         # TODO: check whether there might not be a smarter solution
         if num_largest_increase == 1:
-            return self.threshold.default
+            return default_iteration
 
         cluster_size_increase_indices = np.sort(
             cluster_size_increase_indices[
@@ -524,13 +531,13 @@ class WIPClustering(BaseClustering):
 
         if breaking_constraints_indices:
             # choose iteration just before the first one that break constraints
-            selected_iteration = dendrogram[breaking_constraints_indices[0] - 1]
-            return max(
-                self.threshold.min, min(self.threshold.max, selected_iteration[2])
-            )
+            selected_iteration = breaking_constraints_indices[0] - 1
 
-            # or use default threshold when no iteration break constraints
-        return self.threshold.default
+            # make sure selected iteration is between min and max iterations
+            return max(min_iteration, min(max_iteration, selected_iteration))
+
+        # or return default iteration when no iteration break constraints
+        return default_iteration
 
     def cluster(
         self,
@@ -556,13 +563,13 @@ class WIPClustering(BaseClustering):
         )
 
         # self-adapt threshold, given cannot-link constraints
-        selected_threshold = self.adapt_threshold(dendrogram, cannot_link)
+        selected_iteration = self.adapt_threshold(dendrogram, cannot_link)
 
-        if self.meet_half_way:
-            selected_threshold = 0.5 * (selected_threshold + self.threshold.default)
-
-        # apply selected threshold and postprocess small clusters
-        clusters = fcluster(dendrogram, selected_threshold, criterion="distance") - 1
+        # apply clustering up to selected iteration and postprocess small clusters
+        # to do so, we kind of cheat and replace distances by clustering iteration index
+        # TODO: explain why we need that (non monotonic centroid linkage)
+        dendrogram[:, 2] = np.arange(num_embeddings - 1)
+        clusters = fcluster(dendrogram, selected_iteration, criterion="distance") - 1
 
         # split clusters into two categories based on their number of items:
         # large clusters vs. small clusters
