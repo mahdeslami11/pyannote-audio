@@ -405,7 +405,7 @@ class WIPClustering(BaseClustering):
             max_num_embeddings=max_num_embeddings,
             constrained_assignment=constrained_assignment,
         )
-        self.fallback_threshold = Uniform(0.6, 0.8)
+        self.fallback_threshold = Uniform(0.6, 0.9)
         self.threshold_upperbound = Uniform(0.8, 1.0)
         self.min_cluster_size = Integer(1, 20)
 
@@ -485,17 +485,21 @@ class WIPClustering(BaseClustering):
         # lead to a decrease of the subsequent threshold, it probably means that the
         # estimation of the centroids got better (hence the iteration was a good "one").
 
-        local_threshold_maximum = argrelmax(dendrogram[:, 2])[0]
-        local_threshold_minimum = argrelmin(dendrogram[:, 2])[0]
-        if len(local_threshold_minimum) < len(local_threshold_maximum):
-            local_threshold_maximum = local_threshold_maximum[:-1]
+        relmax = argrelmax(dendrogram[:, 2])[0]
+        relmax = np.vstack([relmax, np.ones(len(relmax))])
+        relmin = argrelmin(dendrogram[:, 2])[0]
+        relmin = np.vstack([relmin, np.zeros(len(relmin))])
+        relextrema, is_relmax = np.array(
+            sorted(np.hstack([relmax, relmin]).T, key=lambda x: x[0])
+        ).T
 
         centroid_improvement_indices = [
             idx
-            for idx in cluster_size_increase_indices
-            if np.any(
-                (idx >= local_threshold_maximum) * (idx <= local_threshold_minimum)
+            for idx, i in zip(
+                cluster_size_increase_indices,
+                np.searchsorted(relextrema, cluster_size_increase_indices),
             )
+            if i < len(is_relmax) and is_relmax[i] == 1
         ]
 
         # STEP #3: among this shortlist of iterations, we find the first one that result
