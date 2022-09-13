@@ -405,8 +405,8 @@ class WIPClustering(BaseClustering):
             max_num_embeddings=max_num_embeddings,
             constrained_assignment=constrained_assignment,
         )
-        self.fallback_threshold = Uniform(0.6, 0.9)
-        self.threshold_upperbound = Uniform(0.8, 1.0)
+        self.fallback_threshold = Uniform(0.0, 2.0)
+        self.threshold_upperbound = Uniform(0.0, 2.0)
         self.min_cluster_size = Integer(1, 20)
 
         # TODO: make it an hyper-parameter? Or does it depend on {num|min|max}_clusters?
