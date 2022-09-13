@@ -411,7 +411,6 @@ class WIPClustering(BaseClustering):
 
         # TODO: make it an hyper-parameter? Or does it depend on {num|min|max}_clusters?
         self.num_largest_increase = 20
-        self.epsilon = 1e-6
 
     def cluster(
         self,
@@ -444,24 +443,27 @@ class WIPClustering(BaseClustering):
         # cluster_size_increase[i] stores how much each ith clustering iteration
         # increases the size of the involved two clusters
         cluster_size_increase = np.zeros((num_iterations,), dtype=np.uint8)
-
-        # initialize cluster size to 1
-        cluster_size = np.ones((num_embeddings + num_iterations,), dtype=np.uint8)
-
+        cluster_size = []
         for i, iteration in enumerate(dendrogram):
 
-            # indices of clusters merged during this iteration
-            cluster1_idx, cluster2_idx = int(iteration[0]), int(iteration[1])
+            # keep track of size of newly-formed cluster
+            cluster_size.append(iteration[3])
 
-            # keep track of size of intermediate cluster
-            cluster_size[i + num_embeddings] = iteration[3]
+            # size of merged clusters
+            k1 = (
+                1
+                if iteration[0] < num_embeddings
+                else cluster_size[int(iteration[0]) - num_embeddings]
+            )
+            k2 = (
+                1
+                if iteration[1] < num_embeddings
+                else cluster_size[int(iteration[1]) - num_embeddings]
+            )
 
             # compute cluster size increase (= the size of the smallest of the
             # two clusters that are merged duration this iteration)
-            cluster_size_increase[i] = min(
-                cluster_size[cluster1_idx - num_embeddings],
-                cluster_size[cluster2_idx - num_embeddings],
-            )
+            cluster_size_increase[i] = min(k1, k2)
 
         # find indices of `self.num_largest_increase` iterations that result in largest cluster size increase
         cluster_size_increase_indices = argrelmax(cluster_size_increase, order=1)[0]
@@ -509,7 +511,7 @@ class WIPClustering(BaseClustering):
         breaking_constraints_indices = []
         for idx in centroid_improvement_indices:
             clusters = fcluster(
-                dendrogram, dendrogram[idx, 2] - self.epsilon, criterion="distance"
+                dendrogram, dendrogram[idx - 1, 2], criterion="distance"
             )
             num_broken_constraints_before = np.sum(
                 pdist(clusters, metric="equal") * cannot_link
@@ -524,11 +526,11 @@ class WIPClustering(BaseClustering):
                 breaking_constraints_indices.append(idx)
 
         if breaking_constraints_indices:
-            selected_iteration = dendrogram[breaking_constraints_indices[0]]
-            selected_threshold = min(
-                self.threshold_upperbound, selected_iteration[2] - self.epsilon
-            )
+            # choose iteration just before the first one that break constraints
+            selected_iteration = dendrogram[breaking_constraints_indices[0] - 1]
+            selected_threshold = min(self.threshold_upperbound, selected_iteration[2])
         else:
+            # or use fallback threshold when no iteration break constraints
             selected_threshold = self.fallback_threshold
 
         # STEP #4: apply selected threshold and postprocess small clusters
