@@ -407,6 +407,7 @@ class WIPClustering(BaseClustering):
         )
         self.fallback_threshold = Uniform(0.0, 2.0)
         self.threshold_upperbound = Uniform(0.0, 2.0)
+        self.meet_half_way = Categorical([True, False])
         self.min_cluster_size = Integer(1, 20)
 
         # TODO: make it an hyper-parameter? Or does it depend on {num|min|max}_clusters?
@@ -546,6 +547,9 @@ class WIPClustering(BaseClustering):
 
         # self-adapt threshold, given cannot-link constraints
         selected_threshold = self.adapt_threshold(dendrogram, cannot_link)
+
+        if self.meet_half_way:
+            selected_threshold = 0.5 * (selected_threshold + self.fallback_threshold)
 
         # apply selected threshold and postprocess small clusters
         clusters = fcluster(dendrogram, selected_threshold, criterion="distance") - 1
