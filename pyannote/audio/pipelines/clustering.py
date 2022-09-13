@@ -405,8 +405,13 @@ class WIPClustering(BaseClustering):
             max_num_embeddings=max_num_embeddings,
             constrained_assignment=constrained_assignment,
         )
-        self.fallback_threshold = Uniform(0.0, 2.0)
-        self.threshold_upperbound = Uniform(0.0, 2.0)
+
+        self.threshold = ParamDict(
+            default=Uniform(0.0, 2.0),
+            min=Uniform(0.0, 2.0),
+            max=Uniform(0.0, 2.0),
+        )
+
         self.meet_half_way = Categorical([True, False])
         self.min_cluster_size = Integer(1, 20)
 
@@ -414,6 +419,9 @@ class WIPClustering(BaseClustering):
         self.num_largest_increase = 20
 
     def adapt_threshold(self, dendrogram: np.ndarray, cannot_link: np.ndarray):
+
+        if self.threshold.min > self.threshold.max:
+            return self.threshold.default
 
         num_iterations = len(dendrogram)
         num_embeddings = num_iterations + 1
@@ -460,7 +468,7 @@ class WIPClustering(BaseClustering):
         # corner case when there is only one relmax
         # TODO: check whether there might not be a smarter solution
         if num_largest_increase == 1:
-            return self.fallback_threshold
+            return self.threshold.default
 
         cluster_size_increase_indices = np.sort(
             cluster_size_increase_indices[
@@ -517,10 +525,12 @@ class WIPClustering(BaseClustering):
         if breaking_constraints_indices:
             # choose iteration just before the first one that break constraints
             selected_iteration = dendrogram[breaking_constraints_indices[0] - 1]
-            return min(self.threshold_upperbound, selected_iteration[2])
+            return max(
+                self.threshold.min, min(self.threshold.max, selected_iteration[2])
+            )
 
-            # or use fallback threshold when no iteration break constraints
-        return self.fallback_threshold
+            # or use default threshold when no iteration break constraints
+        return self.threshold.default
 
     def cluster(
         self,
@@ -549,7 +559,7 @@ class WIPClustering(BaseClustering):
         selected_threshold = self.adapt_threshold(dendrogram, cannot_link)
 
         if self.meet_half_way:
-            selected_threshold = 0.5 * (selected_threshold + self.fallback_threshold)
+            selected_threshold = 0.5 * (selected_threshold + self.threshold.default)
 
         # apply selected threshold and postprocess small clusters
         clusters = fcluster(dendrogram, selected_threshold, criterion="distance") - 1
