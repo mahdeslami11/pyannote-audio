@@ -416,7 +416,15 @@ class Model(pl.LightningModule):
     @staticmethod
     def check_version(library: Text, theirs: Text, mine: Text):
         theirs = VersionInfo.parse(theirs)
-        mine = VersionInfo.parse(mine)
+        try:
+            mine = VersionInfo.parse(mine)
+        except ValueError:
+            warnings.warn(
+                f"Model was trained with {library} {theirs}, yours is {mine}. "
+                f"Bad things will probably happen unless you update {library} to {theirs.major}.x."
+            )
+            return
+
         if theirs.major != mine.major:
             warnings.warn(
                 f"Model was trained with {library} {theirs}, yours is {mine}. "

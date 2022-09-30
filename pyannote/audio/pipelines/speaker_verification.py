@@ -22,325 +22,20 @@
 
 import warnings
 
+from pkg_resources import iter_entry_points
+
 try:
     from functools import cached_property
 except ImportError:
     from backports.cached_property import cached_property
 
-from typing import Text
 
 import numpy as np
 import torch
-import torch.nn.functional as F
-import torchaudio
-from torch.nn.utils.rnn import pad_sequence
 
 from pyannote.audio import Inference, Model, Pipeline
 from pyannote.audio.core.io import AudioFile
-from pyannote.audio.core.model import CACHE_DIR
 from pyannote.audio.pipelines.utils import PipelineModel, get_devices, get_model
-
-backend = torchaudio.get_audio_backend()
-try:
-    from speechbrain.pretrained import (
-        EncoderClassifier as SpeechBrain_EncoderClassifier,
-    )
-
-    SPEECHBRAIN_IS_AVAILABLE = True
-except ImportError:
-    SPEECHBRAIN_IS_AVAILABLE = False
-finally:
-    torchaudio.set_audio_backend(backend)
-
-try:
-    from nemo.collections.asr.models import (
-        EncDecSpeakerLabelModel as NeMo_EncDecSpeakerLabelModel,
-    )
-
-    NEMO_IS_AVAILABLE = True
-except ImportError:
-    NEMO_IS_AVAILABLE = False
-
-
-class NeMoPretrainedSpeakerEmbedding:
-    def __init__(
-        self,
-        embedding: Text = "nvidia/speakerverification_en_titanet_large",
-        device: torch.device = None,
-    ):
-
-        if not NEMO_IS_AVAILABLE:
-            raise ImportError(
-                f"'NeMo' must be installed to use '{embedding}' embeddings. "
-                "Visit https://nvidia.github.io/NeMo/ for installation instructions."
-            )
-
-        super().__init__()
-        self.embedding = embedding
-        self.device = device
-
-        self.model_ = NeMo_EncDecSpeakerLabelModel.from_pretrained(self.embedding)
-        self.model_.freeze()
-        self.model_.to(self.device)
-
-    @cached_property
-    def sample_rate(self) -> int:
-        return self.model_._cfg.train_ds.get("sample_rate", 16000)
-
-    @cached_property
-    def dimension(self) -> int:
-
-        input_signal = torch.rand(1, self.sample_rate).to(self.device)
-        input_signal_length = torch.tensor([self.sample_rate]).to(self.device)
-        _, embeddings = self.model_(
-            input_signal=input_signal, input_signal_length=input_signal_length
-        )
-        _, dimension = embeddings.shape
-        return dimension
-
-    @cached_property
-    def metric(self) -> str:
-        return "cosine"
-
-    @cached_property
-    def min_num_samples(self) -> int:
-
-        lower, upper = 2, round(0.5 * self.sample_rate)
-        middle = (lower + upper) // 2
-        while lower + 1 < upper:
-            try:
-                input_signal = torch.rand(1, middle).to(self.device)
-                input_signal_length = torch.tensor([middle]).to(self.device)
-
-                _ = self.model_(
-                    input_signal=input_signal, input_signal_length=input_signal_length
-                )
-
-                upper = middle
-            except RuntimeError:
-                lower = middle
-
-            middle = (lower + upper) // 2
-
-        return upper
-
-    def __call__(
-        self, waveforms: torch.Tensor, masks: torch.Tensor = None
-    ) -> np.ndarray:
-        """
-
-        Parameters
-        ----------
-        waveforms : (batch_size, num_channels, num_samples)
-            Only num_channels == 1 is supported.
-        masks : (batch_size, num_samples), optional
-
-        Returns
-        -------
-        embeddings : (batch_size, dimension)
-
-        """
-
-        batch_size, num_channels, num_samples = waveforms.shape
-        assert num_channels == 1
-
-        waveforms = waveforms.squeeze(dim=1)
-
-        if masks is None:
-            signals = waveforms.squeeze(dim=1)
-            wav_lens = signals.shape[1] * torch.ones(batch_size)
-
-        else:
-
-            batch_size_masks, _ = masks.shape
-            assert batch_size == batch_size_masks
-
-            # TODO: speed up the creation of "signals"
-            # preliminary profiling experiments show
-            # that it accounts for 15% of __call__
-            # (the remaining 85% being the actual forward pass)
-
-            imasks = F.interpolate(
-                masks.unsqueeze(dim=1), size=num_samples, mode="nearest"
-            ).squeeze(dim=1)
-
-            imasks = imasks > 0.5
-
-            signals = pad_sequence(
-                [waveform[imask] for waveform, imask in zip(waveforms, imasks)],
-                batch_first=True,
-            )
-
-            wav_lens = imasks.sum(dim=1)
-
-        max_len = wav_lens.max()
-
-        # corner case: every signal is too short
-        if max_len < self.min_num_samples:
-            return np.NAN * np.zeros((batch_size, self.dimension))
-
-        too_short = wav_lens < self.min_num_samples
-        wav_lens[too_short] = max_len
-
-        _, embeddings = self.model_(
-            input_signal=waveforms.to(self.device),
-            input_signal_length=wav_lens.to(self.device),
-        )
-
-        embeddings = embeddings.cpu().numpy()
-        embeddings[too_short.cpu().numpy()] = np.NAN
-
-        return embeddings
-
-
-class SpeechBrainPretrainedSpeakerEmbedding:
-    """Pretrained SpeechBrain speaker embedding
-
-    Parameters
-    ----------
-    embedding : str
-        Name of SpeechBrain model
-    device : torch.device, optional
-        Device
-
-    Usage
-    -----
-    >>> get_embedding = SpeechBrainPretrainedSpeakerEmbedding("speechbrain/spkrec-ecapa-voxceleb")
-    >>> assert waveforms.ndim == 3
-    >>> batch_size, num_channels, num_samples = waveforms.shape
-    >>> assert num_channels == 1
-    >>> embeddings = get_embedding(waveforms)
-    >>> assert embeddings.ndim == 2
-    >>> assert embeddings.shape[0] == batch_size
-
-    >>> assert binary_masks.ndim == 1
-    >>> assert binary_masks.shape[0] == batch_size
-    >>> embeddings = get_embedding(waveforms, masks=binary_masks)
-    """
-
-    def __init__(
-        self,
-        embedding: Text = "speechbrain/spkrec-ecapa-voxceleb",
-        device: torch.device = None,
-    ):
-
-        if not SPEECHBRAIN_IS_AVAILABLE:
-            raise ImportError(
-                f"'speechbrain' must be installed to use '{embedding}' embeddings. "
-                "Visit https://speechbrain.github.io for installation instructions."
-            )
-
-        super().__init__()
-        self.embedding = embedding
-        self.device = device
-
-        self.classifier_ = SpeechBrain_EncoderClassifier.from_hparams(
-            source=self.embedding,
-            savedir=f"{CACHE_DIR}/speechbrain",
-            run_opts={"device": self.device},
-        )
-
-    @cached_property
-    def sample_rate(self) -> int:
-        return self.classifier_.audio_normalizer.sample_rate
-
-    @cached_property
-    def dimension(self) -> int:
-        dummy_waveforms = torch.rand(1, 16000).to(self.device)
-        *_, dimension = self.classifier_.encode_batch(dummy_waveforms).shape
-        return dimension
-
-    @cached_property
-    def metric(self) -> str:
-        return "cosine"
-
-    @cached_property
-    def min_num_samples(self) -> int:
-
-        lower, upper = 2, round(0.5 * self.sample_rate)
-        middle = (lower + upper) // 2
-        while lower + 1 < upper:
-            try:
-                _ = self.classifier_.encode_batch(
-                    torch.randn(1, middle).to(self.device)
-                )
-                upper = middle
-            except RuntimeError:
-                lower = middle
-
-            middle = (lower + upper) // 2
-
-        return upper
-
-    def __call__(
-        self, waveforms: torch.Tensor, masks: torch.Tensor = None
-    ) -> np.ndarray:
-        """
-
-        Parameters
-        ----------
-        waveforms : (batch_size, num_channels, num_samples)
-            Only num_channels == 1 is supported.
-        masks : (batch_size, num_samples), optional
-
-        Returns
-        -------
-        embeddings : (batch_size, dimension)
-
-        """
-
-        batch_size, num_channels, num_samples = waveforms.shape
-        assert num_channels == 1
-
-        waveforms = waveforms.squeeze(dim=1)
-
-        if masks is None:
-            signals = waveforms.squeeze(dim=1)
-            wav_lens = signals.shape[1] * torch.ones(batch_size)
-
-        else:
-
-            batch_size_masks, _ = masks.shape
-            assert batch_size == batch_size_masks
-
-            # TODO: speed up the creation of "signals"
-            # preliminary profiling experiments show
-            # that it accounts for 15% of __call__
-            # (the remaining 85% being the actual forward pass)
-
-            imasks = F.interpolate(
-                masks.unsqueeze(dim=1), size=num_samples, mode="nearest"
-            ).squeeze(dim=1)
-
-            imasks = imasks > 0.5
-
-            signals = pad_sequence(
-                [waveform[imask] for waveform, imask in zip(waveforms, imasks)],
-                batch_first=True,
-            )
-
-            wav_lens = imasks.sum(dim=1)
-
-        max_len = wav_lens.max()
-
-        # corner case: every signal is too short
-        if max_len < self.min_num_samples:
-            return np.NAN * np.zeros((batch_size, self.dimension))
-
-        too_short = wav_lens < self.min_num_samples
-        wav_lens = wav_lens / max_len
-        wav_lens[too_short] = 1.0
-
-        embeddings = (
-            self.classifier_.encode_batch(signals, wav_lens=wav_lens)
-            .squeeze(dim=1)
-            .cpu()
-            .numpy()
-        )
-
-        embeddings[too_short.cpu().numpy()] = np.NAN
-
-        return embeddings
 
 
 class PyannoteAudioPretrainedSpeakerEmbedding:
@@ -440,14 +135,29 @@ def PretrainedSpeakerEmbedding(embedding: PipelineModel, device: torch.device = 
     >>> embeddings = get_embedding(waveforms, masks=masks)
     """
 
-    if isinstance(embedding, str) and "speechbrain" in embedding:
-        return SpeechBrainPretrainedSpeakerEmbedding(embedding, device=device)
+    Klasses = [
+        o.load()
+        for o in iter_entry_points(group="pyannote.audio.speaker_embedding.pretrained")
+    ]
 
-    elif isinstance(embedding, str) and "nvidia" in embedding:
-        return NeMoPretrainedSpeakerEmbedding(embedding, device=device)
+    for ExternalPretrainedSpeakerEmbedding in filter(
+        lambda Klass: Klass.is_supported(embedding), Klasses
+    ):
+        try:
+            return ExternalPretrainedSpeakerEmbedding(embedding, device=device)
+        # TODO: check what kind of exception are raised
+        except Exception:
+            pass
 
-    else:
+    try:
         return PyannoteAudioPretrainedSpeakerEmbedding(embedding, device=device)
+
+    except Exception:
+        # TODO: check what kind of exception are raised
+        raise NotImplementedError(
+            f"It looks like you are trying to load '{embedding}' pretrained speaker embedding that is not supported by pyannote.audio. "
+            f"You might want to try installing 'pyannote_audio_contrib' that adds support for more speaker embeddings."
+        )
 
 
 class SpeakerEmbedding(Pipeline):
