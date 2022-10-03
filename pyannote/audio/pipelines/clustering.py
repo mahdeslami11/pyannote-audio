@@ -469,6 +469,12 @@ class AgglomerativeClustering(BaseClustering):
 
         if num_clusters is None:
 
+            # FIXME: revise this to account for "min_cluster_size" as there is no longer
+            # a direct correlation between iteration index and final number of clusters
+
+            # FIXME: revise the assumption that threshold is increasing monotonically
+            # as this is not the case for centroid linkage, for instance...
+
             max_threshold: float = (
                 dendrogram[-min_clusters, 2]
                 if min_clusters < num_embeddings
