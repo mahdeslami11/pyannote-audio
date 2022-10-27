@@ -103,17 +103,17 @@ pip install -qq https://github.com/pyannote/pyannote-audio/archive/develop.zip
 
 Out of the box, `pyannote.audio` default speaker diarization [pipeline](https://hf.co/pyannote/speaker-diarization) is expected to be much better (and faster) in v2.x than in v1.1. Those numbers are diarization error rates (in %)
 
-| Dataset \ Version      | v1.1 | v2.0 | v2.1 (finetuned) |
-| ---------------------- | ---- | ---- | ---------------- |
-| AISHELL-4              | -    | 14.6 | 14.1 (14.5)      |
-| AliMeeting (channel 1) | -    | -    | 27.4 (23.8)      |
-| AMI (IHM)              | 29.7 | 18.2 | 18.9 (18.5)      |
-| AMI (SDM)              | -    | 29.0 | 27.1 (22.2)      |
-| CALLHOME (part2)       | -    | 30.2 | 32.4 (29.3)      |
-| DIHARD 3 (full)        | 29.2 | 21.0 | 26.9 (21.9)      |
-| VoxConverse (v0.3)     | 21.5 | 12.6 | 11.2 (10.7)      |
-| REPERE (phase2)        | -    | 12.6 | 8.2 ( 8.3)       |
-| This American Life     | -    | -    | 20.8 (15.2)      |
+| Dataset \ Version      | v1.1 | v2.0 | v2.1.1 (finetuned) |
+| ---------------------- | ---- | ---- | ------------------ |
+| AISHELL-4              | -    | 14.6 | 14.1 (14.5)        |
+| AliMeeting (channel 1) | -    | -    | 27.4 (23.8)        |
+| AMI (IHM)              | 29.7 | 18.2 | 18.9 (18.5)        |
+| AMI (SDM)              | -    | 29.0 | 27.1 (22.2)        |
+| CALLHOME (part2)       | -    | 30.2 | 32.4 (29.3)        |
+| DIHARD 3 (full)        | 29.2 | 21.0 | 26.9 (21.9)        |
+| VoxConverse (v0.3)     | 21.5 | 12.6 | 11.2 (10.7)        |
+| REPERE (phase2)        | -    | 12.6 | 8.2 ( 8.3)         |
+| This American Life     | -    | -    | 20.8 (15.2)        |
 
 ## Citations
 
