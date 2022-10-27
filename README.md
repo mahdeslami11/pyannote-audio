@@ -54,7 +54,7 @@ conda activate pyannote
 # (see https://pytorch.org/get-started/previous-versions/#v1110)
 conda install pytorch==1.11.0 torchvision==0.12.0 torchaudio==0.11.0 -c pytorch
 
-pip install -qq https://github.com/pyannote/pyannote-audio/archive/develop.zip
+pip install pyannote.audio
 ```
 
 ## Documentation
