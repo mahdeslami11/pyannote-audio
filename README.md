@@ -59,6 +59,7 @@ pip install pyannote.audio
 
 ## Documentation
 
+- [Changelog](CHANGELOG.md)
 - Models
     - Available tasks explained
     - [Applying a pretrained model](tutorials/applying_a_model.ipynb)
