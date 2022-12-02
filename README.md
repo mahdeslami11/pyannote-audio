@@ -67,6 +67,7 @@ pip install pyannote.audio
 - Pipelines
     - Available pipelines explained
     - [Applying a pretrained pipeline](tutorials/applying_a_pipeline.ipynb)
+    - [Adapting a pretrained pipeline to your own data](tutorials/adapting_pretrained_pipeline.ipynb)
     - [Training a pipeline](tutorials/voice_activity_detection.ipynb)
 - Contributing
     - [Adding a new model](tutorials/add_your_own_model.ipynb)
