@@ -490,6 +490,10 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         #   shape: (num_frames, 1)
         #   dtype: int
 
+        # exit early when no speaker is ever active
+        if np.nanmax(count.data) == 0.0:
+            return Annotation(uri=file["uri"])
+
         # binarize segmentation
         binarized_segmentations: SlidingWindowFeature = binarize(
             segmentations,
