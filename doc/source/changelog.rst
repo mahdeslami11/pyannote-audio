@@ -2,9 +2,10 @@
 Changelog
 #########
 
-Version 2.1 (2022-11-xx)
-~~~~~~~~~~~~~~~~~~~~~~~~
   - feat(pipeline): (BREAKING) send pipeline to device with Pipeline.to(device)
+
+Version 2.1.1 (2022-10-27)
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
   - BREAKING(pipeline): rewrite speaker diarization pipeline
   - feat(pipeline): add option to optimize for DER variant
