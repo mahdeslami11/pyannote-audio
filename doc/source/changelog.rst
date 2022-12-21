@@ -2,6 +2,9 @@
 Changelog
 #########
 
+Version 2.2.x
+~~~~~~~~~~~~~
+
   - feat(pipeline): (BREAKING) send pipeline to device with Pipeline.to(device)
 
 Version 2.1.1 (2022-10-27)
