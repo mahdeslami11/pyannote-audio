@@ -1,0 +1,97 @@
+In the name of God
+
+Project summary
+
+Supervisor: Professor Dr. Mahdi Eslami
+
+University: Islamic Azad University, South Tehran branch
+
+Student No. : 40114140111031
+
+This is a summary of the project and the goal of the project :
+
+Actually pyannote.audio is an open-source toolkit written in Python for speaker diarization.
+Based on PyTorch machine learning framework
+it provides a set of trainable end-to-end neural building blocks 
+that can be combined and jointly optimized to build speaker diarization pipelines.
+target:
+Its purpose is to witness the process of partitioning an input audio stream into homogeneous parts in the output using the command.
+Works that we did in this project : 
+So far, Pyannote.audio has been updated 9 times,
+but in the version 2 update, we see a complete rewrite in the program.
+These changes include fundamental changes such as:
+1.much better performance.Also you can see the Benchmark in the link below:
+https://github.com/mahdeslami11/pyannote-audio#benchmark
+pyannote.audio default speaker diarization pipeline is expected to be much better 
+in v2.x than in v1.1. Those numbers are diarization error rates (in %)
+2.Python-first API
+3.pretrained pipelines (and models) on model hub
+4.multi-GPU training with pytorch-lightning
+5.data augmentation with torch-audiomentations
+6.Prodigy recipes for model-assisted audio annotation
+
+Explanation about the code and its function :
+
+import os
+import sys
+from pathlib import Path
+
+from pkg_resources import VersionConflict, require
+from setuptools import find_packages, setup
+
+with open("README.md") as f:
+    long_description = f.read()
+
+with open("requirements.txt") as f:
+    requirements = f.read().splitlines()
+
+try:
+    require("setuptools>=38.3")
+except VersionConflict:
+    print("Error: version of setuptools is too old (<38.3)!")
+    sys.exit(1)
+
+
+ROOT_DIR = Path(__file__).parent.resolve()
+# Creating the version file
+
+with open("version.txt") as f:
+    version = f.read()
+
+version = version.strip()
+sha = "Unknown"
+
+if os.getenv("BUILD_VERSION"):
+    version = os.getenv("BUILD_VERSION")
+elif sha != "Unknown":
+    version += "+" + sha[:7]
+print("-- Building version " + version)
+
+version_path = ROOT_DIR / "pyannote" / "audio" / "version.py"
+
+with open(version_path, "w") as f:
+    f.write("__version__ = '{}'\n".format(version))
+
+if __name__ == "__main__":
+    setup(
+        name="pyannote.audio",
+        namespace_packages=["pyannote"],
+        version=version,
+        packages=find_packages(),
+        install_requires=requirements,
+        description="Neural building blocks for speaker diarization",
+        long_description=long_description,
+        long_description_content_type="text/markdown",
+        author="Hervé Bredin",
+        author_email="herve.bredin@irit.fr",
+        url="https://github.com/pyannote/pyannote-audio",
+        classifiers=[
+            "Development Status :: 4 - Beta",
+            "Intended Audience :: Science/Research",
+            "License :: OSI Approved :: MIT License",
+            "Natural Language :: English",
+            "Programming Language :: Python :: 3.7",
+            "Programming Language :: Python :: 3.8",
+            "Topic :: Scientific/Engineering",
+        ],
+    )
