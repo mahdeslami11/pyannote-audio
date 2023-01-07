@@ -1,4 +1,4 @@
-We introduce pyannote.audio, an open-source toolkit,
+As I said I introduce pyannote.audio, an open-source toolkit,
 written in Python for speaker diarization.
 Based on PyTorch,
 machine learning framework, it provides a set of trainable
@@ -12,5 +12,19 @@ for most of them.
 
 Describe innovation:
 
+One of the special innovations that can be used in this project is,
+FEATURE EXTRACTION WITH BUILT-IN DATA AUGMENTATION
+While pyannote.audio supports training models from the
+waveform directly (e.g. using SincNet learnable features),
+the pyannote.audio.features module provides a collection of standard feature extraction techniques such as
+MFCCs or spectrograms using the implementation available
+in the librosa library.They all inherit from the same
+FeatureExtraction base class that supports on-the-fly
+data augmentation which is very convenient for training neural networks. For instance, it supports extracting features
+from random audio chunks while applying additive noise
+from databases such as MUSAN. Contrary to other tools
+that generate in advance a fixed number of augmented versions of each original audio file, pyannote.audio generates
+a virtually infinite number of versions as the augmentation is
+done on-the-fly every time an audio chunk is processed.
 
 
