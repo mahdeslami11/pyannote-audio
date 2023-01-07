@@ -9,7 +9,9 @@ University: Islamic Azad University, South Tehran branch
 Student No. : 40114140111031
 
 This is a summary of the project and the goal of the project :
-
+If I want to explain my GitHub project to you in simple language, I can say that:
+Instead of changing the voice,
+I write the song that is in the speech. And finally, I check the note in the speech song.
 Actually pyannote.audio is an open-source toolkit written in Python for speaker diarization.
 Based on PyTorch machine learning framework
 it provides a set of trainable end-to-end neural building blocks 
