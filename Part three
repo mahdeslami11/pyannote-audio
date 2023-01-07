@@ -25,6 +25,11 @@ torchaudio >=0.10,<1.0
 torchmetrics >=0.11,<1.0
 typing_extensions
 
+Change source code:
+import torch , torch audio
+import requests
+import Ipython.display as display
+
 # -*- coding: utf-8 -*-
 # !/usr/bin/env python
 
