@@ -1,1 +1,42 @@
 The Subjective evaluation and conclusion that we see in the evaluation of the output file:
+
+
+As we found out in the project and by using the codes in the program,
+we can convert the desired voice into homogeneous parts,
+by partitioning the incoming audio stream using Pyannote.audio.
+The working method of this process was that Voice The person recognized and isolated his voice using the song.
+But if I want to say some points about the benefits of small changes in the desired code, I can say that:
+1.    In the first case, the performance of the code in voice recognition and also the recognition of very important parameters that,
+      we need in the recognition of voice and also the tone of voice has been improved.
+2.    Overlapping speech detection, which we constantly have problems with in this project
+      where at least two speakers are speaking at the same time. It
+      is addressed in pyannote.audio using the same sequence
+      labeling principle with K = 2: yt = 0 if there is zero or one
+      speaker at time step t and yt = 1 if there are two speakers
+      or more. To address the class imbalance problem, half of the
+      training sub-sequences are artificially made of the weighted
+      sum of two random sub-sequences.
+      At test time, time steps with prediction scores greater than a
+      tunable threshold θOSD are marked as overlapped speech. Pretrained models are available,
+      reaching state-of-the-art performance on a range of datasets.  
+ 3.   multi-GPU training with pytorch-lightning,  
+      If I want to say briefly about pytorch-lightning I can say that:
+      Lightning makes coding complex networks simple
+      Lightning applications can be used to create research workflows and production pipelines
+      Also we can Connect our favorite ecosystem tools to a research workflow or production pipeline using Reactive Python. 
+      LightningFlow and LightningWork "glue" components throughout the ML lifecycle of model development, data pipelines, and more.
+ 4.   Audio data augmentation in PyTorch has helped us a lot and we used that alot for our project such as:
+      Supports CPU and GPU (CUDA) - speed is a priority
+      Supports batches of multichannel (or mono) audio
+      Transforms extend nn.Module, so they can be integrated as a part of a pytorch neural network model
+      Most transforms are differentiable
+      Three modes: per_batch, per_example and per_channel
+      Cross-platform compatibility
+      Permissive MIT license
+      Aiming for high test coverage.
+ 5.   And the last thing to improve the code is to add prodigy to the code.
+      Prodigy is a scriptable annotation tool so efficient that data scientists can do the annotation themselves,
+      enabling a new level of rapid iteration.
+      Today’s transfer learning technologies mean we can train production-quality models with very few examples.
+      With Prodigy you can take full advantage of modern machine learning by adopting a more agile approach to data collection.
+      We will move faster, be more independent and ship far more successful projects.
