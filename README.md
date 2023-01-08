@@ -76,15 +76,15 @@ Files and articles related to the project are available in the links below:
 
 https://drive.google.com/file/d/17lXIos9nXAe1hQse03x2SlPjaLLBW-1e/view?usp=sharing
 
-https://drive.google.com/file/d/1AGN8UOkTIXeJYbfj4BfyhhomFvUWkJrq/view?usp=share_link
+https://drive.google.com/file/d/1AGN8UOkTIXeJYbfj4BfyhhomFvUWkJrq/view?usp=sharing
 
 https://drive.google.com/file/d/1Q-rds9ltupNLZSCH7paTe1o_pVltUJjL/view?usp=share_link
 
-https://drive.google.com/file/d/1PgptNDJOv8PIWNdADe34VoLrQQCkOspn/view?usp=share_link
+https://drive.google.com/file/d/1PgptNDJOv8PIWNdADe34VoLrQQCkOspn/view?usp=sharing
 
 https://drive.google.com/file/d/1SDRf46CXbJkUTseejn3QycOHLtq7Mr8Y/view?usp=share_link
 
-https://drive.google.com/file/d/1Q6nuoDJDkS-xi1ExJupz_Z-AmbHQeFNF/view?usp=share_link
+https://drive.google.com/file/d/1Q6nuoDJDkS-xi1ExJupz_Z-AmbHQeFNF/view?usp=sharing
 
 https://drive.google.com/file/d/1HoqOJCc2g0J01Tjjn7SG4hPY3k-htCFP/view?usp=share_link
 
@@ -94,7 +94,7 @@ https://drive.google.com/file/d/1bO0twBeo170RcJQTSmHhWhBcbxCI9gOS/view?usp=share
 
 https://drive.google.com/file/d/1c_r-LqQ_QWzWASqExz9vGEoY-2GLtYdd/view?usp=share_link
 
-https://drive.google.com/file/d/1c_r-LqQ_QWzWASqExz9vGEoY-2GLtYdd/view?usp=share_link
+https://drive.google.com/file/d/1Z65kQa2hOZdEFngAmARmHQRiZeb_Pyva/view?usp=share_link
 
 https://drive.google.com/file/d/1MAXsunyYVp3qx9WIFEXQ5GMJpapQiuX-/view?usp=share_link
 
